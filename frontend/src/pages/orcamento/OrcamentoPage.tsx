@@ -1,10 +1,60 @@
-import { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 
 const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 
 const fmt = (v: number) =>
   v === 0 ? '—' : v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+
+// ── Tabela com colunas redimensionáveis ───────────────────
+type ColDef = { label: string; width: number; minWidth?: number }
+
+function useResizableColumns(initial: ColDef[]) {
+  const [cols, setCols] = useState(initial)
+  const dragging = useRef<{ idx: number; startX: number; startW: number } | null>(null)
+
+  const onMouseDown = useCallback((idx: number, e: React.MouseEvent) => {
+    e.preventDefault()
+    dragging.current = { idx, startX: e.clientX, startW: cols[idx].width }
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current) return
+      const { idx, startX, startW } = dragging.current
+      const delta = ev.clientX - startX
+      const min = cols[idx].minWidth ?? 55
+      setCols(prev => prev.map((c, i) => i === idx ? { ...c, width: Math.max(min, startW + delta) } : c))
+    }
+    const onUp = () => {
+      dragging.current = null
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [cols])
+
+  return { cols, onMouseDown }
+}
+
+function ResizableTh({ col, idx, onMouseDown, children, style }: {
+  col: ColDef; idx: number; onMouseDown: (idx: number, e: React.MouseEvent) => void
+  children: React.ReactNode; style?: React.CSSProperties
+}) {
+  return (
+    <th style={{ width: col.width, minWidth: col.minWidth ?? 55, position: 'relative', userSelect: 'none', ...style }}>
+      {children}
+      <span
+        onMouseDown={e => onMouseDown(idx, e)}
+        style={{
+          position: 'absolute', right: 0, top: 0, bottom: 0, width: 6,
+          cursor: 'col-resize', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        <span style={{ width: 2, height: 14, background: 'rgba(255,255,255,0.25)', borderRadius: 2 }} />
+      </span>
+    </th>
+  )
+}
 
 const S = {
   page: { padding: 24, fontFamily: 'system-ui, sans-serif' } as React.CSSProperties,
@@ -14,9 +64,14 @@ const S = {
   toolbar: { display: 'flex', gap: 8, alignItems: 'center' } as React.CSSProperties,
   select: { padding: '6px 10px', borderRadius: 6, border: '1px solid #dee2e6', fontSize: 13, color: '#343a40', background: 'white' } as React.CSSProperties,
   wrap: { overflowX: 'auto' as const },
-  table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 13, minWidth: 1100 },
-  thFix: { textAlign: 'left' as const, padding: '8px 12px', background: '#1e2d5a', color: 'white', fontWeight: 500, fontSize: 12, whiteSpace: 'nowrap' as const, position: 'sticky' as const, top: 0 },
-  thMes: { textAlign: 'right' as const, padding: '8px 8px', background: '#1e2d5a', color: '#a5b4fc', fontWeight: 500, fontSize: 11, whiteSpace: 'nowrap' as const, minWidth: 70 },
+  table: { borderCollapse: 'collapse' as const, fontSize: 13, tableLayout: 'fixed' as const },
+  thFix: {
+    textAlign: 'left' as const, padding: '8px 12px', background: '#1e2d5a', color: 'white',
+    fontWeight: 500, fontSize: 12, whiteSpace: 'nowrap' as const,
+    position: 'sticky' as const, left: 0, zIndex: 2,
+    boxShadow: '2px 0 6px rgba(0,0,0,0.25)',
+  },
+  thMes: { textAlign: 'right' as const, padding: '8px 8px', background: '#1e2d5a', color: '#a5b4fc', fontWeight: 500, fontSize: 11, whiteSpace: 'nowrap' as const },
   thTotal: { textAlign: 'right' as const, padding: '8px 10px', background: '#152247', color: '#c7d2fe', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' as const },
 }
 
@@ -121,9 +176,15 @@ export default function OrcamentoPage() {
   const n2por = (pai: string) => itens.filter(x => x.nivel === 2 && x.pai_id === pai)
   const n3por = (pai: string) => itens.filter(x => x.nivel === 3 && x.pai_id === pai)
 
+  const { cols, onMouseDown } = useResizableColumns([
+    { label: 'Item Orçamentário', width: 320, minWidth: 200 },
+    ...MESES.map(m => ({ label: m, width: 72, minWidth: 55 })),
+    { label: 'Total', width: 90, minWidth: 70 },
+  ])
+
   const rowN1 = (item: Item) => (
     <tr key={item.id} style={{ background: '#1e2d5a', cursor: 'pointer' }} onClick={() => toggle(item.id)}>
-      <td style={{ padding: '8px 12px', color: 'white', fontWeight: 700, whiteSpace: 'nowrap' }}>
+      <td style={{ padding: '8px 12px 8px 16px', color: 'white', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', position: 'sticky', left: 0, background: '#1e2d5a', zIndex: 1, boxShadow: '2px 0 6px rgba(0,0,0,0.2)' }}>
         {expandidos.has(item.id) ? '▾' : '▸'} {item.codigo} — {item.descricao}
       </td>
       {MESES.map((_, i) => (
@@ -139,7 +200,7 @@ export default function OrcamentoPage() {
 
   const rowN2 = (item: Item) => (
     <tr key={item.id} style={{ background: '#f0f2ff', cursor: 'pointer' }} onClick={() => toggle(item.id)}>
-      <td style={{ padding: '7px 12px 7px 28px', color: '#3b5bdb', fontWeight: 600, whiteSpace: 'nowrap' }}>
+      <td style={{ padding: '7px 8px 7px 40px', color: '#3b5bdb', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', position: 'sticky', left: 0, background: '#f0f2ff', zIndex: 1, boxShadow: '2px 0 4px rgba(0,0,0,0.08)' }}>
         {expandidos.has(item.id) ? '▾' : '▸'} {item.codigo} — {item.descricao}
       </td>
       {MESES.map((_, i) => (
@@ -156,7 +217,7 @@ export default function OrcamentoPage() {
   const rowN3 = (item: Item) => (
     <tr key={item.id} style={{ borderBottom: '1px solid #f1f3f5' }}
       onDoubleClick={() => {}}>
-      <td style={{ padding: '6px 12px 6px 44px', color: '#495057', whiteSpace: 'nowrap', fontSize: 12 }}>
+      <td style={{ padding: '6px 8px 6px 64px', color: '#495057', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 12, position: 'sticky', left: 0, background: 'white', zIndex: 1, boxShadow: '2px 0 4px rgba(0,0,0,0.06)' }}>
         {item.codigo} — {item.descricao}
       </td>
       {MESES.map((_, i) => {
@@ -224,9 +285,17 @@ export default function OrcamentoPage() {
           <table style={S.table}>
             <thead>
               <tr>
-                <th style={{ ...S.thFix, minWidth: 280 }}>Item Orçamentário</th>
-                {MESES.map(m => <th key={m} style={S.thMes}>{m}</th>)}
-                <th style={S.thTotal}>Total</th>
+                <ResizableTh col={cols[0]} idx={0} onMouseDown={onMouseDown} style={S.thFix}>
+                  Item Orçamentário
+                </ResizableTh>
+                {MESES.map((m, i) => (
+                  <ResizableTh key={m} col={cols[i + 1]} idx={i + 1} onMouseDown={onMouseDown} style={S.thMes}>
+                    {m}
+                  </ResizableTh>
+                ))}
+                <ResizableTh col={cols[13]} idx={13} onMouseDown={onMouseDown} style={S.thTotal}>
+                  Total
+                </ResizableTh>
               </tr>
             </thead>
             <tbody>
