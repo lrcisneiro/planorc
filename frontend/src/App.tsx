@@ -54,7 +54,7 @@ export default function App() {
     <BrowserRouter>
       <Layout>
         <Routes>
-          <Route index element={<Navigate to="/dre" replace />} />
+          <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dre" element={<DrePage />} />
           <Route path="/orcamento" element={<OrcamentoPage />} />
           <Route path="/cadastros" element={<CadastrosPage />} />
