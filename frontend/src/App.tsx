@@ -6,6 +6,7 @@ import { supabase } from './lib/supabase'
 import DrePage from './pages/dre/DrePage'
 import OrcamentoPage from './pages/orcamento/OrcamentoPage'
 import CadastrosPage from './pages/cadastros/CadastrosPage'
+import ConfiguracoesPage from './pages/configuracoes/ConfiguracoesPage'
 import LoginPage from './pages/login/LoginPage'
 
 const navItems = [
@@ -105,7 +106,7 @@ export default function App() {
           <Route path="/orcamento" element={<OrcamentoPage />} />
           <Route path="/cadastros" element={<CadastrosPage />} />
           <Route path="/dashboard" element={<div style={{ padding: 24 }}><h2>Dashboard — em breve</h2></div>} />
-          <Route path="/config" element={<div style={{ padding: 24 }}><h2>Configurações — em breve</h2></div>} />
+          <Route path="/config" element={<ConfiguracoesPage />} />
         </Routes>
       </Layout>
     </BrowserRouter>

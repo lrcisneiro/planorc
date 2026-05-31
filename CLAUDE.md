@@ -96,20 +96,40 @@ Tabela fato principal — armazena valores orçados e realizados.
 
 **Constraint de unicidade**: `(versao_id, item_orc_id, empresa_id, ano, mes, tipo_lancamento)`
 
+**dim_values (JSONB)** — modelo cubo para lançamentos com dimensões extras:
+```json
+{ "verba": "<uuid>", "funcionario": "<uuid>", "centro_custo": "<uuid>", "projeto": "<uuid>" }
+```
+Chaves são `dimensao.codigo`; valores são UUIDs da tabela referenciada (`tabela_ref`) ou de `dimensao_valor`.
+
+### Tabelas adicionadas em migration 003
+
+| Tabela | Descrição | Import |
+|--------|-----------|--------|
+| `centro_custo` | CCs hierárquicos com área/divisão/BU | CentroCusto.csv (`CTT_CUSTO_11`) |
+| `conta_contabil` | Plano de contas analítico | ContaContabil.csv (`CT1_CONTA_11`, CLASSE=2) |
+| `verba_folha` | Rubricas de folha com vínculo conta+item | srv.csv (`RV_COD`) |
+| `funcionario` | Matrículas com filial e CC | Funcionarios.csv (`BK_FUNCIONARIO`) |
+| `item_conta_contabil` | Amarração item N3 (não-folha) → contas | UI na aba Plano |
+| `dimensao` | Catálogo de dimensões configuráveis | Seed + UI |
+| `dimensao_valor` | Valores para dimensões sem tabela própria | UI |
+
 ## Páginas implementadas
 
 ### `OrcamentoPage` ✅ Funcional
-- Tabela hierárquica N1/N2/N3 com expand/collapse
-- Colunas: Jan–Dez + Total
-- N3 editável por clique → input inline → Enter/blur salva via `upsert` no Supabase
-- Totais de N1 e N2 são somados recursivamente incluindo filhos
-- Filtra `tipo_lancamento = 'ORCADO'`, ano fixo 2026, empresa fixada em `codigo='01'`
-- Selects de versão e empresa no toolbar ainda estão mockados (não funcionais)
+- Tabela hierárquica N1/N2/N3 com expand/collapse + coluna sticky
+- Colunas redimensionáveis (Jan–Dez + Total), indentação via flex+espaçadores
+- N3 editável por clique → input inline → Enter/blur salva via `upsert`
+- Totais de N1 e N2 somados recursivamente
+- Filtra `tipo_lancamento = 'ORCADO'`, ano 2026, empresa `codigo='01'`
+- Selects de versão/empresa no toolbar ainda mockados
 
-### `CadastrosPage` ✅ Somente leitura
-- 3 abas: Empresas, Filiais, Plano Orçamentário
-- Plano exibe hierarquia com expand/collapse igual ao editor
-- Sem CRUD ainda
+### `CadastrosPage` ✅ CRUD completo
+- **8 abas**: Empresas, Filiais, Centro de Custo, Conta Contábil, Verbas, Funcionários, Dimensões, Plano Orçamentário
+- Todas com CRUD (add/edit/delete) + importação xlsx
+- Importação detecta formato TOTVS automaticamente para CC, Conta, Verbas e Funcionários
+- Aba Dimensões: catálogo configurável (tabela_ref ou lista própria) + gestão de valores
+- Aba Plano: botão 🔗 em N3 não-folha para gerenciar `item_conta_contabil`
 
 ### `DrePage` ⚠️ Placeholder
 - Atualmente só testa a conexão com Supabase e lista empresas
