@@ -987,8 +987,10 @@ function ModalImportCentroCusto({ dados, onSave, onClose }: { dados: CentroCusto
       const area = String(r['AREA'] || r['area'] || '').trim()
       const divisao = String(r['DIVISAO'] || r['divisao'] || '').trim()
       const bu = String(r['BU'] || r['bu'] || '').trim()
+      // TOTVS CTT_CUSTO_11 = sempre analítico (nível 3); planilha simples lê coluna 'nivel' se existir
+      const nivel = isTOTVS ? 3 : (Number(r['nivel'] || r['NIVEL'] || 3))
       const _erro = !codigo ? 'Código obrigatório' : !descricao ? 'Descrição obrigatória' : undefined
-      return { codigo, descricao, area, divisao, bu, _erro }
+      return { codigo, descricao, area, divisao, bu, nivel, _erro }
     }).filter(r => r.codigo && r.codigo !== '01 - INDEFINIDO')
     setRows(parsed)
   }
@@ -998,7 +1000,7 @@ function ModalImportCentroCusto({ dados, onSave, onClose }: { dados: CentroCusto
     if (!validas.length) return
     setImporting(true)
     setErroImport('')
-    const payload = validas.map(({ codigo, descricao, area, divisao, bu }) => ({ codigo, descricao, area: area || null, divisao: divisao || null, bu: bu || null }))
+    const payload = validas.map(({ codigo, descricao, area, divisao, bu, nivel }) => ({ codigo, descricao, area: area || null, divisao: divisao || null, bu: bu || null, nivel }))
     const uniqPayload = [...new Map(payload.map(r => [r.codigo, r])).values()]
     const { error } = await supabase.from('centro_custo').upsert(uniqPayload, { onConflict: 'tenant_id,codigo' })
     setImporting(false)
