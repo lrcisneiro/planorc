@@ -923,16 +923,16 @@ function PlanoTab() {
 }
 
 // ── Centro de Custo ───────────────────────────────────────
-type CentroCusto = { id: string; codigo: string; descricao: string; area: string; divisao: string; bu: string; ativo: boolean }
+type CentroCusto = { id: string; codigo: string; descricao: string; nivel: number; area: string; divisao: string; bu: string; ativo: boolean }
 
 function ModalCentroCusto({ cc, onSave, onClose }: { cc?: CentroCusto | null; onSave: () => void; onClose: () => void }) {
-  const [form, setForm] = useState({ codigo: cc?.codigo || '', descricao: cc?.descricao || '', area: cc?.area || '', divisao: cc?.divisao || '', bu: cc?.bu || '', ativo: cc?.ativo ?? true })
+  const [form, setForm] = useState({ codigo: cc?.codigo || '', descricao: cc?.descricao || '', nivel: cc?.nivel ?? 3, area: cc?.area || '', divisao: cc?.divisao || '', bu: cc?.bu || '', ativo: cc?.ativo ?? true })
   const [saving, setSaving] = useState(false)
   const [erro, setErro] = useState('')
   const salvar = async () => {
     if (!form.codigo.trim() || !form.descricao.trim()) { setErro('Código e descrição são obrigatórios.'); return }
     setSaving(true)
-    const payload = { codigo: form.codigo.trim(), descricao: form.descricao.trim(), area: form.area.trim() || null, divisao: form.divisao.trim() || null, bu: form.bu.trim() || null, ativo: form.ativo }
+    const payload = { codigo: form.codigo.trim(), descricao: form.descricao.trim(), nivel: form.nivel, area: form.area.trim() || null, divisao: form.divisao.trim() || null, bu: form.bu.trim() || null, ativo: form.ativo }
     const { error } = cc
       ? await supabase.from('centro_custo').update(payload).eq('id', cc.id)
       : await supabase.from('centro_custo').insert(payload)
@@ -946,6 +946,13 @@ function ModalCentroCusto({ cc, onSave, onClose }: { cc?: CentroCusto | null; on
       {erro && <div style={{ ...S.infoBox('warn'), marginBottom: 16 }}>{erro}</div>}
       <div style={S.formRow}><label style={S.label}>Código</label><input style={S.input} value={form.codigo} onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))} /></div>
       <div style={S.formRow}><label style={S.label}>Descrição</label><input style={S.input} value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} /></div>
+      <div style={S.formRow}><label style={S.label}>Nível</label>
+        <select style={S.select} value={form.nivel} onChange={e => setForm(f => ({ ...f, nivel: Number(e.target.value) }))}>
+          <option value={1}>1 — Grupo</option>
+          <option value={2}>2 — Subgrupo</option>
+          <option value={3}>3 — Analítico</option>
+        </select>
+      </div>
       <div style={S.formRow}><label style={S.label}>Área</label><input style={S.input} value={form.area} onChange={e => setForm(f => ({ ...f, area: e.target.value }))} /></div>
       <div style={S.formRow}><label style={S.label}>Divisão</label><input style={S.input} value={form.divisao} onChange={e => setForm(f => ({ ...f, divisao: e.target.value }))} /></div>
       <div style={S.formRow}><label style={S.label}>BU</label><input style={S.input} value={form.bu} onChange={e => setForm(f => ({ ...f, bu: e.target.value }))} /></div>
@@ -963,7 +970,7 @@ function ModalCentroCusto({ cc, onSave, onClose }: { cc?: CentroCusto | null; on
 }
 
 function ModalImportCentroCusto({ dados, onSave, onClose }: { dados: CentroCusto[]; onSave: () => void; onClose: () => void }) {
-  type PreviewRow = { codigo: string; descricao: string; area: string; divisao: string; bu: string; _erro?: string }
+  type PreviewRow = { codigo: string; descricao: string; nivel: number; area: string; divisao: string; bu: string; _erro?: string }
   const [rows, setRows] = useState<PreviewRow[]>([])
   const [dragOver, setDragOver] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -1015,11 +1022,11 @@ function ModalImportCentroCusto({ dados, onSave, onClose }: { dados: CentroCusto
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div style={S.modalTitle}>Importar centros de custo via planilha</div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button style={S.btnSecondary} onClick={() => downloadXlsx('template_centrocusto.xlsx', ['codigo', 'descricao', 'area', 'divisao', 'bu'], [{ codigo: '314', descricao: 'BASE ERP TRADICIONAL', area: '2-Serviços', divisao: 'Base', bu: 'Erp Tradicional' }])}><Download size={13} /> Baixar template</button>
-          <button style={S.btnSecondary} onClick={() => downloadXlsx('centrocusto.xlsx', ['codigo', 'descricao', 'area', 'divisao', 'bu'], dados.map(c => ({ codigo: c.codigo, descricao: c.descricao, area: c.area || '', divisao: c.divisao || '', bu: c.bu || '' })))}><Download size={13} /> Exportar dados</button>
+          <button style={S.btnSecondary} onClick={() => downloadXlsx('template_centrocusto.xlsx', ['codigo', 'descricao', 'nivel', 'area', 'divisao', 'bu'], [{ codigo: '314', descricao: 'BASE ERP TRADICIONAL', nivel: 3, area: '2-Serviços', divisao: 'Base', bu: 'Erp Tradicional' }])}><Download size={13} /> Baixar template</button>
+          <button style={S.btnSecondary} onClick={() => downloadXlsx('centrocusto.xlsx', ['codigo', 'descricao', 'nivel', 'area', 'divisao', 'bu'], dados.map(c => ({ codigo: c.codigo, descricao: c.descricao, nivel: c.nivel ?? 3, area: c.area || '', divisao: c.divisao || '', bu: c.bu || '' })))}><Download size={13} /> Exportar dados</button>
         </div>
       </div>
-      <div style={S.infoBox('info')}>Aceita planilha simples (<strong>codigo, descricao, area, divisao, bu</strong>) ou exportação direta do TOTVS (<strong>CTT_CUSTO_11</strong>).</div>
+      <div style={S.infoBox('info')}>Aceita planilha simples (<strong>codigo, descricao, nivel, area, divisao, bu</strong>) ou exportação direta do TOTVS (<strong>CTT_CUSTO_11</strong>). Importação TOTVS define nivel=3 automaticamente.</div>
       <div style={S.dropzone(dragOver)} onDragOver={e => { e.preventDefault(); setDragOver(true) }} onDragLeave={() => setDragOver(false)} onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) parseFile(f) }} onClick={() => fileRef.current?.click()}>
         <Upload size={24} color="#868e96" style={{ marginBottom: 8 }} />
         <div style={{ fontSize: 14, color: '#495057', fontWeight: 500 }}>Arraste o arquivo .xlsx aqui ou clique para selecionar</div>
