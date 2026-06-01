@@ -1527,8 +1527,8 @@ function ModalVerbaFolha({ verba, contas, itens, onSave, onClose }: {
   )
 }
 
-function ModalImportVerbaFolha({ dados, contas, itens, onSave, onClose }: {
-  dados: VerbaFolha[]
+function ModalImportVerbaFolha({ contas, itens, onSave, onClose }: {
+  dados?: VerbaFolha[]
   contas: { id: string; codigo: string }[]
   itens: { id: string; codigo: string }[]
   onSave: () => void; onClose: () => void
