@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+// Tela de consulta somente leitura — dados consolidados via filtros.
+// Edição detalhada (por lançamento individual) será feita em tela separada.
 import { supabase } from '../../lib/supabase'
 import { useUserAccess } from '../../hooks/useUserAccess'
 
@@ -84,7 +86,6 @@ type Item      = { id: string; codigo: string; descricao: string; nivel: number;
 type Empresa   = { id: string; codigo: string; descricao: string }
 type Filial    = { id: string; codigo: string; descricao: string; empresa_id: string }
 type Versao    = { id: string; codigo: string }
-type Dim       = { codigo: string; label: string }
 type Dimensao  = { id: string; codigo: string; label: string; tabela_ref: string | null }
 type DimValor  = { id: string; label: string }
 type Valores   = Record<string, Record<number, number>>
@@ -120,12 +121,12 @@ function MultiSelectDropdown({ opcoes, selecionados, onChange, placeholder = 'To
   return (
     <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
       <button type="button" onClick={() => setOpen(v => !v)}
-        style={{ ...S.select, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 150 }}>
+        style={{ ...S.select, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 180 }}>
         <span style={{ flex: 1, textAlign: 'left' }}>{texto}</span>
         <span style={{ fontSize: 10, color: '#868e96', lineHeight: 1 }}>▾</span>
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 200, background: 'white', border: '1px solid #dee2e6', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', minWidth: 230, maxHeight: 260, overflowY: 'auto', padding: '4px 0' }}>
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 200, background: 'white', border: '1px solid #dee2e6', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', minWidth: 280, maxHeight: 260, overflowY: 'auto', padding: '4px 0' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', cursor: 'pointer', fontWeight: 600, borderBottom: '1px solid #f1f3f5', fontSize: 13, color: '#495057' }}>
             <input type="checkbox" checked={todas} onChange={() => onChange([])} />
             {placeholder}
@@ -136,219 +137,11 @@ function MultiSelectDropdown({ opcoes, selecionados, onChange, placeholder = 'To
               onMouseEnter={e => (e.currentTarget.style.background = '#f8f9fa')}
               onMouseLeave={e => (e.currentTarget.style.background = '')}>
               <input type="checkbox" checked={selecionados.includes(opt.id)} onChange={() => toggle(opt.id)} />
-              {opt.label}
+              <span style={{ flex: 1 }}>{opt.label}</span>
             </label>
           ))}
         </div>
       )}
-    </div>
-  )
-}
-
-// ── Modal de Importação ───────────────────────────────────
-function ModalImportOrcamento({ itens, empresas, filiais, versaoId, empresaId, filialId, ano, onImported, onClose }: {
-  itens: Item[]; empresas: Empresa[]; filiais: Filial[]
-  versaoId: string; empresaId: string; filialId: string | null; ano: number
-  onImported: () => void; onClose: () => void
-}) {
-  type PreviewItem = { item: Item; empresa: Empresa; filial: Filial | null; totais: number[]; total: number }
-
-  const [preview, setPreview] = useState<PreviewItem[]>([])
-  const [dims, setDims] = useState<Dim[]>([])
-  const [dragOver, setDragOver] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [erro, setErro] = useState('')
-  const [naoEncontrados, setNaoEncontrados] = useState<string[]>([])
-  const fileRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    supabase.from('dimensao').select('codigo,label').eq('ativo', true).order('ordem')
-      .then(({ data }) => setDims((data || []) as Dim[]))
-  }, [])
-
-  const empPadrao = empresas.find(e => e.id === empresaId)
-  const filialPadrao = filiais.find(f => f.id === filialId) || null
-  const empresaMap = Object.fromEntries(empresas.map(e => [e.codigo.trim(), e]))
-  const filialMap  = Object.fromEntries(filiais.map(f => [f.codigo.trim(), f]))
-  const itensByCode = Object.fromEntries(itens.filter(x => x.aceita_lancamento).map(x => [x.codigo.trim(), x]))
-
-  const downloadTemplate = async () => {
-    const n3 = itens.filter(x => x.aceita_lancamento)
-    const dimCols = dims.map(d => d.label)
-    const rows = n3.map(item => ({
-      codigo: item.codigo,
-      descricao: item.descricao,
-      empresa: empPadrao?.codigo || '',
-      filial: filialPadrao?.codigo || '',
-      ...Object.fromEntries(dimCols.map(d => [d, ''])),
-      ...Object.fromEntries(MESES.map(m => [m, 0])),
-    }))
-    await downloadXlsx(
-      `template_orcamento_${ano}.xlsx`,
-      ['codigo', 'descricao', 'empresa', 'filial', ...dimCols, ...MESES],
-      rows
-    )
-  }
-
-  const parseFile = async (file: File) => {
-    setErro(''); setNaoEncontrados([]); setPreview([])
-    const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs' as any)
-    const buf = await file.arrayBuffer()
-    const wb = XLSX.read(buf)
-    const ws = wb.Sheets[wb.SheetNames[0]]
-    const json: any[] = XLSX.utils.sheet_to_json(ws, { defval: 0 })
-
-    // Agregar: chave = itemId || empresaId → somar meses
-    const agg = new Map<string, PreviewItem>()
-    const naoCod: string[] = []
-
-    for (const r of json) {
-      const codigo = String(r['codigo'] || r['Código'] || r['CODIGO'] || '').trim()
-      if (!codigo) continue
-      const item = itensByCode[codigo]
-      if (!item) { if (!naoCod.includes(codigo)) naoCod.push(codigo); continue }
-
-      // Resolve empresa: da coluna "empresa" da linha ou usa filtro ativo
-      const empRaw = String(r['empresa'] || r['Empresa'] || r['EMPRESA'] || '').trim()
-      const emp = (empRaw && empresaMap[empRaw]) || empPadrao
-      if (!emp) continue
-
-      // Resolve filial: da coluna "filial" da linha ou usa filtro ativo
-      const filRaw = String(r['filial'] || r['Filial'] || r['FILIAL'] || '').trim()
-      const fil = (filRaw && filialMap[filRaw]) || filialPadrao
-
-      const key = `${item.id}||${emp.id}||${fil?.id || ''}`
-      if (!agg.has(key)) {
-        agg.set(key, { item, empresa: emp, filial: fil, totais: new Array(12).fill(0), total: 0 })
-      }
-      const entry = agg.get(key)!
-      MESES.forEach((m, i) => {
-        const raw = r[m] ?? r[m.toUpperCase()] ?? r[m.toLowerCase()] ?? 0
-        const v = parseFloat(String(raw).replace(/\s/g, '').replace('.', '').replace(',', '.')) || 0
-        entry.totais[i] += v
-      })
-    }
-
-    // Recalcula total e filtra itens com pelo menos 1 valor
-    const result: PreviewItem[] = []
-    for (const entry of agg.values()) {
-      entry.total = entry.totais.reduce((s, v) => s + v, 0)
-      if (entry.total !== 0 || entry.totais.some(v => v !== 0)) result.push(entry)
-    }
-
-    setPreview(result)
-    setNaoEncontrados(naoCod)
-  }
-
-  const importar = async () => {
-    if (!preview.length) return
-    setImporting(true); setErro('')
-
-    const records = preview.flatMap(({ item, empresa, filial, totais }) =>
-      totais.map((valor, i) => ({
-        versao_id: versaoId,
-        item_orc_id: item.id,
-        empresa_id: empresa.id,
-        filial_id: filial?.id || null,
-        ano, mes: i + 1, valor,
-        tipo_lancamento: 'ORCADO',
-        dim_values: {},
-      }))
-    )
-
-    const { error } = await supabase.from('fat_lancamento').upsert(records, {
-      onConflict: 'tenant_id,versao_id,item_orc_id,empresa_id,filial_id,ano,mes,tipo_lancamento',
-    })
-
-    setImporting(false)
-    if (error) { setErro(error.message); return }
-    onImported()
-    onClose()
-  }
-
-  const totalGeral = preview.reduce((s, p) => s + p.total, 0)
-  const multiEmpresa = new Set(preview.map(p => p.empresa.id)).size > 1
-  const multiFilial  = new Set(preview.map(p => p.filial?.id || '')).size > 1
-
-  return (
-    <div style={S.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={S.modal}>
-        <div style={{ fontSize: 17, fontWeight: 600, color: '#212529', marginBottom: 16 }}>Importar Orçamento</div>
-
-        <div style={S.infoBox}>
-          <strong>Colunas do template:</strong> <code>codigo</code> · <code>descricao</code> · <code>empresa</code> · <code>filial</code>
-          {dims.length > 0 && <> · {dims.map(d => <code key={d.codigo} style={{ marginLeft: 4 }}>{d.label}</code>)}</>}
-          {' '}· <code>Jan</code> … <code>Dez</code>
-          <br />
-          Linhas com o mesmo item + empresa serão <strong>somadas</strong>. A coluna <code>empresa</code> permite importar múltiplas empresas de uma vez.
-        </div>
-
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <button style={S.btn('secondary')} onClick={downloadTemplate}>⬇ Baixar template</button>
-        </div>
-
-        <div style={S.dropzone(dragOver)}
-          onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) parseFile(f) }}
-          onClick={() => fileRef.current?.click()}>
-          <div style={{ fontSize: 28, marginBottom: 6 }}>📄</div>
-          <div style={{ fontSize: 14, color: '#495057', fontWeight: 500 }}>Arraste o arquivo .xlsx aqui ou clique para selecionar</div>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
-            onChange={e => { const f = e.target.files?.[0]; if (f) parseFile(f) }} />
-        </div>
-
-        {naoEncontrados.length > 0 && (
-          <div style={S.warnBox}>
-            ⚠️ {naoEncontrados.length} código(s) não encontrado(s) no plano: {naoEncontrados.slice(0, 8).join(', ')}{naoEncontrados.length > 8 ? `… (+${naoEncontrados.length - 8})` : ''}
-          </div>
-        )}
-        {erro && <div style={S.errBox}>{erro}</div>}
-
-        {preview.length > 0 && (
-          <>
-            <div style={{ display: 'flex', gap: 16, marginBottom: 8, fontSize: 13, color: '#495057' }}>
-              <span><strong>{preview.length}</strong> itens</span>
-              {multiEmpresa && <span><strong>{new Set(preview.map(p => p.empresa.id)).size}</strong> empresas</span>}
-              {multiFilial  && <span><strong>{new Set(preview.map(p => p.filial?.id || '')).size}</strong> filiais</span>}
-              <span>Total: <strong>{fmt(totalGeral)}</strong></span>
-            </div>
-            <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid #e9ecef', borderRadius: 8, marginBottom: 12 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: '#f8f9fa' }}>
-                    <th style={{ padding: '6px 12px', textAlign: 'left', color: '#868e96', borderBottom: '1px solid #e9ecef' }}>Código</th>
-                    <th style={{ padding: '6px 12px', textAlign: 'left', color: '#868e96', borderBottom: '1px solid #e9ecef' }}>Descrição</th>
-                    {multiEmpresa && <th style={{ padding: '6px 12px', textAlign: 'left', color: '#868e96', borderBottom: '1px solid #e9ecef' }}>Empresa</th>}
-                    {multiFilial  && <th style={{ padding: '6px 12px', textAlign: 'left', color: '#868e96', borderBottom: '1px solid #e9ecef' }}>Filial</th>}
-                    <th style={{ padding: '6px 12px', textAlign: 'right', color: '#868e96', borderBottom: '1px solid #e9ecef' }}>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.map((p, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid #f1f3f5' }}>
-                      <td style={{ padding: '5px 12px', fontFamily: 'monospace', color: '#868e96' }}>{p.item.codigo}</td>
-                      <td style={{ padding: '5px 12px' }}>{p.item.descricao}</td>
-                      {multiEmpresa && <td style={{ padding: '5px 12px', fontSize: 11 }}>{p.empresa.codigo}</td>}
-                      {multiFilial  && <td style={{ padding: '5px 12px', fontSize: 11 }}>{p.filial?.codigo || '—'}</td>}
-                      <td style={{ padding: '5px 12px', textAlign: 'right', fontFamily: 'monospace' }}>{fmt(p.total)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button style={S.btn('secondary')} onClick={onClose}>Cancelar</button>
-          {preview.length > 0 && (
-            <button style={S.btn('primary')} onClick={importar} disabled={importing}>
-              {importing ? 'Importando...' : `⬆ Importar ${preview.length} item${preview.length > 1 ? 's' : ''}`}
-            </button>
-          )}
-        </div>
-      </div>
     </div>
   )
 }
@@ -358,12 +151,7 @@ export default function OrcamentoPage() {
   const [itens,    setItens]    = useState<Item[]>([])
   const [valores,  setValores]  = useState<Valores>({})
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
-  const [editando, setEditando] = useState<{ id: string; mes: number } | null>(null)
-  const [inputVal, setInputVal] = useState('')
   const [loading,  setLoading]  = useState(true)
-  const [salvando, setSalvando] = useState(false)
-  const [erroSalvar, setErroSalvar] = useState<string | null>(null)
-  const [showImport, setShowImport] = useState(false)
 
   // Filtros — arrays vazios = "Todas"
   const [ano, setAno] = useState(2026)
@@ -378,6 +166,7 @@ export default function OrcamentoPage() {
   const [dimensoes,  setDimensoes]  = useState<Dimensao[]>([])
   const [dimOpcoes,  setDimOpcoes]  = useState<Record<string, DimValor[]>>({})
   const [dimFiltros, setDimFiltros] = useState<Record<string, string[]>>({})
+  const [itemIds,    setItemIds]    = useState<string[]>([])
 
   // Controle de acesso do usuário logado
   const userAccess = useUserAccess()
@@ -389,9 +178,6 @@ export default function OrcamentoPage() {
       ? filiais.filter(f => empresaIds.includes(f.empresa_id))
       : filiais
   )
-
-  // Modo agregado: somente leitura
-  const modoAgregado = empresaIds.length !== 1 || filialIds.length !== 1
 
   // Quando as regras de acesso carregam, remove seleções fora do permitido
   useEffect(() => {
@@ -454,9 +240,12 @@ export default function OrcamentoPage() {
     })
   }, [carregarDimOpcoes])
 
-  // Quando empresas mudam, remove filiais que não pertencem às selecionadas
+  // Quando empresas mudam, ajusta filiais disponíveis
   useEffect(() => {
-    if (empresaIds.length === 0) return
+    if (empresaIds.length === 0) {
+      setFilialIds([])   // "Todas" empresa → reseta filial para "Todas" também
+      return
+    }
     const validos = new Set(filiais.filter(f => empresaIds.includes(f.empresa_id)).map(f => f.id))
     setFilialIds(prev => prev.filter(id => validos.has(id)))
   }, [empresaIds, filiais])
@@ -465,33 +254,45 @@ export default function OrcamentoPage() {
   const carregarLancamentos = useCallback(async () => {
     if (!versaoId) return
     setLoading(true)
-    let query = supabase
-      .from('fat_lancamento')
-      .select('item_orc_id,mes,valor')
-      .eq('versao_id', versaoId)
-      .eq('ano', ano)
-      .eq('tipo_lancamento', 'ORCADO')
-    if (empresaIds.length === 1)    query = query.eq('empresa_id', empresaIds[0])
-    else if (empresaIds.length > 1) query = query.in('empresa_id', empresaIds)
-    if (filialIds.length === 1)     query = query.eq('filial_id', filialIds[0])
-    else if (filialIds.length > 1)  query = query.in('filial_id', filialIds)
-    for (const [codigo, ids] of Object.entries(dimFiltros)) {
-      if (ids.length === 0) continue
-      if (ids.length === 1) {
-        query = query.contains('dim_values', { [codigo]: ids[0] })
-      } else {
-        query = query.or(ids.map(id => `dim_values.cs.${JSON.stringify({ [codigo]: id })}`).join(','))
+
+    const buildQuery = (from: number, to: number) => {
+      let q = supabase
+        .from('fat_lancamento')
+        .select('item_orc_id,mes,valor')
+        .eq('versao_id', versaoId)
+        .eq('ano', ano)
+        .eq('tipo_lancamento', 'ORCADO')
+        .range(from, to)
+      if (itemIds.length === 1)       q = q.eq('item_orc_id', itemIds[0])
+      else if (itemIds.length > 1)    q = q.in('item_orc_id', itemIds)
+      if (empresaIds.length === 1)    q = q.eq('empresa_id', empresaIds[0])
+      else if (empresaIds.length > 1) q = q.in('empresa_id', empresaIds)
+      if (filialIds.length === 1)     q = q.eq('filial_id', filialIds[0])
+      else if (filialIds.length > 1)  q = q.in('filial_id', filialIds)
+      for (const [codigo, ids] of Object.entries(dimFiltros)) {
+        if (ids.length === 0) continue
+        if (ids.length === 1) q = q.contains('dim_values', { [codigo]: ids[0] })
+        else q = q.or(ids.map(id => `dim_values.cs.${JSON.stringify({ [codigo]: id })}`).join(','))
       }
+      return q
     }
-    const { data: lData } = await query
+
+    // Pagina em blocos de 1000 para não perder dados além do limite do PostgREST
+    const PAGE = 1000
     const mapa: Valores = {}
-    for (const l of lData || []) {
-      if (!mapa[l.item_orc_id]) mapa[l.item_orc_id] = {}
-      mapa[l.item_orc_id][l.mes] = (mapa[l.item_orc_id][l.mes] || 0) + l.valor
+    let from = 0
+    while (true) {
+      const { data } = await buildQuery(from, from + PAGE - 1)
+      for (const l of data || []) {
+        if (!mapa[l.item_orc_id]) mapa[l.item_orc_id] = {}
+        mapa[l.item_orc_id][l.mes] = (mapa[l.item_orc_id][l.mes] || 0) + l.valor
+      }
+      if (!data?.length || data.length < PAGE) break
+      from += PAGE
     }
     setValores(mapa)
     setLoading(false)
-  }, [versaoId, empresaIds, filialIds, dimFiltros, ano])
+  }, [versaoId, itemIds, empresaIds, filialIds, dimFiltros, ano])
 
   useEffect(() => { carregarLancamentos() }, [carregarLancamentos])
 
@@ -507,31 +308,6 @@ export default function OrcamentoPage() {
       : MESES.reduce((s, _, i) => s + (valores[id]?.[i + 1] || 0), 0)
     const filhos = itens.filter(x => x.pai_id === id)
     return direto + filhos.reduce((s, f) => s + totalItem(f.id, mes), 0)
-  }
-
-  const iniciarEdicao = (id: string, mes: number) => {
-    if (modoAgregado) return
-    setEditando({ id, mes }); setInputVal(String(valores[id]?.[mes] || ''))
-  }
-
-  const salvarEdicao = async () => {
-    if (!editando || !versaoId || modoAgregado) return
-    const { id, mes } = editando
-    const novoValor = parseFloat(inputVal.replace(',', '.')) || 0
-    setSalvando(true); setErroSalvar(null)
-    const dim_values = Object.fromEntries(
-      Object.entries(dimFiltros).filter(([, ids]) => ids.length === 1).map(([k, ids]) => [k, ids[0]])
-    )
-    const { error } = await supabase.from('fat_lancamento').upsert({
-      versao_id: versaoId,
-      item_orc_id: id,
-      empresa_id: empresaIds[0],
-      filial_id: filialIds[0],
-      ano, mes, valor: novoValor, tipo_lancamento: 'ORCADO', dim_values,
-    }, { onConflict: 'tenant_id,versao_id,item_orc_id,empresa_id,filial_id,ano,mes,tipo_lancamento' })
-    if (error) { setErroSalvar(error.message) }
-    else { setValores(prev => ({ ...prev, [id]: { ...(prev[id] || {}), [mes]: novoValor } })) }
-    setEditando(null); setSalvando(false)
   }
 
   const exportar = async () => {
@@ -632,27 +408,10 @@ export default function OrcamentoPage() {
         </div>
       </td>
       {MESES.map((_, i) => {
-        const mes = i + 1
-        const isEdit = editando?.id === item.id && editando?.mes === mes
-        const val = valores[item.id]?.[mes] || 0
+        const val = valores[item.id]?.[i + 1] || 0
         return (
-          <td key={i} style={{ textAlign: 'right', padding: '4px 4px' }}>
-            {isEdit ? (
-              <input autoFocus value={inputVal}
-                onChange={e => setInputVal(e.target.value)}
-                onBlur={salvarEdicao}
-                onKeyDown={e => { if (e.key === 'Enter') salvarEdicao(); if (e.key === 'Escape') setEditando(null) }}
-                style={{ width: 70, textAlign: 'right', padding: '2px 4px', border: '2px solid #3b5bdb', borderRadius: 4, fontFamily: 'monospace', fontSize: 12 }}
-              />
-            ) : (
-              <span
-                onClick={() => iniciarEdicao(item.id, mes)}
-                style={{ display: 'block', textAlign: 'right', padding: '2px 6px', fontFamily: 'monospace', color: val ? '#212529' : '#dee2e6', cursor: modoAgregado ? 'default' : 'pointer', borderRadius: 4, transition: 'background 0.1s' }}
-                onMouseEnter={e => { if (!modoAgregado) e.currentTarget.style.background = '#e7f5ff' }}
-                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                {fmt(val)}
-              </span>
-            )}
+          <td key={i} style={{ textAlign: 'right', padding: '5px 8px', fontFamily: 'monospace', color: val ? '#212529' : '#dee2e6' }}>
+            {fmt(val)}
           </td>
         )
       })}
@@ -666,17 +425,13 @@ export default function OrcamentoPage() {
     <div style={S.page}>
       <div style={S.header}>
         <div>
-          <h1 style={S.title}>Editor de Orçamento</h1>
-          <p style={S.subtitle}>
-            {modoAgregado
-              ? 'Visão agregada (somente leitura) · Selecione 1 empresa + 1 filial para editar'
-              : 'Clique em um valor para editar · Enter para salvar'}
-          </p>
+          <h1 style={S.title}>Orçamento</h1>
+          <p style={S.subtitle}>Consulta consolidada · Use os filtros para navegar · Somente leitura</p>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          {modoAgregado && <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 99, background: '#fff9db', color: '#e67700', fontWeight: 500 }}>Agregado</span>}
-          {salvando   && <span style={{ fontSize: 12, color: '#3b5bdb' }}>Salvando...</span>}
-          {erroSalvar && <span style={{ fontSize: 12, color: '#c92a2a' }}>Erro: {erroSalvar}</span>}
+          {(empresaIds.length !== 1 || filialIds.length !== 1) && (
+            <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 99, background: '#f1f3f5', color: '#868e96', fontWeight: 500 }}>Agregado</span>
+          )}
         </div>
       </div>
 
@@ -693,6 +448,15 @@ export default function OrcamentoPage() {
             {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}
           </select>
         </label>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#495057' }}>
+          Item:
+          <MultiSelectDropdown
+            opcoes={itens.filter(x => x.aceita_lancamento).map(i => ({ id: i.id, label: `${i.codigo} — ${i.descricao}` }))}
+            selecionados={itemIds}
+            onChange={setItemIds}
+            placeholder="Todos"
+          />
+        </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#495057' }}>
           Empresa:
           <MultiSelectDropdown
@@ -729,7 +493,6 @@ export default function OrcamentoPage() {
         <button style={S.btn('secondary')} onClick={expandirTudo}>⊞ Expandir</button>
         <button style={S.btn('secondary')} onClick={recolherTudo}>⊟ Recolher</button>
         <button style={S.btn('secondary')} onClick={exportar}>⬇ Exportar xlsx</button>
-        <button style={S.btn('primary')} onClick={() => setShowImport(true)}>⬆ Importar xlsx</button>
       </div>
 
       {loading ? (
@@ -765,19 +528,7 @@ export default function OrcamentoPage() {
         </div>
       )}
 
-      {showImport && versaoId && (
-        <ModalImportOrcamento
-          itens={itens}
-          empresas={empresas}
-          filiais={filiais}
-          versaoId={versaoId}
-          empresaId={empresaIds[0] || empresas[0]?.id || ''}
-          filialId={filialIds[0] || null}
-          ano={ano}
-          onImported={carregarLancamentos}
-          onClose={() => setShowImport(false)}
-        />
-      )}
+
     </div>
   )
 }

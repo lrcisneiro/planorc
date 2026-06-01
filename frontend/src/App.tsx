@@ -1,19 +1,21 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, NavLink } from 'react-router-dom'
-import { TrendingUp, Table2, LayoutDashboard, Settings, Building2, Database, LogOut } from 'lucide-react'
+import { TrendingUp, Table2, LayoutDashboard, Settings, Building2, Database, LogOut, PencilLine } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 import DrePage from './pages/dre/DrePage'
 import OrcamentoPage from './pages/orcamento/OrcamentoPage'
 import CadastrosPage from './pages/cadastros/CadastrosPage'
+import LancamentosPage from './pages/lancamentos/LancamentosPage'
 import ConfiguracoesPage from './pages/configuracoes/ConfiguracoesPage'
 import LoginPage from './pages/login/LoginPage'
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/dre',       icon: TrendingUp,      label: 'DRE' },
-  { to: '/orcamento', icon: Table2,           label: 'Orçamento' },
-  { to: '/cadastros', icon: Database,         label: 'Cadastros' },
+  { to: '/orcamento',    icon: Table2,       label: 'Orçamento' },
+  { to: '/lancamentos', icon: PencilLine,    label: 'Lançamentos' },
+  { to: '/cadastros',   icon: Database,     label: 'Cadastros' },
   { to: '/config',    icon: Settings,         label: 'Config.' },
 ]
 
@@ -104,6 +106,7 @@ export default function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dre" element={<DrePage />} />
           <Route path="/orcamento" element={<OrcamentoPage />} />
+          <Route path="/lancamentos" element={<LancamentosPage />} />
           <Route path="/cadastros" element={<CadastrosPage />} />
           <Route path="/dashboard" element={<div style={{ padding: 24 }}><h2>Dashboard — em breve</h2></div>} />
           <Route path="/config" element={<ConfiguracoesPage />} />
