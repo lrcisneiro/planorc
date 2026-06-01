@@ -36,7 +36,8 @@ const parseMes = (raw: string | number): number => {
 }
 
 // ── Tipos ─────────────────────────────────────────────────
-type Empresa   = { id: string; codigo: string; descricao: string }
+type Grupo     = { id: string; codigo: string; descricao: string }
+type Empresa   = { id: string; codigo: string; descricao: string; grupo_id: string | null }
 type Filial    = { id: string; codigo: string; descricao: string; empresa_id: string }
 type Versao    = { id: string; codigo: string }
 type ItemOrc   = { id: string; codigo: string; descricao: string; aceita_lancamento: boolean; grupo_folha: boolean }
@@ -502,12 +503,17 @@ export default function LancamentosPage() {
   const [tipos,      setTipos]      = useState<string[]>([])
   const [dimFiltros, setDimFiltros] = useState<Record<string, string[]>>({})
   const [itemIds,    setItemIds]    = useState<string[]>([])
+  const [grupos,     setGrupos]     = useState<Grupo[]>([])
+  const [grupoIds,   setGrupoIds]   = useState<string[]>([])
 
   // Edição inline
   const [editCell, setEditCell] = useState<{ id: string; field: 'valor' | 'historico'; value: string } | null>(null)
 
   const userAccess = useUserAccess()
-  const empresasVisiveis = userAccess.filterList('empresa', empresas)
+  const empresasDoGrupo = grupoIds.length > 0
+    ? empresas.filter(e => e.grupo_id && grupoIds.includes(e.grupo_id))
+    : empresas
+  const empresasVisiveis = userAccess.filterList('empresa', empresasDoGrupo)
   const filialOpcoes = userAccess.filterList('filial',
     empresaIds.length > 0 ? filiais.filter(f => empresaIds.includes(f.empresa_id)) : filiais
   )
@@ -554,11 +560,12 @@ export default function LancamentosPage() {
   useEffect(() => {
     Promise.all([
       supabase.from('versao_orcamento').select('id,codigo').order('codigo'),
-      supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
+      supabase.from('empresa').select('id,codigo,descricao,grupo_id').eq('ativo', true).order('codigo'),
       supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
       supabase.from('plano_orcamentario').select('id,codigo,descricao,aceita_lancamento,grupo_folha').order('codigo'),
       supabase.from('dimensao').select('id,codigo,label,tabela_ref').eq('ativo', true).order('ordem'),
-    ]).then(([{ data: vData }, { data: eData }, { data: fData }, { data: iData }, { data: dData }]) => {
+      supabase.from('grupo_empresarial').select('id,codigo,descricao').order('codigo'),
+    ]).then(([{ data: vData }, { data: eData }, { data: fData }, { data: iData }, { data: dData }, { data: gData }]) => {
       const vs = (vData || []) as Versao[]
       setVersoes(vs)
       setEmpresas((eData || []) as Empresa[])
@@ -567,16 +574,23 @@ export default function LancamentosPage() {
       const dims = (dData || []) as Dimensao[]
       setDimensoes(dims)
       carregarDimOpcoes(dims)
+      setGrupos((gData || []) as Grupo[])
       if (vs.length) setVersaoId(vs[0].id)
     })
   }, [carregarDimOpcoes])
 
+  // Quando grupo muda, auto-seleciona todas as empresas do grupo
+  useEffect(() => {
+    if (grupoIds.length === 0) { setEmpresaIds([]); return }
+    const doGrupo = empresas
+      .filter(e => e.grupo_id && grupoIds.includes(e.grupo_id))
+      .map(e => e.id)
+    setEmpresaIds(doGrupo)
+  }, [grupoIds, empresas])
+
   // Quando empresas mudam, ajusta filiais disponíveis
   useEffect(() => {
-    if (empresaIds.length === 0) {
-      setFilialIds([])   // "Todas" empresa → reseta filial para "Todas" também
-      return
-    }
+    if (empresaIds.length === 0) { setFilialIds([]); return }
     const validos = new Set(filiais.filter(f => empresaIds.includes(f.empresa_id)).map(f => f.id))
     setFilialIds(prev => prev.filter(id => validos.has(id)))
   }, [empresaIds, filiais])
@@ -741,6 +755,12 @@ export default function LancamentosPage() {
             {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}
           </select>
         </label>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#495057' }}>
+          Grupo:
+          <MultiSelectDropdown
+            opcoes={grupos.map(g => ({ id: g.id, label: `${g.codigo} — ${g.descricao}` }))}
+            selecionados={grupoIds} onChange={setGrupoIds} placeholder="Todos" />
+        </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#495057' }}>
           Item:
           <MultiSelectDropdown

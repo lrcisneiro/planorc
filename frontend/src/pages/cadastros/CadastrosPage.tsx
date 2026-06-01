@@ -75,7 +75,7 @@ const S_TD: React.CSSProperties = {
   color: '#343a40', verticalAlign: 'middle', textAlign: 'left',
 }
 
-type Aba = 'empresas' | 'filiais' | 'plano' | 'centrocusto' | 'contacontabil' | 'verbas' | 'funcionarios' | 'dimensoes'
+type Aba = 'grupos' | 'empresas' | 'filiais' | 'plano' | 'centrocusto' | 'contacontabil' | 'verbas' | 'funcionarios' | 'dimensoes'
 
 // ── Estilos ───────────────────────────────────────────────
 const S = {
@@ -196,25 +196,31 @@ function ConfirmDelete({ msg, onConfirm, onCancel }: { msg: string; onConfirm: (
 }
 
 // ── Empresas ──────────────────────────────────────────────
-type Empresa = { id: string; codigo: string; descricao: string; ativo: boolean }
+type Grupo   = { id: string; codigo: string; descricao: string }
+type Empresa = { id: string; codigo: string; descricao: string; ativo: boolean; grupo_id: string | null; grupo?: { codigo: string; descricao: string } | null }
 
-function ModalEmpresa({ empresa, onSave, onClose }: {
+function ModalEmpresa({ empresa, grupos, onSave, onClose }: {
   empresa?: Empresa | null
+  grupos: Grupo[]
   onSave: () => void
   onClose: () => void
 }) {
   const [form, setForm] = useState({
-    codigo: empresa?.codigo || '',
+    codigo:    empresa?.codigo    || '',
     descricao: empresa?.descricao || '',
-    ativo: empresa?.ativo ?? true,
+    grupo_id:  empresa?.grupo_id  || '',
+    ativo:     empresa?.ativo     ?? true,
   })
   const [saving, setSaving] = useState(false)
-  const [erro, setErro] = useState('')
+  const [erro,   setErro]   = useState('')
 
   const salvar = async () => {
     if (!form.codigo.trim() || !form.descricao.trim()) { setErro('Código e descrição são obrigatórios.'); return }
     setSaving(true)
-    const payload = { codigo: form.codigo.trim(), descricao: form.descricao.trim(), ativo: form.ativo }
+    const payload = {
+      codigo: form.codigo.trim(), descricao: form.descricao.trim(),
+      grupo_id: form.grupo_id || null, ativo: form.ativo,
+    }
     const { error } = empresa
       ? await supabase.from('empresa').update(payload).eq('id', empresa.id)
       : await supabase.from('empresa').insert(payload)
@@ -234,6 +240,13 @@ function ModalEmpresa({ empresa, onSave, onClose }: {
       <div style={S.formRow}>
         <label style={S.label}>Descrição</label>
         <input style={S.input} value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} placeholder="Nome da empresa" />
+      </div>
+      <div style={S.formRow}>
+        <label style={S.label}>Grupo Empresarial</label>
+        <select style={S.select} value={form.grupo_id} onChange={e => setForm(f => ({ ...f, grupo_id: e.target.value }))}>
+          <option value="">— Sem grupo —</option>
+          {grupos.map(g => <option key={g.id} value={g.id}>{g.codigo} — {g.descricao}</option>)}
+        </select>
       </div>
       <div style={S.formRow}>
         <label style={S.label}>Status</label>
@@ -369,22 +382,141 @@ function ModalImportEmpresa({ dados, onSave, onClose }: { dados: Empresa[]; onSa
   )
 }
 
+// ── Grupos Empresariais ──────────────────────────────────
+function ModalGrupo({ grupo, onSave, onClose }: { grupo?: Grupo | null; onSave: () => void; onClose: () => void }) {
+  const [form, setForm] = useState({ codigo: grupo?.codigo || '', descricao: grupo?.descricao || '' })
+  const [saving, setSaving] = useState(false)
+  const [erro, setErro] = useState('')
+
+  const salvar = async () => {
+    if (!form.codigo.trim() || !form.descricao.trim()) { setErro('Código e descrição são obrigatórios.'); return }
+    setSaving(true)
+    const payload = { codigo: form.codigo.trim(), descricao: form.descricao.trim() }
+    const { error } = grupo
+      ? await supabase.from('grupo_empresarial').update(payload).eq('id', grupo.id)
+      : await supabase.from('grupo_empresarial').insert(payload)
+    setSaving(false)
+    if (error) { setErro(error.message); return }
+    onSave()
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <div style={S.modalTitle}>{grupo ? 'Editar grupo' : 'Novo grupo empresarial'}</div>
+      {erro && <div style={{ ...S.infoBox('warn'), marginBottom: 16 }}>{erro}</div>}
+      <div style={S.formRow}>
+        <label style={S.label}>Código</label>
+        <input style={S.input} value={form.codigo} onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))} placeholder="ex: WAYUP" />
+      </div>
+      <div style={S.formRow}>
+        <label style={S.label}>Descrição</label>
+        <input style={S.input} value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} placeholder="Nome do grupo" />
+      </div>
+      <div style={S.modalFooter}>
+        <button style={S.btnSecondary} onClick={onClose}>Cancelar</button>
+        <button style={S.btnPrimary} onClick={salvar} disabled={saving}>
+          <Check size={14} />{saving ? 'Salvando...' : 'Salvar'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+function GruposTab() {
+  const [data,    setData]    = useState<(Grupo & { _empresas?: number })[]>([])
+  const [loading, setLoading] = useState(true)
+  const [modal,   setModal]   = useState<'novo' | 'editar' | 'excluir' | null>(null)
+  const [sel,     setSel]     = useState<Grupo | null>(null)
+
+  const carregar = async () => {
+    setLoading(true)
+    const [{ data: grupos }, { data: empresas }] = await Promise.all([
+      supabase.from('grupo_empresarial').select('id,codigo,descricao').order('codigo'),
+      supabase.from('empresa').select('grupo_id'),
+    ])
+    const contagem: Record<string, number> = {}
+    for (const e of empresas || []) {
+      if (e.grupo_id) contagem[e.grupo_id] = (contagem[e.grupo_id] || 0) + 1
+    }
+    setData((grupos || []).map((g: any) => ({ ...g, _empresas: contagem[g.id] || 0 })))
+    setLoading(false)
+  }
+
+  useEffect(() => { carregar() }, [])
+
+  const excluir = async () => {
+    if (!sel) return
+    await supabase.from('grupo_empresarial').delete().eq('id', sel.id)
+    setModal(null); carregar()
+  }
+
+  if (loading) return <p style={{ padding: 16, color: '#aaa' }}>Carregando...</p>
+
+  return (
+    <>
+      <div style={S.toolbar}>
+        <button style={S.btnPrimary} onClick={() => setModal('novo')}><Plus size={14} /> Novo grupo</button>
+      </div>
+      <div style={S.card}>
+        <table style={{ ...S.table, tableLayout: 'fixed' }}>
+          <thead>
+            <tr>
+              <th style={S.th}>Código</th>
+              <th style={S.th}>Descrição</th>
+              <th style={{ ...S.th, width: 120 }}>Empresas</th>
+              <th style={{ ...S.th, width: 80 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.length === 0 ? (
+              <tr><td colSpan={4} style={{ ...S_TD, textAlign: 'center', color: '#aaa', padding: 32 }}>Nenhum grupo cadastrado.</td></tr>
+            ) : data.map(g => (
+              <tr key={g.id}
+                onMouseEnter={e => (e.currentTarget.style.background = '#f8f9fa')}
+                onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                <td style={{ ...S_TD, fontFamily: 'monospace', color: '#868e96' }}>{g.codigo}</td>
+                <td style={S_TD}>{g.descricao}</td>
+                <td style={{ ...S_TD, color: '#868e96' }}>{g._empresas}</td>
+                <td style={{ ...S_TD, textAlign: 'right' }}>
+                  <button style={S.btnIcon('#3b5bdb')} title="Editar" onClick={() => { setSel(g); setModal('editar') }}><Pencil size={14} /></button>
+                  <button style={S.btnIcon('#fa5252')} title="Excluir" onClick={() => { setSel(g); setModal('excluir') }}><Trash2 size={14} /></button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {modal === 'novo'    && <ModalGrupo onSave={() => { setModal(null); carregar() }} onClose={() => setModal(null)} />}
+      {modal === 'editar'  && <ModalGrupo grupo={sel} onSave={() => { setModal(null); carregar() }} onClose={() => setModal(null)} />}
+      {modal === 'excluir' && sel && (
+        <ConfirmDelete msg={`Excluir o grupo "${sel.descricao}"?`} onConfirm={excluir} onCancel={() => setModal(null)} />
+      )}
+    </>
+  )
+}
+
 function EmpresasTab() {
-  const [data, setData] = useState<Empresa[]>([])
+  const [data,    setData]    = useState<Empresa[]>([])
+  const [grupos,  setGrupos]  = useState<Grupo[]>([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<'novo' | 'editar' | 'excluir' | 'importar' | null>(null)
   const [selecionado, setSelecionado] = useState<Empresa | null>(null)
   const { cols, onMouseDown } = useResizableColumns([
-    { label: 'Código', width: 100, minWidth: 60 },
-    { label: 'Descrição', width: 400, minWidth: 120 },
-    { label: 'Status', width: 120, minWidth: 80 },
+    { label: 'Código', width: 90, minWidth: 60 },
+    { label: 'Descrição', width: 280, minWidth: 120 },
+    { label: 'Grupo', width: 200, minWidth: 100 },
+    { label: 'Status', width: 100, minWidth: 80 },
     { label: '', width: 80, minWidth: 60 },
   ])
 
   const carregar = () => {
     setLoading(true)
-    supabase.from('empresa').select('*').order('codigo').then(({ data }) => {
-      setData((data || []) as Empresa[])
+    Promise.all([
+      supabase.from('empresa').select('*, grupo:grupo_id(codigo,descricao)').order('codigo'),
+      supabase.from('grupo_empresarial').select('id,codigo,descricao').order('codigo'),
+    ]).then(([{ data: eData }, { data: gData }]) => {
+      setData((eData || []) as Empresa[])
+      setGrupos((gData || []) as Grupo[])
       setLoading(false)
     })
   }
@@ -429,6 +561,7 @@ function EmpresasTab() {
                 onMouseLeave={ev => (ev.currentTarget.style.background = '')}>
                 <td style={{ ...S_TD, fontFamily: 'monospace', color: '#868e96' }}>{e.codigo}</td>
                 <td style={S_TD}>{e.descricao}</td>
+                <td style={S_TD}>{e.grupo ? `${(e.grupo as any).codigo} — ${(e.grupo as any).descricao}` : <span style={{ color: '#adb5bd' }}>—</span>}</td>
                 <td style={S_TD}><span style={S.badge(e.ativo)}>{e.ativo ? 'Ativo' : 'Inativo'}</span></td>
                 <td style={{ ...S_TD, textAlign: 'right' }}>
                   <button style={S.btnIcon('#3b5bdb')} title="Editar" onClick={() => { setSelecionado(e); setModal('editar') }}>
@@ -444,8 +577,8 @@ function EmpresasTab() {
         </table>
       </div>
 
-      {modal === 'novo' && <ModalEmpresa onSave={() => { setModal(null); carregar() }} onClose={() => setModal(null)} />}
-      {modal === 'editar' && <ModalEmpresa empresa={selecionado} onSave={() => { setModal(null); carregar() }} onClose={() => setModal(null)} />}
+      {modal === 'novo' && <ModalEmpresa grupos={grupos} onSave={() => { setModal(null); carregar() }} onClose={() => setModal(null)} />}
+      {modal === 'editar' && <ModalEmpresa grupos={grupos} empresa={selecionado} onSave={() => { setModal(null); carregar() }} onClose={() => setModal(null)} />}
       {modal === 'importar' && <ModalImportEmpresa dados={data} onSave={() => { setModal(null); carregar() }} onClose={() => setModal(null)} />}
       {modal === 'excluir' && selecionado && (
         <ConfirmDelete
@@ -2082,6 +2215,7 @@ export default function CadastrosPage() {
 
       <div style={S.tabs}>
         {([
+          ['grupos',       'Grupos'],
           ['empresas',     'Empresas'],
           ['filiais',      'Filiais'],
           ['centrocusto',  'Centro de Custo'],
@@ -2095,6 +2229,7 @@ export default function CadastrosPage() {
         ))}
       </div>
 
+      {aba === 'grupos'        && <GruposTab />}
       {aba === 'empresas'      && <EmpresasTab />}
       {aba === 'filiais'       && <FiliaisTab />}
       {aba === 'centrocusto'   && <CentroCustoTab />}
