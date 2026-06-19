@@ -22,3 +22,8 @@ realizado_particionado/
 zi10dCld
 uploads/
 outputs/
+
+# python / supabase cli temporários (vieram da nuvem)
+__pycache__/
+*.pyc
+supabase/.temp/
