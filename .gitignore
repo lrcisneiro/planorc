@@ -1,0 +1,24 @@
+# dependências e build
+node_modules/
+dist/
+
+# variáveis de ambiente / segredos
+.env
+.env.*
+!.env.example
+
+# SO
+.DS_Store
+
+# pasta duplicada (artefato de criação errada)
+frontend/frontend/
+
+# dados e artefatos grandes (não versionar)
+*.zip
+lancamentos_mensais/
+realizado_particionado/
+*.xlsx
+*.xlsm
+zi10dCld
+uploads/
+outputs/

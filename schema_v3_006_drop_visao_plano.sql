@@ -1,0 +1,5 @@
+-- ============================================================
+-- OBSOLETO — não rode este arquivo.
+-- Decisão mudou: em vez de apagar a tabela, vamos protegê-la com RLS.
+-- Use: schema_v3_006_rls_visao_plano.sql
+-- ============================================================

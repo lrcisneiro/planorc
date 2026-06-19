@@ -1,0 +1,540 @@
+import { useEffect, useState, Fragment } from 'react'
+import type { CSSProperties } from 'react'
+import { supabase } from '../../lib/supabase'
+import { computeCenario, computeTotais, pkey } from '../../lib/engine'
+import type { LinhaCalc, Computed, Periodo, RawValues } from '../../lib/engine'
+import { ResponsiveBar } from '@nivo/bar'
+import { ResponsiveLine } from '@nivo/line'
+import { TrendingUp, TrendingDown, RefreshCw, Filter, X } from 'lucide-react'
+
+const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+const ANOS = [2024, 2025, 2026, 2027, 2028]
+const YCOLORS = ['#3b5bdb', '#f59f00', '#2f9e44', '#e8590c', '#7048e8', '#1098ad']
+const CAT = ['#3b5bdb', '#f59f00', '#2f9e44', '#e8590c', '#7048e8', '#1098ad', '#e64980', '#0ca678', '#f76707', '#4263eb']
+const fmt = (v: number) => (v || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })
+const fmtK = (v: number) => Math.abs(v) >= 1000 ? (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + 'k' : String(Math.round(v))
+const pctOf = (real: number, orc: number) => orc === 0 ? null : (real / orc) * 100
+const cut = (s: string, n: number) => s.length > n ? s.slice(0, n) + '…' : s
+const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
+type Rel = { id: string; codigo: string; nome: string }
+type Versao = { id: string; codigo: string }
+type Item = { id: string; codigo: string; descricao: string }
+type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null }
+
+const S: Record<string, CSSProperties> = {
+  page:   { padding: 24, fontFamily: 'system-ui, sans-serif' },
+  title:  { fontSize: 22, fontWeight: 600, color: '#212529', margin: 0 },
+  sub:    { fontSize: 13, color: '#868e96', margin: '4px 0 16px' },
+  bar:    { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 },
+  sel:    { padding: '6px 10px', fontSize: 13, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: '#495057' },
+  btn:    { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'white', color: '#495057', border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer' },
+  chip:   { fontSize: 12, color: '#868e96', marginBottom: 16 },
+  kpis:   { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14, marginBottom: 16 },
+  kpi:    { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: 16 },
+  kpiLbl: { fontSize: 12, color: '#868e96', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.3 },
+  kpiVal: { fontSize: 24, fontWeight: 700, color: '#212529', margin: '6px 0 2px' },
+  kpiSub: { fontSize: 12, color: '#868e96' },
+  grid2:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 16 },
+  card:   { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: 16, marginBottom: 16 },
+  cardT:  { fontSize: 14, fontWeight: 600, color: '#212529', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  chart:  { height: 320 },
+  empty:  { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: '#aaa', fontSize: 14 },
+  label:  { display: 'block', fontSize: 12, fontWeight: 500, color: '#495057', marginBottom: 6 },
+  input:  { width: '100%', padding: '8px 10px', fontSize: 14, border: '1px solid #ced4da', borderRadius: 8, outline: 'none', boxSizing: 'border-box' },
+  pop:    { position: 'absolute', top: '110%', left: 0, zIndex: 1500, background: 'white', border: '1px solid #e9ecef', borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.16)', padding: 16, width: 440, maxHeight: '78vh', overflow: 'auto' },
+  miniSeg:{ padding: '3px 10px', fontSize: 12, border: '1px solid #dee2e6', cursor: 'pointer', background: 'white', color: '#495057' },
+}
+const miniBtn: CSSProperties = { padding: '2px 8px', fontSize: 11, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', cursor: 'pointer', color: '#495057' }
+
+function Checklist({ titulo, items, sel, setSel }: { titulo: string; items: Item[]; sel: string[]; setSel: (v: string[]) => void }) {
+  const [b, setB] = useState('')
+  const f = b ? items.filter(i => `${i.codigo} ${i.descricao}`.toLowerCase().includes(b.toLowerCase())) : items
+  const toggle = (id: string) => setSel(sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id])
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <label style={{ ...S.label, margin: 0 }}>{titulo}</label>
+        <span style={{ fontSize: 11, color: '#adb5bd' }}>{sel.length ? `${sel.length} de ${items.length}` : 'todas'}</span>
+        <div style={{ flex: 1 }} />
+        <button style={miniBtn} onClick={() => setSel(items.map(i => i.id))}>Todas</button>
+        <button style={miniBtn} onClick={() => setSel([])}>Limpar</button>
+      </div>
+      <input style={{ ...S.input, marginBottom: 6 }} placeholder="filtrar..." value={b} onChange={e => setB(e.target.value)} />
+      <div style={{ maxHeight: 130, overflow: 'auto', border: '1px solid #f1f3f5', borderRadius: 8, padding: 4 }}>
+        {f.map(i => (
+          <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 6px', fontSize: 12, cursor: 'pointer' }}>
+            <input type="checkbox" checked={sel.includes(i.id)} onChange={() => toggle(i.id)} />
+            <span style={{ fontFamily: 'monospace', color: '#868e96', minWidth: 50 }}>{i.codigo}</span>
+            <span>{i.descricao}</span>
+          </label>
+        ))}
+        {!f.length && <div style={{ padding: 8, color: '#adb5bd', fontSize: 12 }}>Nenhum item.</div>}
+      </div>
+    </div>
+  )
+}
+
+function AnoMesGrid({ anosSel, mesesSel, setAnosSel, setMesesSel }: {
+  anosSel: number[]; mesesSel: number[]; setAnosSel: (v: number[]) => void; setMesesSel: (v: number[]) => void
+}) {
+  const toggleAno = (y: number) => setAnosSel(anosSel.includes(y) ? anosSel.filter(x => x !== y) : [...anosSel, y].sort((a, b) => a - b))
+  const toggleMes = (m: number) => setMesesSel(mesesSel.includes(m) ? mesesSel.filter(x => x !== m) : [...mesesSel, m].sort((a, b) => a - b))
+  return (
+    <div>
+      <div style={{ border: '1px solid #e9ecef', borderRadius: 8, padding: 8, overflowX: 'auto' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `48px repeat(12, minmax(20px, 1fr))`, gap: 2, minWidth: 400 }}>
+          <div />
+          {MESES.map((m, i) => (
+            <div key={i} onClick={() => toggleMes(i + 1)} title={`marcar ${m}`}
+              style={{ fontSize: 10, textAlign: 'center', padding: '2px 0', cursor: 'pointer', fontWeight: mesesSel.includes(i + 1) ? 700 : 400, color: mesesSel.includes(i + 1) ? '#3b5bdb' : '#adb5bd' }}>{m}</div>
+          ))}
+          {ANOS.map(y => (
+            <Fragment key={y}>
+              <div onClick={() => toggleAno(y)} title="marcar o ano"
+                style={{ fontSize: 12, fontWeight: anosSel.includes(y) ? 700 : 500, color: anosSel.includes(y) ? '#3b5bdb' : '#868e96', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>{y}</div>
+              {MESES.map((_, i) => {
+                const on = anosSel.includes(y) && mesesSel.includes(i + 1)
+                const half = anosSel.includes(y) !== mesesSel.includes(i + 1)
+                return <div key={i} onClick={() => { if (!anosSel.includes(y)) toggleAno(y); if (!mesesSel.includes(i + 1)) toggleMes(i + 1) }}
+                  style={{ height: 22, borderRadius: 4, cursor: 'pointer', background: on ? '#3b5bdb' : '#f8f9fa', border: '1px solid ' + (on ? '#3b5bdb' : '#eef0f2'), opacity: half ? 0.45 : 1 }} />
+              })}
+            </Fragment>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+        <button style={miniBtn} onClick={() => setMesesSel([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])}>Todos meses</button>
+        <button style={miniBtn} onClick={() => setAnosSel([...ANOS])}>Todos anos</button>
+        <button style={miniBtn} onClick={() => { setAnosSel([2026]); setMesesSel([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) }}>Reset</button>
+      </div>
+    </div>
+  )
+}
+
+function Gauge({ label, pct }: { label: string; pct: number | null }) {
+  const cx = 90, cy = 92, r = 70
+  const f = pct == null ? 0 : Math.max(0, Math.min(pct, 150)) / 150
+  const pt = (deg: number) => [cx + r * Math.cos(deg * Math.PI / 180), cy - r * Math.sin(deg * Math.PI / 180)]
+  const av = 180 - f * 180
+  const [tx0, ty0] = pt(180), [tx1, ty1] = pt(0), [vx, vy] = pt(av)
+  const cor = pct == null ? '#ced4da' : pct >= 100 ? '#2f9e44' : pct >= 80 ? '#f59f00' : '#e03131'
+  return (
+    <div style={{ textAlign: 'center' }}>
+      <svg viewBox="0 0 180 110" width="100%" style={{ maxWidth: 220 }}>
+        <path d={`M ${tx0} ${ty0} A ${r} ${r} 0 0 1 ${tx1} ${ty1}`} fill="none" stroke="#edf0f2" strokeWidth={14} strokeLinecap="round" />
+        <path d={`M ${tx0} ${ty0} A ${r} ${r} 0 0 1 ${vx} ${vy}`} fill="none" stroke={cor} strokeWidth={14} strokeLinecap="round" />
+        <text x={cx} y={cy - 6} textAnchor="middle" fontSize={26} fontWeight={700} fill="#212529">{pct == null ? '—' : Math.round(pct) + '%'}</text>
+      </svg>
+      <div style={{ fontSize: 12, color: '#868e96', fontWeight: 500, marginTop: -6 }}>{label}</div>
+    </div>
+  )
+}
+
+const SAVE = 'planorc_dash_filtro'
+function loadSaved(): any { try { return JSON.parse(localStorage.getItem(SAVE) || '{}') } catch { return {} } }
+
+export default function DashboardPage() {
+  const [rels, setRels] = useState<Rel[]>([])
+  const [versoes, setVersoes] = useState<Versao[]>([])
+  const [empresas, setEmpresas] = useState<Item[]>([])
+  const [filiais, setFiliais] = useState<Item[]>([])
+  const [ccs, setCcs] = useState<Item[]>([])
+  const sv = loadSaved()
+  const [relId, setRelId] = useState('')
+  const [versaoId, setVersaoId] = useState('')
+  const [agrupId, setAgrupId] = useState<string>(sv.agrupId || '')
+  const [agrupOpts, setAgrupOpts] = useState<{ id: string; label: string }[]>([])
+  const [anosSel, setAnosSel] = useState<number[]>(Array.isArray(sv.anosSel) && sv.anosSel.length ? sv.anosSel : [2026])
+  const [mesesSel, setMesesSel] = useState<number[]>(Array.isArray(sv.mesesSel) && sv.mesesSel.length ? sv.mesesSel : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+  const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
+  const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
+  const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
+  const [filtroOpen, setFiltroOpen] = useState(false)
+  const [medida, setMedida] = useState<'Realizado' | 'Orçado'>('Realizado')
+  const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  const [escopoNome, setEscopoNome] = useState('Relatório inteiro')
+  const [kpi, setKpi] = useState({ resOrc: 0, resReal: 0, recOrc: 0, recReal: 0, despOrc: 0, despReal: 0 })
+  const [compAno, setCompAno] = useState<any[]>([])
+  const [orcRealMes, setOrcRealMes] = useState<any[]>([])
+  const [accLines, setAccLines] = useState<any[]>([])
+  const [composicao, setComposicao] = useState<any[]>([])
+  const [filhasMes, setFilhasMes] = useState<any[]>([])
+  const [cascata, setCascata] = useState<any[]>([])
+  const [porEmpresa, setPorEmpresa] = useState<any[]>([])
+  const [ebitdaEmp, setEbitdaEmp] = useState<any[]>([])
+  const [desvios, setDesvios] = useState<any[]>([])
+  const [temDados, setTemDados] = useState(false)
+
+  useEffect(() => {
+    supabase.from('relatorio').select('id,codigo,nome').order('nome').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => p || sv.relId || r.data![0].id) })
+    supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => { setVersoes(r.data || []); if (r.data?.length) setVersaoId(p => p || sv.versaoId || r.data![0].id) })
+    supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
+    supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
+    supabase.from('centro_custo').select('id,codigo,descricao').order('codigo').then(r => setCcs(r.data || []))
+  }, []) // eslint-disable-line
+
+  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel })) }, [relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel])
+
+  const load = async () => {
+    if (!relId || !versaoId || !anosSel.length || !mesesSel.length) return
+    setLoading(true); setErro(null)
+    try {
+      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,ordem').eq('relatorio_id', relId)
+      const linhas = (linhasRaw || []) as RL[]
+      const byId: Record<string, RL> = {}; linhas.forEach(l => { byId[l.id] = l })
+      const childrenByPai: Record<string, RL[]> = {}
+      linhas.forEach(l => { const k = l.pai_id || '__root'; (childrenByPai[k] = childrenByPai[k] || []).push(l) })
+      Object.values(childrenByPai).forEach(arr => arr.sort((a, b) => (a.ordem ?? 9999) - (b.ordem ?? 9999)))
+      const masterIds = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
+      const descByMaster: Record<string, string> = {}, rlOfMaster: Record<string, string> = {}
+      linhas.forEach(l => { if (l.linha_orc_id) { descByMaster[l.linha_orc_id] = l.descricao; rlOfMaster[l.linha_orc_id] = l.id } })
+      // masters de linhas DESATIVADAS — excluídos das somatórias (como no relatório)
+      const disabledMasters = new Set<string>(); linhas.forEach(l => { if (l.desativada && l.linha_orc_id) disabledMasters.add(l.linha_orc_id) })
+      // natureza vem do dado (relatorio_linha/conta_orcamentaria); folha sem natureza herda do ANCESTRAL
+      const natCache: Record<string, string | null> = {}
+      const natOfLine = (id: string | null): string | null => {
+        if (!id) return null
+        if (id in natCache) return natCache[id]
+        const l = byId[id]; if (!l) return null
+        const n = (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : natOfLine(l.pai_id)
+        natCache[id] = n; return n
+      }
+      const natByMaster: Record<string, string> = {}
+      masterIds.forEach(m => { const n = natOfLine(rlOfMaster[m]); if (n) natByMaster[m] = n })
+
+      // opções de linha agrupadora (apenas nós com filhas), indentadas
+      const opts: { id: string; label: string }[] = []
+      const walk = (paiKey: string, depth: number) => {
+        for (const c of (childrenByPai[paiKey] || [])) {
+          if ((childrenByPai[c.id] || []).length) { opts.push({ id: c.id, label: ' '.repeat(depth * 3) + c.descricao }); walk(c.id, depth + 1) }
+        }
+      }
+      walk('__root', 0)
+      setAgrupOpts(opts)
+      const agrup = agrupId && byId[agrupId] ? agrupId : ''
+      if (agrupId && !byId[agrupId]) setAgrupId('')
+      setEscopoNome(agrup ? byId[agrup].descricao : 'Relatório inteiro')
+
+      // subárvore de masters de um nó (inclui o próprio e descendentes)
+      const subMasters = (nodeId: string): string[] => { const acc: string[] = [], st = [nodeId]; while (st.length) { const n = st.pop()!; if (byId[n]?.linha_orc_id) acc.push(byId[n].linha_orc_id!); (childrenByPai[n] || []).forEach(c => st.push(c.id)) } return acc }
+      const scopedMasters = agrup ? subMasters(agrup) : masterIds
+      const scopedSet = new Set(scopedMasters)
+      // filhas diretas do nó (ou raiz) e a qual filha cada master pertence
+      const nodeChildren = (childrenByPai[agrup || '__root'] || []).filter(c => c.tipo_linha !== 'ESPACO')
+      const masterToChild: Record<string, string> = {}, childDesc: Record<string, string> = {}
+      nodeChildren.forEach(c => { childDesc[c.id] = c.descricao; subMasters(c.id).forEach(m => { masterToChild[m] = c.id }) })
+
+      const allEmp = empresas.map(e => e.id)
+      const empIds = empresaSel.length ? empresaSel : allEmp
+      const empSet = new Set(empIds)
+      const filFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
+      const ccFilter = (ccSel.length > 0 && ccSel.length < ccs.length) ? ccSel : null
+      if (!scopedMasters.length || !empIds.length) { setTemDados(false); setLoading(false); return }
+      const anos = [...anosSel].sort((a, b) => a - b), meses = [...mesesSel].sort((a, b) => a - b)
+
+      // orçado/realizado ESCOPADOS ao nó; lineEmp FULL (p/ EBITDA = fórmula do relatório inteiro)
+      const ebNode = linhas.find(l => (l.descricao || '').toLowerCase().includes('ebitda'))
+      const linhasCalc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada }))
+      const [orcR, realR, lineEmpR] = await Promise.all([
+        supabase.rpc('relatorio_orcado_agg', { p_versao: versaoId, p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
+        supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
+        supabase.rpc('relatorio_linha_empresa_agg', { p_versao: versaoId, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
+      ])
+      if (orcR.error) throw new Error(orcR.error.message)
+      if (realR.error) throw new Error(realR.error.message)
+      if (lineEmpR.error) throw new Error(lineEmpR.error.message)
+
+      // ── período como lista e avaliação via ENGINE (orçado avalia fórmula de célula, igual ao relatório) ──
+      const periodos: Periodo[] = []
+      for (const y of anos) for (const m of meses) periodos.push({ ano: y, mes: m })
+      periodos.sort((a, b) => (a.ano - b.ano) || (a.mes - b.mes))
+      const rawOrc: RawValues = {}, rawReal: RawValues = {}
+      for (const r of orcR.data || []) { const rl = rlOfMaster[r.linha_id]; if (!rl || disabledMasters.has(r.linha_id)) continue; (rawOrc[rl] = rawOrc[rl] || {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0, expressao: r.expr ?? null } }
+      for (const r of realR.data || []) { const rl = rlOfMaster[r.linha_id]; if (!rl || disabledMasters.has(r.linha_id)) continue; (rawReal[rl] = rawReal[rl] || {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0, expressao: null } }
+      const cOrc = computeCenario(linhasCalc, rawOrc, periodos), cReal = computeCenario(linhasCalc, rawReal, periodos)
+      const tOrc = computeTotais(linhasCalc, cOrc, periodos), tReal = computeTotais(linhasCalc, cReal, periodos)
+      const leaves = linhas.filter(l => l.tipo_linha === 'ANALITICA' && !l.desativada && l.linha_orc_id)
+
+      // agregações ESCOPADAS (por mês/ano, por master, por filha) a partir da engine
+      const omYM: Record<number, Record<number, number>> = {}, rmYM: Record<number, Record<number, number>> = {}
+      const omM: Record<number, number> = {}, rmM: Record<number, number> = {}
+      const orcByMaster: Record<string, number> = {}, realByMaster: Record<string, number> = {}
+      const childMonthReal: Record<string, Record<number, number>> = {}
+      const childOrc: Record<string, number> = {}, childReal: Record<string, number> = {}
+      for (const l of leaves) {
+        const m = l.linha_orc_id!; if (!scopedSet.has(m)) continue
+        orcByMaster[m] = tOrc[l.id] || 0; realByMaster[m] = tReal[l.id] || 0
+        const ch = masterToChild[m]
+        if (ch) { childOrc[ch] = (childOrc[ch] || 0) + (tOrc[l.id] || 0); childReal[ch] = (childReal[ch] || 0) + (tReal[l.id] || 0) }
+        for (const p of periodos) {
+          const k = pkey(p), ov = cOrc[l.id]?.[k] || 0, rv = cReal[l.id]?.[k] || 0
+          ;(omYM[p.ano] = omYM[p.ano] || {})[p.mes] = (omYM[p.ano]?.[p.mes] || 0) + ov
+          ;(rmYM[p.ano] = rmYM[p.ano] || {})[p.mes] = (rmYM[p.ano]?.[p.mes] || 0) + rv
+          omM[p.mes] = (omM[p.mes] || 0) + ov; rmM[p.mes] = (rmM[p.mes] || 0) + rv
+          if (ch) (childMonthReal[ch] = childMonthReal[ch] || {})[p.mes] = (childMonthReal[ch]?.[p.mes] || 0) + rv
+        }
+      }
+
+      // EXIBIÇÃO: despesa mostrada positiva (dado continua com sinal p/ cálculo). Fator pela natureza.
+      const natFac = (n: string) => n === 'DESPESA' ? -1 : 1
+      const nodeFac = agrup ? natFac(natOfLine(agrup) || '') : 1
+      const childNat: Record<string, string> = {}; nodeChildren.forEach(c => { childNat[c.id] = natOfLine(c.id) || '' })
+
+      const src = medida === 'Realizado' ? rmYM : omYM
+      const comp = meses.map(m => { const o: any = { mes: MESES[m - 1] }; anos.forEach(y => { o[String(y)] = Math.round(nodeFac * (src[y]?.[m] || 0)) }); return o })
+      const orMes = meses.map(m => ({ mes: MESES[m - 1], Orçado: Math.round(nodeFac * (omM[m] || 0)), Realizado: Math.round(nodeFac * (rmM[m] || 0)) }))
+      const acc = anos.map(y => { let a = 0; return { id: String(y), data: meses.map(m => { a += rmYM[y]?.[m] || 0; return { x: MESES[m - 1], y: Math.round(nodeFac * a) } }) } })
+
+      const comps = nodeChildren.filter(c => (childOrc[c.id] || childReal[c.id])).map(c => { const f = natFac(childNat[c.id]); return { filha: cut(childDesc[c.id], 26), Orçado: Math.round(f * (childOrc[c.id] || 0)), Realizado: Math.round(f * (childReal[c.id] || 0)) } })
+      let run = 0
+      const steps: any[] = []
+      for (const c of nodeChildren) { const d = childReal[c.id] || 0; if (!d && !(childOrc[c.id])) continue; steps.push({ step: cut(childDesc[c.id], 14), base: Math.round(Math.min(run, run + d)), total: 0, pos: d >= 0 ? Math.round(Math.abs(d)) : 0, neg: d < 0 ? Math.round(Math.abs(d)) : 0 }); run += d }
+      steps.push({ step: 'Total', base: 0, total: Math.round(run), pos: 0, neg: 0 })
+      const childByTotal = nodeChildren.filter(c => childReal[c.id]).sort((a, b) => Math.abs(childReal[b.id]) - Math.abs(childReal[a.id])).slice(0, 8)
+      const fMes = childByTotal.map(c => { const f = natFac(childNat[c.id]); return { id: cut(childDesc[c.id], 18), data: meses.map(m => ({ x: MESES[m - 1], y: Math.round(f * (childMonthReal[c.id]?.[m] || 0)) })) } })
+
+      // KPIs do TOPO = relatório INTEIRO (todas as linhas), via engine
+      let recOF = 0, recRF = 0, despOF = 0, despRF = 0
+      for (const l of leaves) { const nat = natByMaster[l.linha_orc_id!]; if (nat === 'RECEITA') { recOF += tOrc[l.id] || 0; recRF += tReal[l.id] || 0 } else if (nat === 'DESPESA') { despOF += tOrc[l.id] || 0; despRF += tReal[l.id] || 0 } }
+      const resNode = linhas.find(l => norm(l.descricao).includes('resultado liquido'))
+      const resOrcKpi = resNode ? (tOrc[resNode.id] || 0) : leaves.reduce((s, l) => s + (tOrc[l.id] || 0), 0)
+      const resRealKpi = resNode ? (tReal[resNode.id] || 0) : leaves.reduce((s, l) => s + (tReal[l.id] || 0), 0)
+
+      // por empresa (016) + EBITDA por empresa (engine por empresa)
+      const empName: Record<string, string> = {}; empresas.forEach(e => { empName[e.id] = `${e.codigo} · ${cut(e.descricao, 22)}` })
+      const totByEmp: Record<string, { o: number; r: number }> = {}
+      const orcEM: Record<string, Record<string, number>> = {}, realEM: Record<string, Record<string, number>> = {}
+      for (const x of lineEmpR.data || []) {
+        if (!empSet.has(x.empresa_id) || disabledMasters.has(x.linha_id)) continue
+        const e = x.empresa_id, m = x.linha_id, o = Number(x.orcado) || 0, r = Number(x.realizado) || 0
+        ;(orcEM[e] = orcEM[e] || {})[m] = o; (realEM[e] = realEM[e] || {})[m] = r
+        if (scopedSet.has(m)) { (totByEmp[e] = totByEmp[e] || { o: 0, r: 0 }).o += o; totByEmp[e].r += r }
+      }
+      const pe = Object.entries(totByEmp).map(([id, v]) => ({ empresa: empName[id] || '?', Orçado: Math.round(nodeFac * v.o), Realizado: Math.round(nodeFac * v.r) })).sort((a, b) => b.Realizado - a.Realizado).slice(0, 14)
+
+      const SP: Periodo = { ano: 0, mes: 1 }; const EPK = pkey(SP)
+      const evalTot = (lineId: string, valByMaster?: Record<string, number>) => {
+        const computed: Computed = {}; linhasCalc.forEach(l => { computed[l.id] = {} })
+        for (const mm of masterIds) { const rl = rlOfMaster[mm]; if (rl) computed[rl][EPK] = (valByMaster?.[mm]) || 0 }
+        return computeTotais(linhasCalc, computed, [SP])[lineId] || 0
+      }
+      let eb: any[] = []
+      if (ebNode) {
+        eb = Object.keys(orcEM).filter(id => empSet.has(id)).map(id => ({ empresa: empName[id] || '?', Orçado: Math.round(evalTot(ebNode.id, orcEM[id])), Realizado: Math.round(evalTot(ebNode.id, realEM[id])) }))
+          .filter(x => x.Orçado || x.Realizado).sort((a, b) => b.Realizado - a.Realizado).slice(0, 14)
+      }
+
+      const desv = scopedMasters.map(m => ({ conta: descByMaster[m] || '—', d: (realByMaster[m] || 0) - (orcByMaster[m] || 0) }))
+        .filter(x => x.d).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 12).reverse().map(x => ({ conta: cut(x.conta, 26), Δ: Math.round(x.d) }))
+
+      setKpi({ resOrc: resOrcKpi, resReal: resRealKpi, recOrc: recOF, recReal: recRF, despOrc: despOF, despReal: despRF })
+      setCompAno(comp); setOrcRealMes(orMes); setAccLines(acc); setComposicao(comps); setFilhasMes(fMes); setCascata(steps)
+      setPorEmpresa(pe); setEbitdaEmp(eb); setDesvios(desv)
+      setTemDados(Object.keys(omM).length > 0 || Object.keys(rmM).length > 0)
+    } catch (e: any) { setErro(e?.message ?? String(e)) }
+    setLoading(false)
+  }
+  useEffect(() => { load() }, [relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, medida]) // eslint-disable-line
+
+  const anosOrd = [...anosSel].sort((a, b) => a - b)
+  const yearKeys = anosOrd.map(String)
+  const chip = `${escopoNome} · ${anosOrd.join(', ') || '—'} · ${mesesSel.length === 12 ? 'todos os meses' : mesesSel.length + ' meses'}`
+    + ` · ${empresaSel.length ? empresaSel.length + ' empresa(s)' : 'todas as empresas'}`
+    + (filialSel.length && filialSel.length < filiais.length ? ` · ${filialSel.length} filial` : '')
+    + (ccSel.length && ccSel.length < ccs.length ? ` · ${ccSel.length} CC` : '')
+
+  const KpiCard = ({ lbl, orc, real, desp }: { lbl: string; orc: number; real: number; desp?: boolean }) => {
+    const p = pctOf(real, orc); const up = real >= orc
+    const f = desp ? -1 : 1   // despesa exibida positiva (dado é negativo)
+    return (
+      <div style={S.kpi}>
+        <div style={S.kpiLbl}>{lbl}</div>
+        <div style={{ ...S.kpiVal, color: desp ? '#e03131' : '#212529' }}>{fmt(f * real)}</div>
+        <div style={S.kpiSub}>Orçado {fmt(f * orc)} · {p == null ? '—' : <span style={{ color: up ? '#2f9e44' : '#e03131', fontWeight: 600 }}>{up ? <TrendingUp size={11} /> : <TrendingDown size={11} />} {p.toFixed(0)}%</span>}</div>
+      </div>
+    )
+  }
+  const Seg = ({ v }: { v: 'Realizado' | 'Orçado' }) => (
+    <button onClick={() => setMedida(v)} style={{ ...S.miniSeg, background: medida === v ? '#3b5bdb' : 'white', color: medida === v ? 'white' : '#495057', borderColor: medida === v ? '#3b5bdb' : '#dee2e6', borderRadius: v === 'Realizado' ? '6px 0 0 6px' : '0 6px 6px 0' }}>{v}</button>
+  )
+
+  return (
+    <div style={S.page}>
+      <h1 style={S.title}>Dashboard — DRE Orçado × Realizado</h1>
+      <p style={S.sub}>Escopo: <strong>{escopoNome}</strong>. Comparativos multi-ano, por filha e por empresa.</p>
+
+      <div style={S.bar}>
+        <select style={S.sel} value={relId} onChange={e => { setRelId(e.target.value); setAgrupId('') }}>
+          <option value="">— Relatório —</option>
+          {rels.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
+        </select>
+        <select style={{ ...S.sel, maxWidth: 260 }} value={agrupId} onChange={e => setAgrupId(e.target.value)} title="Linha agrupadora">
+          <option value="">Relatório inteiro</option>
+          {agrupOpts.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
+        <select style={S.sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>
+          <option value="">— Versão —</option>
+          {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}
+        </select>
+        <div style={{ position: 'relative' }}>
+          <button style={S.btn} onClick={() => setFiltroOpen(o => !o)}><Filter size={13} /> Filtros</button>
+          {filtroOpen && (
+            <>
+              <div onClick={() => setFiltroOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1400 }} />
+              <div style={S.pop}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <strong style={{ fontSize: 14, color: '#212529' }}>Filtros</strong>
+                  <X size={18} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={() => setFiltroOpen(false)} />
+                </div>
+                <label style={S.label}>Período — anos (vertical) × meses (horizontal)</label>
+                <AnoMesGrid anosSel={anosSel} mesesSel={mesesSel} setAnosSel={setAnosSel} setMesesSel={setMesesSel} />
+                <Checklist titulo="Empresa" items={empresas} sel={empresaSel} setSel={setEmpresaSel} />
+                <Checklist titulo="Filial" items={filiais} sel={filialSel} setSel={setFilialSel} />
+                <Checklist titulo="Centro de Custo" items={ccs} sel={ccSel} setSel={setCcSel} />
+                <button style={{ ...S.btn, width: '100%', justifyContent: 'center', marginTop: 14, background: '#3b5bdb', color: 'white', borderColor: '#3b5bdb' }} onClick={() => setFiltroOpen(false)}>Aplicar e fechar</button>
+              </div>
+            </>
+          )}
+        </div>
+        <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
+        {loading && <span style={{ fontSize: 12, color: '#aaa' }}>Carregando…</span>}
+      </div>
+      <div style={S.chip}>{chip}</div>
+
+      {erro && <div style={{ background: '#fff5f5', border: '1px solid #ffc9c9', borderRadius: 8, padding: '10px 14px', color: '#c92a2a', fontSize: 13, marginBottom: 16 }}>⚠ {erro}</div>}
+
+      {!temDados && !loading ? (
+        <div style={S.empty}>Sem dados para os filtros selecionados.</div>
+      ) : (
+        <>
+          <div style={{ fontSize: 11, color: '#adb5bd', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, marginBottom: 8 }}>Visão geral do relatório (não afetada pela linha agrupadora)</div>
+          <div style={S.kpis}>
+            <KpiCard lbl="Resultado" orc={kpi.resOrc} real={kpi.resReal} />
+            <KpiCard lbl="Receita" orc={kpi.recOrc} real={kpi.recReal} />
+            <KpiCard lbl="Despesa" orc={kpi.despOrc} real={kpi.despReal} desp />
+          </div>
+
+          <div style={{ ...S.card, display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap', gap: 16 }}>
+            <Gauge label="Execução Resultado" pct={pctOf(kpi.resReal, kpi.resOrc)} />
+            <Gauge label="Execução Receita" pct={pctOf(kpi.recReal, kpi.recOrc)} />
+            <Gauge label="Execução Despesa" pct={pctOf(kpi.despReal, kpi.despOrc)} />
+          </div>
+
+          <div style={S.grid2}>
+            <div style={S.card}>
+              <div style={S.cardT}>Composição por filha — {escopoNome}</div>
+              {composicao.length ? (
+                <div style={{ height: Math.max(220, composicao.length * 34 + 50) }}>
+                  <ResponsiveBar data={composicao} keys={['Orçado', 'Realizado']} indexBy="filha" layout="horizontal" groupMode="grouped"
+                    margin={{ top: 6, right: 24, bottom: 30, left: 160 }} padding={0.25} innerPadding={2}
+                    colors={['#adb5bd', '#3b5bdb']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
+                    enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                    legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
+                </div>
+              ) : <div style={{ padding: '40px 12px', color: '#adb5bd', fontSize: 13, textAlign: 'center' }}>Esta linha não tem filhas com valor.</div>}
+            </div>
+            <div style={S.card}>
+              <div style={S.cardT}>Filhas ao longo dos meses (realizado)</div>
+              {filhasMes.length ? (
+                <div style={S.chart}>
+                  <ResponsiveLine data={filhasMes} margin={{ top: 10, right: 16, bottom: 64, left: 56 }}
+                    xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }}
+                    colors={filhasMes.map((_, i) => CAT[i % CAT.length])} pointSize={5} useMesh curve="monotoneX"
+                    axisLeft={{ format: (v: any) => fmtK(Number(v)) }}
+                    legends={[{ anchor: 'bottom', direction: 'row', translateY: 56, itemWidth: 110, itemHeight: 14, symbolSize: 10, itemsSpacing: 2 }]} />
+                </div>
+              ) : <div style={{ padding: '40px 12px', color: '#adb5bd', fontSize: 13, textAlign: 'center' }}>Sem filhas com realizado.</div>}
+            </div>
+          </div>
+
+          <div style={S.card}>
+            <div style={S.cardT}>
+              <span>Comparativo mensal por ano — {escopoNome}</span>
+              <div style={{ display: 'flex' }}><Seg v="Realizado" /><Seg v="Orçado" /></div>
+            </div>
+            <div style={S.chart}>
+              <ResponsiveBar data={compAno} keys={yearKeys} indexBy="mes" groupMode="grouped"
+                margin={{ top: 10, right: 10, bottom: 40, left: 56 }} padding={0.2} innerPadding={2}
+                colors={yearKeys.map((_, i) => YCOLORS[i % YCOLORS.length])} borderRadius={3}
+                axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 56, itemHeight: 16, symbolSize: 12 }]} />
+            </div>
+          </div>
+
+          <div style={S.grid2}>
+            <div style={S.card}>
+              <div style={S.cardT}>Orçado × Realizado por mês</div>
+              <div style={S.chart}>
+                <ResponsiveBar data={orcRealMes} keys={['Orçado', 'Realizado']} indexBy="mes" groupMode="grouped"
+                  margin={{ top: 10, right: 10, bottom: 40, left: 56 }} padding={0.25} innerPadding={2}
+                  colors={['#adb5bd', '#3b5bdb']} borderRadius={3}
+                  axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                  legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
+              </div>
+            </div>
+            <div style={S.card}>
+              <div style={S.cardT}>Acumulado (realizado) por ano</div>
+              <div style={S.chart}>
+                <ResponsiveLine data={accLines} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
+                  xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }}
+                  colors={yearKeys.map((_, i) => YCOLORS[i % YCOLORS.length])} pointSize={6} pointBorderWidth={1} useMesh curve="monotoneX"
+                  axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableArea areaOpacity={0.05}
+                  legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 56, itemHeight: 16, symbolSize: 12 }]} />
+              </div>
+            </div>
+          </div>
+
+          <div style={S.card}>
+            <div style={S.cardT}>Cascata — {escopoNome} (realizado, por filha)</div>
+            <div style={S.chart}>
+              <ResponsiveBar data={cascata} keys={['base', 'neg', 'pos', 'total']} indexBy="step"
+                margin={{ top: 10, right: 10, bottom: 50, left: 56 }} padding={0.3}
+                colors={(b: any) => b.id === 'base' ? 'transparent' : b.id === 'total' ? '#3b5bdb' : b.id === 'pos' ? '#2f9e44' : '#e03131'}
+                axisLeft={{ format: (v: any) => fmtK(Number(v)) }} axisBottom={{ tickRotation: -30 }}
+                enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate />
+            </div>
+          </div>
+
+          <div style={S.grid2}>
+            <div style={S.card}>
+              <div style={S.cardT}>{escopoNome} por empresa</div>
+              <div style={{ height: Math.max(220, porEmpresa.length * 30 + 50) }}>
+                <ResponsiveBar data={porEmpresa} keys={['Orçado', 'Realizado']} indexBy="empresa" layout="horizontal" groupMode="grouped"
+                  margin={{ top: 6, right: 24, bottom: 30, left: 150 }} padding={0.25} innerPadding={2}
+                  colors={['#adb5bd', '#3b5bdb']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
+                  enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                  legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
+              </div>
+            </div>
+            <div style={S.card}>
+              <div style={S.cardT}>EBITDA por empresa</div>
+              {ebitdaEmp.length ? (
+                <div style={{ height: Math.max(220, ebitdaEmp.length * 30 + 50) }}>
+                  <ResponsiveBar data={ebitdaEmp} keys={['Orçado', 'Realizado']} indexBy="empresa" layout="horizontal" groupMode="grouped"
+                    margin={{ top: 6, right: 24, bottom: 30, left: 150 }} padding={0.25} innerPadding={2}
+                    colors={['#ffd8a8', '#e8590c']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
+                    enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                    legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
+                </div>
+              ) : <div style={{ padding: '40px 12px', color: '#adb5bd', fontSize: 13, textAlign: 'center' }}>Nenhuma linha "EBITDA" encontrada neste relatório.</div>}
+            </div>
+          </div>
+
+          <div style={S.card}>
+            <div style={S.cardT}>Maiores desvios (Realizado − Orçado) — {escopoNome}</div>
+            <div style={{ height: Math.max(220, desvios.length * 26 + 50) }}>
+              <ResponsiveBar data={desvios} keys={['Δ']} indexBy="conta" layout="horizontal"
+                margin={{ top: 6, right: 24, bottom: 24, left: 200 }} padding={0.3}
+                colors={(b: any) => (b.value >= 0 ? '#2f9e44' : '#e03131')} enableGridX
+                axisBottom={{ format: (v: any) => fmtK(Number(v)) }} valueFormat={(v: any) => fmt(Number(v))}
+                labelSkipWidth={9999} animate />
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
