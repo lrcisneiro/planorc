@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
-import { ArrowRight, Link2, Trash2, Search, Check, Download, Upload } from 'lucide-react'
+import { ArrowRight, Link2, Trash2, Search, Check, Download, Upload, RefreshCw } from 'lucide-react'
 
 declare const XLSX: any
 function downloadSheet(filename: string, aoa: any[][]) {
@@ -154,6 +154,12 @@ export default function AmarracaoPage() {
   }
   const removeLink = async (id: string) => { await supabase.from('conta_linha').delete().eq('id', id); loadLinks(); setAmarradas(new Set([...amarradas])) }
   const toggleSinal = async (id: string, sinal: number) => { await supabase.from('conta_linha').update({ sinal }).eq('id', id); loadLinks() }
+  // o cubo do realizado depende do DE-PARA → recalcular após mudanças de amarração
+  const recalcular = async () => {
+    setMsg('Recalculando agregados…')
+    const { error } = await supabase.rpc('refresh_realizado_mensal')
+    setMsg(error ? 'Erro ao recalcular: ' + error.message : 'Agregados do realizado recalculados.')
+  }
 
   // ── Exportar / Importar DE-PARA (conta contábil → conta orçamentária), independente de relatório
   const exportar = async () => {
@@ -254,6 +260,7 @@ export default function AmarracaoPage() {
         </select>
         <div style={{ flex: 1 }} />
         {msg && <span style={{ fontSize: 12, color: '#2f9e44' }}>{msg}</span>}
+        <button style={S.btn} onClick={recalcular} title="Recalcular os agregados do realizado (cubos) — necessário após mudar amarrações"><RefreshCw size={13} /> Recalcular</button>
         <button style={S.btn} onClick={baixarModelo} title="Baixar modelo do DE-PARA"><Download size={13} /> Modelo</button>
         <button style={S.btn} onClick={exportar} title="Exportar todas as amarrações"><Download size={13} /> Exportar</button>
         <select style={S.sel} value={modoImp} onChange={e => setModoImp(e.target.value as 'add' | 'full')} title="Modo de importação">

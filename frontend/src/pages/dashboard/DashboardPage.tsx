@@ -5,7 +5,9 @@ import { computeCenario, computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo, RawValues } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
 import { ResponsiveLine } from '@nivo/line'
-import { TrendingUp, TrendingDown, RefreshCw, Filter, X } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { TrendingUp, TrendingDown, RefreshCw, Filter, X, ArrowLeft } from 'lucide-react'
+import DrillModal from './DrillModal'
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 const ANOS = [2024, 2025, 2026, 2027, 2028]
@@ -16,6 +18,20 @@ const fmtK = (v: number) => Math.abs(v) >= 1000 ? (v / 1000).toLocaleString('pt-
 const pctOf = (real: number, orc: number) => orc === 0 ? null : (real / orc) * 100
 const cut = (s: string, n: number) => s.length > n ? s.slice(0, n) + '…' : s
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+const tipBox: CSSProperties = { background: 'white', padding: '8px 10px', border: '1px solid #e9ecef', borderRadius: 6, fontSize: 12, boxShadow: '0 4px 14px rgba(0,0,0,0.08)' }
+// tooltip de Orçado × Realizado com Δ (R−O) e separador de milhar
+function TipOR({ titulo, data, hint }: { titulo: string; data: any; hint?: string }) {
+  const o = Number(data['Orçado'] || 0), r = Number(data['Realizado'] || 0), d = r - o
+  return (
+    <div style={tipBox}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>{titulo}</div>
+      <div><span style={{ color: '#868e96' }}>Orçado:</span> {fmt(o)}</div>
+      <div><span style={{ color: '#868e96' }}>Realizado:</span> {fmt(r)}</div>
+      <div style={{ color: d >= 0 ? '#2f9e44' : '#e03131', fontWeight: 600 }}>Δ (R−O): {fmt(d)}</div>
+      {hint && <div style={{ color: '#adb5bd', marginTop: 4 }}>{hint}</div>}
+    </div>
+  )
+}
 
 type Rel = { id: string; codigo: string; nome: string }
 type Versao = { id: string; codigo: string }
@@ -167,6 +183,8 @@ export default function DashboardPage() {
   const [ebitdaEmp, setEbitdaEmp] = useState<any[]>([])
   const [desvios, setDesvios] = useState<any[]>([])
   const [temDados, setTemDados] = useState(false)
+  const [drill, setDrill] = useState<{ nodeId: string; medida: 'Realizado' | 'Orçado' } | null>(null)
+  const [qparams, setQparams] = useState<{ empIds: string[]; anos: number[]; meses: number[]; filFilter: string[] | null; ccFilter: string[] | null } | null>(null)
 
   useEffect(() => {
     supabase.from('relatorio').select('id,codigo,nome').order('nome').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => p || sv.relId || r.data![0].id) })
@@ -234,6 +252,7 @@ export default function DashboardPage() {
       const ccFilter = (ccSel.length > 0 && ccSel.length < ccs.length) ? ccSel : null
       if (!scopedMasters.length || !empIds.length) { setTemDados(false); setLoading(false); return }
       const anos = [...anosSel].sort((a, b) => a - b), meses = [...mesesSel].sort((a, b) => a - b)
+      setQparams({ empIds, anos, meses, filFilter, ccFilter })
 
       // orçado/realizado ESCOPADOS ao nó; lineEmp FULL (p/ EBITDA = fórmula do relatório inteiro)
       const ebNode = linhas.find(l => (l.descricao || '').toLowerCase().includes('ebitda'))
@@ -288,7 +307,7 @@ export default function DashboardPage() {
       const orMes = meses.map(m => ({ mes: MESES[m - 1], Orçado: Math.round(nodeFac * (omM[m] || 0)), Realizado: Math.round(nodeFac * (rmM[m] || 0)) }))
       const acc = anos.map(y => { let a = 0; return { id: String(y), data: meses.map(m => { a += rmYM[y]?.[m] || 0; return { x: MESES[m - 1], y: Math.round(nodeFac * a) } }) } })
 
-      const comps = nodeChildren.filter(c => (childOrc[c.id] || childReal[c.id])).map(c => { const f = natFac(childNat[c.id]); return { filha: cut(childDesc[c.id], 26), Orçado: Math.round(f * (childOrc[c.id] || 0)), Realizado: Math.round(f * (childReal[c.id] || 0)) } })
+      const comps = nodeChildren.filter(c => (childOrc[c.id] || childReal[c.id])).map(c => { const f = natFac(childNat[c.id]); return { id: c.id, filha: cut(childDesc[c.id], 26), Orçado: Math.round(f * (childOrc[c.id] || 0)), Realizado: Math.round(f * (childReal[c.id] || 0)) } })
       let run = 0
       const steps: any[] = []
       for (const c of nodeChildren) { const d = childReal[c.id] || 0; if (!d && !(childOrc[c.id])) continue; steps.push({ step: cut(childDesc[c.id], 14), base: Math.round(Math.min(run, run + d)), total: 0, pos: d >= 0 ? Math.round(Math.abs(d)) : 0, neg: d < 0 ? Math.round(Math.abs(d)) : 0 }); run += d }
@@ -327,8 +346,8 @@ export default function DashboardPage() {
           .filter(x => x.Orçado || x.Realizado).sort((a, b) => b.Realizado - a.Realizado).slice(0, 14)
       }
 
-      const desv = scopedMasters.map(m => ({ conta: descByMaster[m] || '—', d: (realByMaster[m] || 0) - (orcByMaster[m] || 0) }))
-        .filter(x => x.d).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 12).reverse().map(x => ({ conta: cut(x.conta, 26), Δ: Math.round(x.d) }))
+      const desv = scopedMasters.map(m => ({ m, conta: descByMaster[m] || '—', d: (realByMaster[m] || 0) - (orcByMaster[m] || 0) }))
+        .filter(x => x.d).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 12).reverse().map(x => ({ conta: cut(x.conta, 26), Δ: Math.round(x.d), nodeId: rlOfMaster[x.m] }))
 
       setKpi({ resOrc: resOrcKpi, resReal: resRealKpi, recOrc: recOF, recReal: recRF, despOrc: despOF, despReal: despRF })
       setCompAno(comp); setOrcRealMes(orMes); setAccLines(acc); setComposicao(comps); setFilhasMes(fMes); setCascata(steps)
@@ -337,10 +356,11 @@ export default function DashboardPage() {
     } catch (e: any) { setErro(e?.message ?? String(e)) }
     setLoading(false)
   }
-  useEffect(() => { load() }, [relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, medida]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, medida, empresas, filiais, ccs]) // eslint-disable-line
 
   const anosOrd = [...anosSel].sort((a, b) => a - b)
   const yearKeys = anosOrd.map(String)
+  const deltaMes = orcRealMes.map((m: any) => ({ mes: m.mes, 'Δ': Math.round((m.Realizado || 0) - (m.Orçado || 0)) }))
   const chip = `${escopoNome} · ${anosOrd.join(', ') || '—'} · ${mesesSel.length === 12 ? 'todos os meses' : mesesSel.length + ' meses'}`
     + ` · ${empresaSel.length ? empresaSel.length + ' empresa(s)' : 'todas as empresas'}`
     + (filialSel.length && filialSel.length < filiais.length ? ` · ${filialSel.length} filial` : '')
@@ -363,8 +383,11 @@ export default function DashboardPage() {
 
   return (
     <div style={S.page}>
-      <h1 style={S.title}>Dashboard — DRE Orçado × Realizado</h1>
-      <p style={S.sub}>Escopo: <strong>{escopoNome}</strong>. Comparativos multi-ano, por filha e por empresa.</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
+        <Link to="/dashboards" style={{ ...S.btn, textDecoration: 'none' }}><ArrowLeft size={14} /> Dashboards</Link>
+        <h1 style={S.title}>DRE — Acompanhamento</h1>
+      </div>
+      <p style={S.sub}>Escopo: <strong>{escopoNome}</strong>. Execução orçado × realizado, por filha e por empresa.</p>
 
       <div style={S.bar}>
         <select style={S.sel} value={relId} onChange={e => { setRelId(e.target.value); setAgrupId('') }}>
@@ -431,7 +454,8 @@ export default function DashboardPage() {
                   <ResponsiveBar data={composicao} keys={['Orçado', 'Realizado']} indexBy="filha" layout="horizontal" groupMode="grouped"
                     margin={{ top: 6, right: 24, bottom: 30, left: 160 }} padding={0.25} innerPadding={2}
                     colors={['#adb5bd', '#3b5bdb']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
-                    enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                    enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate onClick={(d: any) => d.data.id && qparams && setDrill({ nodeId: d.data.id, medida: d.id === 'Orçado' ? 'Orçado' : 'Realizado' })}
+                    tooltip={({ data }: any) => <TipOR titulo={data.filha} data={data} hint="clique para detalhar" />}
                     legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
                 </div>
               ) : <div style={{ padding: '40px 12px', color: '#adb5bd', fontSize: 13, textAlign: 'center' }}>Esta linha não tem filhas com valor.</div>}
@@ -441,7 +465,7 @@ export default function DashboardPage() {
               {filhasMes.length ? (
                 <div style={S.chart}>
                   <ResponsiveLine data={filhasMes} margin={{ top: 10, right: 16, bottom: 64, left: 56 }}
-                    xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }}
+                    xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
                     colors={filhasMes.map((_, i) => CAT[i % CAT.length])} pointSize={5} useMesh curve="monotoneX"
                     axisLeft={{ format: (v: any) => fmtK(Number(v)) }}
                     legends={[{ anchor: 'bottom', direction: 'row', translateY: 56, itemWidth: 110, itemHeight: 14, symbolSize: 10, itemsSpacing: 2 }]} />
@@ -472,18 +496,30 @@ export default function DashboardPage() {
                   margin={{ top: 10, right: 10, bottom: 40, left: 56 }} padding={0.25} innerPadding={2}
                   colors={['#adb5bd', '#3b5bdb']} borderRadius={3}
                   axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                  tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} />}
                   legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
               </div>
             </div>
             <div style={S.card}>
-              <div style={S.cardT}>Acumulado (realizado) por ano</div>
+              <div style={S.cardT}>Diferença (Realizado − Orçado) por mês</div>
               <div style={S.chart}>
-                <ResponsiveLine data={accLines} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
-                  xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }}
-                  colors={yearKeys.map((_, i) => YCOLORS[i % YCOLORS.length])} pointSize={6} pointBorderWidth={1} useMesh curve="monotoneX"
-                  axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableArea areaOpacity={0.05}
-                  legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 56, itemHeight: 16, symbolSize: 12 }]} />
+                <ResponsiveBar data={deltaMes} keys={['Δ']} indexBy="mes"
+                  margin={{ top: 10, right: 10, bottom: 40, left: 56 }} padding={0.3} borderRadius={3}
+                  colors={(b: any) => (b.value >= 0 ? '#2f9e44' : '#e03131')}
+                  axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                  tooltip={({ indexValue, value }: any) => <div style={tipBox}><strong>{String(indexValue)}</strong><br /><span style={{ color: Number(value) >= 0 ? '#2f9e44' : '#e03131', fontWeight: 600 }}>Δ (R−O): {fmt(Number(value))}</span></div>} />
               </div>
+            </div>
+          </div>
+
+          <div style={S.card}>
+            <div style={S.cardT}>Acumulado (realizado) por ano</div>
+            <div style={S.chart}>
+              <ResponsiveLine data={accLines} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
+                xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
+                colors={yearKeys.map((_, i) => YCOLORS[i % YCOLORS.length])} pointSize={6} pointBorderWidth={1} useMesh curve="monotoneX"
+                axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableArea areaOpacity={0.05}
+                legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 56, itemHeight: 16, symbolSize: 12 }]} />
             </div>
           </div>
 
@@ -506,6 +542,7 @@ export default function DashboardPage() {
                   margin={{ top: 6, right: 24, bottom: 30, left: 150 }} padding={0.25} innerPadding={2}
                   colors={['#adb5bd', '#3b5bdb']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
                   enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                  tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} />}
                   legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
               </div>
             </div>
@@ -517,6 +554,7 @@ export default function DashboardPage() {
                     margin={{ top: 6, right: 24, bottom: 30, left: 150 }} padding={0.25} innerPadding={2}
                     colors={['#ffd8a8', '#e8590c']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
                     enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                    tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} />}
                     legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
                 </div>
               ) : <div style={{ padding: '40px 12px', color: '#adb5bd', fontSize: 13, textAlign: 'center' }}>Nenhuma linha "EBITDA" encontrada neste relatório.</div>}
@@ -530,10 +568,15 @@ export default function DashboardPage() {
                 margin={{ top: 6, right: 24, bottom: 24, left: 200 }} padding={0.3}
                 colors={(b: any) => (b.value >= 0 ? '#2f9e44' : '#e03131')} enableGridX
                 axisBottom={{ format: (v: any) => fmtK(Number(v)) }} valueFormat={(v: any) => fmt(Number(v))}
-                labelSkipWidth={9999} animate />
+                labelSkipWidth={9999} animate onClick={(d: any) => d.data.nodeId && qparams && setDrill({ nodeId: d.data.nodeId, medida: 'Realizado' })} />
             </div>
           </div>
         </>
+      )}
+
+      {drill && qparams && (
+        <DrillModal relId={relId} versaoId={versaoId} medida={drill.medida} empIds={qparams.empIds} anos={qparams.anos} meses={qparams.meses}
+          filFilter={qparams.filFilter} ccFilter={qparams.ccFilter} startNodeId={drill.nodeId} onClose={() => setDrill(null)} />
       )}
     </div>
   )

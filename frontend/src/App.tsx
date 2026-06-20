@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, Link2, Scale, Wallet, LogOut } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, Link2, Wallet, LogOut } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 import CadastrosPage from './pages/cadastros/CadastrosPage'
@@ -9,6 +9,10 @@ import RelatorioEditorPage from './pages/relatorios/RelatorioEditorPage'
 import OrcadoDadosPage from './pages/orcamento/OrcadoDadosPage'
 import RealizadoDadosPage from './pages/realizado/RealizadoDadosPage'
 import DashboardPage from './pages/dashboard/DashboardPage'
+import DashboardsHubPage from './pages/dashboard/DashboardsHubPage'
+import ComparativoAnualPage from './pages/dashboard/ComparativoAnualPage'
+import CagrPage from './pages/dashboard/CagrPage'
+import ExecutivoPage from './pages/dashboard/ExecutivoPage'
 import BalancoDashboardPage from './pages/balanco/BalancoDashboardPage'
 import AmarracaoPage from './pages/amarracao/AmarracaoPage'
 import SaldoDadosPage from './pages/saldos/SaldoDadosPage'
@@ -16,8 +20,7 @@ import ConfiguracoesPage from './pages/configuracoes/ConfiguracoesPage'
 import LoginPage from './pages/login/LoginPage'
 
 const NAV = [
-  { to: '/dashboard',  label: 'Dashboard',     icon: LayoutDashboard },
-  { to: '/balanco',    label: 'Dash Balanço',  icon: Scale },
+  { to: '/dashboards', label: 'Dashboards',    icon: LayoutDashboard },
   { to: '/relatorios', label: 'Relatórios',    icon: Table2 },
   { to: '/orcamento',  label: 'Orçamento',     icon: FileText },
   { to: '/realizado',  label: 'Realizado',     icon: Receipt },
@@ -93,7 +96,11 @@ export default function App() {
         <main style={S.main}>
           <div style={S.content}>
             <Routes>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/" element={<Navigate to="/dashboards" replace />} />
+              <Route path="/dashboards"      element={<DashboardsHubPage />} />
+              <Route path="/dashboards/anual"     element={<ComparativoAnualPage />} />
+              <Route path="/dashboards/cagr"      element={<CagrPage />} />
+              <Route path="/dashboards/executivo" element={<ExecutivoPage />} />
               <Route path="/dashboard"       element={<DashboardPage />} />
               <Route path="/balanco"         element={<BalancoDashboardPage />} />
               <Route path="/relatorios"      element={<RelatorioPage />} />

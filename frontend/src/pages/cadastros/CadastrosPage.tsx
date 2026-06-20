@@ -6,7 +6,7 @@ import { supabase, TENANT_ID } from '../../lib/supabase'
 declare const XLSX: any
 import { Plus, Trash2, Check, X, Upload, AlertCircle, Download, FileDown, Pencil, Copy, Link2, ChevronRight, ChevronDown, ChevronsUpDown } from 'lucide-react'
 
-type Aba = 'empresas' | 'filiais' | 'cc' | 'planos' | 'contas' | 'estrutura' | 'funcionarios' | 'verbas' | 'versoes'
+type Aba = 'empresas' | 'filiais' | 'cc' | 'planos' | 'contas' | 'estrutura' | 'funcionarios' | 'verbas' | 'versoes' | 'lotes'
 
 // ─── Styles ──────────────────────────────────────────────────
 const S = {
@@ -1450,6 +1450,269 @@ function PlanosTab() {
 }
 
 // ─── Página principal ─────────────────────────────────────────
+// ─── LotesTab (lotes contábeis a ignorar nos comparativos) ────
+function LotesTab() {
+  const [data, setData] = useState<any[]>([])
+  const [empresas, setEmpresas] = useState<any[]>([])
+  const [adding, setAdding] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [busca, setBusca] = useState('')
+  const [erro, setErro] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
+  const [sugAno, setSugAno] = useState<number>(new Date().getFullYear())
+  const [sug, setSug] = useState<any[] | null>(null)
+  const [sugBusy, setSugBusy] = useState(false)
+  const [histTermo, setHistTermo] = useState('ENCERRAMENTO, EXERC, APURACAO, APURAÇÃO, RESULTADO DO EXERC')
+  const [sugH, setSugH] = useState<any[] | null>(null)
+  const [sugHBusy, setSugHBusy] = useState(false)
+
+  const HEADERS = ['lote', 'por_prefixo', 'sublote', 'empresa_codigo', 'descricao', 'ativo', 'pular_import']
+  const EXEMPLO = ['Q', 'SIM', '', '', 'Lotes de fechamento (começam com Q)', 'SIM', 'SIM']
+  const empCod = (id: string) => empresas.find(e => e.id === id)?.codigo || ''
+  const COLS = [
+    { key: 'lote', placeholder: 'Lote' },
+    { key: 'por_prefixo', placeholder: 'Prefixo?', type: 'select' as const, options: [{ value: '1', label: 'Sim (começa com)' }] },
+    { key: 'sublote', placeholder: 'Sublote (opcional)' },
+    { key: 'empresa_id', placeholder: 'Empresa', type: 'select' as const, options: empresas.map(e => ({ value: e.id, label: `${e.codigo} · ${e.descricao}` })) },
+    { key: 'descricao', placeholder: 'Descrição' },
+  ]
+
+  const load = async () => {
+    try { setData(await fetchAll(() => supabase.from('lote_ignorado').select('*, empresa(codigo,descricao)').order('lote'))) }
+    catch (e: any) { setErro(String(e)) }
+  }
+  useEffect(() => {
+    load()
+    fetchAll(() => supabase.from('empresa').select('id,codigo,descricao').order('codigo')).then(setEmpresas)
+  }, [])
+  const filtered = filtraBusca(data, busca, l => `${l.lote} ${l.sublote || ''} ${empCod(l.empresa_id)} ${l.descricao || ''}`)
+
+  const save = async (v: Record<string, string>, id?: string) => {
+    if (!v.lote) { setErro('Lote é obrigatório'); return }
+    setErro(null)
+    const payload = { lote: v.lote.trim(), por_prefixo: !!v.por_prefixo, sublote: v.sublote?.trim() || null, empresa_id: v.empresa_id || null, descricao: v.descricao?.trim() || null }
+    const { error } = id
+      ? await supabase.from('lote_ignorado').update(payload).eq('id', id)
+      : await supabase.from('lote_ignorado').insert({ tenant_id: TENANT_ID, ...payload, ativo: true, pular_import: false })
+    if (error) { setErro(error.message); return }
+    setAdding(false); setEditId(null); load()
+  }
+
+  const del = async (id: string) => {
+    if (!confirm('Excluir este lote do cadastro?')) return
+    const { error } = await supabase.from('lote_ignorado').delete().eq('id', id)
+    if (error) setErro(error.message); else load()
+  }
+
+  const toggle = async (l: any, campo: 'ativo' | 'pular_import' | 'por_prefixo') => {
+    const { error } = await supabase.from('lote_ignorado').update({ [campo]: !l[campo] }).eq('id', l.id)
+    if (error) setErro(error.message); else load()
+  }
+
+  const importar = async (file: File) => {
+    setErro(null); setInfo('Importando...')
+    try {
+      const rows = await parseXlsx(file)
+      if (!rows.length) { setErro('Arquivo vazio'); setInfo(null); return }
+      const empByCod: Record<string, string> = {}; empresas.forEach(e => { empByCod[String(e.codigo).toUpperCase()] = e.id })
+      const sim = (s: string) => ['SIM', 'S', 'TRUE', '1', 'X'].includes(s.trim().toUpperCase())
+      const registros = rows.map(r => ({
+        tenant_id: TENANT_ID,
+        lote: col(r, 'lote', 'LOTE'),
+        por_prefixo: sim(col(r, 'por_prefixo', 'prefixo', 'PREFIXO')),
+        sublote: col(r, 'sublote', 'SUBLOTE') || null,
+        empresa_id: empByCod[col(r, 'empresa_codigo', 'empresa', 'EMPRESA').toUpperCase()] || null,
+        descricao: col(r, 'descricao', 'Descrição', 'DESCRICAO') || null,
+        ativo: parseAtivo(col(r, 'ativo', 'Ativo', 'ATIVO')),
+        pular_import: sim(col(r, 'pular_import', 'pular', 'PULAR')),
+      })).filter(r => r.lote)
+      const { error } = await supabase.from('lote_ignorado').upsert(registros, { onConflict: 'tenant_id,lote,sublote,empresa_id', ignoreDuplicates: false })
+      if (error) { setErro(error.message); setInfo(null); return }
+      setInfo(`${registros.length} lote(s) importado(s).`); load()
+    } catch (e: any) { setErro(String(e)); setInfo(null) }
+  }
+
+  const exportar = () => exportarDados('lotes_ignorados', HEADERS, data.map(l => [l.lote, l.por_prefixo ? 'SIM' : 'NAO', l.sublote || '', empCod(l.empresa_id), l.descricao || '', l.ativo ? 'SIM' : 'NAO', l.pular_import ? 'SIM' : 'NAO']))
+
+  const sugerir = async () => {
+    setSugBusy(true); setErro(null)
+    const { data: cand, error } = await supabase.rpc('lotes_candidatos_encerramento', { p_ano: sugAno || null })
+    setSugBusy(false)
+    if (error) { setErro(error.message); return }
+    const existe = new Set(data.filter(l => l.por_prefixo).map(l => String(l.lote).toUpperCase()))
+    setSug((cand || []).filter((c: any) => !existe.has(String(c.prefixo).toUpperCase())))
+  }
+  const regraDe = (c: any) => ({ tenant_id: TENANT_ID, lote: c.prefixo, por_prefixo: true, sublote: null, empresa_id: null, descricao: `Fechamento (lotes "${c.prefixo}…")`, ativo: true, pular_import: false })
+  const addSug = async (c: any) => {
+    const { error } = await supabase.from('lote_ignorado').insert(regraDe(c))
+    if (error) { setErro(error.message); return }
+    setSug(s => s ? s.filter(x => x !== c) : s); load()
+  }
+  const addTodos = async () => {
+    if (!sug?.length) return
+    const { error } = await supabase.from('lote_ignorado').upsert(sug.map(regraDe), { onConflict: 'tenant_id,lote,sublote,empresa_id', ignoreDuplicates: true })
+    if (error) { setErro(error.message); return }
+    setSug([]); load()
+  }
+
+  // sugestão por HISTÓRICO (ENCERRAMENTO, EXERC, APURACAO...)
+  const buscarHist = async () => {
+    const termos = histTermo.split(',').map(s => s.trim()).filter(Boolean)
+    if (!termos.length) return
+    setSugHBusy(true); setErro(null)
+    const { data: cand, error } = await supabase.rpc('lotes_por_historico', { p_termos: termos, p_ano: sugAno || null })
+    setSugHBusy(false)
+    if (error) { setErro(error.message); return }
+    const jaTem = new Set(data.filter(l => !l.por_prefixo).map(l => String(l.lote).toUpperCase()))
+    setSugH((cand || []).filter((c: any) => !jaTem.has(String(c.lote).toUpperCase())))
+  }
+  const regraHist = (c: any) => ({ tenant_id: TENANT_ID, lote: c.lote, por_prefixo: false, sublote: null, empresa_id: null, descricao: 'Encerramento (por histórico)', ativo: true, pular_import: false })
+  const addSugH = async (c: any) => {
+    const { error } = await supabase.from('lote_ignorado').insert(regraHist(c))
+    if (error) { setErro(error.message); return }
+    setSugH(s => s ? s.filter(x => x !== c) : s); load()
+  }
+  const addTodosH = async () => {
+    if (!sugH?.length) return
+    const { error } = await supabase.from('lote_ignorado').upsert(sugH.map(regraHist), { onConflict: 'tenant_id,lote,sublote,empresa_id', ignoreDuplicates: true })
+    if (error) { setErro(error.message); return }
+    setSugH([]); load()
+  }
+
+  // aplica as regras ATIVAS aos dados: apaga do fat_realizado os lançamentos casados + recalcula
+  const [aplBusy, setAplBusy] = useState(false)
+  const aplicarDados = async () => {
+    if (!confirm('Excluir do REALIZADO (fat_realizado) todos os lançamentos que casam com as regras ATIVAS deste cadastro?\n\nAção irreversível — para recuperar seria preciso reimportar. Em seguida os agregados são recalculados.')) return
+    setAplBusy(true); setErro(null); setInfo('Excluindo lançamentos dos lotes ignorados…')
+    const { data: n, error } = await supabase.rpc('excluir_lotes_ignorados')
+    if (error) { setErro(error.message); setInfo(null); setAplBusy(false); return }
+    setInfo('Recalculando agregados…')
+    const { error: e2 } = await supabase.rpc('refresh_realizado_mensal')
+    setAplBusy(false)
+    if (e2) { setErro('Excluiu, mas falhou ao recalcular: ' + e2.message); return }
+    setInfo(`${Number(n || 0).toLocaleString('pt-BR')} lançamento(s) excluído(s) do realizado e agregados recalculados.`)
+  }
+
+  const fmt = (n: number) => Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+  const togBadge = (on: boolean): CSSProperties => ({ cursor: 'pointer', border: 'none', display: 'inline-block', padding: '2px 10px', borderRadius: 99, fontSize: 11, fontWeight: 500, background: on ? '#ebfbee' : '#f1f3f5', color: on ? '#2f9e44' : '#adb5bd' })
+
+  return (
+    <div style={S.card}>
+      <Toolbar
+        modelo={() => baixarModelo('lotes_ignorados', HEADERS, EXEMPLO)}
+        onImport={importar}
+        onExport={exportar}
+        onAdd={() => { setAdding(true); setErro(null); setInfo(null) }}
+        busca={busca} onBusca={setBusca} total={data.length} mostrando={filtered.length}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: '1px solid #f1f3f5', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: '#868e96' }}>Lotes que zeram contas de resultado (encerramento/apuração) são excluídos dos comparativos por movimento. Após alterar aqui, clique em <strong>Recalcular</strong> na tela Realizado para os relatórios refletirem.</span>
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 12, color: '#495057' }}>Ano (0 = todos)</span>
+        <input type="number" style={{ ...S.input, width: 90 }} value={sugAno} onChange={e => setSugAno(+e.target.value)} />
+        <button style={S.btnImp} onClick={sugerir} disabled={sugBusy}>{sugBusy ? 'Analisando…' : 'Sugerir por prefixo'}</button>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: '1px solid #f1f3f5', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: '#868e96' }}>Buscar lotes por <strong>histórico</strong> (termos separados por vírgula; use raízes p/ pegar variações):</span>
+        <input style={{ ...S.input, flex: 1, minWidth: 240 }} value={histTermo} onChange={e => setHistTermo(e.target.value)} placeholder="ENCERRAMENTO, EXERC, APURACAO" />
+        <button style={S.btnImp} onClick={buscarHist} disabled={sugHBusy}>{sugHBusy ? 'Buscando…' : 'Buscar por histórico'}</button>
+        <div style={{ width: 1, height: 22, background: '#e9ecef' }} />
+        <button style={{ ...S.btnImp, color: '#c92a2a', borderColor: '#ffc9c9' }} onClick={aplicarDados} disabled={aplBusy} title="Apaga do fat_realizado os lançamentos que casam com as regras ativas e recalcula">
+          <Trash2 size={13} /> {aplBusy ? 'Aplicando…' : 'Aplicar aos dados'}
+        </button>
+      </div>
+      {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
+      {info && <div style={S.info}>{info}</div>}
+
+      {sug !== null && (
+        <div style={{ margin: '0 16px 12px', border: '1px solid #ffe066', background: '#fff9db', borderRadius: 8, padding: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <strong style={{ fontSize: 13, color: '#664d03' }}>Lotes com prefixo de letra{sugAno ? ` em ${sugAno}` : ''} (convenção de fechamento, ex. "Q")</strong>
+            <div style={{ flex: 1 }} />
+            {!!sug.length && <button style={{ ...S.btnAdd, padding: '4px 10px' }} onClick={addTodos}>Adicionar todos</button>}
+            <button style={S.btnDel} onClick={() => setSug(null)}><X size={15} /></button>
+          </div>
+          {sug.length === 0 ? <div style={{ fontSize: 12, color: '#868e96' }}>Nenhum lote com prefixo de letra encontrado (já cadastrado ou inexistente).</div> : (
+            <table style={S.table}>
+              <thead><tr><th style={S.th}>Prefixo</th><th style={S.th}>Exemplos</th><th style={{ ...S.th, textAlign: 'right' }}>Linhas</th><th style={{ ...S.th, textAlign: 'right' }}>Líquido</th><th style={{ ...S.th, textAlign: 'right' }}>Bruto</th><th style={S.th}>Meses</th><th style={S.th}></th></tr></thead>
+              <tbody>
+                {sug.map((c, i) => (
+                  <tr key={i}>
+                    <td style={{ ...S.tdMono, fontWeight: 600 }}>{c.prefixo}…</td>
+                    <td style={{ ...S.td, fontSize: 12, color: '#868e96', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.exemplos}>{c.exemplos}</td>
+                    <td style={{ ...S.td, textAlign: 'right' }}>{c.linhas}</td>
+                    <td style={{ ...S.td, textAlign: 'right' }}>{fmt(c.soma)}</td>
+                    <td style={{ ...S.td, textAlign: 'right' }}>{fmt(c.bruto)}</td>
+                    <td style={{ ...S.td, fontSize: 12 }}>{c.meses}</td>
+                    <td style={{ ...S.td, textAlign: 'right' }}><button style={{ ...S.btnAdd, padding: '3px 9px' }} onClick={() => addSug(c)}><Plus size={13} /> Add</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {sugH !== null && (
+        <div style={{ margin: '0 16px 12px', border: '1px solid #ffe066', background: '#fff9db', borderRadius: 8, padding: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <strong style={{ fontSize: 13, color: '#664d03' }}>Lotes com histórico de fechamento{sugAno ? ` em ${sugAno}` : ''}</strong>
+            <div style={{ flex: 1 }} />
+            {!!sugH.length && <button style={{ ...S.btnAdd, padding: '4px 10px' }} onClick={addTodosH}>Adicionar todos</button>}
+            <button style={S.btnDel} onClick={() => setSugH(null)}><X size={15} /></button>
+          </div>
+          {sugH.length === 0 ? <div style={{ fontSize: 12, color: '#868e96' }}>Nenhum lote encontrado com esses termos (ou já cadastrados).</div> : (
+            <table style={S.table}>
+              <thead><tr><th style={S.th}>Lote</th><th style={S.th}>Exemplos de histórico</th><th style={{ ...S.th, textAlign: 'right' }}>Linhas</th><th style={{ ...S.th, textAlign: 'right' }}>Líquido</th><th style={{ ...S.th, textAlign: 'right' }}>Bruto</th><th style={S.th}>Meses</th><th style={S.th}></th></tr></thead>
+              <tbody>
+                {sugH.map((c, i) => (
+                  <tr key={i}>
+                    <td style={{ ...S.tdMono, fontWeight: 600 }}>{c.lote}</td>
+                    <td style={{ ...S.td, fontSize: 12, color: '#868e96', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.exemplos}>{c.exemplos}</td>
+                    <td style={{ ...S.td, textAlign: 'right' }}>{c.n}</td>
+                    <td style={{ ...S.td, textAlign: 'right' }}>{fmt(c.soma)}</td>
+                    <td style={{ ...S.td, textAlign: 'right' }}>{fmt(c.bruto)}</td>
+                    <td style={{ ...S.td, fontSize: 12 }}>{c.meses}</td>
+                    <td style={{ ...S.td, textAlign: 'right' }}><button style={{ ...S.btnAdd, padding: '3px 9px' }} onClick={() => addSugH(c)}><Plus size={13} /> Add</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      <table style={S.table}>
+        <thead><tr>
+          <th style={S.th}>Lote</th><th style={S.th}>Prefixo</th><th style={S.th}>Sublote</th><th style={S.th}>Empresa</th><th style={S.th}>Descrição</th>
+          <th style={S.th}>Excluir consulta</th><th style={S.th}>Pular import</th><th style={S.th}></th>
+        </tr></thead>
+        <tbody>
+          {adding && <AddRow cols={COLS} onSave={save} onCancel={() => setAdding(false)} />}
+          {filtered.length === 0 && !adding && <tr><td colSpan={8} style={S.empty}>{busca ? 'Nenhum resultado para a busca.' : <>Nenhum lote cadastrado.<br /><small>Use "Sugerir fechamento" ou adicione manualmente.</small></>}</td></tr>}
+          {filtered.map(l => editId === l.id ? (
+            <AddRow key={l.id} cols={COLS} initial={{ lote: l.lote, por_prefixo: l.por_prefixo ? '1' : '', sublote: l.sublote || '', empresa_id: l.empresa_id || '', descricao: l.descricao || '' }} onSave={v => save(v, l.id)} onCancel={() => setEditId(null)} />
+          ) : (
+            <tr key={l.id}>
+              <td style={S.tdMono}>{l.lote}{l.por_prefixo ? '…' : ''}</td>
+              <td style={S.td}><button style={togBadge(l.por_prefixo)} onClick={() => toggle(l, 'por_prefixo')} title="Casar por início do código (começa com)">{l.por_prefixo ? 'Sim' : 'Não'}</button></td>
+              <td style={S.tdMono}>{l.sublote || '—'}</td>
+              <td style={S.td}>{empCod(l.empresa_id) || <span style={{ color: '#adb5bd' }}>todas</span>}</td>
+              <td style={S.td}>{l.descricao || '—'}</td>
+              <td style={S.td}><button style={togBadge(l.ativo)} onClick={() => toggle(l, 'ativo')} title="Excluir nos comparativos">{l.ativo ? 'Sim' : 'Não'}</button></td>
+              <td style={S.td}><button style={togBadge(l.pular_import)} onClick={() => toggle(l, 'pular_import')} title="Nem importar as linhas deste lote">{l.pular_import ? 'Sim' : 'Não'}</button></td>
+              <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
+                <button style={{ ...S.btnDel, color: '#868e96' }} title="Editar" onClick={() => { setEditId(l.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
+                <button style={S.btnDel} title="Excluir" onClick={() => del(l.id)}><Trash2 size={14} /></button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 const ABAS: { id: Aba; label: string }[] = [
   { id: 'empresas',     label: 'Empresas' },
   { id: 'filiais',      label: 'Filiais' },
@@ -1460,6 +1723,7 @@ const ABAS: { id: Aba; label: string }[] = [
   { id: 'funcionarios', label: 'Funcionários' },
   { id: 'verbas',       label: 'Verbas' },
   { id: 'versoes',      label: 'Versões/Cenários' },
+  { id: 'lotes',        label: 'Lotes Ignorados' },
 ]
 
 export default function CadastrosPage() {
@@ -1485,6 +1749,7 @@ export default function CadastrosPage() {
       {aba === 'funcionarios' && <FuncionariosTab />}
       {aba === 'verbas'       && <VerbasTab />}
       {aba === 'versoes'      && <VersoesTab />}
+      {aba === 'lotes'        && <LotesTab />}
     </div>
   )
 }

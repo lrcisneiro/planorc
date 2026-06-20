@@ -235,7 +235,7 @@ function viewTab(active: boolean): CSSProperties {
 }
 
 type Period = number | 'TOTAL'
-type Column = { key: string; label: string; cenarioKey?: string; period: Period; kind: 'value' | 'delta' }
+type Column = { key: string; label: string; cenarioKey?: string; period: Period; kind: 'value' | 'delta'; empresaId?: string }
 type Group  = { label: string; span: number }
 
 // ─── Component ───────────────────────────────────────────────
@@ -290,6 +290,7 @@ export default function RelatorioEditorPage() {
   const [snaps, setSnaps] = useState<any[]>([])
   const [snapBusy, setSnapBusy] = useState(false)
   const autoSnapRef = useRef(false)
+  const [rawEmp, setRawEmp] = useState<Record<string, ValMap>>({})   // [empresaId][cenario][linha][pk] — modo "Por empresa"
 
   const anos = useMemo(() => { const out: number[] = []; for (let y = pIni.ano; y <= pFim.ano; y++) out.push(y); return out }, [pIni.ano, pFim.ano])
   const periodos: Periodo[] = useMemo(() => mesesNoRange(pIni, pFim), [pIni.ano, pIni.mes, pFim.ano, pFim.mes]) // eslint-disable-line
@@ -397,6 +398,11 @@ export default function RelatorioEditorPage() {
     return Array.from(set)
   }, [view, versaoId])
 
+  // ── Agrupar colunas por EMPRESA (visão "Por empresa"; só leitura; não em comparativo)
+  const colEmpresa = !!(view.filtros?.colEmpresa) && view.funcao !== 'COMPARATIVO'
+  const empsCols = useMemo(() => (empresaSel.length ? empresaSel : empresas.map(e => e.id)), [empresaSel, empresas])
+  const empCodById = useMemo(() => Object.fromEntries(empresas.map(e => [e.id, `${e.codigo} · ${e.descricao}`])), [empresas])
+
   // ── Carrega valores brutos por cenário
   const loadValores = useCallback(async () => {
     if (!empresaSel.length || !cenariosAtivos.length) { setRaw({}); setDetalhado({}); return }
@@ -450,13 +456,44 @@ export default function RelatorioEditorPage() {
       }
       next[cen] = map
     }
+
+    // ── Modo "Por empresa": carrega os valores POR empresa (uma RPC por empresa/cenário)
+    const nextEmp: Record<string, ValMap> = {}
+    if (colEmpresa && masterIds.length) {
+      for (const eid of empsCols) {
+        const m: ValMap = {}
+        for (const cen of cenariosAtivos) {
+          const map: RawValues = {}
+          if (cen === REALIZADO) {
+            if (isBalanco) {
+              for (const y of anos) {
+                const { data, error } = await supabase.rpc('relatorio_saldo_agg', { p_empresas: [eid], p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter })
+                if (error) throw new Error(error.message)
+                for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${y}-${r.mes}`] = { valor: Number(r.saldo) || 0 } }
+              }
+            } else {
+              const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: [eid], p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter })
+              if (error) throw new Error(error.message)
+              for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0 } }
+            }
+          } else {
+            const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: [eid], p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter })
+            if (error) throw new Error(error.message)
+            for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; const k = `${r.ano}-${r.mes}`; (map[rl] ||= {})[k] = (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 } }
+          }
+          m[cen] = map
+        }
+        nextEmp[eid] = m
+      }
+    }
+
       if (myseq !== loadSeq.current) return   // um carregamento mais novo começou → descarta este
-      setRaw(next); setDetalhado(det); setValErro(null)
+      setRaw(next); setDetalhado(det); setRawEmp(nextEmp); setValErro(null)
     } catch (e: any) {
       console.error('loadValores erro:', e)
       setValErro(e?.message ?? String(e))
     }
-  }, [empresaSel, filialSel, ccSel, pIni.ano, pFim.ano, pIni.mes, pFim.mes, cenariosAtivos, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio]) // eslint-disable-line
+  }, [empresaSel, filialSel, ccSel, pIni.ano, pFim.ano, pIni.mes, pFim.mes, cenariosAtivos, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEmpresa, empsCols]) // eslint-disable-line
 
   useEffect(() => { loadValores() }, [loadValores])
 
@@ -528,6 +565,28 @@ export default function RelatorioEditorPage() {
 
   const cellVal = (cen: string, linhaId: string, period: Period): number =>
     period === 'TOTAL' ? (totalByCen[cen]?.[linhaId] ?? 0) : (bucketTotais[cen]?.[period as number]?.[linhaId] ?? 0)
+
+  // ── Cálculo POR empresa (modo "Por empresa")
+  const computedEmp = useMemo(() => {
+    const out: Record<string, Record<string, Computed>> = {}
+    if (!colEmpresa) return out
+    for (const eid of empsCols) { out[eid] = {}; for (const cen of cenariosAtivos) out[eid][cen] = computeCenario(linhasCalc, rawEmp[eid]?.[cen] || {}, periodos) }
+    return out
+  }, [colEmpresa, empsCols, cenariosAtivos, rawEmp, linhas, periodos]) // eslint-disable-line
+  const bucketTotaisEmp = useMemo(() => {
+    const out: Record<string, Record<string, Record<string, number>[]>> = {}
+    if (!colEmpresa) return out
+    for (const eid of empsCols) { out[eid] = {}; for (const cen of cenariosAtivos) out[eid][cen] = buckets.map(b => computeTotais(linhasCalc, computedEmp[eid]?.[cen] || {}, b.meses)) }
+    return out
+  }, [colEmpresa, empsCols, cenariosAtivos, computedEmp, buckets]) // eslint-disable-line
+  const totalByCenEmp = useMemo(() => {
+    const out: Record<string, Record<string, Record<string, number>>> = {}
+    if (!colEmpresa) return out
+    for (const eid of empsCols) { out[eid] = {}; for (const cen of cenariosAtivos) out[eid][cen] = computeTotais(linhasCalc, computedEmp[eid]?.[cen] || {}, displayedMeses) }
+    return out
+  }, [colEmpresa, empsCols, cenariosAtivos, computedEmp, displayedMeses]) // eslint-disable-line
+  const cellValE = (eid: string, cen: string, linhaId: string, period: Period): number =>
+    period === 'TOTAL' ? (totalByCenEmp[eid]?.[cen]?.[linhaId] ?? 0) : (bucketTotaisEmp[eid]?.[cen]?.[period as number]?.[linhaId] ?? 0)
 
   // ── Árvore / colapso
   const temFilhos = (lid: string) => linhas.some(l => l.pai_id === lid)
@@ -655,6 +714,19 @@ export default function RelatorioEditorPage() {
   const { columns, groups, twoRow } = useMemo<{ columns: Column[]; groups: Group[]; twoRow: boolean }>(() => {
     const cens = view.cenarios.length ? view.cenarios : (versaoId ? [versaoId] : [])
     const primary = cens[0] || versaoId
+    // Por empresa: cada empresa é um grupo; embaixo repetem os períodos (+ Total) do cenário primário
+    if (colEmpresa) {
+      const base: { label: string; period: Period }[] = buckets.map((b, i) => ({ label: b.label, period: i as Period }))
+      // Total só quando há mais de um período (com 1 período ele duplica a coluna). ACM = só Total.
+      if (view.funcao === 'ACM') { base.length = 0; base.push({ label: 'Total', period: 'TOTAL' as Period }) }
+      else if (buckets.length > 1) base.push({ label: 'Total', period: 'TOTAL' as Period })
+      const cols: Column[] = [], grps: Group[] = []
+      for (const eid of empsCols) {
+        for (const bc of base) cols.push({ key: `${eid}-${bc.period}`, label: bc.label, cenarioKey: primary, period: bc.period, kind: 'value', empresaId: eid })
+        grps.push({ label: empCodById[eid] || '—', span: base.length })
+      }
+      return { columns: cols, groups: grps, twoRow: true }
+    }
     if (view.funcao === 'COMPARATIVO') {
       const pers: Period[] = [...buckets.map((_, i) => i as Period), 'TOTAL']
       const cols: Column[] = [], grps: Group[] = []
@@ -673,7 +745,7 @@ export default function RelatorioEditorPage() {
     const total: Column = { key: 'total', label: 'Total', cenarioKey: primary, period: 'TOTAL', kind: 'value' }
     if (view.funcao === 'MENSAL_ACM') return { columns: [{ ...total, label: 'Acum.' }, ...cols], groups: [], twoRow: false }
     return { columns: [...cols, total], groups: [], twoRow: false }
-  }, [view, versaoId, versoes, buckets])
+  }, [view, versaoId, versoes, buckets, colEmpresa, empsCols, empCodById]) // eslint-disable-line
 
   // ── Salvar célula (valor OU fórmula =)
   const saveCell = async (linhaId: string, per: Periodo) => {
@@ -1365,6 +1437,11 @@ export default function RelatorioEditorPage() {
                     </div>
                   </td>
                   {columns.map(c => {
+                    if (c.empresaId) {
+                      const v = cellValE(c.empresaId, c.cenarioKey!, l.id, c.period)
+                      const disp = isSpac ? '' : (v !== 0 ? formatValor(fac * v, l.formato, l.casas_decimais) : '')
+                      return <td key={c.key} style={{ ...S.td, color: clr, fontWeight: fw, textDecoration: off ? 'line-through' : undefined, background: isSel ? '#cfe0ff' : (c.period === 'TOTAL' ? '#fafbff' : undefined) }}>{disp}</td>
+                    }
                     if (c.kind === 'delta') {
                       const base = cellVal(view.cenarios[0], l.id, c.period)
                       const comp = cellVal(view.cenarios[1], l.id, c.period)
@@ -1531,7 +1608,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
     }
     const raw = await fetchAllRows(() => {
       let q = isReal
-        ? supabase.from('fat_realizado').select('conta_id,empresa_id,filial_id,cc_id,ano,mes,valor,historico,documento,dims').in('conta_id', contaIds)
+        ? supabase.from('fat_realizado').select('conta_id,empresa_id,filial_id,cc_id,ano,mes,valor,historico,documento,dims,lote,sublote').in('conta_id', contaIds)
         : supabase.from('fat_orcado').select(editavel ? 'id,empresa_id,filial_id,cc_id,ano,mes,valor,dims,origem' : 'linha_id,empresa_id,filial_id,cc_id,ano,mes,valor,dims').in('linha_id', linhaIds).eq('versao_id', cen)
       q = q.in('empresa_id', empresaSel).in('ano', anosQ).in('mes', mesesQ)
       if (filialFilter) q = q.in('filial_id', filialFilter)
@@ -1539,7 +1616,16 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
       return q
     })
     // filtra os períodos exatos (evita cross-product de ano×mês em baldes multi-ano)
-    const data = (raw as any[]).filter(r => perSet.has(`${r.ano}-${r.mes}`))
+    let data = (raw as any[]).filter(r => perSet.has(`${r.ano}-${r.mes}`))
+    if (isReal) {
+      // exclui lotes ignorados ativos (casa com a RPC relatorio_realizado_agg → célula bate com o drill)
+      const { data: regras } = await supabase.from('lote_ignorado').select('lote,sublote,empresa_id,por_prefixo').eq('ativo', true)
+      const rs = (regras || []) as { lote: string; sublote: string | null; empresa_id: string | null; por_prefixo: boolean }[]
+      if (rs.length) {
+        const nl = (s: string) => (s || '').replace(/\s+/g, '').toUpperCase()
+        data = data.filter(r => !(r.lote && rs.some(g => (g.por_prefixo ? nl(r.lote).startsWith(nl(g.lote)) : nl(g.lote) === nl(r.lote)) && (g.sublote == null || g.sublote === '' || nl(g.sublote) === nl(r.sublote)) && (g.empresa_id == null || g.empresa_id === r.empresa_id))))
+      }
+    }
     if (isReal) {
       // razão do realizado: agrega por conta+empresa+filial+cc, aplica sinal do conta_linha (casa com a célula)
       const agg = new Map<string, any>()
@@ -1961,6 +2047,11 @@ function ViewModal({ view, versoes, onClose, onSave }: { view: ViewConfig; verso
           </select>
         </div>
         <div style={S.help}>O intervalo (de–até) é definido na grade dos Filtros. A granularidade agrupa esse intervalo em meses, trimestres, semestres ou anos.</div>
+        <label style={{ ...S.chk, marginTop: 8 }}>
+          <input type="checkbox" checked={!!v.filtros?.colEmpresa} onChange={e => setV({ ...v, filtros: { ...(v.filtros || {}), colEmpresa: e.target.checked } })} />
+          Agrupar colunas por empresa (lado a lado)
+        </label>
+        <div style={S.help}>Cada empresa selecionada no filtro vira um grupo de colunas, com os períodos embaixo. Somente leitura; não se aplica ao Comparativo.</div>
         <div style={S.field}>
           <label style={S.label}>Cenários exibidos</label>
           {versoes.map(ver => (

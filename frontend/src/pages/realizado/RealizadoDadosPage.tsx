@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
-import { Upload, Download, FileDown, AlertCircle, RefreshCw } from 'lucide-react'
+import { Upload, Download, FileDown, AlertCircle, RefreshCw, Trash2, X } from 'lucide-react'
 
 declare const XLSX: any
 
@@ -11,10 +11,10 @@ const ANOS = [2024, 2025, 2026, 2027, 2028]
 const MESES = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
 // Colunas do modelo de importação (razão / lançamentos)
-const HEADERS = ['empresa_codigo', 'filial_codigo', 'cc_codigo', 'conta_codigo', 'data', 'ano', 'mes', 'documento', 'historico', 'debito', 'credito']
+const HEADERS = ['empresa_codigo', 'filial_codigo', 'cc_codigo', 'conta_codigo', 'data', 'ano', 'mes', 'documento', 'historico', 'debito', 'credito', 'lote', 'sublote']
 const EXEMPLO = [
-  ['01', '2001', '111', '3.1.01.001', '15/01/2026', '', '', 'NF 123', 'Energia elétrica', 1500, 0],
-  ['01', '2001', '', '4.1.01.001', '20/01/2026', '', '', 'NF 456', 'Receita de serviços', 0, 28000],
+  ['01', '2001', '111', '3.1.01.001', '15/01/2026', '', '', 'NF 123', 'Energia elétrica', 1500, 0, '008850', '001'],
+  ['01', '2001', '', '4.1.01.001', '20/01/2026', '', '', 'NF 456', 'Receita de serviços', 0, 28000, '008850', '001'],
 ]
 
 const S: Record<string, CSSProperties> = {
@@ -42,6 +42,11 @@ function downloadSheet(filename: string, aoa: any[][]) {
   const ws = XLSX.utils.aoa_to_sheet(aoa)
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Realizado')
+  XLSX.writeFile(wb, filename)
+}
+function downloadSheets(filename: string, abas: { nome: string; aoa: any[][] }[]) {
+  const wb = XLSX.utils.book_new()
+  for (const a of abas) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(a.aoa), a.nome.slice(0, 31))
   XLSX.writeFile(wb, filename)
 }
 // Colunas que esperamos encontrar no cabeçalho (para detectar a linha de header)
@@ -143,6 +148,13 @@ export default function RealizadoDadosPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [modo, setModo] = useState<'add' | 'full'>('add')
+  const [importOpen, setImportOpen] = useState(false)
+  const [dropFiles, setDropFiles] = useState<File[]>([])
+  const [dragOver, setDragOver] = useState(false)
+  const [impBusy, setImpBusy] = useState(false)
+  const [impProg, setImpProg] = useState('')
+  const [impLog, setImpLog] = useState<string[]>([])
+  const [logXlsx, setLogXlsx] = useState<{ arq: any[][]; ign: any[][] } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -155,7 +167,7 @@ export default function RealizadoDadosPage() {
     if (!empresaId) { setRows([]); return }
     setLoading(true); setErro(null)
     let q = supabase.from('fat_realizado')
-      .select('id,ano,mes,data,documento,historico,debito,credito,dc,valor,origem, conta_contabil(codigo,descricao, plano_contas(codigo)), filial(codigo), centro_custo(codigo)')
+      .select('id,ano,mes,data,documento,historico,debito,credito,dc,valor,origem,lote,sublote, conta_contabil(codigo,descricao, plano_contas(codigo)), filial(codigo), centro_custo(codigo)')
       .eq('empresa_id', empresaId).eq('ano', ano)
       .order('mes').order('data', { nullsFirst: true }).limit(2000)
     if (mes) q = q.eq('mes', mes)
@@ -171,23 +183,39 @@ export default function RealizadoDadosPage() {
     const aoa = [HEADERS, ...rows.map(r => [
       empCod, r.filial?.codigo || '', r.centro_custo?.codigo || '', r.conta_contabil?.codigo || '',
       r.data || '', r.ano, r.mes, r.documento || '', r.historico || '',
-      r.debito ?? '', r.credito ?? '',
+      r.debito ?? '', r.credito ?? '', r.lote || '', r.sublote || '',
     ])]
     downloadSheet('realizado.xlsx', aoa)
   }
 
-  const importar = async (file: File) => {
-    setErro(null); setInfo('Importando...')
-    try {
-      setInfo('Lendo arquivo…')
-      const { rows: raw, sheets } = await parseXlsx(file)
-      if (!raw.length) {
-        setErro(`Não encontrei linhas de dados no arquivo. Abas lidas: ${sheets.join(', ') || '(nenhuma)'}. Verifique se há uma aba com cabeçalho contendo colunas como conta_codigo, debito, credito (veja "Baixar modelo").`)
-        setInfo(null); return
-      }
-      setInfo(`${raw.length.toLocaleString('pt-BR')} linhas lidas. Processando…`)
-      if (raw.length > 200000 && !confirm(`O arquivo tem ${raw.length.toLocaleString('pt-BR')} linhas. Volumes muito grandes podem travar o navegador e a gravação é lenta. Recomendo dividir por mês/empresa. Continuar mesmo assim?`)) { setInfo(null); return }
+  // Limpa o realizado (todos os anos/meses). Escopo: empresa selecionada, ou TODAS se nenhuma.
+  const limpar = async () => {
+    const empCod = empresas.find(e => e.id === empresaId)?.codigo
+    const escopo = empresaId ? `da empresa ${empCod}` : 'de TODAS as empresas'
+    if (!confirm(`Excluir TODO o realizado ${escopo} (todos os anos e meses)?\n\nIsto NÃO afeta orçado nem balancete. Use para reimportar do zero. Ação irreversível.`)) return
+    setLoading(true); setErro(null); setInfo(null)
+    let q = supabase.from('fat_realizado').delete().gte('ano', 0)
+    if (empresaId) q = q.eq('empresa_id', empresaId)
+    const { error } = await q
+    await supabase.rpc('refresh_realizado_mensal')
+    setLoading(false)
+    if (error) { setErro(error.message); return }
+    setInfo(`Realizado ${escopo} excluído. Pode reimportar.`); load()
+  }
 
+  // Recalcula o rollup mensal (agregados que alimentam DRE/dashboards)
+  const recalcular = async () => {
+    setLoading(true); setErro(null); setInfo('Recalculando agregados…')
+    const { error } = await supabase.rpc('refresh_realizado_mensal')
+    setLoading(false)
+    if (error) setErro(error.message)
+    else setInfo('Agregados recalculados.')
+  }
+
+  const importarLote = async (files: File[]) => {
+    if (!files.length) return
+    setImpBusy(true); setImpLog([]); setImpProg('Carregando cadastros…')
+    try {
       const [{ data: contas }, { data: emps }, { data: fis }, { data: cc }] = await Promise.all([
         supabase.from('conta_contabil').select('id,codigo,plano_id'),
         supabase.from('empresa').select('id,codigo,plano_id'),
@@ -195,83 +223,102 @@ export default function RealizadoDadosPage() {
         supabase.from('centro_custo').select('id,codigo'),
       ])
       const norm = (s: string) => s.replace(/\s+/g, '').toUpperCase()
-      // conta resolvida por (plano, código) — multi-ERP: o mesmo código pode existir em planos diferentes
       const contaMap: Record<string, string> = {}; (contas || []).forEach((c: any) => { contaMap[`${c.plano_id}|${norm(c.codigo)}`] = c.id })
       const empMap: Record<string, string> = {}; (emps || []).forEach((e: any) => { empMap[norm(e.codigo)] = e.id })
       const empPlano: Record<string, string> = {}; (emps || []).forEach((e: any) => { empPlano[e.id] = e.plano_id })
       const filMap: Record<string, string> = {}; (fis || []).forEach((f: any) => { filMap[norm(f.codigo)] = f.id })
       const ccMap: Record<string, string> = {}; (cc || []).forEach((c: any) => { ccMap[norm(c.codigo)] = c.id })
-
       const empSelCod = empresas.find(e => e.id === empresaId)?.codigo || ''
-      const inserts: any[] = []
-      const anoSet = new Set<number>(), mesSet = new Set<number>(), empSet = new Set<string>()
-      const comboEmp: Record<string, Set<string>> = {}   // `${ano}-${mes}` -> empresas (chaves exatas do arquivo)
+
+      // lotes marcados para NÃO importar (pular_import). Casa por lote + sublote opcional + empresa opcional.
+      const { data: lotesPular } = await supabase.from('lote_ignorado').select('lote,sublote,empresa_id,por_prefixo,ativo,pular_import').eq('pular_import', true)
+      const pularRegras = (lotesPular || []) as { lote: string; sublote: string | null; empresa_id: string | null; por_prefixo: boolean }[]
+      const devePular = (lote: string, sub: string, empId: string | undefined) =>
+        !!lote && pularRegras.some(g =>
+          (g.por_prefixo ? norm(lote).startsWith(norm(g.lote)) : norm(g.lote) === norm(lote)) &&
+          (g.sublote == null || g.sublote === '' || norm(g.sublote) === norm(sub)) &&
+          (g.empresa_id == null || g.empresa_id === empId))
+
+      if (modo === 'full' && !confirm(`Modo SUBSTITUIR: para cada arquivo, o realizado das competências (empresa/ano/mês) do arquivo será EXCLUÍDO antes de inserir.\n\n${files.length} arquivo(s). Confirmar?`)) { setImpProg('Cancelado.'); setImpBusy(false); return }
+
+      const log: string[] = []; let totIns = 0, totIgn = 0
       const faltaConta = new Set<string>(), faltaEmp = new Set<string>()
-      let ignorados = 0, semData = 0
-
-      for (const r of raw) {
-        const contaCod = txt(r, 'conta_codigo', 'conta', 'CONTA', 'conta_contabil')
-        const empCod = txt(r, 'empresa_codigo', 'empresa', 'EMPRESA') || empSelCod
-        const empresa_id = empMap[norm(empCod)]
-        const conta_id = empresa_id ? contaMap[`${empPlano[empresa_id]}|${norm(contaCod)}`] : undefined
-        const comp = competencia(r)
-        const deb = num(rawCol(r, 'debito', 'Débito', 'DEBITO'))
-        const cre = num(rawCol(r, 'credito', 'Crédito', 'CREDITO'))
-        if (!contaCod && !deb && !cre) { ignorados++; continue } // linha em branco
-        if (!conta_id) { faltaConta.add(contaCod || '(vazio)'); ignorados++; continue }
-        if (!empresa_id) { faltaEmp.add(empCod || '(vazio)'); ignorados++; continue }
-        if (!comp) { semData++; ignorados++; continue }
-        if (!deb && !cre) { ignorados++; continue }
-
-        const filCod = txt(r, 'filial_codigo', 'filial', 'FILIAL')
-        const ccCod = txt(r, 'cc_codigo', 'cc', 'centro_custo', 'CENTRO DE CUSTO')
-        const valor = +(cre - deb).toFixed(2)
-        inserts.push({
-          tenant_id: TENANT_ID, linha_id: null, conta_id, empresa_id,
-          filial_id: filCod ? (filMap[norm(filCod)] || null) : null,
-          cc_id: ccCod ? (ccMap[norm(ccCod)] || null) : null,
-          ano: comp.ano, mes: comp.mes, data: comp.dataISO,
-          documento: txt(r, 'documento', 'doc', 'DOCUMENTO') || null,
-          historico: txt(r, 'historico', 'Histórico', 'HISTORICO') || null,
-          debito: deb || null, credito: cre || null, dc: cre >= deb ? 'C' : 'D',
-          valor, dims: {}, origem: 'IMPORT',
-        })
-        anoSet.add(comp.ano); mesSet.add(comp.mes); empSet.add(empresa_id)
-        const ck = `${comp.ano}-${comp.mes}`; (comboEmp[ck] ||= new Set()).add(empresa_id)
-      }
-
-      if (!inserts.length) {
-        setErro(`Nenhuma linha válida. ${faltaConta.size ? `Contas não encontradas: ${[...faltaConta].slice(0, 10).join(', ')}. ` : ''}${faltaEmp.size ? `Empresas não encontradas: ${[...faltaEmp].slice(0, 10).join(', ')}. ` : ''}${semData ? `${semData} sem competência (data/ano/mês). ` : ''}`)
-        setInfo(null); return
-      }
-
-      // Substituir (full load): apaga exatamente as chaves (empresa, ano, mês) do arquivo, mês a mês
-      if (modo === 'full') {
-        const combos = Object.keys(comboEmp)
-        const resumo = combos.sort().map(c => `${c} (${comboEmp[c].size} empr.)`).join(', ')
-        if (!confirm(`Substituir vai EXCLUIR o realizado já existente destas competências antes de inserir:\n\n${resumo}\n\nConfirmar?`)) { setInfo('Importação cancelada.'); return }
-        for (const ck of combos) {
-          const [a, m] = ck.split('-').map(Number)
-          const { error: delErr } = await supabase.from('fat_realizado').delete()
-            .eq('ano', a).eq('mes', m).in('empresa_id', [...comboEmp[ck]])
-          if (delErr) throw delErr
+      const arqResumo: any[][] = []           // aba "Arquivos"
+      const ignDet: any[][] = []              // aba "Ignorados" (detalhe)
+      const CAP_IGN = 20000
+      for (let fi = 0; fi < files.length; fi++) {
+        const file = files[fi]
+        setImpProg(`(${fi + 1}/${files.length}) Lendo ${file.name}…`)
+        const { rows: raw } = await parseXlsx(file)
+        if (!raw.length) { log.push(`⚠ ${file.name}: sem linhas`); setImpLog([...log]); arqResumo.push([file.name, 0, 0, 0]); continue }
+        const inserts: any[] = []; const comboEmp: Record<string, Set<string>> = {}; let ign = 0
+        for (const r of raw) {
+          const contaCod = txt(r, 'conta_codigo', 'conta', 'CONTA', 'conta_contabil')
+          const empCod = txt(r, 'empresa_codigo', 'empresa', 'EMPRESA') || empSelCod
+          const empresa_id = empMap[norm(empCod)]
+          const conta_id = empresa_id ? contaMap[`${empPlano[empresa_id]}|${norm(contaCod)}`] : undefined
+          const comp = competencia(r)
+          const deb = num(rawCol(r, 'debito', 'Débito', 'DEBITO'))
+          const cre = num(rawCol(r, 'credito', 'Crédito', 'CREDITO'))
+          const addIgn = (motivo: string) => { if (ignDet.length < CAP_IGN) ignDet.push([file.name, motivo, empCod, contaCod, txt(r, 'filial_codigo', 'filial', 'FILIAL'), txt(r, 'cc_codigo', 'cc', 'centro_custo'), String(rawCol(r, 'data', 'Data', 'DATA') ?? ''), txt(r, 'ano'), txt(r, 'mes'), txt(r, 'documento', 'doc', 'DOCUMENTO'), txt(r, 'historico', 'Histórico', 'HISTORICO'), deb, cre]) }
+          if (!contaCod && !deb && !cre) { ign++; addIgn('linha em branco'); continue }
+          if (!conta_id) { faltaConta.add(contaCod || '(vazio)'); ign++; addIgn('conta não encontrada'); continue }
+          if (!empresa_id) { faltaEmp.add(empCod || '(vazio)'); ign++; addIgn('empresa não encontrada'); continue }
+          if (!comp) { ign++; addIgn('sem competência (data/ano/mês)'); continue }
+          if (!deb && !cre) { ign++; addIgn('sem valor (débito/crédito zerados)'); continue }
+          const lote = txt(r, 'lote', 'LOTE')
+          const sublote = txt(r, 'sublote', 'SUBLOTE', 'sub_lote')
+          if (devePular(lote, sublote, empresa_id)) { ign++; addIgn(`lote ignorado (${lote}${sublote ? '/' + sublote : ''})`); continue }
+          const filCod = txt(r, 'filial_codigo', 'filial', 'FILIAL')
+          const ccCod = txt(r, 'cc_codigo', 'cc', 'centro_custo', 'CENTRO DE CUSTO')
+          const valor = +(cre - deb).toFixed(2)
+          inserts.push({
+            tenant_id: TENANT_ID, linha_id: null, conta_id, empresa_id,
+            filial_id: filCod ? (filMap[norm(filCod)] || null) : null,
+            cc_id: ccCod ? (ccMap[norm(ccCod)] || null) : null,
+            ano: comp.ano, mes: comp.mes, data: comp.dataISO,
+            documento: txt(r, 'documento', 'doc', 'DOCUMENTO') || null,
+            historico: txt(r, 'historico', 'Histórico', 'HISTORICO') || null,
+            debito: deb || null, credito: cre || null, dc: cre >= deb ? 'C' : 'D',
+            lote: lote || null, sublote: sublote || null,
+            valor, dims: {}, origem: 'IMPORT',
+          })
+          const ck = `${comp.ano}-${comp.mes}`; (comboEmp[ck] ||= new Set()).add(empresa_id)
         }
+        if (!inserts.length) { log.push(`⚠ ${file.name}: nenhuma linha válida (${ign} ignoradas)`); setImpLog([...log]); arqResumo.push([file.name, raw.length, 0, ign]); continue }
+        if (modo === 'full') {
+          for (const ck of Object.keys(comboEmp)) {
+            const [a, m] = ck.split('-').map(Number)
+            const { error: delErr } = await supabase.from('fat_realizado').delete().eq('ano', a).eq('mes', m).in('empresa_id', [...comboEmp[ck]])
+            if (delErr) throw delErr
+          }
+        }
+        const LOTE = 1000
+        for (let i = 0; i < inserts.length; i += LOTE) {
+          const { error } = await supabase.from('fat_realizado').insert(inserts.slice(i, i + LOTE))
+          if (error) throw new Error(`${file.name}: ${error.message}`)
+          setImpProg(`(${fi + 1}/${files.length}) ${file.name}: gravando ${Math.min(i + LOTE, inserts.length).toLocaleString('pt-BR')}/${inserts.length.toLocaleString('pt-BR')}`)
+        }
+        totIns += inserts.length; totIgn += ign
+        log.push(`✓ ${file.name}: ${inserts.length.toLocaleString('pt-BR')} importados${ign ? `, ${ign} ignorados` : ''}`)
+        setImpLog([...log])
+        arqResumo.push([file.name, raw.length, inserts.length, ign])
       }
-
-      const LOTE = 1000
-      for (let i = 0; i < inserts.length; i += LOTE) {
-        const { error } = await supabase.from('fat_realizado').insert(inserts.slice(i, i + LOTE))
-        if (error) throw new Error(`Falha no lote ${Math.floor(i / LOTE) + 1} (linha ~${i}): ${error.message}`)
-        setInfo(`Gravando… ${Math.min(i + LOTE, inserts.length).toLocaleString('pt-BR')} / ${inserts.length.toLocaleString('pt-BR')}`)
+      setImpProg(`Concluído: ${totIns.toLocaleString('pt-BR')} lançamento(s) de ${files.length} arquivo(s)${totIgn ? `, ${totIgn} ignorados` : ''}.`)
+      // monta o log em xlsx (aba Arquivos + aba Ignorados) e baixa automaticamente se houver ignorados
+      const arqAoa = [['arquivo', 'linhas', 'importados', 'ignorados'], ...arqResumo]
+      const ignAoa = [['arquivo', 'motivo', 'empresa', 'conta', 'filial', 'cc', 'data', 'ano', 'mes', 'documento', 'historico', 'debito', 'credito'], ...ignDet]
+      setLogXlsx({ arq: arqAoa, ign: ignAoa })
+      if (ignDet.length) {
+        downloadSheets('log_importacao_realizado.xlsx', [{ nome: 'Arquivos', aoa: arqAoa }, { nome: 'Ignorados', aoa: ignAoa }])
+        if (ignDet.length >= CAP_IGN) setImpProg(p => p + ` (log truncado em ${CAP_IGN.toLocaleString('pt-BR')} linhas)`)
       }
-
-      const avisos: string[] = []
-      if (faltaConta.size) avisos.push(`${faltaConta.size} conta(s) não encontrada(s): ${[...faltaConta].slice(0, 8).join(', ')}`)
-      if (faltaEmp.size) avisos.push(`${faltaEmp.size} empresa(s) não encontrada(s): ${[...faltaEmp].slice(0, 8).join(', ')}`)
-      if (semData) avisos.push(`${semData} sem competência`)
-      setInfo(`${inserts.length} lançamento(s) importado(s)${modo === 'full' ? ' (escopo substituído)' : ''}${ignorados ? `, ${ignorados} ignorado(s)` : ''}.${avisos.length ? ' ⚠ ' + avisos.join(' · ') : ''}`)
+      setImpProg(p => p + ' Recalculando agregados…')
+      const { error: aggErr } = await supabase.rpc('refresh_realizado_mensal')
+      if (aggErr) setImpProg(p => p + ` (⚠ recalcule os agregados manualmente: ${aggErr.message})`)
       load()
-    } catch (e: any) { setErro(e?.message ?? JSON.stringify(e)); setInfo(null) }
+    } catch (e: any) { setImpProg('Erro: ' + (e?.message ?? JSON.stringify(e))) }
+    setImpBusy(false)
   }
 
   return (
@@ -295,15 +342,10 @@ export default function RealizadoDadosPage() {
         </select>
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
         <div style={S.spacer} />
-        <select style={S.sel} value={modo} onChange={e => setModo(e.target.value as 'add' | 'full')} title="Modo de importação">
-          <option value="add">Adicionar</option>
-          <option value="full">Substituir (escopo do arquivo)</option>
-        </select>
         <button style={S.btn} onClick={exportar}><FileDown size={13} /> Exportar</button>
-        <button style={S.btn} onClick={() => downloadSheet('modelo_realizado.xlsx', [HEADERS, ...EXEMPLO])}><Download size={13} /> Baixar modelo</button>
-        <button style={S.btn} onClick={() => fileRef.current?.click()}><Upload size={13} /> Importar Excel</button>
-        <input ref={fileRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" style={{ display: 'none' }}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) { importar(f); e.target.value = '' } }} />
+        <button style={S.btn} onClick={recalcular} title="Recalcular os agregados mensais (DRE/dashboards) — use após mudar lotes ignorados"><RefreshCw size={13} /> Recalcular</button>
+        <button style={{ ...S.btn, background: '#3b5bdb', color: 'white', borderColor: '#3b5bdb' }} onClick={() => { setImportOpen(true); setImpProg(''); setImpLog([]); setLogXlsx(null) }}><Upload size={13} /> Importar</button>
+        <button style={{ ...S.btn, color: '#e03131', borderColor: '#ffc9c9' }} onClick={limpar} title="Excluir o realizado (todos os anos/meses) para reimportar"><Trash2 size={13} /> Limpar</button>
       </div>
 
       {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
@@ -324,11 +366,12 @@ export default function RealizadoDadosPage() {
             <th style={S.thR}>Débito</th>
             <th style={S.thR}>Crédito</th>
             <th style={S.thR}>Valor</th>
+            <th style={S.th}>Lote</th>
             <th style={S.th}>Origem</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={13} style={S.empty}>Carregando...</td></tr>}
-            {!loading && rows.length === 0 && <tr><td colSpan={13} style={S.empty}>Nenhum lançamento para os filtros selecionados.<br /><small>Use "Importar Excel" com o razão (débito/crédito).</small></td></tr>}
+            {loading && <tr><td colSpan={14} style={S.empty}>Carregando...</td></tr>}
+            {!loading && rows.length === 0 && <tr><td colSpan={14} style={S.empty}>Nenhum lançamento para os filtros selecionados.<br /><small>Use "Importar Excel" com o razão (débito/crédito).</small></td></tr>}
             {!loading && rows.map(r => (
               <tr key={r.id}>
                 <td style={S.tdR}>{MESES[r.mes]}</td>
@@ -343,6 +386,7 @@ export default function RealizadoDadosPage() {
                 <td style={S.tdR}>{r.debito != null ? Number(r.debito).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '—'}</td>
                 <td style={S.tdR}>{r.credito != null ? Number(r.credito).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '—'}</td>
                 <td style={{ ...S.tdR, fontWeight: 600, color: Number(r.valor) < 0 ? '#e03131' : '#2f9e44' }}>{Number(r.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                <td style={{ ...S.td, ...S.mono }}>{r.lote ? `${r.lote}${r.sublote ? '/' + r.sublote : ''}` : '—'}</td>
                 <td style={{ ...S.td, fontSize: 11, color: r.origem === 'ERP' ? '#0c8599' : r.origem === 'IMPORT' ? '#e67700' : '#868e96' }}>{r.origem}</td>
               </tr>
             ))}
@@ -350,6 +394,70 @@ export default function RealizadoDadosPage() {
         </table>
       </div>
       {rows.length >= 2000 && <p style={S.sub}>Mostrando os primeiros 2000 lançamentos. Use os filtros (mês) para refinar.</p>}
+
+      {importOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => !impBusy && setImportOpen(false)}>
+          <div style={{ background: 'white', borderRadius: 14, padding: 24, width: 560, maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <strong style={{ fontSize: 16, color: '#212529' }}>Importar realizado</strong>
+              <X size={18} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={() => !impBusy && setImportOpen(false)} />
+            </div>
+
+            <div
+              onClick={() => fileRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={e => { e.preventDefault(); setDragOver(false); const fs = Array.from(e.dataTransfer.files).filter(f => /\.(xlsx|xls|xlsm|csv)$/i.test(f.name)); if (fs.length) setDropFiles(p => [...p, ...fs]) }}
+              style={{ border: `2px dashed ${dragOver ? '#3b5bdb' : '#ced4da'}`, background: dragOver ? '#edf2ff' : '#fafbfc', borderRadius: 12, padding: '28px 16px', textAlign: 'center', cursor: 'pointer' }}>
+              <Upload size={26} style={{ color: dragOver ? '#3b5bdb' : '#adb5bd' }} />
+              <div style={{ marginTop: 8, fontSize: 14, color: '#495057' }}>Arraste os arquivos aqui ou <span style={{ color: '#3b5bdb', fontWeight: 600 }}>clique para selecionar</span></div>
+              <div style={{ fontSize: 12, color: '#adb5bd', marginTop: 4 }}>.xlsx — pode soltar vários meses de uma vez</div>
+            </div>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" multiple style={{ display: 'none' }}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => { const fs = Array.from(e.target.files || []); if (fs.length) setDropFiles(p => [...p, ...fs]); e.target.value = '' }} />
+
+            {dropFiles.length > 0 && (
+              <div style={{ marginTop: 12, maxHeight: 150, overflow: 'auto', border: '1px solid #f1f3f5', borderRadius: 8 }}>
+                {dropFiles.map((f, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 13, borderBottom: '1px solid #f8f9fa' }}>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                    <span style={{ fontSize: 11, color: '#adb5bd' }}>{(f.size / 1024).toFixed(0)} KB</span>
+                    {!impBusy && <X size={14} style={{ cursor: 'pointer', color: '#ffa8a8' }} onClick={() => setDropFiles(p => p.filter((_, j) => j !== i))} />}
+                  </div>
+                ))}
+                <div style={{ padding: '6px 10px', fontSize: 11, color: '#868e96', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{dropFiles.length} arquivo(s)</span>
+                  {!impBusy && <span style={{ cursor: 'pointer', color: '#3b5bdb' }} onClick={() => setDropFiles([])}>limpar lista</span>}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
+              <label style={{ fontSize: 12, color: '#868e96' }}>Modo:</label>
+              <select style={S.sel} value={modo} onChange={e => setModo(e.target.value as 'add' | 'full')} disabled={impBusy}>
+                <option value="add">Adicionar</option>
+                <option value="full">Substituir (escopo do arquivo)</option>
+              </select>
+              <button style={S.btn} onClick={() => downloadSheet('modelo_realizado.xlsx', [HEADERS, ...EXEMPLO])}><Download size={13} /> Baixar modelo</button>
+            </div>
+
+            {impProg && <div style={{ ...S.info, marginTop: 12 }}>{impProg}</div>}
+            {impLog.length > 0 && (
+              <div style={{ marginTop: 8, maxHeight: 140, overflow: 'auto', fontSize: 12, fontFamily: 'monospace', color: '#495057', background: '#f8f9fa', borderRadius: 8, padding: '8px 10px' }}>
+                {impLog.map((l, i) => <div key={i}>{l}</div>)}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              {logXlsx && <button style={S.btn} onClick={() => downloadSheets('log_importacao_realizado.xlsx', [{ nome: 'Arquivos', aoa: logXlsx.arq }, { nome: 'Ignorados', aoa: logXlsx.ign }])}><Download size={13} /> Baixar log</button>}
+              <button style={S.btn} onClick={() => !impBusy && setImportOpen(false)} disabled={impBusy}>Fechar</button>
+              <button style={{ ...S.btn, background: dropFiles.length && !impBusy ? '#2f9e44' : '#ced4da', color: 'white', borderColor: 'transparent', cursor: dropFiles.length && !impBusy ? 'pointer' : 'default' }} disabled={!dropFiles.length || impBusy} onClick={() => importarLote(dropFiles)}>
+                {impBusy ? 'Importando…' : `Importar ${dropFiles.length || ''}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

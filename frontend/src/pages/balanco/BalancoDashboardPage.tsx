@@ -5,7 +5,8 @@ import { computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
 import { ResponsiveLine } from '@nivo/line'
-import { RefreshCw, Scale, Filter, X } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { RefreshCw, Scale, Filter, X, ArrowLeft } from 'lucide-react'
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 const ANOS = [2024, 2025, 2026, 2027, 2028]
@@ -240,7 +241,10 @@ export default function BalancoDashboardPage() {
 
   return (
     <div style={S.page}>
-      <h1 style={S.title}><Scale size={20} /> Dashboard — Balanço Patrimonial</h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
+        <Link to="/dashboards" style={{ ...S.btn, textDecoration: 'none' }}><ArrowLeft size={14} /> Dashboards</Link>
+        <h1 style={S.title}><Scale size={20} /> Balanço Patrimonial</h1>
+      </div>
       <p style={S.sub}>Posição (saldo acumulado do realizado) em {MESES[mes - 1]}/{ano}. Índices de ciclo usam Receita/Custos/EBITDA da DRE.</p>
 
       <div style={S.bar}>
@@ -330,7 +334,7 @@ export default function BalancoDashboardPage() {
           <div style={{ ...S.chart, marginTop: 16 }}>
             <div style={S.chartT}>Evolução — Ativo Total × PL ({ano})</div>
             <div style={{ height: 300 }}>
-              <ResponsiveLine data={evol} margin={{ top: 10, right: 20, bottom: 40, left: 60 }} xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} colors={['#3b5bdb', '#2f9e44']} pointSize={6} useMesh curve="monotoneX" axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableArea areaOpacity={0.05} legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 60, itemHeight: 16, symbolSize: 12 }]} />
+              <ResponsiveLine data={evol} margin={{ top: 10, right: 20, bottom: 40, left: 60 }} xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))} colors={['#3b5bdb', '#2f9e44']} pointSize={6} useMesh curve="monotoneX" axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableArea areaOpacity={0.05} legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 60, itemHeight: 16, symbolSize: 12 }]} />
             </div>
           </div>
         </>
