@@ -6,6 +6,8 @@ import { computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
+import { FiltrosButton } from './DashFiltros'
+import type { Item } from './DashFiltros'
 
 const ANOS = [2022, 2023, 2024, 2025, 2026, 2027, 2028]
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -14,7 +16,6 @@ const fmt = (v: number) => (v || 0).toLocaleString('pt-BR', { maximumFractionDig
 const cut = (s: string, n: number) => s.length > n ? s.slice(0, n) + '…' : s
 
 type Rel = { id: string; codigo: string; nome: string }
-type Emp = { id: string; codigo: string; descricao: string }
 type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null }
 
 const S: Record<string, CSSProperties> = {
@@ -42,8 +43,13 @@ const loadSaved = (): any => { try { return JSON.parse(localStorage.getItem(SAVE
 export default function CagrPage() {
   const sv = useRef(loadSaved()).current  // captura UMA vez (o efeito de persist sobrescreve o localStorage logo na montagem)
   const [rels, setRels] = useState<Rel[]>([])
-  const [empresas, setEmpresas] = useState<Emp[]>([])
-  const [relId, setRelId] = useState(''); const [empresaId, setEmpresaId] = useState(sv.empresaId || '')
+  const [empresas, setEmpresas] = useState<Item[]>([])
+  const [filiais, setFiliais] = useState<Item[]>([])
+  const [ccs, setCcs] = useState<Item[]>([])
+  const [relId, setRelId] = useState('')
+  const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
+  const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
+  const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
   const [anoIni, setAnoIni] = useState<number>(sv.anoIni || 2024); const [anoFim, setAnoFim] = useState<number>(sv.anoFim || 2026)
   const [ateMes, setAteMes] = useState<number>(sv.ateMes || ULT_FECHADO)
   const [linhasOpt, setLinhasOpt] = useState<{ id: string; desc: string; tipo: any }[]>([])
@@ -54,8 +60,10 @@ export default function CagrPage() {
   useEffect(() => {
     supabase.from('relatorio').select('id,codigo,nome').order('codigo').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => p || sv.relId || r.data![0].id) })
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
+    supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
+    supabase.from('centro_custo').select('id,codigo,descricao').order('codigo').then(r => setCcs(r.data || []))
   }, [])
-  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, empresaId, anoIni, anoFim, ateMes, sel })) }, [relId, empresaId, anoIni, anoFim, ateMes, sel])
+  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, empresaSel, filialSel, ccSel, anoIni, anoFim, ateMes, sel })) }, [relId, empresaSel, filialSel, ccSel, anoIni, anoFim, ateMes, sel])
 
   // carrega as linhas do relatório p/ o seletor
   useEffect(() => {
@@ -89,11 +97,13 @@ export default function CagrPage() {
       const natOf = (id: string | null): string | null => { if (!id) return null; if (id in natCache) return natCache[id]; const l = byId[id]; if (!l) return null; const n = (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : natOf(l.pai_id); natCache[id] = n; return n }
       const facOf = (id: string) => natOf(id) === 'DESPESA' ? -1 : 1
 
-      const empIds = empresaId ? [empresaId] : empresas.map(e => e.id)
+      const empIds = empresaSel.length ? empresaSel : empresas.map(e => e.id)
+      const filFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
+      const ccFilter = (ccSel.length > 0 && ccSel.length < ccs.length) ? ccSel : null
       const anos = [anoIni, anoFim]
       if (!masterIds.length || !empIds.length) { setRes([]); setLoading(false); return }
       const meses = Array.from({ length: ateMes }, (_, i) => i + 1)
-      const r = await supabase.rpc('relatorio_realizado_anual', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds })
+      const r = await supabase.rpc('relatorio_realizado_anual', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter })
       if (r.error) throw new Error(r.error.message)
       const valYM: Record<number, Record<string, number>> = {}
       for (const x of r.data || []) { (valYM[x.ano] = valYM[x.ano] || {})[x.linha_id] = Number(x.valor) || 0 }
@@ -116,7 +126,7 @@ export default function CagrPage() {
     } catch (e: any) { setErro(e?.message ?? String(e)) }
     setLoading(false)
   }
-  useEffect(() => { load() }, [relId, empresaId, anoIni, anoFim, ateMes, sel]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, empresaSel, filialSel, ccSel, anoIni, anoFim, ateMes, sel, empresas, filiais, ccs]) // eslint-disable-line
 
   const toggle = (id: string) => setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
   const chartData = res.filter(x => x.cagr != null).sort((a, b) => (a.cagr || 0) - (b.cagr || 0)).map(x => ({ linha: cut(x.desc, 28), CAGR: +(x.cagr || 0).toFixed(1) }))
@@ -131,10 +141,7 @@ export default function CagrPage() {
 
       <div style={S.bar}>
         <select style={S.sel} value={relId} onChange={e => setRelId(e.target.value)}>{rels.map(r => <option key={r.id} value={r.id}>{r.codigo} · {r.nome}</option>)}</select>
-        <select style={S.sel} value={empresaId} onChange={e => setEmpresaId(e.target.value)}>
-          <option value="">Todas as empresas</option>
-          {empresas.map(e => <option key={e.id} value={e.id}>{e.codigo} · {cut(e.descricao, 22)}</option>)}
-        </select>
+        <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} />
         <span style={{ fontSize: 13, color: '#868e96' }}>de</span>
         <select style={S.sel} value={anoIni} onChange={e => setAnoIni(+e.target.value)}>{ANOS.map(y => <option key={y} value={y}>{y}</option>)}</select>
         <span style={{ fontSize: 13, color: '#868e96' }}>até</span>

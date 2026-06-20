@@ -1577,6 +1577,9 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
   const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
+  const [sort, setSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'valor', dir: 'desc' })
+  const sortClick = (col: string) => setSort(s => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: col === 'valor' ? 'desc' : 'asc' })
+  const seta = (col: string) => sort.col === col ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''
   const emptyForm = { empresa_id: empresaSel.length === 1 ? empresaSel[0] : (empresaSel[0] || ''), filial_id: '', cc_id: '', area: '', divisao: '', bu: '', historico: '', valor: '' }
   const [form, setForm] = useState<any>(emptyForm)
 
@@ -1705,6 +1708,26 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
   const td: CSSProperties = { padding: '6px 10px', fontSize: 12, borderBottom: '1px solid #f4f5f7', whiteSpace: 'nowrap' }
   const inp: CSSProperties = { padding: '4px 6px', fontSize: 12, border: '1px solid #ced4da', borderRadius: 5, outline: 'none', width: '100%', boxSizing: 'border-box' }
   const colSpan = (editavel ? 11 : 10) + (isReal ? 1 : 0)
+  const keyOf = (r: any, col: string): string | number => {
+    switch (col) {
+      case 'conta': return contaById[r.conta_id]?.codigo || ''
+      case 'empresa': return empById[r.empresa_id]?.codigo || ''
+      case 'filial': return filById[r.filial_id]?.codigo || ''
+      case 'cc': return ccById[r.cc_id]?.codigo || ''
+      case 'ccdesc': return ccById[r.cc_id]?.descricao || ''
+      case 'area': return r.dims?.area || ''
+      case 'divisao': return r.dims?.divisao || ''
+      case 'bu': return r.dims?.bu || ''
+      case 'historico': return r.dims?.historico || ''
+      case 'valor': return Number(r.valor) || 0
+      default: return ''
+    }
+  }
+  const rowsSorted = [...rows].sort((a, b) => {
+    const ka = keyOf(a, sort.col), kb = keyOf(b, sort.col)
+    const s = typeof ka === 'number' && typeof kb === 'number' ? ka - kb : String(ka).localeCompare(String(kb), 'pt')
+    return sort.dir === 'asc' ? s : -s
+  })
 
   return (
     <div style={S.overlay} onClick={onClose}>
@@ -1741,19 +1764,21 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
         <div style={{ overflow: 'auto', flex: 1 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>
-              {isReal && <th style={th}>Conta</th>}
-              <th style={th}>Empresa</th><th style={th}>Filial</th>
-              <th style={th}>CC</th><th style={th}>Descrição CC</th>
-              {!isReal && <><th style={th}>Área</th><th style={th}>Divisão</th><th style={th}>BU</th></>}
-              <th style={th}>Histórico</th>
-              <th style={{ ...th, textAlign: 'right' }}>Valor</th>
+              {isReal && <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('conta')}>Conta{seta('conta')}</th>}
+              <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('empresa')}>Empresa{seta('empresa')}</th>
+              <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('filial')}>Filial{seta('filial')}</th>
+              <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('cc')}>CC{seta('cc')}</th>
+              <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('ccdesc')}>Descrição CC{seta('ccdesc')}</th>
+              {!isReal && <><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('area')}>Área{seta('area')}</th><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('divisao')}>Divisão{seta('divisao')}</th><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('bu')}>BU{seta('bu')}</th></>}
+              <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('historico')}>Histórico{seta('historico')}</th>
+              <th style={{ ...th, textAlign: 'right', cursor: 'pointer' }} onClick={() => sortClick('valor')}>Valor{seta('valor')}</th>
               {editavel && <th style={th}>Origem</th>}
               {editavel && <th style={th} />}
             </tr></thead>
             <tbody>
               {loading && <tr><td colSpan={colSpan} style={{ ...td, textAlign: 'center', color: '#aaa', padding: 24 }}>Carregando...</td></tr>}
               {!loading && rows.length === 0 && <tr><td colSpan={colSpan} style={{ ...td, textAlign: 'center', color: '#aaa', padding: 24 }}>{isReal && !contaIds.length ? 'Nenhuma conta contábil amarrada a esta linha. Use o botão 🔗 no editor para mapear contas → linha (conta_linha).' : `Sem lançamentos.${editavel ? ' Use "Novo lançamento".' : ''}`}</td></tr>}
-              {!loading && rows.map((r, i) => {
+              {!loading && rowsSorted.map((r, i) => {
                 const prot = editavel && r.origem === 'FORMULARIO'
                 return (
                   <tr key={r.id ?? i}>

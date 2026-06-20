@@ -5,16 +5,16 @@ import { supabase } from '../../lib/supabase'
 import { computeCenario, computeTotais } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Periodo } from '../../lib/engine'
 import { ArrowLeft, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react'
+import { FiltrosButton } from './DashFiltros'
+import type { Item } from './DashFiltros'
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 const ULT_FECHADO = new Date().getMonth() === 0 ? 12 : new Date().getMonth()
 const fmt = (v: number) => (v || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-const cut = (s: string, n: number) => s.length > n ? s.slice(0, n) + '…' : s
 
 type Rel = { id: string; codigo: string; nome: string }
 type Versao = { id: string; codigo: string }
-type Emp = { id: string; codigo: string; descricao: string }
 type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string }
 
 const S: Record<string, CSSProperties> = {
@@ -52,8 +52,12 @@ const loadSaved = (): any => { try { return JSON.parse(localStorage.getItem(SAVE
 
 export default function ExecutivoPage() {
   const sv = loadSaved()
-  const [rels, setRels] = useState<Rel[]>([]); const [versoes, setVersoes] = useState<Versao[]>([]); const [empresas, setEmpresas] = useState<Emp[]>([])
-  const [relId, setRelId] = useState(''); const [versaoId, setVersaoId] = useState(''); const [empresaId, setEmpresaId] = useState(sv.empresaId || ''); const [ano, setAno] = useState<number>(sv.ano || 2026); const [ateMes, setAteMes] = useState<number>(sv.ateMes || ULT_FECHADO)
+  const [rels, setRels] = useState<Rel[]>([]); const [versoes, setVersoes] = useState<Versao[]>([])
+  const [empresas, setEmpresas] = useState<Item[]>([]); const [filiais, setFiliais] = useState<Item[]>([]); const [ccs, setCcs] = useState<Item[]>([])
+  const [relId, setRelId] = useState(''); const [versaoId, setVersaoId] = useState(''); const [ano, setAno] = useState<number>(sv.ano || 2026); const [ateMes, setAteMes] = useState<number>(sv.ateMes || ULT_FECHADO)
+  const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
+  const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
+  const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
   const [k, setK] = useState<{ rec: number[]; desp: number[]; eb: number[]; res: number[] } | null>(null)
   const [loading, setLoading] = useState(false); const [erro, setErro] = useState<string | null>(null)
 
@@ -61,8 +65,10 @@ export default function ExecutivoPage() {
     supabase.from('relatorio').select('id,codigo,nome').order('codigo').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => p || sv.relId || r.data![0].id) })
     supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => { setVersoes(r.data || []); if (r.data?.length) setVersaoId(p => p || sv.versaoId || r.data![0].id) })
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
+    supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
+    supabase.from('centro_custo').select('id,codigo,descricao').order('codigo').then(r => setCcs(r.data || []))
   }, [])
-  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, empresaId, ano, ateMes })) }, [relId, versaoId, empresaId, ano, ateMes])
+  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, empresaSel, filialSel, ccSel, ano, ateMes })) }, [relId, versaoId, empresaSel, filialSel, ccSel, ano, ateMes])
 
   const load = async () => {
     if (!relId || !versaoId) return
@@ -77,13 +83,15 @@ export default function ExecutivoPage() {
       const linhasCalc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada }))
       const natCache: Record<string, string | null> = {}
       const natOf = (id: string | null): string | null => { if (!id) return null; if (id in natCache) return natCache[id]; const l = byId[id]; if (!l) return null; const n = (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : natOf(l.pai_id); natCache[id] = n; return n }
-      const empIds = empresaId ? [empresaId] : empresas.map(e => e.id)
+      const empIds = empresaSel.length ? empresaSel : empresas.map(e => e.id)
+      const filFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
+      const ccFilter = (ccSel.length > 0 && ccSel.length < ccs.length) ? ccSel : null
       const meses = Array.from({ length: ateMes }, (_, i) => i + 1)
       if (!masterIds.length || !empIds.length) { setK(null); setLoading(false); return }
 
       const [orcR, realR] = await Promise.all([
-        supabase.rpc('relatorio_orcado_agg', { p_versao: versaoId, p_empresas: empIds, p_anos: [ano], p_meses: meses, p_linhas: masterIds }),
-        supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: [ano], p_meses: meses, p_linhas: masterIds }),
+        supabase.rpc('relatorio_orcado_agg', { p_versao: versaoId, p_empresas: empIds, p_anos: [ano], p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
+        supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: [ano], p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
       ])
       if (orcR.error) throw new Error(orcR.error.message); if (realR.error) throw new Error(realR.error.message)
       const periodos: Periodo[] = meses.map(m => ({ ano, mes: m }))
@@ -103,7 +111,7 @@ export default function ExecutivoPage() {
     } catch (e: any) { setErro(e?.message ?? String(e)) }
     setLoading(false)
   }
-  useEffect(() => { load() }, [relId, versaoId, empresaId, ano, ateMes]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, versaoId, empresaSel, filialSel, ccSel, ano, ateMes, empresas, filiais, ccs]) // eslint-disable-line
 
   return (
     <div style={S.page}>
@@ -116,10 +124,7 @@ export default function ExecutivoPage() {
       <div style={S.bar}>
         <select style={S.sel} value={relId} onChange={e => setRelId(e.target.value)}>{rels.map(r => <option key={r.id} value={r.id}>{r.codigo} · {r.nome}</option>)}</select>
         <select style={S.sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>{versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}</select>
-        <select style={S.sel} value={empresaId} onChange={e => setEmpresaId(e.target.value)}>
-          <option value="">Todas as empresas</option>
-          {empresas.map(e => <option key={e.id} value={e.id}>{e.codigo} · {cut(e.descricao, 22)}</option>)}
-        </select>
+        <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} />
         <select style={S.sel} value={ano} onChange={e => setAno(+e.target.value)}>{[2022, 2023, 2024, 2025, 2026, 2027, 2028].map(y => <option key={y} value={y}>{y}</option>)}</select>
         <span style={{ fontSize: 13, color: '#868e96' }}>acum. até</span>
         <select style={S.sel} value={ateMes} onChange={e => setAteMes(+e.target.value)} title="Realizado e orçado nos mesmos meses (base justa de execução)">{MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>

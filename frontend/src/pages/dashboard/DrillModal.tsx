@@ -51,7 +51,10 @@ export default function DrillModal({ relId, versaoId, medida, empIds, anos, mese
   const [stack, setStack] = useState<string[]>([startNodeId])
   const [razao, setRazao] = useState<any[] | null>(null)
   const [loading, setLoading] = useState(true)
+  const [sort, setSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'valor', dir: 'desc' })
   const cur = stack[stack.length - 1]
+  const sortClick = (col: string) => setSort(s => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: col === 'valor' ? 'desc' : 'asc' })
+  const seta = (col: string) => sort.col === col ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''
 
   // carrega árvore + valores por master (do cubo, mesmos filtros do dash)
   useEffect(() => {
@@ -222,10 +225,16 @@ export default function DrillModal({ relId, versaoId, medida, empIds, anos, mese
                 <button style={S.btn} onClick={exportRazao}><Download size={13} /> Exportar</button>
               </div>
               <table style={S.table}>
-                <thead><tr><th style={S.thL}>Conta</th><th style={S.thL}>Empresa</th><th style={S.thL}>Filial</th><th style={S.thL}>Histórico</th><th style={S.th}>Valor</th></tr></thead>
+                <thead><tr>
+                  <th style={{ ...S.thL, cursor: 'pointer' }} onClick={() => sortClick('conta')}>Conta{seta('conta')}</th>
+                  <th style={{ ...S.thL, cursor: 'pointer' }} onClick={() => sortClick('empresa')}>Empresa{seta('empresa')}</th>
+                  <th style={{ ...S.thL, cursor: 'pointer' }} onClick={() => sortClick('filial')}>Filial{seta('filial')}</th>
+                  <th style={{ ...S.thL, cursor: 'pointer' }} onClick={() => sortClick('historico')}>Histórico{seta('historico')}</th>
+                  <th style={{ ...S.th, cursor: 'pointer' }} onClick={() => sortClick('valor')}>Valor{seta('valor')}</th>
+                </tr></thead>
                 <tbody>
                   {razao.length === 0 && <tr><td colSpan={5} style={{ ...S.tdL, textAlign: 'center', color: '#aaa', padding: 24 }}>Sem lançamentos para os filtros.</td></tr>}
-                  {razao.map((r, i) => (
+                  {[...razao].sort((a, b) => { const s = sort.col === 'valor' ? (a.valor - b.valor) : String(a[sort.col] || '').localeCompare(String(b[sort.col] || ''), 'pt'); return sort.dir === 'asc' ? s : -s }).map((r, i) => (
                     <tr key={i}>
                       <td style={S.tdL} title={r.contaDesc}>{r.conta}</td>
                       <td style={S.tdL}>{r.empresa || '—'}</td>

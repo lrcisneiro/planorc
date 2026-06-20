@@ -58,7 +58,7 @@ const S: Record<string, CSSProperties> = {
   empty:  { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: '#aaa', fontSize: 14 },
   label:  { display: 'block', fontSize: 12, fontWeight: 500, color: '#495057', marginBottom: 6 },
   input:  { width: '100%', padding: '8px 10px', fontSize: 14, border: '1px solid #ced4da', borderRadius: 8, outline: 'none', boxSizing: 'border-box' },
-  pop:    { position: 'absolute', top: '110%', left: 0, zIndex: 1500, background: 'white', border: '1px solid #e9ecef', borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.16)', padding: 16, width: 440, maxHeight: '78vh', overflow: 'auto' },
+  pop:    { position: 'absolute', top: '110%', left: 0, zIndex: 1500, background: 'white', border: '1px solid #e9ecef', borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.16)', padding: 16, width: 'min(440px, 92vw)', maxHeight: '78vh', overflow: 'auto' },
   miniSeg:{ padding: '3px 10px', fontSize: 12, border: '1px solid #dee2e6', cursor: 'pointer', background: 'white', color: '#495057' },
 }
 const miniBtn: CSSProperties = { padding: '2px 8px', fontSize: 11, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', cursor: 'pointer', color: '#495057' }

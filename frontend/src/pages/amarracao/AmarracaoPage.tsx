@@ -18,7 +18,7 @@ function readWorkbook(file: File): Promise<any> {
 const normC = (s: any) => String(s ?? '').replace(/\s+/g, '').toUpperCase()
 
 // rótulo de apoio por 1º dígito do código contábil (varia por ERP — é só uma dica visual)
-const GRUPO_LABEL: Record<string, string> = { '1': 'Ativo', '2': 'Passivo', '3': 'Despesa', '4': 'Receita' }
+const GRUPO_LABEL: Record<string, string> = { '1': 'Ativo', '2': 'Passivo', '3': 'Receita', '4': 'Despesa' }
 
 type Rel = { id: string; nome: string }
 type Plano = { id: string; codigo: string; nome: string }
@@ -102,6 +102,7 @@ export default function AmarracaoPage() {
 
   const linksByMaster: Record<string, Link[]> = {}
   links.forEach(l => { (linksByMaster[l.linha_id] = linksByMaster[l.linha_id] || []).push(l) })
+  const amarradasRel = new Set(links.map(l => l.conta_id))  // contas amarradas NESTE relatório
   const masterOfSel = linhas.find(l => l.id === selLinha)?.linha_orc_id || ''
 
   const cb = buscaC.trim().toLowerCase()
@@ -111,7 +112,7 @@ export default function AmarracaoPage() {
   const passa = (c: Conta) => {
     if (grupos.size && !grupos.has((c.codigo || '').trim().charAt(0))) return false
     if (isSint(c)) return true
-    if (soNaoAmarradas && amarradas.has(c.id)) return false
+    if (soNaoAmarradas && amarradasRel.has(c.id)) return false
     if (soComMov && !movSet.has(c.id)) return false
     return true
   }

@@ -45,7 +45,7 @@ const S: Record<string, CSSProperties> = {
   chartT:{ fontSize: 14, fontWeight: 600, color: '#212529', marginBottom: 4 },
   empty: { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: '#aaa', fontSize: 14 },
   chip:  { fontSize: 12, color: '#868e96', marginBottom: 16 },
-  pop:   { position: 'absolute', top: '110%', left: 0, zIndex: 1500, background: 'white', border: '1px solid #e9ecef', borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.16)', padding: 16, width: 420, maxHeight: '78vh', overflow: 'auto' },
+  pop:   { position: 'absolute', top: '110%', left: 0, zIndex: 1500, background: 'white', border: '1px solid #e9ecef', borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.16)', padding: 16, width: 'min(420px, 92vw)', maxHeight: '78vh', overflow: 'auto' },
   label: { display: 'block', fontSize: 12, fontWeight: 500, color: '#495057', marginBottom: 6 },
   input: { width: '100%', padding: '8px 10px', fontSize: 14, border: '1px solid #ced4da', borderRadius: 8, outline: 'none', boxSizing: 'border-box' },
 }

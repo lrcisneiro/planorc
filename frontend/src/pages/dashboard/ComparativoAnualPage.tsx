@@ -6,6 +6,8 @@ import { computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
+import { FiltrosButton } from './DashFiltros'
+import type { Item } from './DashFiltros'
 
 const ANOS = [2022, 2023, 2024, 2025, 2026, 2027, 2028]
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -16,7 +18,6 @@ const cut = (s: string, n: number) => s.length > n ? s.slice(0, n) + '…' : s
 
 type Rel = { id: string; codigo: string; nome: string }
 type Versao = { id: string; codigo: string }
-type Emp = { id: string; codigo: string; descricao: string }
 type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null }
 
 const S: Record<string, CSSProperties> = {
@@ -45,8 +46,13 @@ export default function ComparativoAnualPage() {
   const sv = loadSaved()
   const [rels, setRels] = useState<Rel[]>([])
   const [versoes, setVersoes] = useState<Versao[]>([])
-  const [empresas, setEmpresas] = useState<Emp[]>([])
-  const [relId, setRelId] = useState(''); const [versaoId, setVersaoId] = useState(''); const [empresaId, setEmpresaId] = useState(sv.empresaId || '')
+  const [empresas, setEmpresas] = useState<Item[]>([])
+  const [filiais, setFiliais] = useState<Item[]>([])
+  const [ccs, setCcs] = useState<Item[]>([])
+  const [relId, setRelId] = useState(''); const [versaoId, setVersaoId] = useState('')
+  const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
+  const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
+  const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
   const [anosSel, setAnosSel] = useState<number[]>(Array.isArray(sv.anosSel) && sv.anosSel.length ? sv.anosSel : [2024, 2025, 2026])
   const [ateMes, setAteMes] = useState<number>(sv.ateMes || ULT_FECHADO)
   const [medida, setMedida] = useState<'Realizado' | 'Orçado'>(sv.medida || 'Realizado')
@@ -59,8 +65,10 @@ export default function ComparativoAnualPage() {
     supabase.from('relatorio').select('id,codigo,nome').order('codigo').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => p || sv.relId || r.data![0].id) })
     supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => { setVersoes(r.data || []); if (r.data?.length) setVersaoId(p => p || sv.versaoId || r.data![0].id) })
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
+    supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
+    supabase.from('centro_custo').select('id,codigo,descricao').order('codigo').then(r => setCcs(r.data || []))
   }, [])
-  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, empresaId, anosSel, ateMes, medida, ocultarVazias })) }, [relId, versaoId, empresaId, anosSel, ateMes, medida, ocultarVazias])
+  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, empresaSel, filialSel, ccSel, anosSel, ateMes, medida, ocultarVazias })) }, [relId, versaoId, empresaSel, filialSel, ccSel, anosSel, ateMes, medida, ocultarVazias])
 
   const load = async () => {
     if (!relId || !versaoId) return
@@ -82,13 +90,15 @@ export default function ComparativoAnualPage() {
       const facOf = (id: string) => natOf(id) === 'DESPESA' ? -1 : 1
 
       const anos = [...anosSel].sort((a, b) => a - b)
-      const empIds = empresaId ? [empresaId] : empresas.map(e => e.id)
+      const empIds = empresaSel.length ? empresaSel : empresas.map(e => e.id)
+      const filFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
+      const ccFilter = (ccSel.length > 0 && ccSel.length < ccs.length) ? ccSel : null
       if (!masterIds.length || !empIds.length || !anos.length) { setRows([]); setTemDados(false); setLoading(false); return }
 
       const meses = Array.from({ length: ateMes }, (_, i) => i + 1)
       const [realR, orcR] = await Promise.all([
-        supabase.rpc('relatorio_realizado_anual', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds }),
-        supabase.rpc('relatorio_orcado_anual', { p_versao: versaoId, p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds }),
+        supabase.rpc('relatorio_realizado_anual', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
+        supabase.rpc('relatorio_orcado_anual', { p_versao: versaoId, p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
       ])
       if (realR.error) throw new Error(realR.error.message)
       if (orcR.error) throw new Error(orcR.error.message)
@@ -129,7 +139,7 @@ export default function ComparativoAnualPage() {
     } catch (e: any) { setErro(e?.message ?? String(e)) }
     setLoading(false)
   }
-  useEffect(() => { load() }, [relId, versaoId, empresaId, anosSel, ateMes, medida, ocultarVazias]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, versaoId, empresaSel, filialSel, ccSel, anosSel, ateMes, medida, ocultarVazias, empresas, filiais, ccs]) // eslint-disable-line
 
   const anos = [...anosSel].sort((a, b) => a - b)
   const toggleAno = (y: number) => setAnosSel(s => s.includes(y) ? s.filter(x => x !== y) : [...s, y])
@@ -148,10 +158,7 @@ export default function ComparativoAnualPage() {
       <div style={S.bar}>
         <select style={S.sel} value={relId} onChange={e => setRelId(e.target.value)}>{rels.map(r => <option key={r.id} value={r.id}>{r.codigo} · {r.nome}</option>)}</select>
         <select style={S.sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>{versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}</select>
-        <select style={S.sel} value={empresaId} onChange={e => setEmpresaId(e.target.value)}>
-          <option value="">Todas as empresas</option>
-          {empresas.map(e => <option key={e.id} value={e.id}>{e.codigo} · {cut(e.descricao, 22)}</option>)}
-        </select>
+        <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} />
         <select style={S.sel} value={medida} onChange={e => setMedida(e.target.value as any)}><option>Realizado</option><option>Orçado</option></select>
         <span style={{ fontSize: 13, color: '#868e96' }}>acum. até</span>
         <select style={S.sel} value={ateMes} onChange={e => setAteMes(+e.target.value)} title="Compara os mesmos meses (1 até este) em todos os anos">
