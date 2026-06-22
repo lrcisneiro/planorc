@@ -32,17 +32,25 @@ const S: Record<string, CSSProperties> = {
   empty: { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: '#aaa', fontSize: 14 },
 }
 
-function Kpi({ label, real, orc, despesa }: { label: string; real: number; orc: number; despesa?: boolean }) {
+function Kpi({ label, real, orc, despesa, prev, anoPrev }: { label: string; real: number; orc: number; despesa?: boolean; prev?: number; anoPrev?: number }) {
   const exec = orc !== 0 ? (real / orc) * 100 : null
   // p/ despesa, executar acima do orçado é ruim → cor invertida
   const bom = exec == null ? true : despesa ? exec <= 100 : exec >= 100
   const d = real - orc
+  const yoy = (prev != null && prev !== 0) ? (real / prev - 1) * 100 : null
+  // p/ despesa, crescer vs ano anterior é ruim → cor invertida
+  const bomY = yoy == null ? true : despesa ? real <= (prev || 0) : real >= (prev || 0)
   return (
     <div style={S.kpi}>
       <div style={S.lbl}>{label}</div>
       <div style={S.val}>{fmt(real)}</div>
       <div style={S.ksub}>Orçado {fmt(orc)} · {exec == null ? '—' : <span style={{ color: bom ? '#2f9e44' : '#e03131', display: 'inline-flex', alignItems: 'center', gap: 3 }}>{bom ? <TrendingUp size={13} /> : <TrendingDown size={13} />}{exec.toFixed(0)}%</span>}</div>
       <div style={{ ...S.ksub, marginTop: 2 }}>Δ (R−O) <strong style={{ color: d >= 0 ? '#2f9e44' : '#e03131' }}>{d >= 0 ? '+' : ''}{fmt(d)}</strong></div>
+      {prev != null && (
+        <div style={{ ...S.ksub, marginTop: 6, paddingTop: 6, borderTop: '1px solid #f1f3f5' }}>
+          <strong style={{ color: '#495057' }}>{anoPrev}</strong> {fmt(prev)} · {yoy == null ? '—' :<span style={{ color: bomY ? '#2f9e44' : '#e03131', display: 'inline-flex', alignItems: 'center', gap: 3 }}>{real >= (prev || 0) ? <TrendingUp size={13} /> : <TrendingDown size={13} />}{yoy >= 0 ? '+' : ''}{yoy.toFixed(0)}%</span>}
+        </div>
+      )}
     </div>
   )
 }
@@ -61,7 +69,7 @@ export default function ExecutivoPage() {
   const [areaSel, setAreaSel] = useState<string[]>(Array.isArray(sv.areaSel) ? sv.areaSel : [])
   const [divisaoSel, setDivisaoSel] = useState<string[]>(Array.isArray(sv.divisaoSel) ? sv.divisaoSel : [])
   const [buSel, setBuSel] = useState<string[]>(Array.isArray(sv.buSel) ? sv.buSel : [])
-  const [k, setK] = useState<{ rec: number[]; desp: number[]; eb: number[]; res: number[] } | null>(null)
+  const [k, setK] = useState<{ rec: number[]; desp: number[]; eb: number[]; res: number[]; prev: { rec: number; desp: number; eb: number; res: number }; anoPrev: number } | null>(null)
   const [loading, setLoading] = useState(false); const [erro, setErro] = useState<string | null>(null)
 
   useEffect(() => {
@@ -92,25 +100,31 @@ export default function ExecutivoPage() {
       const meses = Array.from({ length: ateMes }, (_, i) => i + 1)
       if (!masterIds.length || !empIds.length) { setK(null); setLoading(false); return }
 
-      const [orcR, realR] = await Promise.all([
+      const anoPrev = ano - 1
+      const [orcR, realR, realRprev] = await Promise.all([
         supabase.rpc('relatorio_orcado_agg', { p_versao: versaoId, p_empresas: empIds, p_anos: [ano], p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
         supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: [ano], p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
+        supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: [anoPrev], p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
       ])
-      if (orcR.error) throw new Error(orcR.error.message); if (realR.error) throw new Error(realR.error.message)
+      if (orcR.error) throw new Error(orcR.error.message); if (realR.error) throw new Error(realR.error.message); if (realRprev.error) throw new Error(realRprev.error.message)
       const periodos: Periodo[] = meses.map(m => ({ ano, mes: m }))
-      const rawOrc: RawValues = {}, rawReal: RawValues = {}
+      const periodosPrev: Periodo[] = meses.map(m => ({ ano: anoPrev, mes: m }))
+      const rawOrc: RawValues = {}, rawReal: RawValues = {}, rawRealPrev: RawValues = {}
       for (const r of orcR.data || []) { const rl = rlOfMaster[r.linha_id]; if (!rl || disabled.has(r.linha_id)) continue; (rawOrc[rl] = rawOrc[rl] || {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0, expressao: r.expr ?? null } }
       for (const r of realR.data || []) { const rl = rlOfMaster[r.linha_id]; if (!rl || disabled.has(r.linha_id)) continue; (rawReal[rl] = rawReal[rl] || {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0, expressao: null } }
-      const cO = computeCenario(linhasCalc, rawOrc, periodos), cR = computeCenario(linhasCalc, rawReal, periodos)
-      const tO = computeTotais(linhasCalc, cO, periodos), tR = computeTotais(linhasCalc, cR, periodos)
+      for (const r of realRprev.data || []) { const rl = rlOfMaster[r.linha_id]; if (!rl || disabled.has(r.linha_id)) continue; (rawRealPrev[rl] = rawRealPrev[rl] || {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0, expressao: null } }
+      const cO = computeCenario(linhasCalc, rawOrc, periodos), cR = computeCenario(linhasCalc, rawReal, periodos), cRp = computeCenario(linhasCalc, rawRealPrev, periodosPrev)
+      const tO = computeTotais(linhasCalc, cO, periodos), tR = computeTotais(linhasCalc, cR, periodos), tRp = computeTotais(linhasCalc, cRp, periodosPrev)
       const leaves = linhas.filter(l => l.tipo_linha === 'ANALITICA' && !l.desativada && l.linha_orc_id)
-      let recO = 0, recR = 0, despO = 0, despR = 0
-      for (const l of leaves) { const n = natOf(l.id); if (n === 'RECEITA') { recO += tO[l.id] || 0; recR += tR[l.id] || 0 } else if (n === 'DESPESA') { despO += tO[l.id] || 0; despR += tR[l.id] || 0 } }
+      let recO = 0, recR = 0, despO = 0, despR = 0, recRp = 0, despRp = 0
+      for (const l of leaves) { const n = natOf(l.id); if (n === 'RECEITA') { recO += tO[l.id] || 0; recR += tR[l.id] || 0; recRp += tRp[l.id] || 0 } else if (n === 'DESPESA') { despO += tO[l.id] || 0; despR += tR[l.id] || 0; despRp += tRp[l.id] || 0 } }
       const ebN = linhas.find(l => norm(l.descricao).includes('ebitda'))
       const resN = linhas.find(l => norm(l.descricao).includes('resultado liquido'))
       const eb = ebN ? [tO[ebN.id] || 0, tR[ebN.id] || 0] : [0, 0]
       const res = resN ? [tO[resN.id] || 0, tR[resN.id] || 0] : [leaves.reduce((s, l) => s + (tO[l.id] || 0), 0), leaves.reduce((s, l) => s + (tR[l.id] || 0), 0)]
-      setK({ rec: [recO, recR], desp: [-despO, -despR], eb, res })
+      const ebPrev = ebN ? (tRp[ebN.id] || 0) : 0
+      const resPrev = resN ? (tRp[resN.id] || 0) : leaves.reduce((s, l) => s + (tRp[l.id] || 0), 0)
+      setK({ rec: [recO, recR], desp: [-despO, -despR], eb, res, prev: { rec: recRp, desp: -despRp, eb: ebPrev, res: resPrev }, anoPrev })
     } catch (e: any) { setErro(e?.message ?? String(e)) }
     setLoading(false)
   }
@@ -122,7 +136,7 @@ export default function ExecutivoPage() {
         <Link to="/dashboards" style={{ ...S.btn, textDecoration: 'none' }}><ArrowLeft size={14} /> Dashboards</Link>
         <h1 style={S.title}>Visão executiva</h1>
       </div>
-      <p style={S.sub}>KPIs consolidados Jan–{MESES[ateMes - 1]}/{ano} — orçado × realizado nos mesmos meses e % de execução. Despesas exibidas como positivas.</p>
+      <p style={S.sub}>KPIs consolidados Jan–{MESES[ateMes - 1]}/{ano} — orçado × realizado nos mesmos meses, % de execução e variação vs. {ano - 1} (mesmos meses). Despesas exibidas como positivas.</p>
 
       <div style={S.bar}>
         <select style={S.sel} value={relId} onChange={e => setRelId(e.target.value)}>{rels.map(r => <option key={r.id} value={r.id}>{r.codigo} · {r.nome}</option>)}</select>
@@ -142,10 +156,10 @@ export default function ExecutivoPage() {
       {!loading && !k && <div style={S.empty}>Selecione um relatório com dados.</div>}
       {!loading && k && (
         <div style={S.kpis}>
-          <Kpi label="Receita" real={k.rec[1]} orc={k.rec[0]} />
-          <Kpi label="Despesa" real={k.desp[1]} orc={k.desp[0]} despesa />
-          <Kpi label="EBITDA" real={k.eb[1]} orc={k.eb[0]} />
-          <Kpi label="Resultado líquido" real={k.res[1]} orc={k.res[0]} />
+          <Kpi label="Receita" real={k.rec[1]} orc={k.rec[0]} prev={k.prev.rec} anoPrev={k.anoPrev} />
+          <Kpi label="Despesa" real={k.desp[1]} orc={k.desp[0]} despesa prev={k.prev.desp} anoPrev={k.anoPrev} />
+          <Kpi label="EBITDA" real={k.eb[1]} orc={k.eb[0]} prev={k.prev.eb} anoPrev={k.anoPrev} />
+          <Kpi label="Resultado líquido" real={k.res[1]} orc={k.res[0]} prev={k.prev.res} anoPrev={k.anoPrev} />
         </div>
       )}
     </div>
