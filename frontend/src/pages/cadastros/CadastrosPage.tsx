@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { decodeCC } from '../../lib/ccDims'
 
 // SheetJS carregado via CDN no index.html
 declare const XLSX: any
@@ -561,7 +562,7 @@ function CentroCustoTab() {
       const unicos = dedupe(base, r => r.codigo)
 
       // Fase 1: garante que todos os códigos existem (sem pai/tipo ainda)
-      const fase1 = unicos.map(r => ({ tenant_id: TENANT_ID, codigo: r.codigo, descricao: r.descricao, area: r.area, ativo: true }))
+      const fase1 = unicos.map(r => ({ tenant_id: TENANT_ID, codigo: r.codigo, descricao: r.descricao, area: r.area, ativo: true, ...decodeCC(r.codigo) }))
       const { error: e1 } = await supabase.from('centro_custo').upsert(fase1, { onConflict: 'tenant_id,codigo', ignoreDuplicates: false })
       if (e1) { setErro(e1.message); setInfo(null); return }
 
@@ -577,6 +578,7 @@ function CentroCustoTab() {
           tenant_id: TENANT_ID, codigo: r.codigo, descricao: r.descricao, area: r.area, ativo: true,
           tipo: resolverTipo(r.tipoExpl, r.classe, r.codigo, ehPai),
           pai_id: paiCod ? (codeToId[paiCod] || null) : null,
+          ...decodeCC(r.codigo),
         }
       })
       const { error: e2 } = await supabase.from('centro_custo').upsert(fase2, { onConflict: 'tenant_id,codigo', ignoreDuplicates: false })
@@ -590,6 +592,13 @@ function CentroCustoTab() {
   const exportar = () => exportarDados('centros_custo', HEADERS,
     data.map(c => [c.codigo, c.descricao, c.tipo || 'ANALITICA', c.area || '', codeById[c.pai_id] || '']))
 
+  const recalcAtributos = async () => {
+    setErro(null); setInfo('Recalculando Área/Divisão/BU pela posição do código…')
+    const { error } = await supabase.rpc('decodificar_cc')
+    if (error) { setErro(error.message); setInfo(null); return }
+    setInfo('Atributos Área/Divisão/BU recalculados.'); load()
+  }
+
   return (
     <div style={S.card}>
       <Toolbar
@@ -601,13 +610,18 @@ function CentroCustoTab() {
       />
       {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
       {info && <div style={S.info}>{info}</div>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderBottom: '1px solid #f1f3f5' }}>
+        <span style={{ fontSize: 12, color: '#868e96' }}>Área/Divisão/BU derivados da posição do código.</span>
+        <div style={{ flex: 1 }} />
+        <button style={S.btnImp} onClick={recalcAtributos}>Recalcular Área/Divisão/BU</button>
+      </div>
       <table style={S.table}>
         <thead><tr>
-          <th style={S.th}>Código</th><th style={S.th}>Descrição</th><th style={S.th}>Tipo</th><th style={S.th}>Pai</th><th style={S.th}>Área</th><th style={S.th}>Status</th><th style={S.th}></th>
+          <th style={S.th}>Código</th><th style={S.th}>Descrição</th><th style={S.th}>Tipo</th><th style={S.th}>Pai</th><th style={S.th}>Área</th><th style={S.th}>Divisão</th><th style={S.th}>BU</th><th style={S.th}>Status</th><th style={S.th}></th>
         </tr></thead>
         <tbody>
           {adding && <AddRow cols={CC_COLS} onSave={save} onCancel={() => setAdding(false)} />}
-          {filtered.length === 0 && !adding && <tr><td colSpan={7} style={S.empty}>{busca ? 'Nenhum resultado para a busca.' : <>Nenhum centro de custo cadastrado.<br /><small>Use "Importar Excel" (TOTVS ou modelo).</small></>}</td></tr>}
+          {filtered.length === 0 && !adding && <tr><td colSpan={9} style={S.empty}>{busca ? 'Nenhum resultado para a busca.' : <>Nenhum centro de custo cadastrado.<br /><small>Use "Importar Excel" (TOTVS ou modelo).</small></>}</td></tr>}
           {filtered.map(c => {
             const isSint = c.tipo === 'SINTETICA'
             return editId === c.id ? (
@@ -618,7 +632,9 @@ function CentroCustoTab() {
                 <td style={{ ...S.td, fontWeight: isSint ? 600 : 400 }}>{c.descricao}</td>
                 <td style={{ ...S.td, color: isSint ? '#1971c2' : '#2f9e44', fontSize: 12, fontWeight: 500 }}>{c.tipo || 'ANALITICA'}</td>
                 <td style={{ ...S.tdMono }}>{codeById[c.pai_id] || '—'}</td>
-                <td style={{ ...S.td, color: '#868e96' }}>{c.area || '—'}</td>
+                <td style={{ ...S.td, color: '#495057' }}>{c.area_nome || '—'}</td>
+                <td style={{ ...S.td, color: '#868e96' }}>{c.divisao_nome || '—'}</td>
+                <td style={{ ...S.td, color: '#868e96' }}>{c.bu_nome || '—'}</td>
                 <td style={S.td}><span style={S.badge(c.ativo)}>{c.ativo ? 'Ativo' : 'Inativo'}</span></td>
                 <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
                   <button style={{ ...S.btnDel, color: '#868e96' }} title="Editar" onClick={() => { setEditId(c.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>

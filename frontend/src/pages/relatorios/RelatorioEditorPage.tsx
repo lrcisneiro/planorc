@@ -7,9 +7,10 @@ import {
 } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Computed, Periodo, TipoLinha, Formato } from '../../lib/engine'
 import FormulaCellInput from './FormulaCellInput'
+import { effectiveCcFilter, FiltrosButton, PeriodoButton } from '../dashboard/DashFiltros'
 import {
   ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Settings2, X,
-  Sigma, FunctionSquare, Percent, Minus, Type, Download, Upload, Link2, Filter, ChevronsUpDown, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Pencil, Eye, EyeOff, Strikethrough, ListTree, History, RotateCcw, Save,
+  Sigma, FunctionSquare, Percent, Minus, Type, Download, Upload, Link2, ChevronsUpDown, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Pencil, Eye, EyeOff, Strikethrough, ListTree, History, RotateCcw, Save,
 } from 'lucide-react'
 
 declare const XLSX: any
@@ -28,6 +29,8 @@ type Linha = LinhaCalc & {
   casas_decimais: number
   cor_texto: string | null
   linha_orc_id: string | null   // âncora do dado na estrutura compartilhada (F2)
+  visivel_dashboard: boolean    // só exibição (não afeta cálculo)
+  visivel_relatorio: boolean    // só exibição (não afeta cálculo)
   _depth: number
 }
 type Relatorio = { id: string; codigo: string; nome: string; categoria?: string | null }
@@ -148,40 +151,6 @@ const S: Record<string, CSSProperties> = {
   chk:       { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#495057', cursor: 'pointer', padding: '6px 0' },
   help:      { fontSize: 11, color: '#adb5bd', marginTop: 4, lineHeight: 1.5 },
 }
-const miniBtn: CSSProperties = { padding: '2px 8px', fontSize: 11, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', cursor: 'pointer', color: '#495057' }
-
-function Checklist({ titulo, items, sel, setSel }: {
-  titulo: string
-  items: { id: string; codigo: string; descricao: string }[]
-  sel: string[]
-  setSel: (v: string[]) => void
-}) {
-  const [b, setB] = useState('')
-  const f = b ? items.filter(i => `${i.codigo} ${i.descricao}`.toLowerCase().includes(b.toLowerCase())) : items
-  const toggle = (id: string) => setSel(sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id])
-  return (
-    <div style={{ marginTop: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <label style={{ ...S.label, margin: 0 }}>{titulo}</label>
-        <span style={{ fontSize: 11, color: '#adb5bd' }}>{sel.length ? `${sel.length} de ${items.length}` : 'nenhuma'}</span>
-        <div style={{ flex: 1 }} />
-        <button style={miniBtn} onClick={() => setSel(items.map(i => i.id))}>Todas</button>
-        <button style={miniBtn} onClick={() => setSel([])}>Limpar</button>
-      </div>
-      <input style={{ ...S.input, marginBottom: 6 }} placeholder="filtrar..." value={b} onChange={e => setB(e.target.value)} />
-      <div style={{ maxHeight: 140, overflow: 'auto', border: '1px solid #f1f3f5', borderRadius: 8, padding: 4 }}>
-        {f.map(i => (
-          <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 6px', fontSize: 12, cursor: 'pointer' }}>
-            <input type="checkbox" checked={sel.includes(i.id)} onChange={() => toggle(i.id)} />
-            <span style={{ fontFamily: 'monospace', color: '#868e96', minWidth: 60 }}>{i.codigo}</span>
-            <span>{i.descricao}</span>
-          </label>
-        ))}
-        {!f.length && <div style={{ padding: 8, color: '#adb5bd', fontSize: 12 }}>Nenhum item.</div>}
-      </div>
-    </div>
-  )
-}
 
 // Grade visual de período (anos × meses). Clique no início e depois no fim para marcar o intervalo (pode cruzar anos).
 function PeriodPicker({ anos, ini, fim, onChange }: {
@@ -235,8 +204,8 @@ function viewTab(active: boolean): CSSProperties {
 }
 
 type Period = number | 'TOTAL'
-type Column = { key: string; label: string; cenarioKey?: string; period: Period; kind: 'value' | 'delta'; empresaId?: string }
-type Group  = { label: string; span: number }
+type Column = { key: string; label: string; cenarioKey?: string; period: Period; kind: 'value' | 'delta' | 'deltav' | 'collapsed'; empresaId?: string }
+type Group  = { label: string; span: number; period?: Period; collapsible?: boolean; collapsed?: boolean }
 
 // ─── Component ───────────────────────────────────────────────
 export default function RelatorioEditorPage() {
@@ -254,10 +223,12 @@ export default function RelatorioEditorPage() {
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(saved0.empresaSel) ? saved0.empresaSel : [])
   const [filialSel,  setFilialSel]  = useState<string[]>(Array.isArray(saved0.filialSel) ? saved0.filialSel : [])
   const [ccSel,      setCcSel]      = useState<string[]>(Array.isArray(saved0.ccSel) ? saved0.ccSel : [])
+  const [areaSel,    setAreaSel]    = useState<string[]>(Array.isArray(saved0.areaSel) ? saved0.areaSel : [])
+  const [divisaoSel, setDivisaoSel] = useState<string[]>(Array.isArray(saved0.divisaoSel) ? saved0.divisaoSel : [])
+  const [buSel,      setBuSel]      = useState<string[]>(Array.isArray(saved0.buSel) ? saved0.buSel : [])
   const [versaoId,  setVersaoId]  = useState<string>(saved0.versaoId || '')
   const [pIni, setPIni] = useState<Periodo>(saved0.pIni && saved0.pIni.ano ? saved0.pIni : { ano: 2026, mes: 1 })
   const [pFim, setPFim] = useState<Periodo>(saved0.pFim && saved0.pFim.ano ? saved0.pFim : { ano: 2026, mes: 12 })
-  const [filtroOpen, setFiltroOpen] = useState(false)
   const [hideEmpty, setHideEmpty] = useState<boolean>(!!saved0.hideEmpty)
   const [hideOff, setHideOff] = useState<boolean>(!!saved0.hideOff)
   const [dupContas, setDupContas] = useState<string[]>([])
@@ -291,6 +262,9 @@ export default function RelatorioEditorPage() {
   const [snapBusy, setSnapBusy] = useState(false)
   const autoSnapRef = useRef(false)
   const [rawEmp, setRawEmp] = useState<Record<string, ValMap>>({})   // [empresaId][cenario][linha][pk] — modo "Por empresa"
+  const [verOcultas, setVerOcultas] = useState(false)   // mostra linhas com visivel_relatorio=false p/ gerenciar
+  const [showDeltaVal, setShowDeltaVal] = useState(false)   // coluna Δ valor no comparativo (além do Δ%)
+  const [colapsados, setColapsados] = useState<Set<number>>(new Set())   // meses recolhidos no comparativo (só visual)
 
   const anos = useMemo(() => { const out: number[] = []; for (let y = pIni.ano; y <= pFim.ano; y++) out.push(y); return out }, [pIni.ano, pFim.ano])
   const periodos: Periodo[] = useMemo(() => mesesNoRange(pIni, pFim), [pIni.ano, pIni.mes, pFim.ano, pFim.mes]) // eslint-disable-line
@@ -309,7 +283,7 @@ export default function RelatorioEditorPage() {
   const empresaUnica = empresaSel.length === 1 ? empresaSel[0] : null
   // filial/CC "todas" = nada marcado OU tudo marcado (ambos = sem filtro)
   const filialAll = filialSel.length === 0 || filialSel.length === filiais.length
-  const ccAll = ccSel.length === 0 || ccSel.length === ccs.length
+  const ccAll = (ccSel.length === 0 || ccSel.length === ccs.length) && !areaSel.length && !divisaoSel.length && !buSel.length
   const editavel = !!empresaUnica && !!versaoId && filialAll && ccAll
 
   // ── Loads
@@ -318,7 +292,7 @@ export default function RelatorioEditorPage() {
     const { data: r } = await supabase.from('relatorio').select('id,codigo,nome, categoria_relatorio(codigo)').eq('id', id).single()
     setRelatorio(r ? { id: r.id, codigo: r.codigo, nome: r.nome, categoria: (r as any).categoria_relatorio?.codigo || null } : null)
     const { data: ls } = await supabase.from('relatorio_linha').select('*').eq('relatorio_id', id).order('ordem', { nullsFirst: false })
-    setLinhas((ls || []).map((l: any) => ({ ...l, _depth: 0 })))
+    setLinhas((ls || []).map((l: any) => ({ ...l, visivel_dashboard: l.visivel_dashboard !== false, visivel_relatorio: l.visivel_relatorio !== false, _depth: 0 })))
   }, [id])
 
   const loadViews = useCallback(async () => {
@@ -334,7 +308,7 @@ export default function RelatorioEditorPage() {
       supabase.from('empresa').select('id,codigo,descricao').order('codigo'),
       supabase.from('versao_orcamento').select('id,codigo').order('codigo'),
       supabase.from('filial').select('id,codigo,descricao').order('codigo'),
-      supabase.from('centro_custo').select('id,codigo,descricao').order('codigo'),
+      supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo'),
     ])
     const e = emps || [], v = vers || []
     setEmpresas(e); setVersoes(v); setFiliais(fis || []); setCcs(cc || [])
@@ -383,8 +357,8 @@ export default function RelatorioEditorPage() {
   // Salva o filtro do usuário quando muda (restaurado via lazy-init de useState)
   useEffect(() => {
     if (!id) return
-    localStorage.setItem('planorc_filtro_' + id, JSON.stringify({ empresaSel, filialSel, ccSel, versaoId, pIni, pFim, hideEmpty, hideOff }))
-  }, [empresaSel, filialSel, ccSel, versaoId, pIni, pFim, hideEmpty, hideOff, id])
+    localStorage.setItem('planorc_filtro_' + id, JSON.stringify({ empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, pIni, pFim, hideEmpty, hideOff }))
+  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, pIni, pFim, hideEmpty, hideOff, id])
 
   const view: ViewConfig = useMemo(() => {
     const f = views.find(v => v.id === activeView)
@@ -410,7 +384,7 @@ export default function RelatorioEditorPage() {
     try {
     // filtra filial/CC só quando é um subconjunto (nem vazio nem tudo = sem filtro, inclui consolidados null)
     const filialFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
-    const ccFilter = (ccSel.length > 0 && ccSel.length < ccs.length) ? ccSel : null
+    const ccFilter = effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel)
     const isBalanco = relatorio?.categoria === 'BP'   // Balanço lê o realizado do saldo (fat_saldo)
     // carrega só os meses exibidos (evita puxar o ano inteiro)
     const mesesExib = [...new Set(periodos.map(p => p.mes))]
@@ -493,7 +467,7 @@ export default function RelatorioEditorPage() {
       console.error('loadValores erro:', e)
       setValErro(e?.message ?? String(e))
     }
-  }, [empresaSel, filialSel, ccSel, pIni.ano, pFim.ano, pIni.mes, pFim.mes, cenariosAtivos, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEmpresa, empsCols]) // eslint-disable-line
+  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, pIni.ano, pFim.ano, pIni.mes, pFim.mes, cenariosAtivos, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEmpresa, empsCols]) // eslint-disable-line
 
   useEffect(() => { loadValores() }, [loadValores])
 
@@ -604,6 +578,7 @@ export default function RelatorioEditorPage() {
     return keep
   }, [hideEmpty, tree, linhas, cenariosAtivos, buckets, bucketTotais, totalByCen])
   const visivel = tree.filter(l => {
+    if (!verOcultas && l.visivel_relatorio === false) return false
     if (hideOff && l.desativada) return false
     if (keepIds && !keepIds.has(l.id)) return false
     let c = linhas.find(x => x.id === l.pai_id)
@@ -657,7 +632,7 @@ export default function RelatorioEditorPage() {
     if (l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR' || l.tipo_linha === 'ESPACO') return
     if (!empresaSel.length) return
     const filialFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
-    const ccFilter = (ccSel.length > 0 && ccSel.length < ccs.length) ? ccSel : null
+    const ccFilter = effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel)
     const meses: Periodo[] = period === 'TOTAL' ? displayedMeses : (buckets[period as number]?.meses ?? [])
     const lbl0 = period === 'TOTAL' ? 'Período' : (buckets[period as number]?.label ?? '')
     const periodoLabel = period === 'TOTAL'
@@ -694,6 +669,7 @@ export default function RelatorioEditorPage() {
 
   // ── Largura de colunas (redimensionável)
   const dw = (key: string, def: number) => colW[key] ?? def
+  const defW = (c: Column) => c.kind === 'collapsed' ? 22 : c.period === 'TOTAL' ? 104 : c.kind === 'delta' ? 64 : 84
   const startResize = (key: string, def: number) => (e: { clientX: number; preventDefault: () => void; stopPropagation: () => void }) => {
     e.preventDefault(); e.stopPropagation()
     const startX = e.clientX, startW = colW[key] ?? def
@@ -732,10 +708,19 @@ export default function RelatorioEditorPage() {
       const cols: Column[] = [], grps: Group[] = []
       for (const per of pers) {
         const lbl = per === 'TOTAL' ? 'Total' : buckets[per as number].label
+        // mês recolhido → vira uma faixa fina clicável (só visual; índice do bucket é preservado)
+        if (per !== 'TOTAL' && colapsados.has(per as number)) {
+          cols.push({ key: `${per}-c`, label: '', period: per, kind: 'collapsed' })
+          grps.push({ label: lbl, span: 1, period: per, collapsible: true, collapsed: true })
+          continue
+        }
         let span = 0
         for (const cen of cens) { cols.push({ key: `${per}-${cen}`, label: cenarioLabel(cen), cenarioKey: cen, period: per, kind: 'value' }); span++ }
-        if (cens.length >= 2) { cols.push({ key: `${per}-d`, label: 'Δ%', period: per, kind: 'delta' }); span++ }
-        grps.push({ label: lbl, span })
+        if (cens.length >= 2) {
+          if (showDeltaVal) { cols.push({ key: `${per}-dv`, label: 'Δ', period: per, kind: 'deltav' }); span++ }
+          cols.push({ key: `${per}-d`, label: 'Δ%', period: per, kind: 'delta' }); span++
+        }
+        grps.push({ label: lbl, span, period: per, collapsible: per !== 'TOTAL' })
       }
       return { columns: cols, groups: grps, twoRow: true }
     }
@@ -745,7 +730,12 @@ export default function RelatorioEditorPage() {
     const total: Column = { key: 'total', label: 'Total', cenarioKey: primary, period: 'TOTAL', kind: 'value' }
     if (view.funcao === 'MENSAL_ACM') return { columns: [{ ...total, label: 'Acum.' }, ...cols], groups: [], twoRow: false }
     return { columns: [...cols, total], groups: [], twoRow: false }
-  }, [view, versaoId, versoes, buckets, colEmpresa, empsCols, empCodById]) // eslint-disable-line
+  }, [view, versaoId, versoes, buckets, colEmpresa, empsCols, empCodById, showDeltaVal, colapsados]) // eslint-disable-line
+
+  // ── Recolher/expandir meses no comparativo (só visual)
+  const toggleColapso = (per: number) => setColapsados(s => { const n = new Set(s); n.has(per) ? n.delete(per) : n.add(per); return n })
+  const soUltimoMes = () => { const last = buckets.length - 1; setColapsados(new Set(buckets.map((_, i) => i).filter(i => i !== last))) }
+  const expandirMeses = () => setColapsados(new Set())
 
   // ── Salvar célula (valor OU fórmula =)
   const saveCell = async (linhaId: string, per: Periodo) => {
@@ -1145,6 +1135,7 @@ export default function RelatorioEditorPage() {
     const patch = {
       codigo: l.codigo.trim(), descricao: l.descricao.trim(), tipo_linha: l.tipo_linha,
       natureza: l.natureza || null, negrito: l.negrito, italico: l.italico, desativada: !!l.desativada,
+      visivel_dashboard: l.visivel_dashboard !== false, visivel_relatorio: l.visivel_relatorio !== false,
       formato: l.formato, casas_decimais: l.casas_decimais, cor_texto: l.cor_texto || null,
       expressao: (l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR') ? (toStored(l.expressao) || null) : null,
     }
@@ -1188,48 +1179,18 @@ export default function RelatorioEditorPage() {
         <button style={S.back} onClick={() => navigate('/relatorios')}><ChevronLeft size={15} /> Relatórios</button>
         <span style={S.title}>{relatorio?.nome ?? '...'}</span>
 
-        <div style={{ position: 'relative' }}>
-          <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, borderColor: editavel ? '#dee2e6' : '#ffd43b' }} onClick={() => setFiltroOpen(o => !o)} title="Filtros">
-            <Filter size={13} /> Filtros
-          </button>
-          {filtroOpen && (
-            <>
-              <div onClick={() => setFiltroOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1400 }} />
-              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'white', border: '1px solid #dee2e6', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', zIndex: 1500, width: 520, maxHeight: '78vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #f1f3f5' }}>
-                  <strong style={{ fontSize: 14, color: '#212529' }}>Filtros</strong>
-                  <X size={18} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={() => setFiltroOpen(false)} />
-                </div>
-                <div style={{ padding: 14, overflow: 'auto', flex: 1 }}>
-                  <div>
-                    <label style={S.label}>Versão *</label>
-                    <select style={S.input} value={versaoId} onChange={e => setVersaoId(e.target.value)}>
-                      <option value="">—</option>{versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}
-                    </select>
-                  </div>
-                  <div style={{ marginTop: 12 }}>
-                    <label style={S.label}>Período</label>
-                    <PeriodPicker anos={ANOS} ini={pIni} fim={pFim}
-                      onChange={(a, b) => { setPIni(a); setPFim(b) }} />
-                    <div style={{ fontSize: 11, color: '#868e96', marginTop: 6 }}>
-                      {MESES[pIni.mes - 1]}/{pIni.ano} – {MESES[pFim.mes - 1]}/{pFim.ano} · {GRAN_LABEL[gran] || 'Mensal'} · {buckets.length} {buckets.length === 1 ? 'período' : 'períodos'}
-                      <span style={{ marginLeft: 6, color: '#adb5bd' }}>(granularidade na Visão)</span>
-                    </div>
-                  </div>
-                  <Checklist titulo="Empresa *" items={empresas} sel={empresaSel} setSel={setEmpresaSel} />
-                  <Checklist titulo="Filial" items={filiais} sel={filialSel} setSel={setFilialSel} />
-                  <Checklist titulo="Centro de Custo" items={ccs} sel={ccSel} setSel={setCcSel} />
-                  <div style={{ marginTop: 12, fontSize: 12, color: editavel ? '#2f9e44' : '#e8590c' }}>
-                    {editavel ? '✓ Edição habilitada (1 empresa, 1 versão; filial/CC em "todas"). Para digitar nas células use a visão na granularidade Mensal.' : 'Somente leitura — para editar, selecione exatamente 1 empresa e 1 versão, e deixe Filial/CC em "todas".'}
-                  </div>
-                </div>
-                <div style={{ padding: '10px 14px', borderTop: '1px solid #f1f3f5', textAlign: 'right' }}>
-                  <button style={S.btnPri} onClick={() => setFiltroOpen(false)}>Aplicar e fechar</button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+        <select style={{ ...S.sel, borderColor: editavel ? '#dee2e6' : '#ffd43b' }} value={versaoId} onChange={e => setVersaoId(e.target.value)} title="Versão / cenário">
+          <option value="">— Versão —</option>{versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}
+        </select>
+        <PeriodoButton resumo={`${pIni.ano === pFim.ano ? pIni.ano : pIni.ano + '–' + pFim.ano} · ${MESES[pIni.mes - 1]}–${MESES[pFim.mes - 1]}`}>
+          <label style={S.label}>Período</label>
+          <PeriodPicker anos={ANOS} ini={pIni} fim={pFim} onChange={(a, b) => { setPIni(a); setPFim(b) }} />
+          <div style={{ fontSize: 11, color: '#868e96', marginTop: 6 }}>
+            {MESES[pIni.mes - 1]}/{pIni.ano} – {MESES[pFim.mes - 1]}/{pFim.ano} · {GRAN_LABEL[gran] || 'Mensal'} · {buckets.length} {buckets.length === 1 ? 'período' : 'períodos'}
+            <span style={{ marginLeft: 6, color: '#adb5bd' }}>(granularidade na Visão)</span>
+          </div>
+        </PeriodoButton>
+        <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs as any} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         <span style={{ fontSize: 12, color: '#868e96', whiteSpace: 'nowrap' }}>
           {(empresaSel.length === 0 ? 'nenhuma empresa' : empresaSel.length === empresas.length ? 'Todas empresas' : empresaSel.length === 1 ? (empresas.find(e => e.id === empresaSel[0])?.codigo || '1 empresa') : `${empresaSel.length} empresas`)}
           {' · '}{versoes.find(v => v.id === versaoId)?.codigo || '—'}{' · '}{pIni.ano === pFim.ano ? pIni.ano : `${pIni.ano}–${pFim.ano}`}
@@ -1322,26 +1283,6 @@ export default function RelatorioEditorPage() {
           <Plus size={13} /> Visão
         </button>
 
-        <div style={{ flex: 1 }} />
-        <button title="Ocultar linhas sem valor no período selecionado" onClick={() => setHideEmpty(v => !v)}
-          style={{ display: 'flex', alignItems: 'center', gap: 4, height: 24, padding: '0 8px', fontSize: 11, borderRadius: 6, cursor: 'pointer', marginRight: 6,
-            border: '1px solid ' + (hideEmpty ? '#74c0fc' : '#dee2e6'), background: hideEmpty ? '#e7f5ff' : 'white', color: hideEmpty ? '#1971c2' : '#495057' }}>
-          {hideEmpty ? <EyeOff size={13} /> : <Eye size={13} />} Ocultar vazias
-        </button>
-        <button title="Ocultar linhas desativadas (remove do relatório)" onClick={() => setHideOff(v => !v)}
-          style={{ display: 'flex', alignItems: 'center', gap: 4, height: 24, padding: '0 8px', fontSize: 11, borderRadius: 6, cursor: 'pointer', marginRight: 6,
-            border: '1px solid ' + (hideOff ? '#74c0fc' : '#dee2e6'), background: hideOff ? '#e7f5ff' : 'white', color: hideOff ? '#1971c2' : '#495057' }}>
-          <Strikethrough size={13} /> Ocultar desativadas
-        </button>
-        <span style={{ fontSize: 11, color: '#adb5bd', marginRight: 4 }}>Níveis:</span>
-        {Array.from({ length: Math.min(maxDepth + 1, 5) }, (_, i) => i + 1).map(n => (
-          <button key={n} title={`Expandir até o nível ${n}`} onClick={() => recolherAteNivel(n)}
-            style={{ width: 24, height: 24, fontSize: 12, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: '#495057', cursor: 'pointer' }}>{n}</button>
-        ))}
-        <button title="Expandir tudo" onClick={expandirTudo}
-          style={{ display: 'flex', alignItems: 'center', gap: 4, height: 24, padding: '0 8px', fontSize: 11, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: '#495057', cursor: 'pointer' }}>
-          <ChevronsUpDown size={13} /> Tudo
-        </button>
       </div>
 
       {(() => {
@@ -1349,10 +1290,48 @@ export default function RelatorioEditorPage() {
         const ab: CSSProperties = { display: 'flex', alignItems: 'center', gap: 4, height: 26, padding: '0 8px', fontSize: 12, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: sel ? '#495057' : '#ced4da', cursor: sel ? 'pointer' : 'default', flexShrink: 0 }
         const act = (fn: (l: Linha) => void) => () => { if (sel) fn(sel) }
         const sep = <div style={{ width: 1, height: 18, background: '#e9ecef', margin: '0 2px' }} />
+        const mini = { display: 'flex', alignItems: 'center', gap: 5, height: 28, padding: '0 10px', fontSize: 11, borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 } as CSSProperties
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px', background: 'white', borderBottom: '1px solid #e9ecef', flexShrink: 0 }}>
-            <span style={{ fontSize: 12, color: '#868e96', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {sel ? <>Linha: <b style={{ color: '#212529' }}>{sel.descricao}</b></> : 'Clique numa linha para selecionar'}
+            <span style={{ fontSize: 11, color: '#adb5bd' }}>Níveis:</span>
+            {Array.from({ length: Math.min(maxDepth + 1, 5) }, (_, i) => i + 1).map(n => (
+              <button key={n} title={`Expandir até o nível ${n}`} onClick={() => recolherAteNivel(n)}
+                style={{ width: 24, height: 24, fontSize: 12, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: '#495057', cursor: 'pointer' }}>{n}</button>
+            ))}
+            <button title="Expandir tudo" onClick={expandirTudo} style={{ ...mini, border: '1px solid #dee2e6', background: 'white', color: '#495057' }}><ChevronsUpDown size={13} /> Tudo</button>
+            {sep}
+            <button title="Ocultar linhas sem valor no período selecionado" onClick={() => setHideEmpty(v => !v)}
+              style={{ ...mini, border: '1px solid ' + (hideEmpty ? '#74c0fc' : '#dee2e6'), background: hideEmpty ? '#e7f5ff' : 'white', color: hideEmpty ? '#1971c2' : '#495057' }}>
+              {hideEmpty ? <EyeOff size={13} /> : <Eye size={13} />} Ocultar vazias
+            </button>
+            <button title="Ocultar linhas desativadas (remove do relatório)" onClick={() => setHideOff(v => !v)}
+              style={{ ...mini, border: '1px solid ' + (hideOff ? '#74c0fc' : '#dee2e6'), background: hideOff ? '#e7f5ff' : 'white', color: hideOff ? '#1971c2' : '#495057' }}>
+              <Strikethrough size={13} /> Ocultar desativadas
+            </button>
+            <button title="Mostrar linhas marcadas como NÃO visíveis no relatório (para gerenciar)" onClick={() => setVerOcultas(v => !v)}
+              style={{ ...mini, border: '1px solid ' + (verOcultas ? '#74c0fc' : '#dee2e6'), background: verOcultas ? '#e7f5ff' : 'white', color: verOcultas ? '#1971c2' : '#495057' }}>
+              <Eye size={13} /> Ver ocultas
+            </button>
+            {view.funcao === 'COMPARATIVO' && (
+              <button title="Adicionar coluna com o valor do delta (além do Δ%)" onClick={() => setShowDeltaVal(v => !v)}
+                style={{ ...mini, border: '1px solid ' + (showDeltaVal ? '#74c0fc' : '#dee2e6'), background: showDeltaVal ? '#e7f5ff' : 'white', color: showDeltaVal ? '#1971c2' : '#495057' }}>
+                Δ valor
+              </button>
+            )}
+            {view.funcao === 'COMPARATIVO' && buckets.length > 1 && (
+              colapsados.size > 0
+                ? <button title="Expandir todos os meses recolhidos" onClick={expandirMeses}
+                    style={{ ...mini, border: '1px solid #74c0fc', background: '#e7f5ff', color: '#1971c2' }}>
+                    <ChevronsUpDown size={13} /> Expandir meses
+                  </button>
+                : <button title="Recolher todos os períodos menos o último (mantém o Total)" onClick={soUltimoMes}
+                    style={{ ...mini, border: '1px solid #dee2e6', background: 'white', color: '#495057' }}>
+                    <ChevronLeft size={13} /> Só último período
+                  </button>
+            )}
+            {sep}
+            <span style={{ fontSize: 12, color: '#868e96', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {sel ? <>Linha: <b style={{ color: '#212529' }}>{sel.descricao}</b></> : 'Selecione uma linha'}
             </span>
             <div style={{ flex: 1 }} />
             <button style={ab} title="Mover para cima" onClick={act(l => moveLinha(l, -1))}><ArrowUp size={13} /></button>
@@ -1382,24 +1361,32 @@ export default function RelatorioEditorPage() {
         </div>
       )}
       <div style={S.tableWrap}>
-        <table style={{ ...S.table, tableLayout: 'fixed', width: dw('__desc', 260) + columns.reduce((s, c) => s + dw(c.key, c.period === 'TOTAL' ? 104 : c.kind === 'delta' ? 64 : 84), 0) }}>
+        <table style={{ ...S.table, tableLayout: 'fixed', width: dw('__desc', 260) + columns.reduce((s, c) => s + dw(c.key, defW(c)), 0) }}>
           <colgroup>
             <col style={{ width: dw('__desc', 260) }} />
-            {columns.map(c => <col key={c.key} style={{ width: dw(c.key, c.period === 'TOTAL' ? 104 : c.kind === 'delta' ? 64 : 84) }} />)}
+            {columns.map(c => <col key={c.key} style={{ width: dw(c.key, defW(c)) }} />)}
           </colgroup>
           <thead>
             {twoRow ? (
               <>
                 <tr>
                   <th style={{ ...S.th, ...S.thDesc, position: 'sticky' }} rowSpan={2}>Descrição{resizeHandle('__desc', 260)}</th>
-                  {groups.map((g, i) => <th key={i} colSpan={g.span} style={{ ...S.th, textAlign: 'center', color: '#495057' }}>{g.label}</th>)}
+                  {groups.map((g, i) => (
+                    <th key={i} colSpan={g.span} style={{ ...S.th, textAlign: 'center', color: '#495057', cursor: g.collapsible ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
+                      title={g.collapsible ? (g.collapsed ? `Expandir ${g.label}` : `Recolher ${g.label}`) : undefined}
+                      onClick={() => g.collapsible && typeof g.period === 'number' && toggleColapso(g.period)}>
+                      {g.collapsed
+                        ? <ChevronRight size={12} style={{ verticalAlign: 'middle', color: '#adb5bd' }} />
+                        : <>{g.label}{g.collapsible && <ChevronLeft size={11} style={{ verticalAlign: 'middle', marginLeft: 3, color: '#adb5bd' }} />}</>}
+                    </th>
+                  ))}
                 </tr>
-                <tr>{columns.map(c => <th key={c.key} style={{ ...S.th, top: 28, color: c.kind === 'delta' ? '#868e96' : '#6c757d', position: 'sticky' }}>{c.label}{resizeHandle(c.key, c.period === 'TOTAL' ? 104 : c.kind === 'delta' ? 64 : 84)}</th>)}</tr>
+                <tr>{columns.map(c => <th key={c.key} style={{ ...S.th, top: 28, color: c.kind === 'delta' ? '#868e96' : '#6c757d', position: 'sticky' }}>{c.label}{resizeHandle(c.key, defW(c))}</th>)}</tr>
               </>
             ) : (
               <tr>
                 <th style={{ ...S.th, ...S.thDesc }}>Descrição{resizeHandle('__desc', 260)}</th>
-                {columns.map(c => <th key={c.key} style={{ ...S.th, color: c.period === 'TOTAL' ? '#1971c2' : '#6c757d', position: 'sticky' }}>{c.label}{resizeHandle(c.key, c.period === 'TOTAL' ? 104 : c.kind === 'delta' ? 64 : 84)}</th>)}
+                {columns.map(c => <th key={c.key} style={{ ...S.th, color: c.period === 'TOTAL' ? '#1971c2' : '#6c757d', position: 'sticky' }}>{c.label}{resizeHandle(c.key, defW(c))}</th>)}
               </tr>
             )}
           </thead>
@@ -1434,13 +1421,26 @@ export default function RelatorioEditorPage() {
                         {l.descricao || <em style={{ color: '#ccc' }}>sem nome</em>}
                       </span>
                       {!isSpac && contaLinks[l.id]?.length ? <span style={{ fontSize: 9, fontWeight: 700, color: '#2f9e44', flexShrink: 0 }} title="contas amarradas">🔗{contaLinks[l.id].length}</span> : null}
+                      {l.visivel_relatorio === false ? <EyeOff size={12} style={{ color: '#fa5252', flexShrink: 0 }} /> : null}
+                      {l.visivel_dashboard === false ? <span style={{ fontSize: 9, fontWeight: 700, color: '#7048e8', flexShrink: 0, border: '1px solid #d0bfff', borderRadius: 3, padding: '0 3px' }} title="oculta no dashboard">DASH</span> : null}
                     </div>
                   </td>
                   {columns.map(c => {
+                    if (c.kind === 'collapsed') {
+                      return <td key={c.key} style={{ ...S.td, padding: 0, cursor: 'pointer', background: isSel ? '#cfe0ff' : '#f8f9fa', borderLeft: '1px solid #e9ecef' }}
+                        title="Expandir mês" onClick={() => typeof c.period === 'number' && toggleColapso(c.period)} />
+                    }
                     if (c.empresaId) {
                       const v = cellValE(c.empresaId, c.cenarioKey!, l.id, c.period)
                       const disp = isSpac ? '' : (v !== 0 ? formatValor(fac * v, l.formato, l.casas_decimais) : '')
                       return <td key={c.key} style={{ ...S.td, color: clr, fontWeight: fw, textDecoration: off ? 'line-through' : undefined, background: isSel ? '#cfe0ff' : (c.period === 'TOTAL' ? '#fafbff' : undefined) }}>{disp}</td>
+                    }
+                    if (c.kind === 'deltav') {
+                      const base = cellVal(view.cenarios[0], l.id, c.period)
+                      const comp = cellVal(view.cenarios[1], l.id, c.period)
+                      const dv = comp - base   // impacto no resultado (mesmo sinal do Δ%)
+                      const col = dv > 0 ? '#2f9e44' : dv < 0 ? '#e03131' : '#ced4da'
+                      return <td key={c.key} style={{ ...S.td, color: col, fontSize: 12, fontWeight: 500, fontStyle: 'italic' }}>{isSpac || dv === 0 ? '' : `${dv > 0 ? '+' : ''}${formatValor(dv, l.formato, l.casas_decimais)}`}</td>
                     }
                     if (c.kind === 'delta') {
                       const base = cellVal(view.cenarios[0], l.id, c.period)
@@ -1611,7 +1611,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
     }
     const raw = await fetchAllRows(() => {
       let q = isReal
-        ? supabase.from('fat_realizado').select('conta_id,empresa_id,filial_id,cc_id,ano,mes,valor,historico,documento,dims,lote,sublote').in('conta_id', contaIds)
+        ? supabase.from('fat_realizado').select('conta_id,empresa_id,filial_id,cc_id,ano,mes,data,valor,historico,documento,dims,lote,sublote').in('conta_id', contaIds)
         : supabase.from('fat_orcado').select(editavel ? 'id,empresa_id,filial_id,cc_id,ano,mes,valor,dims,origem' : 'linha_id,empresa_id,filial_id,cc_id,ano,mes,valor,dims').in('linha_id', linhaIds).eq('versao_id', cen)
       q = q.in('empresa_id', empresaSel).in('ano', anosQ).in('mes', mesesQ)
       if (filialFilter) q = q.in('filial_id', filialFilter)
@@ -1630,16 +1630,16 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
       }
     }
     if (isReal) {
-      // razão do realizado: agrega por conta+empresa+filial+cc, aplica sinal do conta_linha (casa com a célula)
+      // razão do realizado: agrega por lançamento (conta+empresa+filial+cc+data+doc+lote+sublote+histórico), aplica sinal
       const agg = new Map<string, any>()
       for (const r of data) {
-        const k = `${r.conta_id}|${r.empresa_id || ''}|${r.filial_id || ''}|${r.cc_id || ''}|${r.historico || ''}`
+        const k = `${r.conta_id}|${r.empresa_id || ''}|${r.filial_id || ''}|${r.cc_id || ''}|${r.data || ''}|${r.documento || ''}|${r.lote || ''}|${r.sublote || ''}|${r.historico || ''}`
         const v = (Number(r.valor) || 0) * (contaSinal[r.conta_id] ?? 1)
         const cur = agg.get(k)
         if (cur) cur.valor += v
-        else agg.set(k, { conta_id: r.conta_id, empresa_id: r.empresa_id, filial_id: r.filial_id, cc_id: r.cc_id, dims: { historico: r.historico || '' }, valor: v })
+        else agg.set(k, { conta_id: r.conta_id, empresa_id: r.empresa_id, filial_id: r.filial_id, cc_id: r.cc_id, data: r.data || '', documento: r.documento || '', lote: r.lote || '', sublote: r.sublote || '', dims: { historico: r.historico || '' }, valor: v })
       }
-      setRows(Array.from(agg.values()).sort((a, b) => (contaById[a.conta_id]?.codigo || '').localeCompare(contaById[b.conta_id]?.codigo || '')))
+      setRows(Array.from(agg.values()).sort((a, b) => (a.data || '').localeCompare(b.data || '') || (contaById[a.conta_id]?.codigo || '').localeCompare(contaById[b.conta_id]?.codigo || '')))
     } else if (editavel) {
       setRows((data as any[]).map(r => ({ ...r, dims: r.dims || {} })).sort((a, b) => (a.dims.historico || '').localeCompare(b.dims.historico || '')))
     } else {
@@ -1658,9 +1658,9 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
 
   const soma = rows.reduce((s, r) => s + (Number(r.valor) || 0), 0)
   const exportar = () => downloadSheet('razao.xlsx', [
-    [...(isReal ? ['Conta', 'Descrição Conta'] : []), 'Empresa', 'Filial', 'Linha', 'CC', 'Descrição CC', 'Área', 'Divisão', 'BU', 'Histórico', 'Valor'],
+    [...(isReal ? ['Conta', 'Descrição Conta', 'Data', 'Documento', 'Lote', 'Sublote'] : []), 'Empresa', 'Filial', 'Linha', 'CC', 'Descrição CC', 'Área', 'Divisão', 'BU', 'Histórico', 'Valor'],
     ...rows.map(r => [
-      ...(isReal ? [contaById[r.conta_id]?.codigo || '', contaById[r.conta_id]?.descricao || ''] : []),
+      ...(isReal ? [contaById[r.conta_id]?.codigo || '', contaById[r.conta_id]?.descricao || '', r.data || '', r.documento || '', r.lote || '', r.sublote || ''] : []),
       empById[r.empresa_id]?.codigo || '', filById[r.filial_id]?.codigo || '',
       linhaById[r.linha_id ?? linhaId] || titulo, ccById[r.cc_id]?.codigo || '', ccById[r.cc_id]?.descricao || '',
       r.dims.area || '', r.dims.divisao || '', r.dims.bu || '', r.dims.historico || '', r.valor,
@@ -1707,10 +1707,13 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
   const th: CSSProperties = { textAlign: 'left', padding: '7px 10px', fontSize: 11, color: '#868e96', fontWeight: 600, borderBottom: '1px solid #e9ecef', position: 'sticky', top: 0, background: '#f8f9fa' }
   const td: CSSProperties = { padding: '6px 10px', fontSize: 12, borderBottom: '1px solid #f4f5f7', whiteSpace: 'nowrap' }
   const inp: CSSProperties = { padding: '4px 6px', fontSize: 12, border: '1px solid #ced4da', borderRadius: 5, outline: 'none', width: '100%', boxSizing: 'border-box' }
-  const colSpan = (editavel ? 11 : 10) + (isReal ? 1 : 0)
+  const colSpan = (editavel ? 11 : 10) + (isReal ? 4 : 0)
   const keyOf = (r: any, col: string): string | number => {
     switch (col) {
       case 'conta': return contaById[r.conta_id]?.codigo || ''
+      case 'data': return r.data || ''
+      case 'documento': return r.documento || ''
+      case 'lote': return (r.lote || '') + (r.sublote || '')
       case 'empresa': return empById[r.empresa_id]?.codigo || ''
       case 'filial': return filById[r.filial_id]?.codigo || ''
       case 'cc': return ccById[r.cc_id]?.codigo || ''
@@ -1765,6 +1768,9 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>
               {isReal && <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('conta')}>Conta{seta('conta')}</th>}
+              {isReal && <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('data')}>Data{seta('data')}</th>}
+              {isReal && <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('documento')}>Documento{seta('documento')}</th>}
+              {isReal && <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('lote')}>Lote{seta('lote')}</th>}
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('empresa')}>Empresa{seta('empresa')}</th>
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('filial')}>Filial{seta('filial')}</th>
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('cc')}>CC{seta('cc')}</th>
@@ -1783,6 +1789,9 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
                 return (
                   <tr key={r.id ?? i}>
                     {isReal && <td style={{ ...td, fontFamily: 'monospace' }} title={contaById[r.conta_id]?.descricao || ''}>{contaById[r.conta_id]?.codigo || '—'}{contaById[r.conta_id]?.descricao ? ` · ${contaById[r.conta_id].descricao}` : ''}</td>}
+                    {isReal && <td style={td}>{r.data ? String(r.data).split('-').reverse().join('/') : '—'}</td>}
+                    {isReal && <td style={td}>{r.documento || '—'}</td>}
+                    {isReal && <td style={{ ...td, fontFamily: 'monospace' }}>{r.lote ? `${r.lote}${r.sublote ? '/' + r.sublote : ''}` : '—'}</td>}
                     <td style={td} title={empById[r.empresa_id]?.descricao || ''}>{empById[r.empresa_id]?.codigo || '—'}</td>
                     <td style={td} title={filById[r.filial_id]?.descricao || ''}>{filById[r.filial_id]?.codigo || '—'}</td>
                     <td style={{ ...td, fontFamily: 'monospace', color: '#868e96' }}>{ccById[r.cc_id]?.codigo || '—'}</td>
@@ -2036,6 +2045,13 @@ function LinhaModal({ linha, refLinhas, onClose, onSave }: { linha: Linha; refLi
         <label style={{ ...S.chk, color: l.desativada ? '#e03131' : '#495057' }}>
           <input type="checkbox" checked={!!l.desativada} onChange={e => setL({ ...l, desativada: e.target.checked })} /> Desativar linha (valores tachados, fora da somatória)
         </label>
+        <div style={{ borderTop: '1px solid #f1f3f5', paddingTop: 10, marginTop: 2 }}>
+          <div style={{ fontSize: 12, color: '#868e96', marginBottom: 6 }}>Visibilidade (só exibição — não afeta o cálculo):</div>
+          <div style={{ display: 'flex', gap: 20 }}>
+            <label style={S.chk}><input type="checkbox" checked={l.visivel_relatorio !== false} onChange={e => setL({ ...l, visivel_relatorio: e.target.checked })} /> Visível no relatório</label>
+            <label style={S.chk}><input type="checkbox" checked={l.visivel_dashboard !== false} onChange={e => setL({ ...l, visivel_dashboard: e.target.checked })} /> Visível no dashboard</label>
+          </div>
+        </div>
         <div style={S.mFooter}>
           <button style={S.btnSec} onClick={onClose}>Cancelar</button>
           <button style={S.btnPri} onClick={() => onSave(l)}>Salvar</button>

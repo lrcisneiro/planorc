@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Filter, X } from 'lucide-react'
+import { Filter, X, CalendarRange } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 export type Item = { id: string; codigo: string; descricao: string }
 
@@ -8,7 +9,37 @@ const cut = (s: string, n: number) => (s || '').length > n ? s.slice(0, n) + '�
 const miniBtn: CSSProperties = { padding: '2px 8px', fontSize: 11, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', cursor: 'pointer', color: '#495057' }
 const label: CSSProperties = { display: 'block', fontSize: 12, fontWeight: 500, color: '#495057', marginBottom: 6 }
 const btn: CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'white', color: '#495057', border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer' }
-const pop: CSSProperties = { position: 'absolute', top: '110%', left: 0, zIndex: 1500, background: 'white', border: '1px solid #e9ecef', borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.16)', padding: 16, width: 'min(440px, 92vw)', maxHeight: '78vh', overflow: 'auto' }
+const overlay: CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1490 }
+const modalBox: CSSProperties = { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 1500, background: 'white', border: '1px solid #e9ecef', borderRadius: 14, boxShadow: '0 24px 60px rgba(0,0,0,0.25)', padding: 16, maxHeight: '85vh', overflowY: 'auto', overflowX: 'hidden' }
+
+// Modal centralizado reutilizável (cabeçalho com Aplicar/X no topo)
+export function ModalPanel({ titulo, onClose, children, width }: { titulo: string; onClose: () => void; children: ReactNode; width?: string }) {
+  return (
+    <>
+      <div style={overlay} onClick={onClose} />
+      <div style={{ ...modalBox, width: width || 'min(860px, calc(100vw - 40px))' }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+          <strong style={{ fontSize: 14, color: '#212529' }}>{titulo}</strong>
+          <div style={{ flex: 1 }} />
+          <button style={{ ...btn, padding: '5px 12px', background: '#3b5bdb', color: 'white', borderColor: '#3b5bdb' }} onClick={onClose}>Aplicar e fechar</button>
+          <X size={18} style={{ cursor: 'pointer', color: '#adb5bd', marginLeft: 8 }} onClick={onClose} />
+        </div>
+        {children}
+      </div>
+    </>
+  )
+}
+
+// Botão "Períodos" — invólucro padrão; o conteúdo (seletor de tempo) é injetado por cada dashboard.
+export function PeriodoButton({ children, resumo, width }: { children: ReactNode; resumo?: string; width?: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{ position: 'relative' }}>
+      <button style={btn} onClick={() => setOpen(true)}><CalendarRange size={13} /> Períodos{resumo ? ` · ${resumo}` : ''}</button>
+      {open && <ModalPanel titulo="Períodos" onClose={() => setOpen(false)} width={width}>{children}</ModalPanel>}
+    </div>
+  )
+}
 
 export function Checklist({ titulo, items, sel, setSel }: { titulo: string; items: Item[]; sel: string[]; setSel: (v: string[]) => void }) {
   const [b, setB] = useState('')
@@ -37,33 +68,67 @@ export function Checklist({ titulo, items, sel, setSel }: { titulo: string; item
   )
 }
 
-// Botão "Filtros" com popover de Empresa/Filial/CC (multi-seleção). Vazio = todas.
-export function FiltrosButton({ empresas, filiais, ccs, empresaSel, setEmpresaSel, filialSel, setFilialSel, ccSel, setCcSel }: {
-  empresas: Item[]; filiais: Item[]; ccs: Item[]
+// CC com atributos derivados (Área/Divisão/BU)
+export type CC = Item & { area_cod?: string | null; area_nome?: string | null; divisao_cod?: string | null; divisao_nome?: string | null; bu_cod?: string | null; bu_nome?: string | null }
+
+// opções distintas de um atributo a partir da lista de CCs (id = código do atributo)
+export function opcoesAttr(ccs: CC[], codKey: keyof CC, nomeKey: keyof CC): Item[] {
+  const m = new Map<string, string>()
+  ccs.forEach(c => { const cod = c[codKey] as string | null; if (cod) m.set(cod, (c[nomeKey] as string) || cod) })
+  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([cod, nome]) => ({ id: cod, codigo: cod, descricao: nome }))
+}
+
+// Expande os filtros (CC + Área/Divisão/BU) para o conjunto efetivo de cc_id.
+// Retorna null quando nada restringe os CCs (= todos).
+export function effectiveCcFilter(ccs: CC[], ccSel: string[], areaSel: string[], divisaoSel: string[], buSel: string[]): string[] | null {
+  if (!ccSel.length && !areaSel.length && !divisaoSel.length && !buSel.length) return null
+  if (!ccs.length) return null  // lista de CCs ainda não carregada → não filtra (evita zerar)
+  // uma dimensão só RESTRINGE quando um SUBCONJUNTO das opções está marcado.
+  // vazio OU todas marcadas = sem restrição (preserva CCs com aquela dimensão nula, ex.: Adm sem BU).
+  const distinct = (k: keyof CC) => new Set(ccs.map(c => c[k] as string).filter(Boolean)).size
+  const restrAREA = areaSel.length > 0 && areaSel.length < distinct('area_cod')
+  const restrDIV  = divisaoSel.length > 0 && divisaoSel.length < distinct('divisao_cod')
+  const restrBU   = buSel.length > 0 && buSel.length < distinct('bu_cod')
+  const restrCC   = ccSel.length > 0 && ccSel.length < ccs.length
+  if (!restrAREA && !restrDIV && !restrBU && !restrCC) return null
+  let set = ccs
+  if (restrAREA) set = set.filter(c => c.area_cod && areaSel.includes(c.area_cod))
+  if (restrDIV)  set = set.filter(c => c.divisao_cod && divisaoSel.includes(c.divisao_cod))
+  if (restrBU)   set = set.filter(c => c.bu_cod && buSel.includes(c.bu_cod))
+  let ids = set.map(c => c.id)
+  if (restrCC) { const cs = new Set(ccSel); ids = ids.filter(id => cs.has(id)) }
+  return ids
+}
+
+// Botão "Filtros" com popover Empresa/Filial/CC + Área/Divisão/BU (multi-seleção). Vazio = todas.
+export function FiltrosButton({ empresas, filiais, ccs, empresaSel, setEmpresaSel, filialSel, setFilialSel, ccSel, setCcSel, areaSel, setAreaSel, divisaoSel, setDivisaoSel, buSel, setBuSel }: {
+  empresas: Item[]; filiais: Item[]; ccs: CC[]
   empresaSel: string[]; setEmpresaSel: (v: string[]) => void
   filialSel: string[]; setFilialSel: (v: string[]) => void
   ccSel: string[]; setCcSel: (v: string[]) => void
+  areaSel: string[]; setAreaSel: (v: string[]) => void
+  divisaoSel: string[]; setDivisaoSel: (v: string[]) => void
+  buSel: string[]; setBuSel: (v: string[]) => void
 }) {
   const [open, setOpen] = useState(false)
-  const n = empresaSel.length + filialSel.length + ccSel.length
+  const areas = opcoesAttr(ccs, 'area_cod', 'area_nome')
+  const divisoes = opcoesAttr(ccs, 'divisao_cod', 'divisao_nome')
+  const bus = opcoesAttr(ccs, 'bu_cod', 'bu_nome')
+  const n = empresaSel.length + filialSel.length + ccSel.length + areaSel.length + divisaoSel.length + buSel.length
   return (
     <div style={{ position: 'relative' }}>
-      <button style={btn} onClick={() => setOpen(o => !o)}><Filter size={13} /> Filtros{n ? ` (${n})` : ''}</button>
+      <button style={btn} onClick={() => setOpen(true)}><Filter size={13} /> Filtros{n ? ` (${n})` : ''}</button>
       {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1400 }} />
-          <div style={pop}>
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <strong style={{ fontSize: 14, color: '#212529' }}>Filtros</strong>
-              <div style={{ flex: 1 }} />
-              <X size={18} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={() => setOpen(false)} />
-            </div>
-            <Checklist titulo="Empresas" items={empresas} sel={empresaSel} setSel={setEmpresaSel} />
-            <Checklist titulo="Filiais" items={filiais} sel={filialSel} setSel={setFilialSel} />
-            <Checklist titulo="Centros de custo" items={ccs} sel={ccSel} setSel={setCcSel} />
-            <button style={{ ...btn, width: '100%', justifyContent: 'center', marginTop: 14, background: '#3b5bdb', color: 'white', borderColor: '#3b5bdb' }} onClick={() => setOpen(false)}>Aplicar e fechar</button>
+        <ModalPanel titulo="Filtros" onClose={() => setOpen(false)}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0 20px' }}>
+            <Checklist titulo="Empresa" items={empresas} sel={empresaSel} setSel={setEmpresaSel} />
+            <Checklist titulo="Área" items={areas} sel={areaSel} setSel={setAreaSel} />
+            <Checklist titulo="Divisão" items={divisoes} sel={divisaoSel} setSel={setDivisaoSel} />
+            <Checklist titulo="BU" items={bus} sel={buSel} setSel={setBuSel} />
+            <Checklist titulo="Filial" items={filiais} sel={filialSel} setSel={setFilialSel} />
+            <Checklist titulo="Centro de custo" items={ccs} sel={ccSel} setSel={setCcSel} />
           </div>
-        </>
+        </ModalPanel>
       )}
     </div>
   )

@@ -6,8 +6,9 @@ import type { LinhaCalc, Computed, Periodo, RawValues } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
 import { ResponsiveLine } from '@nivo/line'
 import { Link } from 'react-router-dom'
-import { TrendingUp, TrendingDown, RefreshCw, Filter, X, ArrowLeft } from 'lucide-react'
+import { TrendingUp, TrendingDown, RefreshCw, ArrowLeft } from 'lucide-react'
 import DrillModal from './DrillModal'
+import { effectiveCcFilter, FiltrosButton, PeriodoButton } from './DashFiltros'
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 const ANOS = [2024, 2025, 2026, 2027, 2028]
@@ -36,7 +37,7 @@ function TipOR({ titulo, data, hint }: { titulo: string; data: any; hint?: strin
 type Rel = { id: string; codigo: string; nome: string }
 type Versao = { id: string; codigo: string }
 type Item = { id: string; codigo: string; descricao: string }
-type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null }
+type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null; visivel_dashboard?: boolean }
 
 const S: Record<string, CSSProperties> = {
   page:   { padding: 24, fontFamily: 'system-ui, sans-serif' },
@@ -58,38 +59,11 @@ const S: Record<string, CSSProperties> = {
   empty:  { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: '#aaa', fontSize: 14 },
   label:  { display: 'block', fontSize: 12, fontWeight: 500, color: '#495057', marginBottom: 6 },
   input:  { width: '100%', padding: '8px 10px', fontSize: 14, border: '1px solid #ced4da', borderRadius: 8, outline: 'none', boxSizing: 'border-box' },
-  pop:    { position: 'absolute', top: '110%', left: 0, zIndex: 1500, background: 'white', border: '1px solid #e9ecef', borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.16)', padding: 16, width: 'min(440px, 92vw)', maxHeight: '78vh', overflow: 'auto' },
+  pop:    { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 1500, background: 'white', border: '1px solid #e9ecef', borderRadius: 12, boxShadow: '0 24px 60px rgba(0,0,0,0.25)', padding: 16, width: 'min(860px, calc(100vw - 40px))', maxHeight: '85vh', overflowY: 'auto', overflowX: 'hidden' },
   miniSeg:{ padding: '3px 10px', fontSize: 12, border: '1px solid #dee2e6', cursor: 'pointer', background: 'white', color: '#495057' },
 }
 const miniBtn: CSSProperties = { padding: '2px 8px', fontSize: 11, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', cursor: 'pointer', color: '#495057' }
 
-function Checklist({ titulo, items, sel, setSel }: { titulo: string; items: Item[]; sel: string[]; setSel: (v: string[]) => void }) {
-  const [b, setB] = useState('')
-  const f = b ? items.filter(i => `${i.codigo} ${i.descricao}`.toLowerCase().includes(b.toLowerCase())) : items
-  const toggle = (id: string) => setSel(sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id])
-  return (
-    <div style={{ marginTop: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <label style={{ ...S.label, margin: 0 }}>{titulo}</label>
-        <span style={{ fontSize: 11, color: '#adb5bd' }}>{sel.length ? `${sel.length} de ${items.length}` : 'todas'}</span>
-        <div style={{ flex: 1 }} />
-        <button style={miniBtn} onClick={() => setSel(items.map(i => i.id))}>Todas</button>
-        <button style={miniBtn} onClick={() => setSel([])}>Limpar</button>
-      </div>
-      <input style={{ ...S.input, marginBottom: 6 }} placeholder="filtrar..." value={b} onChange={e => setB(e.target.value)} />
-      <div style={{ maxHeight: 130, overflow: 'auto', border: '1px solid #f1f3f5', borderRadius: 8, padding: 4 }}>
-        {f.map(i => (
-          <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 6px', fontSize: 12, cursor: 'pointer' }}>
-            <input type="checkbox" checked={sel.includes(i.id)} onChange={() => toggle(i.id)} />
-            <span style={{ fontFamily: 'monospace', color: '#868e96', minWidth: 50 }}>{i.codigo}</span>
-            <span>{i.descricao}</span>
-          </label>
-        ))}
-        {!f.length && <div style={{ padding: 8, color: '#adb5bd', fontSize: 12 }}>Nenhum item.</div>}
-      </div>
-    </div>
-  )
-}
 
 function AnoMesGrid({ anosSel, mesesSel, setAnosSel, setMesesSel }: {
   anosSel: number[]; mesesSel: number[]; setAnosSel: (v: number[]) => void; setMesesSel: (v: number[]) => void
@@ -166,24 +140,25 @@ export default function DashboardPage() {
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
   const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
   const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
-  const [filtroOpen, setFiltroOpen] = useState(false)
-  const [medida, setMedida] = useState<'Realizado' | 'Orçado'>('Realizado')
+  const [areaSel, setAreaSel] = useState<string[]>(Array.isArray(sv.areaSel) ? sv.areaSel : [])
+  const [divisaoSel, setDivisaoSel] = useState<string[]>(Array.isArray(sv.divisaoSel) ? sv.divisaoSel : [])
+  const [buSel, setBuSel] = useState<string[]>(Array.isArray(sv.buSel) ? sv.buSel : [])
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
   const [escopoNome, setEscopoNome] = useState('Relatório inteiro')
   const [kpi, setKpi] = useState({ resOrc: 0, resReal: 0, recOrc: 0, recReal: 0, despOrc: 0, despReal: 0 })
-  const [compAno, setCompAno] = useState<any[]>([])
   const [orcRealMes, setOrcRealMes] = useState<any[]>([])
   const [accLines, setAccLines] = useState<any[]>([])
   const [composicao, setComposicao] = useState<any[]>([])
+  const [compOcultas, setCompOcultas] = useState(0)
   const [filhasMes, setFilhasMes] = useState<any[]>([])
   const [cascata, setCascata] = useState<any[]>([])
   const [porEmpresa, setPorEmpresa] = useState<any[]>([])
   const [ebitdaEmp, setEbitdaEmp] = useState<any[]>([])
   const [desvios, setDesvios] = useState<any[]>([])
   const [temDados, setTemDados] = useState(false)
-  const [drill, setDrill] = useState<{ nodeId: string; medida: 'Realizado' | 'Orçado' } | null>(null)
+  const [drill, setDrill] = useState<{ nodeId: string } | null>(null)
   const [qparams, setQparams] = useState<{ empIds: string[]; anos: number[]; meses: number[]; filFilter: string[] | null; ccFilter: string[] | null } | null>(null)
 
   useEffect(() => {
@@ -191,16 +166,16 @@ export default function DashboardPage() {
     supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => { setVersoes(r.data || []); if (r.data?.length) setVersaoId(p => p || sv.versaoId || r.data![0].id) })
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
     supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
-    supabase.from('centro_custo').select('id,codigo,descricao').order('codigo').then(r => setCcs(r.data || []))
+    supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo').then(r => setCcs(r.data || []))
   }, []) // eslint-disable-line
 
-  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel })) }, [relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel])
+  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })) }, [relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel])
 
   const load = async () => {
     if (!relId || !versaoId || !anosSel.length || !mesesSel.length) return
     setLoading(true); setErro(null)
     try {
-      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,ordem').eq('relatorio_id', relId)
+      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,ordem,visivel_dashboard').eq('relatorio_id', relId)
       const linhas = (linhasRaw || []) as RL[]
       const byId: Record<string, RL> = {}; linhas.forEach(l => { byId[l.id] = l })
       const childrenByPai: Record<string, RL[]> = {}
@@ -241,7 +216,10 @@ export default function DashboardPage() {
       const scopedMasters = agrup ? subMasters(agrup) : masterIds
       const scopedSet = new Set(scopedMasters)
       // filhas diretas do nó (ou raiz) e a qual filha cada master pertence
-      const nodeChildren = (childrenByPai[agrup || '__root'] || []).filter(c => c.tipo_linha !== 'ESPACO')
+      // visivel_dashboard=false some do display, mas continua no cálculo (totais/EBITDA via leaves+engine)
+      const allChildren = (childrenByPai[agrup || '__root'] || []).filter(c => c.tipo_linha !== 'ESPACO')
+      const nodeChildren = allChildren.filter(c => c.visivel_dashboard !== false)
+      const childrenOcultas = allChildren.length - nodeChildren.length
       const masterToChild: Record<string, string> = {}, childDesc: Record<string, string> = {}
       nodeChildren.forEach(c => { childDesc[c.id] = c.descricao; subMasters(c.id).forEach(m => { masterToChild[m] = c.id }) })
 
@@ -249,7 +227,7 @@ export default function DashboardPage() {
       const empIds = empresaSel.length ? empresaSel : allEmp
       const empSet = new Set(empIds)
       const filFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
-      const ccFilter = (ccSel.length > 0 && ccSel.length < ccs.length) ? ccSel : null
+      const ccFilter = effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel)
       if (!scopedMasters.length || !empIds.length) { setTemDados(false); setLoading(false); return }
       const anos = [...anosSel].sort((a, b) => a - b), meses = [...mesesSel].sort((a, b) => a - b)
       setQparams({ empIds, anos, meses, filFilter, ccFilter })
@@ -302,12 +280,12 @@ export default function DashboardPage() {
       const nodeFac = agrup ? natFac(natOfLine(agrup) || '') : 1
       const childNat: Record<string, string> = {}; nodeChildren.forEach(c => { childNat[c.id] = natOfLine(c.id) || '' })
 
-      const src = medida === 'Realizado' ? rmYM : omYM
-      const comp = meses.map(m => { const o: any = { mes: MESES[m - 1] }; anos.forEach(y => { o[String(y)] = Math.round(nodeFac * (src[y]?.[m] || 0)) }); return o })
       const orMes = meses.map(m => ({ mes: MESES[m - 1], Orçado: Math.round(nodeFac * (omM[m] || 0)), Realizado: Math.round(nodeFac * (rmM[m] || 0)) }))
       const acc = anos.map(y => { let a = 0; return { id: String(y), data: meses.map(m => { a += rmYM[y]?.[m] || 0; return { x: MESES[m - 1], y: Math.round(nodeFac * a) } }) } })
 
       const comps = nodeChildren.filter(c => (childOrc[c.id] || childReal[c.id])).map(c => { const f = natFac(childNat[c.id]); return { id: c.id, filha: cut(childDesc[c.id], 26), Orçado: Math.round(f * (childOrc[c.id] || 0)), Realizado: Math.round(f * (childReal[c.id] || 0)) } })
+        // ordena por magnitude (Realizado, fallback Orçado): ascendente p/ o gráfico horizontal exibir o maior no topo
+        .sort((a, b) => (Math.abs(a.Realizado || a.Orçado)) - (Math.abs(b.Realizado || b.Orçado)))
       let run = 0
       const steps: any[] = []
       for (const c of nodeChildren) { const d = childReal[c.id] || 0; if (!d && !(childOrc[c.id])) continue; steps.push({ step: cut(childDesc[c.id], 14), base: Math.round(Math.min(run, run + d)), total: 0, pos: d >= 0 ? Math.round(Math.abs(d)) : 0, neg: d < 0 ? Math.round(Math.abs(d)) : 0 }); run += d }
@@ -350,13 +328,13 @@ export default function DashboardPage() {
         .filter(x => x.d).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 12).reverse().map(x => ({ conta: cut(x.conta, 26), Δ: Math.round(x.d), nodeId: rlOfMaster[x.m] }))
 
       setKpi({ resOrc: resOrcKpi, resReal: resRealKpi, recOrc: recOF, recReal: recRF, despOrc: despOF, despReal: despRF })
-      setCompAno(comp); setOrcRealMes(orMes); setAccLines(acc); setComposicao(comps); setFilhasMes(fMes); setCascata(steps)
+      setOrcRealMes(orMes); setAccLines(acc); setComposicao(comps); setCompOcultas(childrenOcultas); setFilhasMes(fMes); setCascata(steps)
       setPorEmpresa(pe); setEbitdaEmp(eb); setDesvios(desv)
       setTemDados(Object.keys(omM).length > 0 || Object.keys(rmM).length > 0)
     } catch (e: any) { setErro(e?.message ?? String(e)) }
     setLoading(false)
   }
-  useEffect(() => { load() }, [relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, medida, empresas, filiais, ccs]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs]) // eslint-disable-line
 
   const anosOrd = [...anosSel].sort((a, b) => a - b)
   const yearKeys = anosOrd.map(String)
@@ -377,9 +355,6 @@ export default function DashboardPage() {
       </div>
     )
   }
-  const Seg = ({ v }: { v: 'Realizado' | 'Orçado' }) => (
-    <button onClick={() => setMedida(v)} style={{ ...S.miniSeg, background: medida === v ? '#3b5bdb' : 'white', color: medida === v ? 'white' : '#495057', borderColor: medida === v ? '#3b5bdb' : '#dee2e6', borderRadius: v === 'Realizado' ? '6px 0 0 6px' : '0 6px 6px 0' }}>{v}</button>
-  )
 
   return (
     <div style={S.page}>
@@ -402,26 +377,13 @@ export default function DashboardPage() {
           <option value="">— Versão —</option>
           {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}
         </select>
-        <div style={{ position: 'relative' }}>
-          <button style={S.btn} onClick={() => setFiltroOpen(o => !o)}><Filter size={13} /> Filtros</button>
-          {filtroOpen && (
-            <>
-              <div onClick={() => setFiltroOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1400 }} />
-              <div style={S.pop}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <strong style={{ fontSize: 14, color: '#212529' }}>Filtros</strong>
-                  <X size={18} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={() => setFiltroOpen(false)} />
-                </div>
-                <label style={S.label}>Período — anos (vertical) × meses (horizontal)</label>
-                <AnoMesGrid anosSel={anosSel} mesesSel={mesesSel} setAnosSel={setAnosSel} setMesesSel={setMesesSel} />
-                <Checklist titulo="Empresa" items={empresas} sel={empresaSel} setSel={setEmpresaSel} />
-                <Checklist titulo="Filial" items={filiais} sel={filialSel} setSel={setFilialSel} />
-                <Checklist titulo="Centro de Custo" items={ccs} sel={ccSel} setSel={setCcSel} />
-                <button style={{ ...S.btn, width: '100%', justifyContent: 'center', marginTop: 14, background: '#3b5bdb', color: 'white', borderColor: '#3b5bdb' }} onClick={() => setFiltroOpen(false)}>Aplicar e fechar</button>
-              </div>
-            </>
-          )}
-        </div>
+        <PeriodoButton resumo={`${anosOrd.join(', ') || '—'} · ${mesesSel.length === 12 ? 'todos meses' : mesesSel.length + ' meses'}`}>
+          <label style={S.label}>Período — anos (vertical) × meses (horizontal)</label>
+          <div style={{ overflowX: 'auto' }}>
+            <AnoMesGrid anosSel={anosSel} mesesSel={mesesSel} setAnosSel={setAnosSel} setMesesSel={setMesesSel} />
+          </div>
+        </PeriodoButton>
+        <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs as any} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
         {loading && <span style={{ fontSize: 12, color: '#aaa' }}>Carregando…</span>}
       </div>
@@ -448,13 +410,15 @@ export default function DashboardPage() {
 
           <div style={S.grid2}>
             <div style={S.card}>
-              <div style={S.cardT}>Composição por filha — {escopoNome}</div>
+              <div style={S.cardT}>Composição por filha — {escopoNome}
+                {compOcultas > 0 && <span title="Há linhas marcadas como não visíveis no dashboard. Elas continuam no cálculo, por isso as filhas podem não somar o total." style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: '#7048e8', border: '1px solid #d0bfff', borderRadius: 4, padding: '1px 6px' }}>+{compOcultas} oculta{compOcultas > 1 ? 's' : ''}</span>}
+              </div>
               {composicao.length ? (
                 <div style={{ height: Math.max(220, composicao.length * 34 + 50) }}>
                   <ResponsiveBar data={composicao} keys={['Orçado', 'Realizado']} indexBy="filha" layout="horizontal" groupMode="grouped"
                     margin={{ top: 6, right: 24, bottom: 30, left: 160 }} padding={0.25} innerPadding={2}
                     colors={['#adb5bd', '#3b5bdb']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
-                    enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate onClick={(d: any) => d.data.id && qparams && setDrill({ nodeId: d.data.id, medida: d.id === 'Orçado' ? 'Orçado' : 'Realizado' })}
+                    enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate onClick={(d: any) => d.data.id && qparams && setDrill({ nodeId: d.data.id })}
                     tooltip={({ data }: any) => <TipOR titulo={data.filha} data={data} hint="clique para detalhar" />}
                     legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
                 </div>
@@ -474,19 +438,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div style={S.card}>
-            <div style={S.cardT}>
-              <span>Comparativo mensal por ano — {escopoNome}</span>
-              <div style={{ display: 'flex' }}><Seg v="Realizado" /><Seg v="Orçado" /></div>
-            </div>
-            <div style={S.chart}>
-              <ResponsiveBar data={compAno} keys={yearKeys} indexBy="mes" groupMode="grouped"
-                margin={{ top: 10, right: 10, bottom: 40, left: 56 }} padding={0.2} innerPadding={2}
-                colors={yearKeys.map((_, i) => YCOLORS[i % YCOLORS.length])} borderRadius={3}
-                axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
-                legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 56, itemHeight: 16, symbolSize: 12 }]} />
-            </div>
-          </div>
 
           <div style={S.grid2}>
             <div style={S.card}>
@@ -568,14 +519,14 @@ export default function DashboardPage() {
                 margin={{ top: 6, right: 24, bottom: 24, left: 200 }} padding={0.3}
                 colors={(b: any) => (b.value >= 0 ? '#2f9e44' : '#e03131')} enableGridX
                 axisBottom={{ format: (v: any) => fmtK(Number(v)) }} valueFormat={(v: any) => fmt(Number(v))}
-                labelSkipWidth={9999} animate onClick={(d: any) => d.data.nodeId && qparams && setDrill({ nodeId: d.data.nodeId, medida: 'Realizado' })} />
+                labelSkipWidth={9999} animate onClick={(d: any) => d.data.nodeId && qparams && setDrill({ nodeId: d.data.nodeId })} />
             </div>
           </div>
         </>
       )}
 
       {drill && qparams && (
-        <DrillModal relId={relId} versaoId={versaoId} medida={drill.medida} empIds={qparams.empIds} anos={qparams.anos} meses={qparams.meses}
+        <DrillModal relId={relId} versaoId={versaoId} empIds={qparams.empIds} anos={qparams.anos} meses={qparams.meses}
           filFilter={qparams.filFilter} ccFilter={qparams.ccFilter} startNodeId={drill.nodeId} onClose={() => setDrill(null)} />
       )}
     </div>

@@ -5,8 +5,8 @@ import { supabase } from '../../lib/supabase'
 import { computeCenario, computeTotais } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Periodo } from '../../lib/engine'
 import { ArrowLeft, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react'
-import { FiltrosButton } from './DashFiltros'
-import type { Item } from './DashFiltros'
+import { FiltrosButton, PeriodoButton, effectiveCcFilter } from './DashFiltros'
+import type { Item, CC } from './DashFiltros'
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 const ULT_FECHADO = new Date().getMonth() === 0 ? 12 : new Date().getMonth()
@@ -53,11 +53,14 @@ const loadSaved = (): any => { try { return JSON.parse(localStorage.getItem(SAVE
 export default function ExecutivoPage() {
   const sv = loadSaved()
   const [rels, setRels] = useState<Rel[]>([]); const [versoes, setVersoes] = useState<Versao[]>([])
-  const [empresas, setEmpresas] = useState<Item[]>([]); const [filiais, setFiliais] = useState<Item[]>([]); const [ccs, setCcs] = useState<Item[]>([])
+  const [empresas, setEmpresas] = useState<Item[]>([]); const [filiais, setFiliais] = useState<Item[]>([]); const [ccs, setCcs] = useState<CC[]>([])
   const [relId, setRelId] = useState(''); const [versaoId, setVersaoId] = useState(''); const [ano, setAno] = useState<number>(sv.ano || 2026); const [ateMes, setAteMes] = useState<number>(sv.ateMes || ULT_FECHADO)
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
   const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
   const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
+  const [areaSel, setAreaSel] = useState<string[]>(Array.isArray(sv.areaSel) ? sv.areaSel : [])
+  const [divisaoSel, setDivisaoSel] = useState<string[]>(Array.isArray(sv.divisaoSel) ? sv.divisaoSel : [])
+  const [buSel, setBuSel] = useState<string[]>(Array.isArray(sv.buSel) ? sv.buSel : [])
   const [k, setK] = useState<{ rec: number[]; desp: number[]; eb: number[]; res: number[] } | null>(null)
   const [loading, setLoading] = useState(false); const [erro, setErro] = useState<string | null>(null)
 
@@ -66,9 +69,9 @@ export default function ExecutivoPage() {
     supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => { setVersoes(r.data || []); if (r.data?.length) setVersaoId(p => p || sv.versaoId || r.data![0].id) })
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
     supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
-    supabase.from('centro_custo').select('id,codigo,descricao').order('codigo').then(r => setCcs(r.data || []))
+    supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo').then(r => setCcs(r.data || []))
   }, [])
-  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, empresaSel, filialSel, ccSel, ano, ateMes })) }, [relId, versaoId, empresaSel, filialSel, ccSel, ano, ateMes])
+  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes })) }, [relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes])
 
   const load = async () => {
     if (!relId || !versaoId) return
@@ -85,7 +88,7 @@ export default function ExecutivoPage() {
       const natOf = (id: string | null): string | null => { if (!id) return null; if (id in natCache) return natCache[id]; const l = byId[id]; if (!l) return null; const n = (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : natOf(l.pai_id); natCache[id] = n; return n }
       const empIds = empresaSel.length ? empresaSel : empresas.map(e => e.id)
       const filFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
-      const ccFilter = (ccSel.length > 0 && ccSel.length < ccs.length) ? ccSel : null
+      const ccFilter = effectiveCcFilter(ccs, ccSel, areaSel, divisaoSel, buSel)
       const meses = Array.from({ length: ateMes }, (_, i) => i + 1)
       if (!masterIds.length || !empIds.length) { setK(null); setLoading(false); return }
 
@@ -111,7 +114,7 @@ export default function ExecutivoPage() {
     } catch (e: any) { setErro(e?.message ?? String(e)) }
     setLoading(false)
   }
-  useEffect(() => { load() }, [relId, versaoId, empresaSel, filialSel, ccSel, ano, ateMes, empresas, filiais, ccs]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes, empresas, filiais, ccs]) // eslint-disable-line
 
   return (
     <div style={S.page}>
@@ -124,10 +127,13 @@ export default function ExecutivoPage() {
       <div style={S.bar}>
         <select style={S.sel} value={relId} onChange={e => setRelId(e.target.value)}>{rels.map(r => <option key={r.id} value={r.id}>{r.codigo} · {r.nome}</option>)}</select>
         <select style={S.sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>{versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}</select>
-        <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} />
-        <select style={S.sel} value={ano} onChange={e => setAno(+e.target.value)}>{[2022, 2023, 2024, 2025, 2026, 2027, 2028].map(y => <option key={y} value={y}>{y}</option>)}</select>
-        <span style={{ fontSize: 13, color: '#868e96' }}>acum. até</span>
-        <select style={S.sel} value={ateMes} onChange={e => setAteMes(+e.target.value)} title="Realizado e orçado nos mesmos meses (base justa de execução)">{MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
+        <PeriodoButton width="min(420px, calc(100vw - 40px))" resumo={`${ano} · até ${MESES[ateMes - 1]}`}>
+          <label style={{ fontSize: 12, fontWeight: 500, color: '#495057', display: 'block', marginBottom: 6 }}>Ano</label>
+          <select style={{ ...S.sel, marginBottom: 14 }} value={ano} onChange={e => setAno(+e.target.value)}>{[2022, 2023, 2024, 2025, 2026, 2027, 2028].map(y => <option key={y} value={y}>{y}</option>)}</select>
+          <label style={{ fontSize: 12, fontWeight: 500, color: '#495057', display: 'block', marginBottom: 6 }}>Acumulado até o mês (realizado × orçado na mesma base)</label>
+          <select style={S.sel} value={ateMes} onChange={e => setAteMes(+e.target.value)}>{MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
+        </PeriodoButton>
+        <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         <button style={S.btn} onClick={load}><RefreshCw size={13} /></button>
       </div>
 

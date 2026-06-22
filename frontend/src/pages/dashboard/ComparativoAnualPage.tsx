@@ -6,8 +6,8 @@ import { computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
-import { FiltrosButton } from './DashFiltros'
-import type { Item } from './DashFiltros'
+import { FiltrosButton, PeriodoButton, effectiveCcFilter } from './DashFiltros'
+import type { Item, CC } from './DashFiltros'
 
 const ANOS = [2022, 2023, 2024, 2025, 2026, 2027, 2028]
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -48,11 +48,14 @@ export default function ComparativoAnualPage() {
   const [versoes, setVersoes] = useState<Versao[]>([])
   const [empresas, setEmpresas] = useState<Item[]>([])
   const [filiais, setFiliais] = useState<Item[]>([])
-  const [ccs, setCcs] = useState<Item[]>([])
+  const [ccs, setCcs] = useState<CC[]>([])
   const [relId, setRelId] = useState(''); const [versaoId, setVersaoId] = useState('')
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
   const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
   const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
+  const [areaSel, setAreaSel] = useState<string[]>(Array.isArray(sv.areaSel) ? sv.areaSel : [])
+  const [divisaoSel, setDivisaoSel] = useState<string[]>(Array.isArray(sv.divisaoSel) ? sv.divisaoSel : [])
+  const [buSel, setBuSel] = useState<string[]>(Array.isArray(sv.buSel) ? sv.buSel : [])
   const [anosSel, setAnosSel] = useState<number[]>(Array.isArray(sv.anosSel) && sv.anosSel.length ? sv.anosSel : [2024, 2025, 2026])
   const [ateMes, setAteMes] = useState<number>(sv.ateMes || ULT_FECHADO)
   const [medida, setMedida] = useState<'Realizado' | 'Orçado'>(sv.medida || 'Realizado')
@@ -66,9 +69,9 @@ export default function ComparativoAnualPage() {
     supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => { setVersoes(r.data || []); if (r.data?.length) setVersaoId(p => p || sv.versaoId || r.data![0].id) })
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
     supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
-    supabase.from('centro_custo').select('id,codigo,descricao').order('codigo').then(r => setCcs(r.data || []))
+    supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo').then(r => setCcs(r.data || []))
   }, [])
-  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, empresaSel, filialSel, ccSel, anosSel, ateMes, medida, ocultarVazias })) }, [relId, versaoId, empresaSel, filialSel, ccSel, anosSel, ateMes, medida, ocultarVazias])
+  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anosSel, ateMes, medida, ocultarVazias })) }, [relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anosSel, ateMes, medida, ocultarVazias])
 
   const load = async () => {
     if (!relId || !versaoId) return
@@ -92,7 +95,7 @@ export default function ComparativoAnualPage() {
       const anos = [...anosSel].sort((a, b) => a - b)
       const empIds = empresaSel.length ? empresaSel : empresas.map(e => e.id)
       const filFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
-      const ccFilter = (ccSel.length > 0 && ccSel.length < ccs.length) ? ccSel : null
+      const ccFilter = effectiveCcFilter(ccs, ccSel, areaSel, divisaoSel, buSel)
       if (!masterIds.length || !empIds.length || !anos.length) { setRows([]); setTemDados(false); setLoading(false); return }
 
       const meses = Array.from({ length: ateMes }, (_, i) => i + 1)
@@ -139,7 +142,7 @@ export default function ComparativoAnualPage() {
     } catch (e: any) { setErro(e?.message ?? String(e)) }
     setLoading(false)
   }
-  useEffect(() => { load() }, [relId, versaoId, empresaSel, filialSel, ccSel, anosSel, ateMes, medida, ocultarVazias, empresas, filiais, ccs]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anosSel, ateMes, medida, ocultarVazias, empresas, filiais, ccs]) // eslint-disable-line
 
   const anos = [...anosSel].sort((a, b) => a - b)
   const toggleAno = (y: number) => setAnosSel(s => s.includes(y) ? s.filter(x => x !== y) : [...s, y])
@@ -158,14 +161,16 @@ export default function ComparativoAnualPage() {
       <div style={S.bar}>
         <select style={S.sel} value={relId} onChange={e => setRelId(e.target.value)}>{rels.map(r => <option key={r.id} value={r.id}>{r.codigo} · {r.nome}</option>)}</select>
         <select style={S.sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>{versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}</select>
-        <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} />
+        <PeriodoButton resumo={`${[...anosSel].sort((a, b) => a - b).join(', ') || '—'} · até ${MESES[ateMes - 1]}`}>
+          <label style={{ fontSize: 12, fontWeight: 500, color: '#495057', display: 'block', marginBottom: 6 }}>Anos a comparar</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+            {ANOS.map(y => <button key={y} style={ybtn(anosSel.includes(y))} onClick={() => toggleAno(y)}>{y}</button>)}
+          </div>
+          <label style={{ fontSize: 12, fontWeight: 500, color: '#495057', display: 'block', marginBottom: 6 }}>Acumulado até o mês (base equivalente em todos os anos)</label>
+          <select style={S.sel} value={ateMes} onChange={e => setAteMes(+e.target.value)}>{MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
+        </PeriodoButton>
+        <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         <select style={S.sel} value={medida} onChange={e => setMedida(e.target.value as any)}><option>Realizado</option><option>Orçado</option></select>
-        <span style={{ fontSize: 13, color: '#868e96' }}>acum. até</span>
-        <select style={S.sel} value={ateMes} onChange={e => setAteMes(+e.target.value)} title="Compara os mesmos meses (1 até este) em todos os anos">
-          {MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
-        </select>
-        <div style={{ width: 1, height: 22, background: '#e9ecef', margin: '0 2px' }} />
-        {ANOS.map(y => <button key={y} style={ybtn(anosSel.includes(y))} onClick={() => toggleAno(y)}>{y}</button>)}
         <div style={{ flex: 1 }} />
         <label style={{ fontSize: 12, color: '#868e96', display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={ocultarVazias} onChange={e => setOcultarVazias(e.target.checked)} /> ocultar vazias</label>
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
