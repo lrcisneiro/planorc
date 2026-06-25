@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { LayoutDashboard, BarChart3, Scale, Gauge, TrendingUp, ListChecks, Bookmark, Trash2, Pencil } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { T } from '../../lib/theme'
 
 const CARDS = [
   { to: '/dashboard',            titulo: 'DRE — Acompanhamento', desc: 'Execução orçado × realizado de UM ano, em granularidade mensal, trimestral ou semestral.', icon: LayoutDashboard, cor: '#3b5bdb' },
@@ -21,14 +22,14 @@ type MeuCard = { id: string; nome: string; base: string; cor: string | null }
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
-  title: { fontSize: 22, fontWeight: 600, color: '#212529', margin: 0 },
-  sub:   { fontSize: 13, color: '#868e96', margin: '4px 0 20px' },
-  sechd: { fontSize: 12, color: '#adb5bd', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '26px 0 10px' },
+  title: { fontSize: 22, fontWeight: 700, color: T.text, margin: 0 },
+  sub:   { fontSize: 13, color: T.muted, margin: '4px 0 20px' },
+  sechd: { fontSize: 12, color: T.faint, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '26px 0 10px' },
   grid:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 },
-  card:  { display: 'flex', gap: 14, alignItems: 'flex-start', background: 'white', border: '1px solid #e9ecef', borderRadius: 14, padding: 18, textDecoration: 'none', color: 'inherit', transition: 'box-shadow .15s, transform .15s' },
+  card:  { display: 'flex', gap: 14, alignItems: 'flex-start', background: `linear-gradient(180deg, ${T.panel}, ${T.bgSoft})`, border: `1px solid ${T.border}`, borderRadius: 14, padding: 18, textDecoration: 'none', color: 'inherit', transition: 'box-shadow .15s, transform .15s, border-color .15s' },
   ico:   { width: 44, height: 44, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  ctit:  { fontSize: 15, fontWeight: 600, color: '#212529', margin: 0 },
-  cdesc: { fontSize: 12.5, color: '#868e96', margin: '6px 0 0', lineHeight: 1.45 },
+  ctit:  { fontSize: 15, fontWeight: 600, color: T.text, margin: 0 },
+  cdesc: { fontSize: 12.5, color: T.muted, margin: '6px 0 0', lineHeight: 1.45 },
 }
 
 export default function DashboardsHubPage() {
@@ -49,7 +50,7 @@ export default function DashboardsHubPage() {
     loadMeus()
   }
 
-  const hover = (on: boolean) => (e: any) => { e.currentTarget.style.boxShadow = on ? '0 10px 30px rgba(0,0,0,0.08)' : 'none'; e.currentTarget.style.transform = on ? 'translateY(-2px)' : 'none' }
+  const hover = (on: boolean) => (e: any) => { e.currentTarget.style.boxShadow = on ? '0 10px 30px rgba(0,0,0,0.4)' : 'none'; e.currentTarget.style.transform = on ? 'translateY(-2px)' : 'none'; e.currentTarget.style.borderColor = on ? 'var(--border-strong)' : 'var(--border)' }
 
   return (
     <div style={S.page}>
@@ -85,10 +86,10 @@ export default function DashboardsHubPage() {
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                     <span title="Renomear" style={{ display: 'inline-flex' }} onClick={e => { e.preventDefault(); e.stopPropagation(); renomear(m.id, m.nome) }}>
-                      <Pencil size={15} style={{ color: '#ced4da', cursor: 'pointer' }} />
+                      <Pencil size={15} style={{ color: 'var(--muted)', cursor: 'pointer' }} />
                     </span>
                     <span title="Excluir" style={{ display: 'inline-flex' }} onClick={e => { e.preventDefault(); e.stopPropagation(); excluir(m.id, m.nome) }}>
-                      <Trash2 size={15} style={{ color: '#ced4da', cursor: 'pointer' }} />
+                      <Trash2 size={15} style={{ color: 'var(--muted)', cursor: 'pointer' }} />
                     </span>
                   </div>
                 </Link>

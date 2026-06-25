@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  /* legado — telas antigas (não remover ainda) */
   --color-bg: #f8f9fa;
   --color-surface: #ffffff;
   --color-border: #e5e7eb;
@@ -10,6 +11,47 @@
   --color-text-muted: #6b7280;
   --color-positive: #16a34a;
   --color-negative: #dc2626;
+
+  /* ===== Tema v2 — DEFAULT: dark =====
+     Para trocar: document.documentElement.dataset.theme = 'light' */
+  --bg: #0a0a0f;
+  --bg-soft: #0e0e16;
+  --panel: #14141d;
+  --panel-2: #181823;
+  --border: rgba(255,255,255,0.07);
+  --border-strong: rgba(255,255,255,0.12);
+  --text: #e8e8f0;
+  --text-mid: #b4b4c4;
+  --muted: #74748a;
+  --faint: #4a4a5a;
+  --violet: #8b5cf6;
+  --violet-d: #6d3ff0;
+  --blue: #3b82f6;
+  --green: #34d399;
+  --red: #f87171;
+  --orange: #fbbf24;
+  --cyan: #22d3ee;
+}
+
+/* ===== Variante CLARA — ativa com <html data-theme="light"> ===== */
+:root[data-theme="light"] {
+  --bg: #f8f9fa;
+  --bg-soft: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f1f3f5;
+  --border: #e9ecef;
+  --border-strong: #dee2e6;
+  --text: #212529;
+  --text-mid: #495057;
+  --muted: #868e96;
+  --faint: #adb5bd;
+  --violet: #7048e8;
+  --violet-d: #5f3dc4;
+  --blue: #1971c2;
+  --green: #2f9e44;
+  --red: #e03131;
+  --orange: #e8590c;
+  --cyan: #0c8599;
 }
 
 body {

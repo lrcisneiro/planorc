@@ -66,11 +66,11 @@ const mesesNoRange = (ini: Periodo, fim: Periodo): Periodo[] => {
 const REALIZADO = 'REALIZADO'
 const FUNCAO_LABEL: Record<Funcao, string> = { MENSAL: 'Períodos', ACM: 'Acumulado', MENSAL_ACM: 'Acum. + Períodos', COMPARATIVO: 'Comparativo' }
 const TIPO_INFO: Record<TipoLinha, { label: string; icon: any; cor: string }> = {
-  SOMAR_FILHOS: { label: 'Subtotal — soma das filhas',                 icon: Sigma,          cor: '#1971c2' },
-  ANALITICA:    { label: 'Analítica — valor ou fórmula por célula',    icon: Type,           cor: '#212529' },
-  FORMULA:      { label: 'Fórmula — uma expressão p/ a linha toda',    icon: FunctionSquare, cor: '#6741d9' },
-  INDICADOR:    { label: 'Indicador — fórmula (ex.: %)',               icon: Percent,        cor: '#0c8599' },
-  ESPACO:       { label: 'Espaço / separador',                          icon: Minus,          cor: '#adb5bd' },
+  SOMAR_FILHOS: { label: 'Subtotal — soma das filhas',                 icon: Sigma,          cor: 'var(--blue)' },
+  ANALITICA:    { label: 'Analítica — valor ou fórmula por célula',    icon: Type,           cor: 'var(--text)' },
+  FORMULA:      { label: 'Fórmula — uma expressão p/ a linha toda',    icon: FunctionSquare, cor: 'var(--violet)' },
+  INDICADOR:    { label: 'Indicador — fórmula (ex.: %)',               icon: Percent,        cor: 'var(--cyan)' },
+  ESPACO:       { label: 'Espaço / separador',                          icon: Minus,          cor: 'var(--muted)' },
 }
 
 function buildTree(linhas: Linha[], paiId: string | null = null, depth = 0): Linha[] {
@@ -124,35 +124,35 @@ function parentByPrefix(cod: string, set: Set<string>): string | null {
 
 // ─── Styles (reaproveita o padrão do editor anterior) ─────────
 const S: Record<string, CSSProperties> = {
-  page:      { display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: '#f8f9fa' },
-  header:    { background: 'white', borderBottom: '1px solid #e9ecef', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, flexWrap: 'wrap' },
-  back:      { background: 'none', border: 'none', cursor: 'pointer', color: '#6c757d', display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, padding: '4px 8px', borderRadius: 6 },
-  title:     { fontSize: 15, fontWeight: 600, color: '#212529', flex: 1, whiteSpace: 'nowrap' },
-  sel:       { padding: '5px 10px', fontSize: 13, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: '#495057', cursor: 'pointer' },
-  viewsBar:  { display: 'flex', alignItems: 'center', gap: 4, padding: '6px 16px', background: 'white', borderBottom: '1px solid #e9ecef', flexShrink: 0, flexWrap: 'wrap' },
+  page:      { display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg)' },
+  header:    { background: 'var(--panel)', borderBottom: '1px solid var(--border)', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, flexWrap: 'wrap' },
+  back:      { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, padding: '4px 8px', borderRadius: 6 },
+  title:     { fontSize: 15, fontWeight: 600, color: 'var(--text)', flex: 1, whiteSpace: 'nowrap' },
+  sel:       { padding: '5px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', color: 'var(--text-mid)', cursor: 'pointer' },
+  viewsBar:  { display: 'flex', alignItems: 'center', gap: 4, padding: '6px 16px', background: 'var(--panel)', borderBottom: '1px solid var(--border)', flexShrink: 0, flexWrap: 'wrap' },
   tableWrap: { flex: 1, overflow: 'auto' },
   table:     { borderCollapse: 'collapse', fontSize: 13 },
-  th:        { padding: '7px 10px', background: '#f1f3f5', color: '#6c757d', fontWeight: 600, fontSize: 11, textAlign: 'right', borderBottom: '2px solid #dee2e6', borderRight: '1px solid #e9ecef', whiteSpace: 'nowrap', position: 'sticky', top: 0, zIndex: 1 },
-  thDesc:    { textAlign: 'left', minWidth: 80, position: 'sticky', left: 0, zIndex: 3, background: '#f1f3f5' },
-  td:        { padding: '5px 10px', borderBottom: '1px solid #f1f3f5', borderRight: '1px solid #f4f5f7', textAlign: 'right', whiteSpace: 'nowrap' },
+  th:        { padding: '7px 10px', background: 'var(--panel)', color: 'var(--muted)', fontWeight: 600, fontSize: 11, textAlign: 'right', borderBottom: '2px solid var(--border-strong)', borderRight: '1px solid var(--border)', whiteSpace: 'nowrap', position: 'sticky', top: 0, zIndex: 1 },
+  thDesc:    { textAlign: 'left', minWidth: 80, position: 'sticky', left: 0, zIndex: 3, background: 'var(--panel)' },
+  td:        { padding: '5px 10px', borderBottom: '1px solid var(--panel)', borderRight: '1px solid var(--border)', textAlign: 'right', whiteSpace: 'nowrap' },
   tdDesc:    { textAlign: 'left', position: 'sticky', left: 0, zIndex: 1, padding: '5px 8px', minWidth: 80, overflow: 'hidden' },
-  iconBtn:   { background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4, display: 'flex', alignItems: 'center', color: '#ced4da' },
-  cellInput: { width: 96, border: '1px solid #339af0', borderRadius: 4, padding: '2px 6px', fontSize: 13, textAlign: 'right', outline: 'none', background: '#e7f5ff' },
-  addRow:    { background: 'none', border: '1px dashed #ced4da', borderRadius: 6, padding: '6px 14px', color: '#adb5bd', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 },
-  newInput:  { flex: 1, padding: '6px 10px', fontSize: 13, border: '1px solid #69db7c', borderRadius: 6, outline: 'none' },
-  btnGreen:  { padding: '6px 14px', background: '#2f9e44', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
-  btnGray:   { padding: '6px 10px', background: 'none', border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
+  iconBtn:   { background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4, display: 'flex', alignItems: 'center', color: 'var(--border-strong)' },
+  cellInput: { width: 96, border: '1px solid var(--violet)', borderRadius: 4, padding: '2px 6px', fontSize: 13, textAlign: 'right', outline: 'none', background: 'rgba(59,130,246,0.16)' },
+  addRow:    { background: 'none', border: '1px dashed var(--border-strong)', borderRadius: 6, padding: '6px 14px', color: 'var(--muted)', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 },
+  newInput:  { flex: 1, padding: '6px 10px', fontSize: 13, border: '1px solid var(--green)', borderRadius: 6, outline: 'none' },
+  btnGreen:  { padding: '6px 14px', background: 'var(--green)', color: '#ffffff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
+  btnGray:   { padding: '6px 10px', background: 'none', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
   overlay:   { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
-  modal:     { background: 'white', borderRadius: 14, padding: 24, width: 460, maxHeight: '85vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' },
-  mTitle:    { fontSize: 16, fontWeight: 600, marginBottom: 18, color: '#212529', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  modal:     { background: 'var(--panel)', borderRadius: 14, padding: 24, width: 460, maxHeight: '85vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' },
+  mTitle:    { fontSize: 16, fontWeight: 600, marginBottom: 18, color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
   field:     { marginBottom: 14 },
-  label:     { display: 'block', fontSize: 12, fontWeight: 500, color: '#495057', marginBottom: 6 },
-  input:     { width: '100%', padding: '8px 10px', fontSize: 14, border: '1px solid #ced4da', borderRadius: 8, outline: 'none', boxSizing: 'border-box' },
+  label:     { display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--text-mid)', marginBottom: 6 },
+  input:     { width: '100%', padding: '8px 10px', fontSize: 14, border: '1px solid var(--border-strong)', borderRadius: 8, outline: 'none', boxSizing: 'border-box' },
   mFooter:   { display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 },
-  btnSec:    { padding: '8px 16px', fontSize: 14, background: 'none', border: '1px solid #dee2e6', borderRadius: 8, cursor: 'pointer', color: '#495057' },
-  btnPri:    { padding: '8px 16px', fontSize: 14, background: '#3b5bdb', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 500 },
-  chk:       { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#495057', cursor: 'pointer', padding: '6px 0' },
-  help:      { fontSize: 11, color: '#adb5bd', marginTop: 4, lineHeight: 1.5 },
+  btnSec:    { padding: '8px 16px', fontSize: 14, background: 'none', border: '1px solid var(--border-strong)', borderRadius: 8, cursor: 'pointer', color: 'var(--text-mid)' },
+  btnPri:    { padding: '8px 16px', fontSize: 14, background: 'var(--violet)', color: '#ffffff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 500 },
+  chk:       { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-mid)', cursor: 'pointer', padding: '6px 0' },
+  help:      { fontSize: 11, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 },
 }
 
 // Grade visual de período (anos × meses). Clique no início e depois no fim para marcar o intervalo (pode cruzar anos).
@@ -168,9 +168,9 @@ function PeriodPicker({ anos, ini, fim, onChange }: {
   }
   const [lo, hi] = anchor ? ordPer(anchor, hover ?? anchor) : [ini, fim]
   const loI = perIdx(lo), hiI = perIdx(hi)
-  const hb: CSSProperties = { fontSize: 10, color: '#adb5bd', textAlign: 'center', padding: '2px 0' }
+  const hb: CSSProperties = { fontSize: 10, color: 'var(--muted)', textAlign: 'center', padding: '2px 0' }
   return (
-    <div style={{ border: '1px solid #e9ecef', borderRadius: 8, padding: 8, overflowX: 'auto' }}>
+    <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 8, overflowX: 'auto' }}>
       <div style={{ display: 'grid', gridTemplateColumns: `44px repeat(12, minmax(20px, 1fr))`, gap: 2, minWidth: 360 }}
         onMouseLeave={() => setHover(null)}>
         <div />
@@ -178,7 +178,7 @@ function PeriodPicker({ anos, ini, fim, onChange }: {
         {anos.map(y => (
           <Fragment key={y}>
             <div onClick={() => { onChange({ ano: y, mes: 1 }, { ano: y, mes: 12 }); setAnchor(null); setHover(null) }} title="Selecionar o ano inteiro"
-              style={{ fontSize: 12, fontWeight: 600, color: '#495057', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>{y}</div>
+              style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-mid)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>{y}</div>
             {MESES.map((_, i) => {
               const mes = i + 1, idx = y * 12 + (mes - 1)
               const on = idx >= loI && idx <= hiI
@@ -186,14 +186,14 @@ function PeriodPicker({ anos, ini, fim, onChange }: {
               return (
                 <div key={i} onClick={() => click(y, mes)} onMouseEnter={() => setHover({ ano: y, mes })} title={`${MESES[i]}/${y}`}
                   style={{ height: 24, borderRadius: 4, cursor: 'pointer',
-                    background: isEnd ? '#3b5bdb' : on ? '#cfe0ff' : '#f8f9fa',
-                    border: '1px solid ' + (isEnd ? '#3b5bdb' : on ? '#a5c4ff' : '#eef0f2') }} />
+                    background: isEnd ? 'var(--violet)' : on ? 'rgba(59,130,246,0.30)' : 'var(--bg)',
+                    border: '1px solid ' + (isEnd ? 'var(--violet)' : on ? 'var(--blue)' : 'var(--panel-2)') }} />
               )
             })}
           </Fragment>
         ))}
       </div>
-      <div style={{ fontSize: 11, color: '#adb5bd', marginTop: 6 }}>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
         {anchor ? 'Clique no mês final…' : 'Clique no mês inicial e depois no final. (Clique no ano = ano inteiro.)'}
       </div>
     </div>
@@ -202,8 +202,8 @@ function PeriodPicker({ anos, ini, fim, onChange }: {
 
 function viewTab(active: boolean): CSSProperties {
   return { display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', fontSize: 13, cursor: 'pointer',
-    borderRadius: 7, border: '1px solid', borderColor: active ? '#3b5bdb' : '#e9ecef',
-    background: active ? '#edf2ff' : 'white', color: active ? '#3b5bdb' : '#868e96', fontWeight: active ? 600 : 500 }
+    borderRadius: 7, border: '1px solid', borderColor: active ? 'var(--violet)' : 'var(--border)',
+    background: active ? 'rgba(139,92,246,0.14)' : 'var(--panel)', color: active ? 'var(--violet)' : 'var(--muted)', fontWeight: active ? 600 : 500 }
 }
 
 type Period = number | 'TOTAL'
@@ -1247,7 +1247,7 @@ export default function RelatorioEditorPage() {
     loadViews()
   }
 
-  if (loading) return <div style={{ padding: 32, color: '#aaa', fontSize: 14 }}>Carregando...</div>
+  if (loading) return <div style={{ padding: 32, color: 'var(--muted)', fontSize: 14 }}>Carregando...</div>
 
   return (
     <div style={S.page}>
@@ -1255,24 +1255,24 @@ export default function RelatorioEditorPage() {
         <button style={S.back} onClick={() => navigate('/relatorios')}><ChevronLeft size={15} /> Relatórios</button>
         <span style={S.title}>{relatorio?.nome ?? '...'}</span>
 
-        <select style={{ ...S.sel, borderColor: editavel ? '#dee2e6' : '#ffd43b' }} value={versaoId} onChange={e => setVersaoId(e.target.value)} title="Versão / cenário">
+        <select style={{ ...S.sel, borderColor: editavel ? 'var(--border-strong)' : 'var(--orange)' }} value={versaoId} onChange={e => setVersaoId(e.target.value)} title="Versão / cenário">
           <option value="">— Versão —</option>{versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}
         </select>
         <PeriodoButton resumo={`${pIni.ano === pFim.ano ? pIni.ano : pIni.ano + '–' + pFim.ano} · ${MESES[pIni.mes - 1]}–${MESES[pFim.mes - 1]}`}>
           <label style={S.label}>Período</label>
           <PeriodPicker anos={ANOS} ini={pIni} fim={pFim} onChange={(a, b) => { setPIni(a); setPFim(b) }} />
-          <div style={{ fontSize: 11, color: '#868e96', marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
             {MESES[pIni.mes - 1]}/{pIni.ano} – {MESES[pFim.mes - 1]}/{pFim.ano} · {GRAN_LABEL[gran] || 'Mensal'} · {buckets.length} {buckets.length === 1 ? 'período' : 'períodos'}
-            <span style={{ marginLeft: 6, color: '#adb5bd' }}>(granularidade na Visão)</span>
+            <span style={{ marginLeft: 6, color: 'var(--muted)' }}>(granularidade na Visão)</span>
           </div>
         </PeriodoButton>
         <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs as any} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
-        <span style={{ fontSize: 12, color: '#868e96', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
           {(empresaSel.length === 0 ? 'nenhuma empresa' : empresaSel.length === empresas.length ? 'Todas empresas' : empresaSel.length === 1 ? (empresas.find(e => e.id === empresaSel[0])?.codigo || '1 empresa') : `${empresaSel.length} empresas`)}
           {' · '}{versoes.find(v => v.id === versaoId)?.codigo || '—'}{' · '}{pIni.ano === pFim.ano ? pIni.ano : `${pIni.ano}–${pFim.ano}`}
           {filialSel.length ? ` · ${filialSel.length} filial` : ''}{ccSel.length ? ` · ${ccSel.length} CC` : ''}
         </span>
-        {!editavel && <span style={{ fontSize: 11, fontWeight: 600, color: '#e8590c', background: '#fff4e6', border: '1px solid #ffd8a8', borderRadius: 99, padding: '2px 8px' }}>somente leitura</span>}
+        {!editavel && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--orange)', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.30)', borderRadius: 99, padding: '2px 8px' }}>somente leitura</span>}
 
         <div style={{ position: 'relative' }}>
           <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => { setSnapOpen(o => !o); loadSnaps() }} title="Pontos de restauração (desfazer alterações)">
@@ -1281,23 +1281,23 @@ export default function RelatorioEditorPage() {
           {snapOpen && (
             <>
               <div onClick={() => setSnapOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1400 }} />
-              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'white', border: '1px solid #dee2e6', borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.18)', zIndex: 1500, width: 320, maxHeight: 380, overflow: 'auto' }}>
-                <div style={{ padding: 10, borderBottom: '1px solid #f1f3f5', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <strong style={{ fontSize: 13, color: '#212529', flex: 1 }}>Pontos de restauração</strong>
+              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.18)', zIndex: 1500, width: 320, maxHeight: 380, overflow: 'auto' }}>
+                <div style={{ padding: 10, borderBottom: '1px solid var(--panel)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <strong style={{ fontSize: 13, color: 'var(--text)', flex: 1 }}>Pontos de restauração</strong>
                   <button style={{ ...S.btnGreen, padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 5 }} disabled={snapBusy}
                     onClick={() => { const d = prompt('Nome do ponto (opcional):') ; if (d !== null) criarSnap(false, d || 'manual') }}>
                     <Save size={12} /> Salvar ponto
                   </button>
                 </div>
-                {snaps.length === 0 && <div style={{ padding: 14, fontSize: 12, color: '#adb5bd' }}>Nenhum ponto ainda.</div>}
+                {snaps.length === 0 && <div style={{ padding: 14, fontSize: 12, color: 'var(--muted)' }}>Nenhum ponto ainda.</div>}
                 {snaps.map(s => (
-                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid #f8f9fa', fontSize: 12 }}>
+                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--bg)', fontSize: 12 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ color: '#212529', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div style={{ color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {new Date(s.criado_em).toLocaleString('pt-BR')}
-                        {s.auto ? <span style={{ marginLeft: 6, fontSize: 10, color: '#868e96', background: '#f1f3f5', borderRadius: 4, padding: '1px 5px' }}>auto</span> : null}
+                        {s.auto ? <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--muted)', background: 'var(--panel)', borderRadius: 4, padding: '1px 5px' }}>auto</span> : null}
                       </div>
-                      {s.descricao && !s.auto && <div style={{ color: '#868e96' }}>{s.descricao}</div>}
+                      {s.descricao && !s.auto && <div style={{ color: 'var(--muted)' }}>{s.descricao}</div>}
                     </div>
                     <button style={{ ...S.btnGray, padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 5 }} disabled={snapBusy} onClick={() => restaurarSnap(s.id)} title="Restaurar este ponto">
                       <RotateCcw size={12} /> Restaurar
@@ -1316,17 +1316,17 @@ export default function RelatorioEditorPage() {
             <Upload size={13} /> Importar ▾
           </button>
           {impMenu && (
-            <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'white', border: '1px solid #dee2e6', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', zIndex: 1000, minWidth: 240 }}>
+            <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', zIndex: 1000, minWidth: 240 }}>
               {[
                 { m: 'linhas' as const,        label: 'Linhas (estrutura)',                modelo: modeloLinhas },
                 { m: 'baseline_full' as const, label: 'Orçado Baseline — substituir (full)', modelo: modeloBaseline },
                 { m: 'baseline_add' as const,  label: 'Orçado Baseline — adicionar',         modelo: modeloBaseline },
               ].map(o => (
                 <div key={o.m} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 12px', fontSize: 13 }}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#edf2ff')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,0.14)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'var(--panel)')}>
                   <span style={{ cursor: 'pointer', flex: 1 }} onClick={() => { setImpMode(o.m); setImpMenu(false); fileRef.current?.click() }}>{o.label}</span>
-                  <span style={{ cursor: 'pointer', color: '#3b5bdb', fontSize: 11, whiteSpace: 'nowrap' }}
+                  <span style={{ cursor: 'pointer', color: 'var(--violet)', fontSize: 11, whiteSpace: 'nowrap' }}
                     onClick={e => { e.stopPropagation(); o.modelo() }} title="Baixar planilha modelo">⬇ modelo</span>
                 </div>
               ))}
@@ -1342,7 +1342,7 @@ export default function RelatorioEditorPage() {
               e.target.value = ''
             }
           }} />
-        {saving && <span style={{ fontSize: 12, color: '#aaa' }}>Salvando...</span>}
+        {saving && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Salvando...</span>}
       </div>
 
       <div style={S.viewsBar}>
@@ -1354,7 +1354,7 @@ export default function RelatorioEditorPage() {
             {!v._synthetic && v.id === view.id && <X size={12} style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); deleteView(v.id) }} />}
           </div>
         ))}
-        <button style={{ ...viewTab(false), borderStyle: 'dashed', color: '#adb5bd' }}
+        <button style={{ ...viewTab(false), borderStyle: 'dashed', color: 'var(--muted)' }}
           onClick={() => setViewModal({ id: '__default', nome: 'Nova visão', ordem: 0, funcao: 'MENSAL', cenarios: versaoId ? [versaoId] : [], filtros: {}, _synthetic: true })}>
           <Plus size={13} /> Visão
         </button>
@@ -1363,51 +1363,51 @@ export default function RelatorioEditorPage() {
 
       {(() => {
         const sel = selId ? (linhas.find(x => x.id === selId) ?? null) : null
-        const ab: CSSProperties = { display: 'flex', alignItems: 'center', gap: 4, height: 26, padding: '0 8px', fontSize: 12, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: sel ? '#495057' : '#ced4da', cursor: sel ? 'pointer' : 'default', flexShrink: 0 }
+        const ab: CSSProperties = { display: 'flex', alignItems: 'center', gap: 4, height: 26, padding: '0 8px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', color: sel ? 'var(--text-mid)' : 'var(--border-strong)', cursor: sel ? 'pointer' : 'default', flexShrink: 0 }
         const act = (fn: (l: Linha) => void) => () => { if (sel) fn(sel) }
-        const sep = <div style={{ width: 1, height: 18, background: '#e9ecef', margin: '0 2px' }} />
+        const sep = <div style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 2px' }} />
         const mini = { display: 'flex', alignItems: 'center', gap: 5, height: 28, padding: '0 10px', fontSize: 11, borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 } as CSSProperties
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px', background: 'white', borderBottom: '1px solid #e9ecef', flexShrink: 0 }}>
-            <span style={{ fontSize: 11, color: '#adb5bd' }}>Níveis:</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px', background: 'var(--panel)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Níveis:</span>
             {Array.from({ length: Math.min(maxDepth + 1, 5) }, (_, i) => i + 1).map(n => (
               <button key={n} title={`Expandir até o nível ${n}`} onClick={() => recolherAteNivel(n)}
-                style={{ width: 24, height: 24, fontSize: 12, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: '#495057', cursor: 'pointer' }}>{n}</button>
+                style={{ width: 24, height: 24, fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', color: 'var(--text-mid)', cursor: 'pointer' }}>{n}</button>
             ))}
-            <button title="Expandir tudo" onClick={expandirTudo} style={{ ...mini, border: '1px solid #dee2e6', background: 'white', color: '#495057' }}><ChevronsUpDown size={13} /> Tudo</button>
+            <button title="Expandir tudo" onClick={expandirTudo} style={{ ...mini, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)' }}><ChevronsUpDown size={13} /> Tudo</button>
             {sep}
             <button title="Ocultar linhas sem valor no período selecionado" onClick={() => setHideEmpty(v => !v)}
-              style={{ ...mini, border: '1px solid ' + (hideEmpty ? '#74c0fc' : '#dee2e6'), background: hideEmpty ? '#e7f5ff' : 'white', color: hideEmpty ? '#1971c2' : '#495057' }}>
+              style={{ ...mini, border: '1px solid ' + (hideEmpty ? 'var(--blue)' : 'var(--border-strong)'), background: hideEmpty ? 'rgba(59,130,246,0.16)' : 'var(--panel)', color: hideEmpty ? 'var(--blue)' : 'var(--text-mid)' }}>
               {hideEmpty ? <EyeOff size={13} /> : <Eye size={13} />} Ocultar vazias
             </button>
             <button title="Ocultar linhas desativadas (remove do relatório)" onClick={() => setHideOff(v => !v)}
-              style={{ ...mini, border: '1px solid ' + (hideOff ? '#74c0fc' : '#dee2e6'), background: hideOff ? '#e7f5ff' : 'white', color: hideOff ? '#1971c2' : '#495057' }}>
+              style={{ ...mini, border: '1px solid ' + (hideOff ? 'var(--blue)' : 'var(--border-strong)'), background: hideOff ? 'rgba(59,130,246,0.16)' : 'var(--panel)', color: hideOff ? 'var(--blue)' : 'var(--text-mid)' }}>
               <Strikethrough size={13} /> Ocultar desativadas
             </button>
             <button title="Mostrar linhas marcadas como NÃO visíveis no relatório (para gerenciar)" onClick={() => setVerOcultas(v => !v)}
-              style={{ ...mini, border: '1px solid ' + (verOcultas ? '#74c0fc' : '#dee2e6'), background: verOcultas ? '#e7f5ff' : 'white', color: verOcultas ? '#1971c2' : '#495057' }}>
+              style={{ ...mini, border: '1px solid ' + (verOcultas ? 'var(--blue)' : 'var(--border-strong)'), background: verOcultas ? 'rgba(59,130,246,0.16)' : 'var(--panel)', color: verOcultas ? 'var(--blue)' : 'var(--text-mid)' }}>
               <Eye size={13} /> Ver ocultas
             </button>
             {view.funcao === 'COMPARATIVO' && (
               <button title="Adicionar coluna com o valor do delta (além do Δ%)" onClick={() => setShowDeltaVal(v => !v)}
-                style={{ ...mini, border: '1px solid ' + (showDeltaVal ? '#74c0fc' : '#dee2e6'), background: showDeltaVal ? '#e7f5ff' : 'white', color: showDeltaVal ? '#1971c2' : '#495057' }}>
+                style={{ ...mini, border: '1px solid ' + (showDeltaVal ? 'var(--blue)' : 'var(--border-strong)'), background: showDeltaVal ? 'rgba(59,130,246,0.16)' : 'var(--panel)', color: showDeltaVal ? 'var(--blue)' : 'var(--text-mid)' }}>
                 Δ valor
               </button>
             )}
             {view.funcao === 'COMPARATIVO' && buckets.length > 1 && (
               colapsados.size > 0
                 ? <button title="Expandir todos os meses recolhidos" onClick={expandirMeses}
-                    style={{ ...mini, border: '1px solid #74c0fc', background: '#e7f5ff', color: '#1971c2' }}>
+                    style={{ ...mini, border: '1px solid var(--blue)', background: 'rgba(59,130,246,0.16)', color: 'var(--blue)' }}>
                     <ChevronsUpDown size={13} /> Expandir meses
                   </button>
                 : <button title="Recolher todos os períodos menos o último (mantém o Total)" onClick={soUltimoMes}
-                    style={{ ...mini, border: '1px solid #dee2e6', background: 'white', color: '#495057' }}>
+                    style={{ ...mini, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)' }}>
                     <ChevronLeft size={13} /> Só último período
                   </button>
             )}
             {sep}
-            <span style={{ fontSize: 12, color: '#868e96', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {sel ? <>Linha: <b style={{ color: '#212529' }}>{sel.descricao}</b></> : 'Selecione uma linha'}
+            <span style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {sel ? <>Linha: <b style={{ color: 'var(--text)' }}>{sel.descricao}</b></> : 'Selecione uma linha'}
             </span>
             <div style={{ flex: 1 }} />
             <button style={ab} title="Mover para cima" onClick={act(l => moveLinha(l, -1))}><ArrowUp size={13} /></button>
@@ -1417,22 +1417,22 @@ export default function RelatorioEditorPage() {
             {sep}
             <button style={ab} title="Adicionar linha filha" onClick={act(l => { setCollapsed(prev => { const n = new Set(prev); n.delete(l.id); return n }); setAdding({ paiId: l.id }); setNewDesc('') })}><Plus size={13} /> Filha</button>
             <button style={ab} title="Adicionar linha irmã" onClick={act(l => { setAdding({ paiId: l.pai_id }); setNewDesc('') })}><Plus size={13} /> Irmã</button>
-            <button style={{ ...ab, color: '#1971c2', cursor: 'pointer' }} title="Adicionar da estrutura compartilhada (reaproveita linha + subárvore; os dados vêm junto)" onClick={openPicker}><ListTree size={13} /> Estrutura</button>
+            <button style={{ ...ab, color: 'var(--blue)', cursor: 'pointer' }} title="Adicionar da estrutura compartilhada (reaproveita linha + subárvore; os dados vêm junto)" onClick={openPicker}><ListTree size={13} /> Estrutura</button>
             {sep}
             <button style={ab} title="Editar linha" onClick={act(l => setLinhaModal(l))}><Pencil size={13} /></button>
             <button style={ab} title="Contas (DE-PARA do realizado)" onClick={act(l => setContaModal(l))}><Link2 size={13} /></button>
-            <button style={{ ...ab, color: sel ? '#e03131' : '#ced4da' }} title="Excluir linha" onClick={act(l => { deleteLinha(l.id); setSelId(null) })}><Trash2 size={13} /></button>
+            <button style={{ ...ab, color: sel ? 'var(--red)' : 'var(--border-strong)' }} title="Excluir linha" onClick={act(l => { deleteLinha(l.id); setSelId(null) })}><Trash2 size={13} /></button>
           </div>
         )
       })()}
 
       {valErro && (
-        <div style={{ margin: '8px 16px 0', padding: '8px 12px', background: '#fff5f5', border: '1px solid #ffc9c9', borderRadius: 8, fontSize: 12, color: '#c92a2a' }}>
+        <div style={{ margin: '8px 16px 0', padding: '8px 12px', background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 8, fontSize: 12, color: '#c92a2a' }}>
           ⚠ Erro ao carregar valores: {valErro}
         </div>
       )}
       {dupContas.length > 0 && (
-        <div style={{ margin: '8px 16px 0', padding: '8px 12px', background: '#fff4e6', border: '1px solid #ffd8a8', borderRadius: 8, fontSize: 12, color: '#e8590c' }}>
+        <div style={{ margin: '8px 16px 0', padding: '8px 12px', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.30)', borderRadius: 8, fontSize: 12, color: 'var(--orange)' }}>
           ⚠ {dupContas.length} conta(s) contábil(is) estão amarradas a mais de uma linha deste relatório — isso duplicava a totalização. Agora cada lançamento conta uma vez (linha mais recente do DE-PARA). Revise no botão 🔗: {dupContas.slice(0, 6).map(cid => contas.find(c => c.id === cid)?.codigo || cid).join(', ')}{dupContas.length > 6 ? '…' : ''}
         </div>
       )}
@@ -1448,21 +1448,21 @@ export default function RelatorioEditorPage() {
                 <tr>
                   <th style={{ ...S.th, ...S.thDesc, position: 'sticky' }} rowSpan={2}>Descrição{resizeHandle('__desc', 260)}</th>
                   {groups.map((g, i) => (
-                    <th key={i} colSpan={g.span} style={{ ...S.th, textAlign: 'center', color: '#495057', cursor: g.collapsible ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
+                    <th key={i} colSpan={g.span} style={{ ...S.th, textAlign: 'center', color: 'var(--text-mid)', cursor: g.collapsible ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
                       title={g.collapsible ? (g.collapsed ? `Expandir ${g.label}` : `Recolher ${g.label}`) : undefined}
                       onClick={() => g.collapsible && typeof g.period === 'number' && toggleColapso(g.period)}>
                       {g.collapsed
-                        ? <ChevronRight size={12} style={{ verticalAlign: 'middle', color: '#adb5bd' }} />
-                        : <>{g.label}{g.collapsible && <ChevronLeft size={11} style={{ verticalAlign: 'middle', marginLeft: 3, color: '#adb5bd' }} />}</>}
+                        ? <ChevronRight size={12} style={{ verticalAlign: 'middle', color: 'var(--muted)' }} />
+                        : <>{g.label}{g.collapsible && <ChevronLeft size={11} style={{ verticalAlign: 'middle', marginLeft: 3, color: 'var(--muted)' }} />}</>}
                     </th>
                   ))}
                 </tr>
-                <tr>{columns.map(c => <th key={c.key} style={{ ...S.th, top: 28, color: c.kind === 'delta' ? '#868e96' : '#6c757d', position: 'sticky' }}>{c.label}{resizeHandle(c.key, defW(c))}</th>)}</tr>
+                <tr>{columns.map(c => <th key={c.key} style={{ ...S.th, top: 28, color: c.kind === 'delta' ? 'var(--muted)' : 'var(--muted)', position: 'sticky' }}>{c.label}{resizeHandle(c.key, defW(c))}</th>)}</tr>
               </>
             ) : (
               <tr>
                 <th style={{ ...S.th, ...S.thDesc }}>Descrição{resizeHandle('__desc', 260)}</th>
-                {columns.map(c => <th key={c.key} style={{ ...S.th, color: c.period === 'TOTAL' ? '#1971c2' : '#6c757d', position: 'sticky' }}>{c.label}{resizeHandle(c.key, defW(c))}</th>)}
+                {columns.map(c => <th key={c.key} style={{ ...S.th, color: c.period === 'TOTAL' ? 'var(--blue)' : 'var(--muted)', position: 'sticky' }}>{c.label}{resizeHandle(c.key, defW(c))}</th>)}
               </tr>
             )}
           </thead>
@@ -1474,19 +1474,19 @@ export default function RelatorioEditorPage() {
               const editable = l.tipo_linha === 'ANALITICA'
               const hasKids = temFilhos(l.id)
               const isOpen = !collapsed.has(l.id)
-              const rowBg = isAgg ? '#f0f4ff' : isSpac ? '#fbfbfc' : 'white'
+              const rowBg = isAgg ? 'rgba(139,92,246,0.07)' : isSpac ? 'transparent' : 'var(--panel)'
               const fw = l.negrito || isAgg ? 600 : 400
               const off = !!l.desativada
-              const corAuto = isAgg ? '#1971c2' : l.tipo_linha === 'INDICADOR' ? '#0c8599' : l.tipo_linha === 'FORMULA' ? '#6741d9' : isSpac ? '#ccc' : '#212529'
+              const corAuto = isAgg ? 'var(--blue)' : l.tipo_linha === 'INDICADOR' ? 'var(--cyan)' : l.tipo_linha === 'FORMULA' ? 'var(--violet)' : isSpac ? 'var(--faint)' : 'var(--text)'
               const fac = facOf(l)   // -1 p/ despesa (exibe positivo)
-              const clr = off ? '#adb5bd' : (l.cor_texto || corAuto)
+              const clr = off ? 'var(--muted)' : (l.cor_texto || corAuto)
               const TipoIcon = TIPO_INFO[l.tipo_linha].icon
               const isSel = selId === l.id
-              const rowBgSel = isSel ? '#cfe0ff' : rowBg
+              const rowBgSel = isSel ? 'rgba(59,130,246,0.30)' : rowBg
               return (
                 <Fragment key={l.id}>
                 <tr style={{ background: rowBgSel }} onClick={() => setSelId(l.id)}>
-                  <td style={{ ...S.tdDesc, background: rowBgSel, borderLeft: isSel ? '3px solid #3b5bdb' : '3px solid transparent', cursor: 'pointer' }}>
+                  <td style={{ ...S.tdDesc, background: rowBgSel, borderLeft: isSel ? '3px solid var(--violet)' : '3px solid transparent', cursor: 'pointer' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingLeft: depth * 18, height: 22 }}>
                       <button style={{ ...S.iconBtn, width: 18, flexShrink: 0 }} onClick={e => { e.stopPropagation(); hasKids && toggle(l.id) }}>
                         {hasKids ? (isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />) : <span style={{ width: 12 }} />}
@@ -1494,36 +1494,36 @@ export default function RelatorioEditorPage() {
                       {l.cor_texto ? <span style={{ width: 8, height: 8, borderRadius: 2, background: l.cor_texto, flexShrink: 0 }} /> : <TipoIcon size={12} style={{ color: TIPO_INFO[l.tipo_linha].cor, flexShrink: 0, opacity: 0.7 }} />}
                       <span style={{ fontWeight: fw, color: clr, fontStyle: l.italico ? 'italic' : 'normal', textDecoration: off ? 'line-through' : 'none', fontSize: 13, paddingLeft: 2, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                         onDoubleClick={() => setLinhaModal(l)} title={(l.descricao || '') + (off ? ' — desativada (fora da soma)' : ' — duplo-clique p/ editar')}>
-                        {l.descricao || <em style={{ color: '#ccc' }}>sem nome</em>}
+                        {l.descricao || <em style={{ color: 'var(--faint)' }}>sem nome</em>}
                       </span>
-                      {!isSpac && contaLinks[l.id]?.length ? <span style={{ fontSize: 9, fontWeight: 700, color: '#2f9e44', flexShrink: 0 }} title="contas amarradas">🔗{contaLinks[l.id].length}</span> : null}
-                      {l.visivel_relatorio === false ? <EyeOff size={12} style={{ color: '#fa5252', flexShrink: 0 }} /> : null}
-                      {l.visivel_dashboard === false ? <span style={{ fontSize: 9, fontWeight: 700, color: '#7048e8', flexShrink: 0, border: '1px solid #d0bfff', borderRadius: 3, padding: '0 3px' }} title="oculta no dashboard">DASH</span> : null}
-                      {l.filtro_escopo ? <span style={{ fontSize: 9, fontWeight: 700, color: '#7048e8', flexShrink: 0, border: '1px solid #d0bfff', borderRadius: 3, padding: '0 3px' }} title="indicador com filtro de CC próprio (fora do total)">CC↧</span> : (l.nao_soma ? <span style={{ fontSize: 9, fontWeight: 700, color: '#7048e8', flexShrink: 0, border: '1px solid #d0bfff', borderRadius: 3, padding: '0 3px' }} title="linha de apoio (fora do total)">apoio</span> : null)}
+                      {!isSpac && contaLinks[l.id]?.length ? <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--green)', flexShrink: 0 }} title="contas amarradas">🔗{contaLinks[l.id].length}</span> : null}
+                      {l.visivel_relatorio === false ? <EyeOff size={12} style={{ color: 'var(--red)', flexShrink: 0 }} /> : null}
+                      {l.visivel_dashboard === false ? <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--violet)', flexShrink: 0, border: '1px solid var(--violet)', borderRadius: 3, padding: '0 3px' }} title="oculta no dashboard">DASH</span> : null}
+                      {l.filtro_escopo ? <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--violet)', flexShrink: 0, border: '1px solid var(--violet)', borderRadius: 3, padding: '0 3px' }} title="indicador com filtro de CC próprio (fora do total)">CC↧</span> : (l.nao_soma ? <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--violet)', flexShrink: 0, border: '1px solid var(--violet)', borderRadius: 3, padding: '0 3px' }} title="linha de apoio (fora do total)">apoio</span> : null)}
                     </div>
                   </td>
                   {columns.map(c => {
                     if (c.kind === 'collapsed') {
-                      return <td key={c.key} style={{ ...S.td, padding: 0, cursor: 'pointer', background: isSel ? '#cfe0ff' : '#f8f9fa', borderLeft: '1px solid #e9ecef' }}
+                      return <td key={c.key} style={{ ...S.td, padding: 0, cursor: 'pointer', background: isSel ? 'rgba(59,130,246,0.30)' : 'var(--bg)', borderLeft: '1px solid var(--border)' }}
                         title="Expandir mês" onClick={() => typeof c.period === 'number' && toggleColapso(c.period)} />
                     }
                     if (c.empresaId) {
                       const v = cellValE(c.empresaId, c.cenarioKey!, l.id, c.period)
                       const disp = isSpac ? '' : (v !== 0 ? formatValor(fac * v, l.formato, l.casas_decimais) : '')
-                      return <td key={c.key} style={{ ...S.td, color: clr, fontWeight: fw, textDecoration: off ? 'line-through' : undefined, background: isSel ? '#cfe0ff' : (c.period === 'TOTAL' ? '#fafbff' : undefined) }}>{disp}</td>
+                      return <td key={c.key} style={{ ...S.td, color: clr, fontWeight: fw, textDecoration: off ? 'line-through' : undefined, background: isSel ? 'rgba(59,130,246,0.30)' : (c.period === 'TOTAL' ? 'var(--bg-soft)' : undefined) }}>{disp}</td>
                     }
                     if (c.kind === 'deltav') {
                       const base = cellVal(view.cenarios[0], l.id, c.period)
                       const comp = cellVal(view.cenarios[1], l.id, c.period)
                       const dv = comp - base   // impacto no resultado (mesmo sinal do Δ%)
-                      const col = dv > 0 ? '#2f9e44' : dv < 0 ? '#e03131' : '#ced4da'
+                      const col = dv > 0 ? 'var(--green)' : dv < 0 ? 'var(--red)' : 'var(--border-strong)'
                       return <td key={c.key} style={{ ...S.td, color: col, fontSize: 12, fontWeight: 500, fontStyle: 'italic' }}>{isSpac || dv === 0 ? '' : `${dv > 0 ? '+' : ''}${formatValor(dv, l.formato, l.casas_decimais)}`}</td>
                     }
                     if (c.kind === 'delta') {
                       const base = cellVal(view.cenarios[0], l.id, c.period)
                       const comp = cellVal(view.cenarios[1], l.id, c.period)
                       const d = base !== 0 ? (comp - base) / Math.abs(base) : NaN
-                      const col = !isFinite(d) ? '#ced4da' : d >= 0 ? '#2f9e44' : '#e03131'
+                      const col = !isFinite(d) ? 'var(--border-strong)' : d >= 0 ? 'var(--green)' : 'var(--red)'
                       return <td key={c.key} style={{ ...S.td, color: col, fontSize: 12, fontWeight: 500 }}>{isSpac ? '' : (isFinite(d) ? `${d >= 0 ? '+' : ''}${(d * 100).toFixed(1)}%` : '—')}</td>
                     }
                     const cen = c.cenarioKey!
@@ -1538,10 +1538,10 @@ export default function RelatorioEditorPage() {
                     const isEditing = editCell?.linhaId === l.id && editCell?.period === c.period
                     const hasFx = !!perUnico && !!raw[cen]?.[l.id]?.[pk]?.expressao
                     const naoUltimo = !!perUnico && !samePer(perUnico, displayedMeses[displayedMeses.length - 1])
-                    const display = isSpac ? '' : (val !== 0 ? formatValor(fac * val, l.formato, l.casas_decimais) : (canEditCell ? <span style={{ color: '#e9ecef' }}>—</span> : ''))
+                    const display = isSpac ? '' : (val !== 0 ? formatValor(fac * val, l.formato, l.casas_decimais) : (canEditCell ? <span style={{ color: 'var(--border)' }}>—</span> : ''))
                     return (
                       <td key={c.key}
-                        style={{ ...S.td, color: clr, fontWeight: fw, textDecoration: off ? 'line-through' : undefined, cursor: canEdit ? 'text' : (isSpac ? 'default' : 'pointer'), background: isSel ? '#cfe0ff' : (cen !== versaoId && !isSpac ? '#fcfcfd' : undefined) }}
+                        style={{ ...S.td, color: clr, fontWeight: fw, textDecoration: off ? 'line-through' : undefined, cursor: canEdit ? 'text' : (isSpac ? 'default' : 'pointer'), background: isSel ? 'rgba(59,130,246,0.30)' : (cen !== versaoId && !isSpac ? 'var(--bg-soft)' : undefined) }}
                         onClick={() => {
                           setSelId(l.id)
                           if (canEditCell) {
@@ -1570,7 +1570,7 @@ export default function RelatorioEditorPage() {
                           />
                         ) : (
                           <span style={{ display: 'block', minWidth: 54 }}>
-                            {hasFx && <span style={{ color: '#6741d9', fontSize: 9, marginRight: 3 }}>ƒ</span>}{display}
+                            {hasFx && <span style={{ color: 'var(--violet)', fontSize: 9, marginRight: 3 }}>ƒ</span>}{display}
                           </span>
                         )}
                       </td>
@@ -1579,9 +1579,9 @@ export default function RelatorioEditorPage() {
                 </tr>
                 {adding && adding.paiId !== null && idx === addAfterIndex && (
                   <tr>
-                    <td colSpan={columns.length + 1} style={{ padding: '8px 12px', background: '#f8fff8', borderBottom: '1px solid #d3f9d8' }}>
+                    <td colSpan={columns.length + 1} style={{ padding: '8px 12px', background: 'rgba(52,211,153,0.10)', borderBottom: '1px solid rgba(52,211,153,0.18)' }}>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', paddingLeft: addChildDepth }}>
-                        <span style={{ fontSize: 12, color: '#2f9e44', fontWeight: 600 }}>↳ filho</span>
+                        <span style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>↳ filho</span>
                         <input style={S.newInput} placeholder="Descrição da linha..." autoFocus value={newDesc}
                           onChange={e => setNewDesc(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Enter') addLinha(); if (e.key === 'Escape') { setAdding(null); setNewDesc('') } }} />
@@ -1596,7 +1596,7 @@ export default function RelatorioEditorPage() {
             })}
             {adding && adding.paiId === null ? (
               <tr>
-                <td colSpan={columns.length + 1} style={{ padding: '8px 12px', background: '#f8fff8', borderBottom: '1px solid #d3f9d8' }}>
+                <td colSpan={columns.length + 1} style={{ padding: '8px 12px', background: 'rgba(52,211,153,0.10)', borderBottom: '1px solid rgba(52,211,153,0.18)' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <input style={S.newInput} placeholder="Descrição da linha..." autoFocus value={newDesc}
                       onChange={e => setNewDesc(e.target.value)}
@@ -1618,7 +1618,7 @@ export default function RelatorioEditorPage() {
       </div>
 
       {!editavel && !avisoLeituraOff && (
-        <div style={{ position: 'fixed', bottom: 16, right: 16, display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fff3bf', border: '1px solid #ffd43b', borderRadius: 8, padding: '8px 10px 8px 14px', fontSize: 13, color: '#856404', maxWidth: 320, boxShadow: '0 6px 18px rgba(0,0,0,0.12)', zIndex: 1400 }}>
+        <div style={{ position: 'fixed', bottom: 16, right: 16, display: 'flex', alignItems: 'flex-start', gap: 8, background: 'rgba(251,191,36,0.14)', border: '1px solid var(--orange)', borderRadius: 8, padding: '8px 10px 8px 14px', fontSize: 13, color: '#856404', maxWidth: 320, boxShadow: '0 6px 18px rgba(0,0,0,0.12)', zIndex: 1400 }}>
           <span>{versoes.length === 0
             ? 'Nenhuma versão cadastrada. Crie em Cadastros → Versões/Cenários (ex.: Orçado 2026).'
             : 'Somente leitura. Abra Filtros e selecione 1 empresa e 1 versão (Filial/CC em "todas") para editar.'}</span>
@@ -1782,9 +1782,9 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
     setForm(emptyForm); setShowAdd(false); await load(); onChanged()
   }
 
-  const th: CSSProperties = { textAlign: 'left', padding: '7px 10px', fontSize: 11, color: '#868e96', fontWeight: 600, borderBottom: '1px solid #e9ecef', position: 'sticky', top: 0, background: '#f8f9fa' }
-  const td: CSSProperties = { padding: '6px 10px', fontSize: 12, borderBottom: '1px solid #f4f5f7', whiteSpace: 'nowrap' }
-  const inp: CSSProperties = { padding: '4px 6px', fontSize: 12, border: '1px solid #ced4da', borderRadius: 5, outline: 'none', width: '100%', boxSizing: 'border-box' }
+  const th: CSSProperties = { textAlign: 'left', padding: '7px 10px', fontSize: 11, color: 'var(--muted)', fontWeight: 600, borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, background: 'var(--bg)' }
+  const td: CSSProperties = { padding: '6px 10px', fontSize: 12, borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }
+  const inp: CSSProperties = { padding: '4px 6px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 5, outline: 'none', width: '100%', boxSizing: 'border-box' }
   const colSpan = (editavel ? 11 : 10) + (isReal ? 4 : 0)
   const keyOf = (r: any, col: string): string | number => {
     switch (col) {
@@ -1813,16 +1813,16 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={{ ...S.modal, width: 'min(1080px, 96vw)', maxHeight: '90vh', padding: 0, display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid #e9ecef' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: '#212529' }}>Razão — {titulo}</div>
-            <div style={{ fontSize: 12, color: '#868e96' }}>{cenLabel} · {periodoLabel}{editavel ? ' · editável' : ''}</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Razão — {titulo}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{cenLabel} · {periodoLabel}{editavel ? ' · editável' : ''}</div>
           </div>
-          <X size={20} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={onClose} />
+          <X size={20} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} />
         </div>
 
         {editavel && (
-          <div style={{ padding: '10px 18px', borderBottom: '1px solid #f1f3f5', background: '#fbfcff' }}>
+          <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--panel)', background: 'var(--bg-soft)' }}>
             {!showAdd ? (
               <button style={{ ...S.btnPri, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setShowAdd(true)}><Plus size={14} /> Novo lançamento</button>
             ) : (
@@ -1860,8 +1860,8 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
               {editavel && <th style={th} />}
             </tr></thead>
             <tbody>
-              {loading && <tr><td colSpan={colSpan} style={{ ...td, textAlign: 'center', color: '#aaa', padding: 24 }}>Carregando...</td></tr>}
-              {!loading && rows.length === 0 && <tr><td colSpan={colSpan} style={{ ...td, textAlign: 'center', color: '#aaa', padding: 24 }}>{isReal && !contaIds.length ? 'Nenhuma conta contábil amarrada a esta linha. Use o botão 🔗 no editor para mapear contas → linha (conta_linha).' : `Sem lançamentos.${editavel ? ' Use "Novo lançamento".' : ''}`}</td></tr>}
+              {loading && <tr><td colSpan={colSpan} style={{ ...td, textAlign: 'center', color: 'var(--muted)', padding: 24 }}>Carregando...</td></tr>}
+              {!loading && rows.length === 0 && <tr><td colSpan={colSpan} style={{ ...td, textAlign: 'center', color: 'var(--muted)', padding: 24 }}>{isReal && !contaIds.length ? 'Nenhuma conta contábil amarrada a esta linha. Use o botão 🔗 no editor para mapear contas → linha (conta_linha).' : `Sem lançamentos.${editavel ? ' Use "Novo lançamento".' : ''}`}</td></tr>}
               {!loading && rowsSorted.map((r, i) => {
                 const prot = editavel && r.origem === 'FORMULARIO'
                 return (
@@ -1872,7 +1872,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
                     {isReal && <td style={{ ...td, fontFamily: 'monospace' }}>{r.lote ? `${r.lote}${r.sublote ? '/' + r.sublote : ''}` : '—'}</td>}
                     <td style={td} title={empById[r.empresa_id]?.descricao || ''}>{empById[r.empresa_id]?.codigo || '—'}</td>
                     <td style={td} title={filById[r.filial_id]?.descricao || ''}>{filById[r.filial_id]?.codigo || '—'}</td>
-                    <td style={{ ...td, fontFamily: 'monospace', color: '#868e96' }}>{ccById[r.cc_id]?.codigo || '—'}</td>
+                    <td style={{ ...td, fontFamily: 'monospace', color: 'var(--muted)' }}>{ccById[r.cc_id]?.codigo || '—'}</td>
                     <td style={td}>{ccById[r.cc_id]?.descricao || ''}</td>
                     {!isReal && <><td style={td}>{r.dims.area || ''}</td>
                     <td style={td}>{r.dims.divisao || ''}</td>
@@ -1887,15 +1887,15 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
                         ? <input key={`v${r.id}`} style={{ ...inp, textAlign: 'right' }} defaultValue={String(r.valor)} onBlur={e => saveValor(r, e.target.value)} />
                         : formatValor(Number(r.valor) || 0, 'NUMERO', 2)}
                     </td>
-                    {editavel && <td style={{ ...td, fontSize: 10, color: r.origem === 'FORMULARIO' ? '#0c8599' : '#adb5bd' }}>{r.origem || 'MANUAL'}</td>}
-                    {editavel && <td style={td}>{!prot && <button style={{ ...S.iconBtn, color: '#ffa8a8' }} onClick={() => delRow(r)}><Trash2 size={13} /></button>}</td>}
+                    {editavel && <td style={{ ...td, fontSize: 10, color: r.origem === 'FORMULARIO' ? 'var(--cyan)' : 'var(--muted)' }}>{r.origem || 'MANUAL'}</td>}
+                    {editavel && <td style={td}>{!prot && <button style={{ ...S.iconBtn, color: 'var(--red)' }} onClick={() => delRow(r)}><Trash2 size={13} /></button>}</td>}
                   </tr>
                 )
               })}
             </tbody>
           </table>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderTop: '1px solid #e9ecef', background: '#f8f9fa' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderTop: '1px solid var(--border)', background: 'var(--bg)' }}>
           <strong style={{ fontSize: 13 }}>Soma: {formatValor(soma, 'NUMERO', 2)} ({rows.length} itens)</strong>
           <button style={{ ...S.btnSec, display: 'flex', alignItems: 'center', gap: 6 }} onClick={exportar}><Download size={14} /> Exportar</button>
         </div>
@@ -1904,7 +1904,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
   )
 }
 function Campo({ label, children }: { label: string; children: any }) {
-  return <div><label style={{ display: 'block', fontSize: 10, color: '#868e96', marginBottom: 2 }}>{label}</label>{children}</div>
+  return <div><label style={{ display: 'block', fontSize: 10, color: 'var(--muted)', marginBottom: 2 }}>{label}</label>{children}</div>
 }
 
 // ─── Modal: adicionar linhas da estrutura compartilhada (F4) ──
@@ -1922,34 +1922,34 @@ function EstruturaPicker({ masters, jaNoRelatorio, alvo, onAdd, onClose }: {
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={{ ...S.modal, width: 'min(640px, 96vw)', maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: 0 }} onClick={e => e.stopPropagation()}>
-        <div style={{ padding: '14px 18px', borderBottom: '1px solid #e9ecef', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 16, fontWeight: 600, color: '#212529' }}>Adicionar da estrutura compartilhada</div>
-          <X size={20} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={onClose} />
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Adicionar da estrutura compartilhada</div>
+          <X size={20} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} />
         </div>
-        <div style={{ padding: '10px 18px', borderBottom: '1px solid #f1f3f5' }}>
+        <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--panel)' }}>
           <input autoFocus placeholder="🔎 Buscar por código ou descrição..." value={busca} onChange={e => setBusca(e.target.value)}
-            style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '1px solid #dee2e6', borderRadius: 8, boxSizing: 'border-box', outline: 'none' }} />
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#495057', marginTop: 10 }}>
+            style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 8, boxSizing: 'border-box', outline: 'none' }} />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-mid)', marginTop: 10 }}>
             <input type="checkbox" checked={sub} onChange={e => setSub(e.target.checked)} /> Incluir a subárvore (linhas filhas/netas)
           </label>
-          <div style={{ fontSize: 12, color: '#868e96', marginTop: 6 }}>{alvo ? <>Será adicionada como filha de: <b>{alvo}</b></> : 'Será adicionada no topo (selecione uma linha antes para aninhar).'}</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>{alvo ? <>Será adicionada como filha de: <b>{alvo}</b></> : 'Será adicionada no topo (selecione uma linha antes para aninhar).'}</div>
         </div>
         <div style={{ overflow: 'auto', flex: 1 }}>
-          {filtrados.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: '#aaa', fontSize: 13 }}>Nada encontrado.</div>}
+          {filtrados.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Nada encontrado.</div>}
           {filtrados.map(m => {
             const ja = jaNoRelatorio.has(m.codigo)
             return (
               <div key={m.id} onClick={() => !ja && setSel(m.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 18px', cursor: ja ? 'default' : 'pointer', fontSize: 13, background: sel === m.id ? '#edf2ff' : 'white', opacity: ja ? 0.45 : 1, borderBottom: '1px solid #f8f9fa' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 18px', cursor: ja ? 'default' : 'pointer', fontSize: 13, background: sel === m.id ? 'rgba(139,92,246,0.14)' : 'var(--panel)', opacity: ja ? 0.45 : 1, borderBottom: '1px solid var(--bg)' }}>
                 <input type="radio" checked={sel === m.id} disabled={ja} onChange={() => setSel(m.id)} />
-                <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#868e96', minWidth: 90 }}>{m.codigo}</span>
+                <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)', minWidth: 90 }}>{m.codigo}</span>
                 <span style={{ flex: 1 }}>{m.descricao}</span>
-                <span style={{ fontSize: 11, color: '#adb5bd' }}>{TIPO_LBL[m.tipo_linha] || m.tipo_linha}{ja ? ' · já no relatório' : ''}</span>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>{TIPO_LBL[m.tipo_linha] || m.tipo_linha}{ja ? ' · já no relatório' : ''}</span>
               </div>
             )
           })}
         </div>
-        <div style={{ padding: '12px 18px', borderTop: '1px solid #e9ecef', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button style={S.btnSec} onClick={onClose}>Cancelar</button>
           <button style={{ ...S.btnPri, opacity: (!sel || busy) ? 0.5 : 1 }} disabled={!sel || busy}
             onClick={async () => { if (!sel) return; setBusy(true); await onAdd(sel, sub); setBusy(false) }}>{busy ? 'Adicionando…' : 'Adicionar'}</button>
@@ -1982,32 +1982,32 @@ function ContaLinkModal({ linha, contas, mapeadas, onAddMany, onRemove, onToggle
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={{ ...S.modal, width: 520 }} onClick={e => e.stopPropagation()}>
-        <div style={S.mTitle}>Contas → <span style={{ color: '#1971c2' }}>{linha.descricao}</span> <X size={18} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={onClose} /></div>
+        <div style={S.mTitle}>Contas → <span style={{ color: 'var(--blue)' }}>{linha.descricao}</span> <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} /></div>
         <div style={S.help}>Contas contábeis cujo realizado será somado nesta linha. O valor importado é crédito − débito; use sinal −1 para inverter (ex.: deixar receita ou despesa positiva).</div>
 
         {mapeadas.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12, color: '#868e96' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12, color: 'var(--muted)' }}>
             <span>Aplicar a todas:</span>
             <button onClick={() => mapeadas.forEach(m => onToggleSinal(m.id, 1))}
-              style={{ padding: '3px 10px', border: '1px solid #b2f2bb', borderRadius: 6, cursor: 'pointer', background: '#ebfbee', color: '#2f9e44', fontWeight: 700 }}>+ Tudo</button>
+              style={{ padding: '3px 10px', border: '1px solid var(--green)', borderRadius: 6, cursor: 'pointer', background: 'rgba(52,211,153,0.12)', color: 'var(--green)', fontWeight: 700 }}>+ Tudo</button>
             <button onClick={() => mapeadas.forEach(m => onToggleSinal(m.id, -1))}
-              style={{ padding: '3px 10px', border: '1px solid #ffc9c9', borderRadius: 6, cursor: 'pointer', background: '#fff5f5', color: '#e03131', fontWeight: 700 }}>− Tudo</button>
+              style={{ padding: '3px 10px', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 6, cursor: 'pointer', background: 'rgba(248,113,113,0.10)', color: 'var(--red)', fontWeight: 700 }}>− Tudo</button>
           </div>
         )}
 
         <div style={{ margin: '12px 0' }}>
-          {mapeadas.length === 0 && <div style={{ fontSize: 13, color: '#adb5bd', padding: '8px 0' }}>Nenhuma conta amarrada ainda.</div>}
+          {mapeadas.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 0' }}>Nenhuma conta amarrada ainda.</div>}
           {mapeadas.map(m => (
-            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #f1f3f5' }}>
-              <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#868e96', minWidth: 90 }}>{m.conta_contabil?.codigo}</span>
-              {m.conta_contabil?.plano_contas?.codigo && <span style={{ fontSize: 10, color: '#1971c2', background: '#e7f5ff', borderRadius: 4, padding: '1px 5px' }}>{m.conta_contabil.plano_contas.codigo}</span>}
+            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--panel)' }}>
+              <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)', minWidth: 90 }}>{m.conta_contabil?.codigo}</span>
+              {m.conta_contabil?.plano_contas?.codigo && <span style={{ fontSize: 10, color: 'var(--blue)', background: 'rgba(59,130,246,0.16)', borderRadius: 4, padding: '1px 5px' }}>{m.conta_contabil.plano_contas.codigo}</span>}
               <span style={{ fontSize: 13, flex: 1 }}>{m.conta_contabil?.descricao}</span>
               <button onClick={() => onToggleSinal(m.id, m.sinal === 1 ? -1 : 1)}
                 title="Inverter sinal"
-                style={{ width: 28, border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer', background: m.sinal === 1 ? '#ebfbee' : '#fff5f5', color: m.sinal === 1 ? '#2f9e44' : '#e03131', fontWeight: 700 }}>
+                style={{ width: 28, border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer', background: m.sinal === 1 ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.10)', color: m.sinal === 1 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>
                 {m.sinal === 1 ? '+' : '−'}
               </button>
-              <button onClick={() => onRemove(m.id)} style={{ ...S.iconBtn, color: '#ffa8a8' }}><Trash2 size={14} /></button>
+              <button onClick={() => onRemove(m.id)} style={{ ...S.iconBtn, color: 'var(--red)' }}><Trash2 size={14} /></button>
             </div>
           ))}
         </div>
@@ -2018,21 +2018,21 @@ function ContaLinkModal({ linha, contas, mapeadas, onAddMany, onRemove, onToggle
           {result.length > 0 && (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0', fontSize: 12 }}>
-                <button onClick={() => setSel(prev => { const n = new Set(prev); result.forEach(c => n.add(c.id)); return n })} style={{ background: 'none', border: 'none', color: '#3b5bdb', cursor: 'pointer', padding: 0 }}>Marcar resultados ({result.length})</button>
-                {sel.size > 0 && <button onClick={() => setSel(new Set())} style={{ background: 'none', border: 'none', color: '#868e96', cursor: 'pointer', padding: 0 }}>Limpar</button>}
+                <button onClick={() => setSel(prev => { const n = new Set(prev); result.forEach(c => n.add(c.id)); return n })} style={{ background: 'none', border: 'none', color: 'var(--violet)', cursor: 'pointer', padding: 0 }}>Marcar resultados ({result.length})</button>
+                {sel.size > 0 && <button onClick={() => setSel(new Set())} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: 0 }}>Limpar</button>}
                 <div style={{ flex: 1 }} />
                 <button disabled={!sel.size} onClick={() => { onAddMany([...sel]); setSel(new Set()); setBusca('') }}
                   style={{ ...S.btnPri, opacity: sel.size ? 1 : 0.5, cursor: sel.size ? 'pointer' : 'default', padding: '6px 12px' }}>Adicionar{sel.size ? ` ${sel.size}` : ''}</button>
               </div>
-              <div style={{ border: '1px solid #e9ecef', borderRadius: 8, maxHeight: 240, overflowY: 'auto' }}>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, maxHeight: 240, overflowY: 'auto' }}>
                 {result.map(c => { const on = sel.has(c.id); const elsewhere = linked.has(c.id); return (
                   <div key={c.id} onClick={() => toggleSel(c.id)}
-                    style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '7px 10px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f8f9fa', background: on ? '#edf2ff' : elsewhere ? '#fff9db' : 'white' }}>
+                    style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '7px 10px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid var(--bg)', background: on ? 'rgba(139,92,246,0.14)' : elsewhere ? 'rgba(251,191,36,0.12)' : 'var(--panel)' }}>
                     <input type="checkbox" checked={on} readOnly />
-                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#868e96', minWidth: 90 }}>{c.codigo}</span>
-                    {(c as any).plano && <span style={{ fontSize: 10, color: '#1971c2', background: '#e7f5ff', borderRadius: 4, padding: '1px 5px' }}>{(c as any).plano}</span>}
+                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)', minWidth: 90 }}>{c.codigo}</span>
+                    {(c as any).plano && <span style={{ fontSize: 10, color: 'var(--blue)', background: 'rgba(59,130,246,0.16)', borderRadius: 4, padding: '1px 5px' }}>{(c as any).plano}</span>}
                     <span style={{ flex: 1, color: elsewhere ? '#b08900' : undefined }}>{c.descricao}</span>
-                    {elsewhere && <span title="já amarrada em outra linha" style={{ fontSize: 10, color: '#b08900', background: '#fff3bf', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>já amarrada</span>}
+                    {elsewhere && <span title="já amarrada em outra linha" style={{ fontSize: 10, color: '#b08900', background: 'rgba(251,191,36,0.14)', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>já amarrada</span>}
                   </div>) })}
               </div>
             </>
@@ -2059,7 +2059,7 @@ function LinhaModal({ linha, refLinhas, ccs, onClose, onSave }: { linha: Linha; 
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={S.modal} onClick={e => e.stopPropagation()}>
-        <div style={S.mTitle}>Editar linha <X size={18} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={onClose} /></div>
+        <div style={S.mTitle}>Editar linha <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} /></div>
         <div style={S.field}>
           <label style={S.label}>Descrição</label>
           <input style={S.input} value={l.descricao} onChange={e => setL({ ...l, descricao: e.target.value })} />
@@ -2115,35 +2115,35 @@ function LinhaModal({ linha, refLinhas, ccs, onClose, onSave }: { linha: Linha; 
         <div style={S.field}>
           <label style={S.label}>Cor do texto</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <input type="color" value={l.cor_texto || '#212529'} onChange={e => setL({ ...l, cor_texto: e.target.value })}
-              style={{ width: 44, height: 32, padding: 0, border: '1px solid #ced4da', borderRadius: 6, cursor: 'pointer' }} />
+            <input type="color" value={l.cor_texto || 'var(--text)'} onChange={e => setL({ ...l, cor_texto: e.target.value })}
+              style={{ width: 44, height: 32, padding: 0, border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' }} />
             <button style={S.btnSec} onClick={() => setL({ ...l, cor_texto: null })}>Automático</button>
-            <span style={{ fontSize: 12, color: '#adb5bd' }}>{l.cor_texto || 'automático (pelo tipo)'}</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{l.cor_texto || 'automático (pelo tipo)'}</span>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 20 }}>
           <label style={S.chk}><input type="checkbox" checked={l.negrito} onChange={e => setL({ ...l, negrito: e.target.checked })} /> Negrito</label>
           <label style={S.chk}><input type="checkbox" checked={l.italico} onChange={e => setL({ ...l, italico: e.target.checked })} /> Itálico</label>
         </div>
-        <label style={{ ...S.chk, color: l.desativada ? '#e03131' : '#495057' }}>
+        <label style={{ ...S.chk, color: l.desativada ? 'var(--red)' : 'var(--text-mid)' }}>
           <input type="checkbox" checked={!!l.desativada} onChange={e => setL({ ...l, desativada: e.target.checked })} /> Desativar linha (valores tachados, fora da somatória)
         </label>
-        <div style={{ borderTop: '1px solid #f1f3f5', paddingTop: 10, marginTop: 2 }}>
-          <div style={{ fontSize: 12, color: '#868e96', marginBottom: 6 }}>Visibilidade (só exibição — não afeta o cálculo):</div>
+        <div style={{ borderTop: '1px solid var(--panel)', paddingTop: 10, marginTop: 2 }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>Visibilidade (só exibição — não afeta o cálculo):</div>
           <div style={{ display: 'flex', gap: 20 }}>
             <label style={S.chk}><input type="checkbox" checked={l.visivel_relatorio !== false} onChange={e => setL({ ...l, visivel_relatorio: e.target.checked })} /> Visível no relatório</label>
             <label style={S.chk}><input type="checkbox" checked={l.visivel_dashboard !== false} onChange={e => setL({ ...l, visivel_dashboard: e.target.checked })} /> Visível no dashboard</label>
           </div>
         </div>
-        <div style={{ borderTop: '1px solid #f1f3f5', paddingTop: 10, marginTop: 2 }}>
+        <div style={{ borderTop: '1px solid var(--panel)', paddingTop: 10, marginTop: 2 }}>
           {l.tipo_linha === 'INDICADOR'
-            ? <div style={{ fontSize: 12, color: '#7048e8', marginBottom: 6 }}>Linha do tipo <strong>Indicador</strong>: aparece nos dashboards como card e fica fora do total.</div>
-            : <label style={{ ...S.chk, color: l.nao_soma ? '#7048e8' : '#495057' }}>
+            ? <div style={{ fontSize: 12, color: 'var(--violet)', marginBottom: 6 }}>Linha do tipo <strong>Indicador</strong>: aparece nos dashboards como card e fica fora do total.</div>
+            : <label style={{ ...S.chk, color: l.nao_soma ? 'var(--violet)' : 'var(--text-mid)' }}>
                 <input type="checkbox" checked={!!l.nao_soma} onChange={e => setL({ ...l, nao_soma: e.target.checked })} /> Não somar no total (linha de apoio; para indicador no dashboard, use o tipo Indicador)
               </label>}
           {(l.tipo_linha === 'INDICADOR' || l.nao_soma) && (
-            <div style={{ marginTop: 6, background: '#faf9ff', border: '1px solid #eee7ff', borderRadius: 8, padding: 10 }}>
-              <div style={{ fontSize: 12, color: '#868e96' }}>Filtro de Centro de Custo desta linha <strong>(opcional)</strong> — sobrepõe o filtro da tela; ano/empresa seguem o contexto. Vazio = segue a tela/preset.</div>
+            <div style={{ marginTop: 6, background: 'var(--bg-soft)', border: '1px solid rgba(139,92,246,0.12)', borderRadius: 8, padding: 10 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>Filtro de Centro de Custo desta linha <strong>(opcional)</strong> — sobrepõe o filtro da tela; ano/empresa seguem o contexto. Vazio = segue a tela/preset.</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0 16px' }}>
                 <Checklist titulo="Área" items={areas} sel={esc.area || []} setSel={v => setEsc({ area: v })} />
                 <Checklist titulo="Divisão" items={divisoes} sel={esc.divisao || []} setSel={v => setEsc({ divisao: v })} />
@@ -2169,7 +2169,7 @@ function ViewModal({ view, versoes, onClose, onSave }: { view: ViewConfig; verso
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={S.modal} onClick={e => e.stopPropagation()}>
-        <div style={S.mTitle}>{view._synthetic ? 'Nova visão' : 'Editar visão'} <X size={18} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={onClose} /></div>
+        <div style={S.mTitle}>{view._synthetic ? 'Nova visão' : 'Editar visão'} <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} /></div>
         <div style={S.field}>
           <label style={S.label}>Nome</label>
           <input style={S.input} value={v.nome} onChange={e => setV({ ...v, nome: e.target.value })} />

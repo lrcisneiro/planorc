@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { T } from '../../lib/theme'
 import { Plus, Pencil, Trash2, ChevronRight, Copy } from 'lucide-react'
 
 async function fetchAll(build: () => any): Promise<any[]> {
@@ -27,28 +28,28 @@ type Relatorio = {
 const S: Record<string, CSSProperties> = {
   page:    { padding: 24 },
   header:  { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
-  title:   { fontSize: 22, fontWeight: 600, color: '#212529', margin: 0 },
-  sub:     { fontSize: 13, color: '#868e96', margin: '4px 0 0' },
-  btnAdd:  { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', fontSize: 14, background: '#3b5bdb', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 500 },
+  title:   { fontSize: 22, fontWeight: 700, color: T.text, margin: 0 },
+  sub:     { fontSize: 13, color: T.muted, margin: '4px 0 0' },
+  btnAdd:  { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', fontSize: 14, background: T.violet, color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontWeight: 600, boxShadow: '0 4px 14px rgba(109,63,240,0.35)' },
   grid:    { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 },
-  card:    { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: 20, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 12 },
+  card:    { background: `linear-gradient(180deg, ${T.panel}, ${T.bgSoft})`, border: `1px solid ${T.border}`, borderRadius: 14, padding: 20, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 12, transition: 'border-color .15s, box-shadow .15s' },
   cardTop: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' },
-  nome:    { fontSize: 15, fontWeight: 600, color: '#212529' },
-  codigo:  { fontSize: 11, color: '#aaa', fontFamily: 'monospace' },
-  desc:    { fontSize: 13, color: '#868e96', minHeight: 18 },
+  nome:    { fontSize: 15, fontWeight: 600, color: T.text },
+  codigo:  { fontSize: 11, color: T.faint, fontFamily: 'monospace' },
+  desc:    { fontSize: 13, color: T.muted, minHeight: 18 },
   footer:  { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
   actions: { display: 'flex', gap: 4 },
-  btnIcon: { background: 'none', border: 'none', cursor: 'pointer', color: '#ced4da', padding: '4px 6px', borderRadius: 6, display: 'flex', alignItems: 'center' },
-  empty:   { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: '#aaa' },
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
-  modal:   { background: 'white', borderRadius: 14, padding: 28, width: 440, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' },
-  mTitle:  { fontSize: 17, fontWeight: 600, marginBottom: 20, color: '#212529' },
+  btnIcon: { background: 'none', border: 'none', cursor: 'pointer', color: T.muted, padding: '4px 6px', borderRadius: 6, display: 'flex', alignItems: 'center' },
+  empty:   { background: T.panel, border: `1px solid ${T.border}`, borderRadius: 14, padding: '60px 24px', textAlign: 'center', color: T.muted },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
+  modal:   { background: T.panel, border: `1px solid ${T.borderS}`, borderRadius: 16, padding: 28, width: 440, boxShadow: '0 20px 60px rgba(0,0,0,0.5)' },
+  mTitle:  { fontSize: 17, fontWeight: 600, marginBottom: 20, color: T.text },
   field:   { marginBottom: 16 },
-  label:   { display: 'block', fontSize: 12, fontWeight: 500, color: '#495057', marginBottom: 6 },
-  input:   { width: '100%', padding: '8px 10px', fontSize: 14, border: '1px solid #ced4da', borderRadius: 8, outline: 'none', boxSizing: 'border-box' },
+  label:   { display: 'block', fontSize: 12, fontWeight: 500, color: T.textMid, marginBottom: 6 },
+  input:   { width: '100%', padding: '8px 10px', fontSize: 14, border: `1px solid ${T.borderS}`, borderRadius: 8, outline: 'none', boxSizing: 'border-box', background: T.bgSoft, color: T.text },
   mFooter: { display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 },
-  btnSec:  { padding: '8px 16px', fontSize: 14, background: 'none', border: '1px solid #dee2e6', borderRadius: 8, cursor: 'pointer', color: '#495057' },
-  btnPri:  { padding: '8px 16px', fontSize: 14, background: '#3b5bdb', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 500 },
+  btnSec:  { padding: '8px 16px', fontSize: 14, background: 'none', border: `1px solid ${T.borderS}`, borderRadius: 8, cursor: 'pointer', color: T.textMid },
+  btnPri:  { padding: '8px 16px', fontSize: 14, background: T.violet, color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 },
 }
 
 type ModalState =
@@ -162,42 +163,42 @@ export default function RelatorioPage() {
       </div>
 
       {erro && (
-        <div style={{ background: '#fff5f5', border: '1px solid #ffc9c9', borderRadius: 8, padding: '12px 16px', marginBottom: 16, color: '#c92a2a', fontSize: 13 }}>
+        <div style={{ background: 'rgba(248,113,113,0.1)', border: `1px solid ${T.red}`, borderRadius: 8, padding: '12px 16px', marginBottom: 16, color: T.red, fontSize: 13 }}>
           <strong>Erro:</strong> {erro}
         </div>
       )}
 
       {loading ? (
-        <p style={{ color: '#aaa' }}>Carregando...</p>
+        <p style={{ color: T.muted }}>Carregando...</p>
       ) : rels.length === 0 ? (
         <div style={S.empty}>
-          <p style={{ fontSize: 15, fontWeight: 500, color: '#495057' }}>Nenhum relatório criado ainda</p>
+          <p style={{ fontSize: 15, fontWeight: 500, color: T.textMid }}>Nenhum relatório criado ainda</p>
           <button style={{ ...S.btnAdd, margin: '16px auto 0' }} onClick={openCreate}><Plus size={15} /> Criar relatório</button>
         </div>
       ) : (
         <div style={S.grid}>
           {rels.map(r => (
             <div key={r.id} style={S.card} onClick={() => navigate(`/relatorios/${r.id}`)}
-              onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.1)')}
-              onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}>
+              onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 8px 30px rgba(0,0,0,0.45)'; e.currentTarget.style.borderColor = T.borderS }}
+              onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = T.border }}>
               <div style={S.cardTop}>
                 <div>
                   <div style={S.nome}>{r.nome}</div>
                   <div style={S.codigo}>{r.codigo}</div>
                 </div>
-                <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 600, background: '#e7f5ff', color: '#1971c2' }}>
+                <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 600, background: 'rgba(59,130,246,0.15)', color: T.blue }}>
                   {catNome(r.categoria_id)}
                 </span>
               </div>
               <div style={S.desc}>{r.descricao || <span style={{ fontStyle: 'italic' }}>Sem descrição</span>}</div>
               <div style={S.footer}>
-                <span style={{ fontSize: 12, color: '#aaa' }}>{r._nlinhas} linha{r._nlinhas !== 1 ? 's' : ''}</span>
+                <span style={{ fontSize: 12, color: T.muted }}>{r._nlinhas} linha{r._nlinhas !== 1 ? 's' : ''}</span>
                 <div style={S.actions}>
                   <button style={S.btnIcon} title="Duplicar (copia linhas e amarrações de conta)" disabled={dupId === r.id}
                     onClick={e => duplicar(r, e)}>{dupId === r.id ? <span style={{ fontSize: 11 }}>…</span> : <Copy size={14} />}</button>
                   <button style={S.btnIcon} title="Editar" onClick={e => openEdit(r, e)}><Pencil size={14} /></button>
                   <button style={S.btnIcon} title="Excluir" onClick={e => del(r.id, e)}><Trash2 size={14} /></button>
-                  <button style={{ ...S.btnIcon, color: '#3b5bdb' }} title="Abrir"><ChevronRight size={16} /></button>
+                  <button style={{ ...S.btnIcon, color: T.violet }} title="Abrir"><ChevronRight size={16} /></button>
                 </div>
               </div>
             </div>
