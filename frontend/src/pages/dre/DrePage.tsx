@@ -1,413 +1,262 @@
-import { useEffect, useState, useMemo } from 'react'
+// ============================================================
+// DRE Orçado × Realizado — visão v2 (tema dark)
+// Read-only. Reusa o motor de cálculo de produção (lib/engine):
+//   computeCenario + computeTotais → mesmos números do RelatorioEditorPage.
+// Dados reais via RPCs relatorio_orcado_agg / relatorio_realizado_agg.
+// ============================================================
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer
-} from 'recharts'
-import { ChevronRight, ChevronDown, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { computeCenario, computeTotais, formatValor } from '../../lib/engine'
+import type { LinhaCalc, RawValues, Periodo, Formato } from '../../lib/engine'
 
-// ─── Constantes ───────────────────────────────────────────────────────────────
-
-const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
-
-const fmt = (v: number) =>
-  v === 0 ? '—' : v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-
-const fmtPct = (v: number) => {
-  if (!isFinite(v)) return '—'
-  const s = v.toFixed(1) + '%'
-  return v > 0 ? '+' + s : s
-}
-
-// ─── Tipos ────────────────────────────────────────────────────────────────────
-
-interface Item {
-  id: string
-  codigo: string
+type Relatorio = { id: string; codigo: string; nome: string }
+type Empresa   = { id: string; codigo: string; descricao: string }
+type Versao    = { id: string; codigo: string }
+type Linha = LinhaCalc & {
   descricao: string
+  natureza: string | null
   nivel: number
-  pai_id: string | null
-  aceita_lancamento: boolean
-  natureza: string
-  n1_codigo: string
+  ordem: number | null
+  formato: Formato
+  casas_decimais: number
+  linha_orc_id: string | null
+  visivel_relatorio: boolean
 }
 
-interface Empresa { id: string; codigo: string; descricao: string }
-
-type ValMap = Record<string, Record<number, number>> // item_id → mes → valor
-
-// ─── Estilos ──────────────────────────────────────────────────────────────────
-
-const S = {
-  page:    { padding: 24, fontFamily: 'system-ui, sans-serif', minHeight: '100vh', background: '#f8f9fa' } as React.CSSProperties,
-  header:  { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 } as React.CSSProperties,
-  title:   { fontSize: 22, fontWeight: 600, color: '#212529', margin: 0 } as React.CSSProperties,
-  sub:     { fontSize: 13, color: '#868e96', margin: '4px 0 0' } as React.CSSProperties,
-  toolbar: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' as const } as React.CSSProperties,
-  select:  { padding: '6px 10px', borderRadius: 6, border: '1px solid #dee2e6', fontSize: 13, color: '#343a40', background: 'white' } as React.CSSProperties,
-  card:    { background: 'white', borderRadius: 12, border: '1px solid #e9ecef', marginBottom: 16, overflow: 'hidden' } as React.CSSProperties,
-  cardHdr: { padding: '12px 16px', borderBottom: '1px solid #f1f3f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } as React.CSSProperties,
-  cardTtl: { fontSize: 14, fontWeight: 600, color: '#343a40', margin: 0 } as React.CSSProperties,
-  wrap:    { overflowX: 'auto' as const },
-  table:   { width: '100%', borderCollapse: 'collapse' as const, fontSize: 12, minWidth: 900 } as React.CSSProperties,
+const C = {
+  bg: '#0a0a0f', panel: '#14141d', panel2: '#181823',
+  border: 'rgba(255,255,255,0.07)', borderS: 'rgba(255,255,255,0.12)',
+  text: '#e8e8f0', mid: '#b4b4c4', muted: '#74748a', faint: '#4a4a5a',
+  violet: '#8b5cf6', green: '#34d399', red: '#f87171', orange: '#fbbf24', blue: '#3b82f6',
 }
 
-// ─── KPI Card ─────────────────────────────────────────────────────────────────
+const NOW = new Date()
 
-function KpiCard({ label, orc, real }: { label: string; orc: number; real: number }) {
-  const delta = orc !== 0 ? ((real - orc) / Math.abs(orc)) * 100 : 0
-  const Icon = delta > 0.5 ? TrendingUp : delta < -0.5 ? TrendingDown : Minus
-  const cor = delta > 0.5 ? '#2f9e44' : delta < -0.5 ? '#e03131' : '#868e96'
-
-  return (
-    <div style={{
-      background: 'white', borderRadius: 12, border: '1px solid #e9ecef',
-      padding: '16px 20px', flex: 1, minWidth: 180,
-    }}>
-      <p style={{ fontSize: 11, color: '#868e96', margin: '0 0 8px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</p>
-      <p style={{ fontSize: 20, fontWeight: 700, color: '#212529', margin: '0 0 4px' }}>
-        {real === 0 && orc === 0 ? '—' : fmt(real)}
-      </p>
-      <p style={{ fontSize: 11, color: '#868e96', margin: '0 0 6px' }}>Orç: {fmt(orc)}</p>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: cor, fontSize: 12, fontWeight: 600 }}>
-        <Icon size={13} />
-        <span>{fmtPct(delta)} vs orçado</span>
-      </div>
-    </div>
-  )
+function favClass(nat: string | null, orc: number, real: number): 'fav' | 'unfav' | 'flat' {
+  const d = real - orc
+  if (Math.abs(d) < Math.max(Math.abs(orc) * 0.002, 0.005)) return 'flat'
+  if (nat === 'RECEITA') return d > 0 ? 'fav' : 'unfav'
+  if (nat === 'DESPESA') return d < 0 ? 'fav' : 'unfav'
+  return d >= 0 ? 'fav' : 'unfav'
 }
-
-// ─── Componente principal ─────────────────────────────────────────────────────
+const favColor = (f: string) => (f === 'fav' ? C.green : f === 'unfav' ? C.red : C.muted)
 
 export default function DrePage() {
-  const [itens,     setItens]     = useState<Item[]>([])
-  const [empresas,  setEmpresas]  = useState<Empresa[]>([])
-  const [orcado,    setOrcado]    = useState<ValMap>({})
-  const [realizado, setRealizado] = useState<ValMap>({})
-  const [empresaId, setEmpresaId] = useState<string>('')
-  const [ano,       setAno]       = useState(2026)
-  const [expandidos,setExpandidos]= useState<Set<string>>(new Set())
-  const [chartN1,   setChartN1]   = useState<string>('')   // id do N1 selecionado no gráfico
-  const [loading,   setLoading]   = useState(true)
-  const [erro,      setErro]      = useState<string | null>(null)
+  const [relatorios, setRelatorios] = useState<Relatorio[]>([])
+  const [empresas, setEmpresas] = useState<Empresa[]>([])
+  const [versoes, setVersoes] = useState<Versao[]>([])
 
-  // ── Carga inicial: empresas + plano ──────────────────────────────────────
+  const [relatorioId, setRelatorioId] = useState('')
+  const [empresaId, setEmpresaId] = useState('')
+  const [versaoId, setVersaoId] = useState('')
+  const [ano, setAno] = useState(NOW.getFullYear())
+  const [mesFim, setMesFim] = useState(NOW.getMonth() + 1)
+
+  const [linhas, setLinhas] = useState<Linha[]>([])
+  const [totOrc, setTotOrc] = useState<Record<string, number>>({})
+  const [totReal, setTotReal] = useState<Record<string, number>>({})
+  const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  const periodos: Periodo[] = useMemo(
+    () => Array.from({ length: Math.max(1, mesFim) }, (_, i) => ({ ano, mes: i + 1 })),
+    [ano, mesFim],
+  )
+
+  // ── cadastros (uma vez)
   useEffect(() => {
-    async function init() {
-      const [{ data: emp, error: e1 }, { data: plan, error: e2 }] = await Promise.all([
-        supabase.from('empresa').select('id, codigo, descricao').order('codigo'),
-        supabase.from('plano_orcamentario')
-          .select('id, codigo, descricao, nivel, pai_id, aceita_lancamento, natureza, n1_codigo')
-          .order('codigo'),
+    (async () => {
+      const [r, e, v] = await Promise.all([
+        supabase.from('relatorio').select('id,codigo,nome').order('codigo'),
+        supabase.from('empresa').select('id,codigo,descricao').order('codigo'),
+        supabase.from('versao_orcamento').select('id,codigo').order('codigo'),
       ])
-      if (e1 || e2) { setErro((e1 || e2)!.message); setLoading(false); return }
-      setEmpresas(emp || [])
-      setItens(plan || [])
-      if (emp && emp.length > 0) setEmpresaId(emp[0].id)
-      const n1ids = new Set((plan || []).filter(x => x.nivel === 1).map(x => x.id))
-      setExpandidos(n1ids)
-      if (plan && plan.length > 0) {
-        const primeiro = plan.find(x => x.nivel === 1)
-        if (primeiro) setChartN1(primeiro.id)
-      }
-    }
-    init()
+      const rs = (r.data as Relatorio[]) || []; setRelatorios(rs); if (rs[0]) setRelatorioId(rs[0].id)
+      const es = (e.data as Empresa[]) || []; setEmpresas(es); if (es[0]) setEmpresaId(es[0].id)
+      const vs = (v.data as Versao[]) || []; setVersoes(vs); if (vs[0]) setVersaoId(vs[0].id)
+    })()
   }, [])
 
-  // ── Carga de lançamentos quando empresa/ano mudam ────────────────────────
+  // ── linhas do relatório selecionado
   useEffect(() => {
-    if (!empresaId) return
-    async function carregarLancamentos() {
-      setLoading(true)
-      const { data, error } = await supabase
-        .from('fat_lancamento')
-        .select('item_orc_id, mes, valor, tipo_lancamento')
-        .eq('empresa_id', empresaId)
-        .eq('ano', ano)
+    if (!relatorioId) { setLinhas([]); return }
+    (async () => {
+      const { data } = await supabase
+        .from('relatorio_linha')
+        .select('id,pai_id,codigo,descricao,ordem,nivel,tipo_linha,expressao,natureza,formato,casas_decimais,linha_orc_id,nao_soma,desativada,visivel_relatorio')
+        .eq('relatorio_id', relatorioId)
+        .order('ordem', { nullsFirst: false })
+      setLinhas((data as Linha[]) || [])
+    })()
+  }, [relatorioId])
 
-      if (error) { setErro(error.message); setLoading(false); return }
+  // ── valores: RPCs + engine
+  const loadValores = useCallback(async () => {
+    if (!linhas.length || !empresaId || !versaoId) { setTotOrc({}); setTotReal({}); return }
+    setLoading(true); setErro(null)
+    try {
+      const masterIds = linhas.map(l => l.linha_orc_id).filter(Boolean) as string[]
+      const rlOfOrc: Record<string, string> = {}
+      for (const l of linhas) if (l.linha_orc_id && !l.nao_soma) rlOfOrc[l.linha_orc_id] = l.id
+      const meses = periodos.map(p => p.mes)
 
-      const orc: ValMap = {}
-      const real: ValMap = {}
-      for (const l of data || []) {
-        const mapa = l.tipo_lancamento === 'ORCADO' ? orc : real
-        if (!mapa[l.item_orc_id]) mapa[l.item_orc_id] = {}
-        mapa[l.item_orc_id][l.mes] = (mapa[l.item_orc_id][l.mes] || 0) + l.valor
+      const [orcRes, realRes] = await Promise.all([
+        supabase.rpc('relatorio_orcado_agg', {
+          p_versao: versaoId, p_empresas: [empresaId], p_anos: [ano],
+          p_meses: meses, p_linhas: masterIds, p_filiais: null, p_ccs: null,
+        }),
+        supabase.rpc('relatorio_realizado_agg', {
+          p_empresas: [empresaId], p_anos: [ano],
+          p_meses: meses, p_linhas: masterIds, p_filiais: null, p_ccs: null,
+        }),
+      ])
+      if (orcRes.error) throw new Error(orcRes.error.message)
+      if (realRes.error) throw new Error(realRes.error.message)
+
+      const rawOrc: RawValues = {}
+      for (const r of (orcRes.data as any[]) || []) {
+        const rl = rlOfOrc[r.linha_id]; if (!rl) continue
+        ;(rawOrc[rl] ||= {})[`${r.ano}-${r.mes}`] =
+          (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 }
       }
-      setOrcado(orc)
-      setRealizado(real)
+      const rawReal: RawValues = {}
+      for (const r of (realRes.data as any[]) || []) {
+        const rl = rlOfOrc[r.linha_id]; if (!rl) continue
+        ;(rawReal[rl] ||= {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0 }
+      }
+
+      const lc: LinhaCalc[] = linhas.map(l => ({
+        id: l.id, pai_id: l.pai_id, codigo: l.codigo,
+        tipo_linha: l.tipo_linha, expressao: l.expressao,
+        desativada: l.desativada, nao_soma: l.nao_soma,
+      }))
+      setTotOrc(computeTotais(lc, computeCenario(lc, rawOrc, periodos), periodos))
+      setTotReal(computeTotais(lc, computeCenario(lc, rawReal, periodos), periodos))
+    } catch (e: any) {
+      setErro(e?.message ?? String(e)); setTotOrc({}); setTotReal({})
+    } finally {
       setLoading(false)
     }
-    carregarLancamentos()
-  }, [empresaId, ano])
+  }, [linhas, empresaId, versaoId, ano, periodos])
 
-  // ── Helpers de agregação ─────────────────────────────────────────────────
-  const somaItem = (mapa: ValMap, id: string, mes?: number): number => {
-    const direto = mes ? (mapa[id]?.[mes] || 0) : MESES.reduce((s,_,i) => s + (mapa[id]?.[i+1] || 0), 0)
-    const filhos = itens.filter(x => x.pai_id === id)
-    return direto + filhos.reduce((s, f) => s + somaItem(mapa, f.id, mes), 0)
+  useEffect(() => { loadValores() }, [loadValores])
+
+  const sel: React.CSSProperties = {
+    background: C.panel, border: `1px solid ${C.borderS}`, borderRadius: 10,
+    padding: '7px 11px', fontSize: 13, color: C.text, outline: 'none',
   }
-
-  // ── Dados do gráfico ─────────────────────────────────────────────────────
-  const dadosGrafico = useMemo(() => {
-    if (!chartN1) return []
-    return MESES.map((mes, i) => ({
-      mes,
-      Orçado:    Math.round(somaItem(orcado,    chartN1, i+1) / 1000),
-      Realizado: Math.round(somaItem(realizado, chartN1, i+1) / 1000),
-    }))
-  }, [chartN1, orcado, realizado, itens]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── KPIs (N1 totalizados) ────────────────────────────────────────────────
-  const kpis = useMemo(() => {
-    return itens.filter(x => x.nivel === 1).map(n1 => ({
-      id: n1.id,
-      label: n1.descricao,
-      orc:  somaItem(orcado,    n1.id),
-      real: somaItem(realizado, n1.id),
-    }))
-  }, [itens, orcado, realizado]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Toggle expand ────────────────────────────────────────────────────────
-  const toggle = (id: string) => setExpandidos(prev => {
-    const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s
-  })
-
-  // ── Renderização das linhas da tabela ────────────────────────────────────
-  const renderLinhas = () => {
-    const linhas: React.ReactNode[] = []
-
-    const renderItem = (item: Item, profundidade: number, visivel: boolean) => {
-      if (!visivel) return
-
-      const filhos = itens.filter(x => x.pai_id === item.id)
-      const temFilhos = filhos.length > 0
-      const expandido = expandidos.has(item.id)
-
-      const orc  = MESES.map((_,i) => somaItem(orcado,    item.id, i+1))
-      const real = MESES.map((_,i) => somaItem(realizado, item.id, i+1))
-      const totalOrc  = orc.reduce((a,b) => a+b, 0)
-      const totalReal = real.reduce((a,b) => a+b, 0)
-
-      const isN1 = item.nivel === 1
-      const isN2 = item.nivel === 2
-
-      const bgRow = isN1 ? '#1e2d5a' : isN2 ? '#f1f3f5' : 'white'
-      const corTxt= isN1 ? 'white'   : '#212529'
-      const peso  = isN1 ? 600 : isN2 ? 600 : 400
-
-      linhas.push(
-        <tr key={item.id} style={{ background: bgRow, borderBottom: '1px solid #e9ecef' }}>
-          {/* Coluna descrição */}
-          <td style={{
-            padding: '7px 12px', whiteSpace: 'nowrap', color: corTxt, fontWeight: peso,
-            position: 'sticky', left: 0, background: bgRow, zIndex: 1,
-            borderRight: '2px solid #dee2e6',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingLeft: profundidade * 16 }}>
-              {temFilhos ? (
-                <span onClick={() => toggle(item.id)} style={{ cursor: 'pointer', opacity: 0.7, display: 'flex' }}>
-                  {expandido ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                </span>
-              ) : <span style={{ width: 13 }} />}
-              <span style={{ fontSize: isN1 ? 13 : isN2 ? 12 : 11 }}>
-                {isN1 || isN2 ? item.descricao : item.descricao}
-              </span>
-            </div>
-          </td>
-
-          {/* Colunas por mês: Orç | Real | Δ% */}
-          {MESES.map((_, i) => {
-            const o = orc[i], r = real[i]
-            const delta = o !== 0 ? ((r - o) / Math.abs(o)) * 100 : null
-            const corDelta = delta === null ? '#868e96'
-              : delta < -5 ? '#e03131'
-              : delta >  5 ? '#2f9e44'
-              : '#868e96'
-            return (
-              <td key={i} colSpan={1} style={{
-                padding: '7px 6px', textAlign: 'right', fontSize: 11,
-                color: corTxt, borderRight: '1px solid #e9ecef',
-              }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'flex-end', minWidth: 80 }}>
-                  <span style={{ opacity: 0.75, fontSize: 10 }}>{fmt(o)}</span>
-                  <span style={{ fontWeight: 500 }}>{fmt(r)}</span>
-                  <span style={{ fontSize: 10, color: isN1 ? '#a5b4fc' : corDelta }}>
-                    {delta === null ? '—' : fmtPct(delta)}
-                  </span>
-                </div>
-              </td>
-            )
-          })}
-
-          {/* Total */}
-          <td style={{
-            padding: '7px 10px', textAlign: 'right', fontWeight: 600,
-            color: corTxt, background: isN1 ? '#152247' : '#f8f9fa',
-            borderLeft: '2px solid #dee2e6', minWidth: 90,
-          }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'flex-end' }}>
-              <span style={{ opacity: 0.7, fontSize: 10, fontWeight: 400 }}>{fmt(totalOrc)}</span>
-              <span>{fmt(totalReal)}</span>
-              <span style={{
-                fontSize: 10, fontWeight: 400,
-                color: isN1 ? '#a5b4fc'
-                  : totalOrc !== 0 ? (((totalReal-totalOrc)/Math.abs(totalOrc)*100) < -5 ? '#e03131' : '#2f9e44')
-                  : '#868e96'
-              }}>
-                {totalOrc !== 0 ? fmtPct(((totalReal-totalOrc)/Math.abs(totalOrc))*100) : '—'}
-              </span>
-            </div>
-          </td>
-        </tr>
-      )
-
-      if (temFilhos && expandido) {
-        filhos.forEach(f => renderItem(f, profundidade + 1, true))
-      }
-    }
-
-    itens.filter(x => x.nivel === 1).forEach(n1 => renderItem(n1, 0, true))
-    return linhas
+  const th: React.CSSProperties = {
+    position: 'sticky', top: 0, background: '#11111a', color: C.muted, fontSize: 11,
+    fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px',
+    padding: '11px 14px', textAlign: 'right', borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap',
   }
-
-  // ── Render ───────────────────────────────────────────────────────────────
-  if (erro) return (
-    <div style={S.page}>
-      <div style={{ background: '#fff5f5', border: '1px solid #ffc9c9', borderRadius: 8, padding: 16, color: '#c92a2a' }}>
-        <strong>Erro:</strong> {erro}
-      </div>
-    </div>
-  )
-
-  const n1Options = itens.filter(x => x.nivel === 1)
 
   return (
-    <div style={S.page}>
+    <div style={{ minHeight: '100vh', background: C.bg, color: C.text,
+      fontFamily: '-apple-system,BlinkMacSystemFont,Segoe UI,Inter,sans-serif',
+      fontFeatureSettings: '"tnum" 1' }}>
+      <style>{`
+        .drev2-row:hover td { background: rgba(255,255,255,0.03) !important; }
+        .drev2 select option { background:#14141d; color:#e8e8f0; }
+      `}</style>
 
-      {/* Header */}
-      <div style={S.header}>
-        <div>
-          <h1 style={S.title}>DRE — Orçado × Realizado</h1>
-          <p style={S.sub}>Comparativo mensal por item do plano orçamentário</p>
-        </div>
-        <div style={S.toolbar}>
-          <select
-            style={S.select}
-            value={empresaId}
-            onChange={e => setEmpresaId(e.target.value)}
-          >
-            {empresas.map(emp => (
-              <option key={emp.id} value={emp.id}>{emp.codigo} — {emp.descricao}</option>
-            ))}
-          </select>
-          <select
-            style={S.select}
-            value={ano}
-            onChange={e => setAno(Number(e.target.value))}
-          >
-            {[2024, 2025, 2026, 2027].map(a => <option key={a} value={a}>{a}</option>)}
-          </select>
-        </div>
+      {/* header */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, padding: '14px 24px',
+        borderBottom: `1px solid ${C.border}` }}>
+        <span style={{ fontWeight: 800, letterSpacing: 3, color: C.mid, fontSize: 14 }}>PLANORC</span>
+        <span style={{ fontWeight: 600, fontSize: 14 }}>DRE Gerencial · Orçado × Realizado</span>
+        <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, padding: '4px 10px',
+          borderRadius: 999, background: 'rgba(139,92,246,0.18)', color: '#cbb8ff' }}>v2 · dados reais</span>
       </div>
 
-      {loading && (
-        <div style={{ textAlign: 'center', padding: 60, color: '#868e96' }}>Carregando...</div>
-      )}
+      {/* filtros */}
+      <div className="drev2" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center',
+        padding: '12px 24px', borderBottom: `1px solid ${C.border}`,
+        background: 'linear-gradient(90deg,rgba(139,92,246,0.08),transparent 55%)' }}>
+        <select style={sel} value={relatorioId} onChange={e => setRelatorioId(e.target.value)}>
+          {relatorios.map(r => <option key={r.id} value={r.id}>{r.codigo} · {r.nome}</option>)}
+        </select>
+        <select style={sel} value={empresaId} onChange={e => setEmpresaId(e.target.value)}>
+          {empresas.map(em => <option key={em.id} value={em.id}>{em.codigo} · {em.descricao}</option>)}
+        </select>
+        <select style={sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>
+          {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}
+        </select>
+        <input style={{ ...sel, width: 90 }} type="number" value={ano}
+          onChange={e => setAno(Number(e.target.value) || ano)} />
+        <label style={{ fontSize: 12, color: C.muted }}>até mês</label>
+        <select style={sel} value={mesFim} onChange={e => setMesFim(Number(e.target.value))}>
+          {Array.from({ length: 12 }, (_, i) => i + 1).map(m =>
+            <option key={m} value={m}>{String(m).padStart(2, '0')}</option>)}
+        </select>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: C.muted }}>
+          {loading ? 'carregando…' : `${linhas.length} linhas`}
+        </span>
+      </div>
 
-      {!loading && (
-        <>
-          {/* KPIs */}
-          <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-            {kpis.map(k => <KpiCard key={k.id} label={k.label} orc={k.orc} real={k.real} />)}
-          </div>
+      {erro && <div style={{ margin: 16, padding: 12, borderRadius: 10,
+        background: 'rgba(248,113,113,0.1)', border: `1px solid ${C.red}`, color: C.red, fontSize: 13 }}>
+        Erro ao carregar: {erro}</div>}
 
-          {/* Gráfico */}
-          <div style={S.card}>
-            <div style={S.cardHdr}>
-              <p style={S.cardTtl}>Evolução Mensal — Orçado × Realizado</p>
-              <select
-                style={{ ...S.select, fontSize: 12 }}
-                value={chartN1}
-                onChange={e => setChartN1(e.target.value)}
-              >
-                {n1Options.map(n => <option key={n.id} value={n.id}>{n.descricao}</option>)}
-              </select>
-            </div>
-            <div style={{ padding: '16px 8px 8px' }}>
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={dadosGrafico} barCategoryGap="30%" barGap={4}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f3f5" vertical={false} />
-                  <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#868e96' }} axisLine={false} tickLine={false} />
-                  <YAxis
-                    tick={{ fontSize: 10, fill: '#868e96' }}
-                    axisLine={false} tickLine={false}
-                    tickFormatter={v => v >= 1000 ? `${v}k` : String(v)}
-                    width={48}
-                  />
-                  <Tooltip
-                    formatter={(v: number) => [`${v.toLocaleString('pt-BR')}k`, '']}
-                    contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e9ecef' }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="Orçado"    fill="#a5b4fc" radius={[4,4,0,0]} />
-                  <Bar dataKey="Realizado" fill="#3b5bdb" radius={[4,4,0,0]} />
-                </BarChart>
-              </ResponsiveContainer>
-              <p style={{ fontSize: 10, color: '#adb5bd', textAlign: 'center', margin: '4px 0 0' }}>
-                Valores em milhares (R$ k)
-              </p>
-            </div>
-          </div>
-
-          {/* Tabela DRE */}
-          <div style={S.card}>
-            <div style={S.cardHdr}>
-              <p style={S.cardTtl}>DRE Detalhada</p>
-              <div style={{ display: 'flex', gap: 16, fontSize: 11, color: '#868e96' }}>
-                <span>Linha superior: Orçado</span>
-                <span style={{ fontWeight: 600, color: '#343a40' }}>Linha do meio: Realizado</span>
-                <span>Linha inferior: Δ%</span>
-              </div>
-            </div>
-            <div style={S.wrap}>
-              <table style={S.table}>
-                <thead>
-                  <tr>
-                    <th style={{
-                      textAlign: 'left', padding: '8px 12px', background: '#1e2d5a',
-                      color: 'white', fontWeight: 500, fontSize: 12, whiteSpace: 'nowrap',
-                      position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid #dee2e6',
-                      minWidth: 260,
-                    }}>
-                      Item Orçamentário
-                    </th>
-                    {MESES.map(m => (
-                      <th key={m} style={{
-                        textAlign: 'center', padding: '8px 6px', background: '#1e2d5a',
-                        color: '#a5b4fc', fontWeight: 500, fontSize: 11, minWidth: 88,
-                        borderRight: '1px solid #2a3f7a',
-                      }}>
-                        {m}
-                      </th>
-                    ))}
-                    <th style={{
-                      textAlign: 'center', padding: '8px 10px', background: '#152247',
-                      color: '#c7d2fe', fontWeight: 600, fontSize: 11, minWidth: 90,
-                      borderLeft: '2px solid #dee2e6',
-                    }}>
-                      Total
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {renderLinhas()}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
-      )}
+      {/* tabela */}
+      <div style={{ margin: '16px 24px 60px', border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'auto' }}>
+        <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%', minWidth: 720 }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, textAlign: 'left', minWidth: 300 }}>Item · DRE</th>
+              <th style={th}>Orçado</th>
+              <th style={th}>Realizado</th>
+              <th style={th}>Δ</th>
+              <th style={th}>Δ %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.map(l => {
+              if (l.tipo_linha === 'ESPACO') return <tr key={l.id}><td colSpan={5} style={{ height: 10 }} /></tr>
+              if (l.visivel_relatorio === false) return null
+              const o = totOrc[l.id] ?? 0
+              const r = totReal[l.id] ?? 0
+              const d = r - o
+              const isPct = l.formato === 'PERCENTUAL'
+              const f = favClass(l.natureza, o, r)
+              const col = favColor(f)
+              const isAgg = l.tipo_linha === 'SOMAR_FILHOS'
+              const isCalc = l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR'
+              const indent = 12 + (Math.max(1, l.nivel) - 1) * 18
+              const deltaPct = isPct ? d : (o !== 0 ? (d / Math.abs(o)) * 100 : 0)
+              return (
+                <tr key={l.id} className="drev2-row">
+                  <td style={{
+                    padding: `9px 14px 9px ${indent}px`, fontSize: 13, whiteSpace: 'nowrap',
+                    borderBottom: `1px solid rgba(255,255,255,0.04)`,
+                    fontWeight: isAgg ? 750 : isCalc ? 600 : 500,
+                    color: isAgg ? C.text : isCalc ? '#cbb8ff' : C.mid,
+                    background: isAgg ? 'rgba(139,92,246,0.06)' : 'transparent',
+                  }}>
+                    <span style={{ color: C.faint, fontSize: 10, marginRight: 8 }}>{l.codigo}</span>
+                    {l.descricao}
+                  </td>
+                  <td style={cellNum(C.mid, isAgg)}>{formatValor(o, l.formato, l.casas_decimais)}</td>
+                  <td style={cellNum(C.text, isAgg)}>{formatValor(r, l.formato, l.casas_decimais)}</td>
+                  <td style={cellNum(col, isAgg)}>{(d >= 0 ? '+' : '−') + formatValor(Math.abs(d), l.formato, l.casas_decimais)}</td>
+                  <td style={cellNum(col, isAgg)}>
+                    {f === 'flat' ? '—' :
+                      (f === 'fav' ? '▲ ' : '▼ ') + Math.abs(deltaPct).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + (isPct ? ' pp' : '%')}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
+}
+
+function cellNum(color: string, bold: boolean): React.CSSProperties {
+  return {
+    padding: '9px 14px', fontSize: 13, textAlign: 'right', whiteSpace: 'nowrap',
+    fontVariantNumeric: 'tabular-nums', color, fontWeight: bold ? 700 : 500,
+    borderBottom: '1px solid rgba(255,255,255,0.04)',
+  }
 }
