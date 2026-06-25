@@ -26,15 +26,15 @@ const ST: Record<string, CSSProperties> = {
   wrap: { position: 'relative', display: 'inline-block' },
   drop: {
     position: 'absolute', top: '100%', left: 0, marginTop: 2, zIndex: 2000,
-    background: 'white', border: '1px solid #dee2e6', borderRadius: 8, minWidth: 260, maxWidth: 320,
+    background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 8, minWidth: 260, maxWidth: 320,
     maxHeight: 220, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.15)', textAlign: 'left',
   },
-  name: { fontWeight: 600, color: '#212529', fontFamily: 'monospace' },
-  sub:  { color: '#adb5bd', marginLeft: 'auto', fontSize: 11 },
+  name: { fontWeight: 600, color: 'var(--text)', fontFamily: 'monospace' },
+  sub:  { color: 'var(--muted)', marginLeft: 'auto', fontSize: 11 },
 }
 const itemStyle = (hi: boolean): CSSProperties => ({
   display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, cursor: 'pointer',
-  background: hi ? '#edf2ff' : 'white',
+  background: hi ? 'rgba(139,92,246,0.14)' : 'var(--panel)',
 })
 const tagStyle = (c: string): CSSProperties => ({ fontSize: 9, fontWeight: 700, color: c, width: 26, flexShrink: 0 })
 
@@ -134,7 +134,7 @@ export default function FormulaCellInput({ value, onChange, onCommit, onCancel, 
         <button
           title="Replicar até dezembro (Ctrl+Enter)"
           onMouseDown={e => { e.preventDefault(); onFill() }}
-          style={{ marginLeft: 4, padding: '2px 6px', fontSize: 11, border: '1px solid #69db7c', background: '#ebfbee', color: '#2f9e44', borderRadius: 4, cursor: 'pointer' }}>
+          style={{ marginLeft: 4, padding: '2px 6px', fontSize: 11, border: '1px solid var(--green)', background: 'rgba(52,211,153,0.12)', color: 'var(--green)', borderRadius: 4, cursor: 'pointer' }}>
           →|
         </button>
       )}
@@ -142,7 +142,7 @@ export default function FormulaCellInput({ value, onChange, onCommit, onCancel, 
         <button
           title="Lançamentos detalhados (adicionar por filial/CC/dimensão)"
           onMouseDown={e => { e.preventDefault(); onDetail() }}
-          style={{ marginLeft: 4, padding: '2px 6px', fontSize: 11, border: '1px solid #a5d8ff', background: '#e7f5ff', color: '#1971c2', borderRadius: 4, cursor: 'pointer' }}>
+          style={{ marginLeft: 4, padding: '2px 6px', fontSize: 11, border: '1px solid rgba(59,130,246,0.30)', background: 'rgba(59,130,246,0.16)', color: 'var(--blue)', borderRadius: 4, cursor: 'pointer' }}>
           ⋯
         </button>
       )}
@@ -152,7 +152,7 @@ export default function FormulaCellInput({ value, onChange, onCommit, onCancel, 
             <div key={idx} style={itemStyle(idx === hi)}
               onMouseEnter={() => setHi(idx)}
               onMouseDown={e => { e.preventDefault(); accept(s) }}>
-              <span style={tagStyle(s.kind === 'fn' ? '#6741d9' : '#1971c2')}>{s.kind === 'fn' ? 'ƒ(x)' : '[ ]'}</span>
+              <span style={tagStyle(s.kind === 'fn' ? 'var(--violet)' : 'var(--blue)')}>{s.kind === 'fn' ? 'ƒ(x)' : '[ ]'}</span>
               <span style={ST.name}>{s.label}</span>
               <span style={ST.sub}>{s.sub}</span>
             </div>

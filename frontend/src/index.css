@@ -31,6 +31,7 @@
   --red: #f87171;
   --orange: #fbbf24;
   --cyan: #22d3ee;
+  --chart-bg: #23232e;   /* fundo cinza dos gráficos (teste) */
 }
 
 /* ===== Variante CLARA — ativa com <html data-theme="light"> ===== */
@@ -52,6 +53,7 @@
   --red: #e03131;
   --orange: #e8590c;
   --cyan: #0c8599;
+  --chart-bg: #f1f3f5;   /* fundo cinza claro dos gráficos */
 }
 
 body {

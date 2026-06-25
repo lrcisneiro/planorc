@@ -56,7 +56,7 @@ type ModalState =
   | { open: false }
   | { open: true; id?: string; codigo: string; nome: string; categoria_id: string; descricao: string }
 
-export default function RelatorioPage() {
+export default function RelatorioPage({ linkBase = '/relatorios', titulo = 'Relatórios', subtitulo = 'Demonstrações financeiras — DRE, BP, DFC e outras' }: { linkBase?: string; titulo?: string; subtitulo?: string } = {}) {
   const [rels, setRels] = useState<Relatorio[]>([])
   const [cats, setCats] = useState<Categoria[]>([])
   const [loading, setLoading] = useState(true)
@@ -146,7 +146,7 @@ export default function RelatorioPage() {
         alert(`Relatório duplicado: ${src.length} linhas (compartilham a mesma estrutura — DE-PARA e orçado vêm juntos).`)
       }
       load()
-      navigate(`/relatorios/${nr.id}`)
+      navigate(`${linkBase}/${nr.id}`)
     } catch (err: any) {
       alert('Erro ao duplicar: ' + (err?.message ?? JSON.stringify(err)))
     } finally { setDupId(null) }
@@ -156,8 +156,8 @@ export default function RelatorioPage() {
     <div style={S.page}>
       <div style={S.header}>
         <div>
-          <h1 style={S.title}>Relatórios</h1>
-          <p style={S.sub}>Demonstrações financeiras — DRE, BP, DFC e outras</p>
+          <h1 style={S.title}>{titulo}</h1>
+          <p style={S.sub}>{subtitulo}</p>
         </div>
         <button style={S.btnAdd} onClick={openCreate}><Plus size={15} /> Novo relatório</button>
       </div>
@@ -178,7 +178,7 @@ export default function RelatorioPage() {
       ) : (
         <div style={S.grid}>
           {rels.map(r => (
-            <div key={r.id} style={S.card} onClick={() => navigate(`/relatorios/${r.id}`)}
+            <div key={r.id} style={S.card} onClick={() => navigate(`${linkBase}/${r.id}`)}
               onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 8px 30px rgba(0,0,0,0.45)'; e.currentTarget.style.borderColor = T.borderS }}
               onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = T.border }}>
               <div style={S.cardTop}>

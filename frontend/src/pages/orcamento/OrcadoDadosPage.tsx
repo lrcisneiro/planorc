@@ -15,22 +15,22 @@ const EXEMPLO = ['11011002', '01', 'ORCADO_2026', 2026, 1, 15000]
 const S: Record<string, CSSProperties> = {
   page:    { padding: 24, fontFamily: 'system-ui, sans-serif' },
   header:  { marginBottom: 16 },
-  title:   { fontSize: 22, fontWeight: 600, color: '#212529', margin: 0 },
-  sub:     { fontSize: 13, color: '#868e96', margin: '4px 0 0' },
+  title:   { fontSize: 22, fontWeight: 600, color: 'var(--text)', margin: 0 },
+  sub:     { fontSize: 13, color: 'var(--muted)', margin: '4px 0 0' },
   bar:     { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 },
-  sel:     { padding: '6px 10px', fontSize: 13, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: '#495057' },
+  sel:     { padding: '6px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', color: 'var(--text-mid)' },
   spacer:  { flex: 1 },
-  btn:     { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, background: 'white', color: '#495057', border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer' },
-  card:    { background: 'white', borderRadius: 10, border: '1px solid #e9ecef', overflow: 'hidden' },
+  btn:     { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' },
+  card:    { background: 'var(--panel)', borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden' },
   table:   { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th:      { textAlign: 'left', padding: '9px 12px', color: '#868e96', fontWeight: 500, fontSize: 12, background: '#f8f9fa', borderBottom: '1px solid #e9ecef', position: 'sticky', top: 0 },
-  thR:     { textAlign: 'right', padding: '9px 12px', color: '#868e96', fontWeight: 500, fontSize: 12, background: '#f8f9fa', borderBottom: '1px solid #e9ecef' },
-  td:      { padding: '7px 12px', borderBottom: '1px solid #f1f3f5', color: '#343a40' },
-  tdR:     { padding: '7px 12px', borderBottom: '1px solid #f1f3f5', color: '#343a40', textAlign: 'right' },
-  mono:    { fontFamily: 'monospace', fontSize: 12, color: '#868e96' },
-  empty:   { padding: '40px 24px', textAlign: 'center', color: '#aaa', fontSize: 13 },
-  erro:    { display: 'flex', alignItems: 'center', gap: 8, background: '#fff5f5', border: '1px solid #ffc9c9', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: '#c92a2a', fontSize: 13 },
-  info:    { display: 'flex', alignItems: 'center', gap: 8, background: '#e7f5ff', border: '1px solid #a5d8ff', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: '#1971c2', fontSize: 13 },
+  th:      { textAlign: 'left', padding: '9px 12px', color: 'var(--muted)', fontWeight: 500, fontSize: 12, background: 'var(--bg)', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0 },
+  thR:     { textAlign: 'right', padding: '9px 12px', color: 'var(--muted)', fontWeight: 500, fontSize: 12, background: 'var(--bg)', borderBottom: '1px solid var(--border)' },
+  td:      { padding: '7px 12px', borderBottom: '1px solid var(--panel)', color: 'var(--text)' },
+  tdR:     { padding: '7px 12px', borderBottom: '1px solid var(--panel)', color: 'var(--text)', textAlign: 'right' },
+  mono:    { fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)' },
+  empty:   { padding: '40px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 },
+  erro:    { display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: 'var(--red)', fontSize: 13 },
+  info:    { display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(59,130,246,0.16)', border: '1px solid rgba(59,130,246,0.30)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: 'var(--blue)', fontSize: 13 },
 }
 
 const MESES = ['', 'Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
@@ -181,7 +181,7 @@ export default function OrcadoDadosPage() {
           {ANOS.map(y => <option key={y} value={y}>{y}</option>)}
         </select>
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
-        <button style={{ ...S.btn, color: '#e67700', borderColor: '#ffe8cc' }} onClick={revincular} title="Preencher o CC dos lançamentos órfãos (importados antes do CC ser cadastrado), pelo código original"><AlertCircle size={13} /> Re-vincular CCs</button>
+        <button style={{ ...S.btn, color: '#e67700', borderColor: 'rgba(251,191,36,0.20)' }} onClick={revincular} title="Preencher o CC dos lançamentos órfãos (importados antes do CC ser cadastrado), pelo código original"><AlertCircle size={13} /> Re-vincular CCs</button>
         <div style={S.spacer} />
         <button style={S.btn} onClick={exportar}><FileDown size={13} /> Exportar</button>
         <button style={S.btn} onClick={() => downloadSheet('modelo_orcado.xlsx', [HEADERS, EXEMPLO])}><Download size={13} /> Baixar modelo</button>
@@ -212,8 +212,8 @@ export default function OrcadoDadosPage() {
                 <td style={S.td}>{r.conta_orcamentaria?.descricao}</td>
                 <td style={S.tdR}>{MESES[r.mes]}</td>
                 <td style={S.tdR}>{r.valor != null ? Number(r.valor).toLocaleString('pt-BR') : '—'}</td>
-                <td style={{ ...S.td, ...S.mono, color: r.expressao ? '#6741d9' : '#ced4da' }}>{r.expressao || '—'}</td>
-                <td style={{ ...S.td, fontSize: 11, color: r.origem === 'FORMULARIO' ? '#0c8599' : r.origem === 'IMPORT' ? '#e67700' : '#868e96' }}>{r.origem}</td>
+                <td style={{ ...S.td, ...S.mono, color: r.expressao ? 'var(--violet)' : 'var(--border-strong)' }}>{r.expressao || '—'}</td>
+                <td style={{ ...S.td, fontSize: 11, color: r.origem === 'FORMULARIO' ? 'var(--cyan)' : r.origem === 'IMPORT' ? '#e67700' : 'var(--muted)' }}>{r.origem}</td>
               </tr>
             ))}
           </tbody>

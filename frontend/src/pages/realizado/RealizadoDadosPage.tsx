@@ -22,22 +22,22 @@ const EXEMPLO = [
 const S: Record<string, CSSProperties> = {
   page:    { padding: 24, fontFamily: 'system-ui, sans-serif' },
   header:  { marginBottom: 16 },
-  title:   { fontSize: 22, fontWeight: 600, color: '#212529', margin: 0 },
-  sub:     { fontSize: 13, color: '#868e96', margin: '4px 0 0' },
+  title:   { fontSize: 22, fontWeight: 600, color: 'var(--text)', margin: 0 },
+  sub:     { fontSize: 13, color: 'var(--muted)', margin: '4px 0 0' },
   bar:     { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 },
-  sel:     { padding: '6px 10px', fontSize: 13, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: '#495057' },
+  sel:     { padding: '6px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', color: 'var(--text-mid)' },
   spacer:  { flex: 1 },
-  btn:     { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, background: 'white', color: '#495057', border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer' },
-  card:    { background: 'white', borderRadius: 10, border: '1px solid #e9ecef', overflow: 'hidden' },
+  btn:     { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' },
+  card:    { background: 'var(--panel)', borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden' },
   table:   { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th:      { textAlign: 'left', padding: '9px 12px', color: '#868e96', fontWeight: 500, fontSize: 12, background: '#f8f9fa', borderBottom: '1px solid #e9ecef', position: 'sticky', top: 0 },
-  thR:     { textAlign: 'right', padding: '9px 12px', color: '#868e96', fontWeight: 500, fontSize: 12, background: '#f8f9fa', borderBottom: '1px solid #e9ecef' },
-  td:      { padding: '7px 12px', borderBottom: '1px solid #f1f3f5', color: '#343a40', whiteSpace: 'nowrap' },
-  tdR:     { padding: '7px 12px', borderBottom: '1px solid #f1f3f5', color: '#343a40', textAlign: 'right' },
-  mono:    { fontFamily: 'monospace', fontSize: 12, color: '#868e96' },
-  empty:   { padding: '40px 24px', textAlign: 'center', color: '#aaa', fontSize: 13 },
-  erro:    { display: 'flex', alignItems: 'center', gap: 8, background: '#fff5f5', border: '1px solid #ffc9c9', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: '#c92a2a', fontSize: 13 },
-  info:    { display: 'flex', alignItems: 'center', gap: 8, background: '#e7f5ff', border: '1px solid #a5d8ff', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: '#1971c2', fontSize: 13 },
+  th:      { textAlign: 'left', padding: '9px 12px', color: 'var(--muted)', fontWeight: 500, fontSize: 12, background: 'var(--bg)', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0 },
+  thR:     { textAlign: 'right', padding: '9px 12px', color: 'var(--muted)', fontWeight: 500, fontSize: 12, background: 'var(--bg)', borderBottom: '1px solid var(--border)' },
+  td:      { padding: '7px 12px', borderBottom: '1px solid var(--panel)', color: 'var(--text)', whiteSpace: 'nowrap' },
+  tdR:     { padding: '7px 12px', borderBottom: '1px solid var(--panel)', color: 'var(--text)', textAlign: 'right' },
+  mono:    { fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)' },
+  empty:   { padding: '40px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 },
+  erro:    { display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: 'var(--red)', fontSize: 13 },
+  info:    { display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(59,130,246,0.16)', border: '1px solid rgba(59,130,246,0.30)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: 'var(--blue)', fontSize: 13 },
 }
 
 function downloadSheet(filename: string, aoa: any[][]) {
@@ -435,13 +435,13 @@ export default function RealizadoDadosPage() {
           {MESES.slice(1).map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
         </select>
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
-        <button style={{ ...S.btn, ...(grid.filtrosOn ? { borderColor: '#3b5bdb', color: '#3b5bdb' } : {}) }} onClick={() => grid.setFiltrosOn(v => !v)} title="Mostrar/ocultar filtro por coluna"><Filter size={13} /> Filtrar colunas</button>
+        <button style={{ ...S.btn, ...(grid.filtrosOn ? { borderColor: 'var(--violet)', color: 'var(--violet)' } : {}) }} onClick={() => grid.setFiltrosOn(v => !v)} title="Mostrar/ocultar filtro por coluna"><Filter size={13} /> Filtrar colunas</button>
         <div style={S.spacer} />
         <button style={S.btn} onClick={exportar}><FileDown size={13} /> Exportar</button>
         <button style={S.btn} onClick={recalcular} title="Recalcular os agregados mensais (DRE/dashboards) — use após mudar lotes ignorados"><RefreshCw size={13} /> Recalcular</button>
-        <button style={{ ...S.btn, color: '#e67700', borderColor: '#ffe8cc' }} onClick={buscarCcFaltando} title="Lançamentos de receita/despesa sem CC cadastrado (CC obrigatório)"><AlertCircle size={13} /> CCs faltando</button>
-        <button style={{ ...S.btn, background: '#3b5bdb', color: 'white', borderColor: '#3b5bdb' }} onClick={() => { setImportOpen(true); setImpProg(''); setImpLog([]); setLogXlsx(null) }}><Upload size={13} /> Importar</button>
-        <button style={{ ...S.btn, color: '#e03131', borderColor: '#ffc9c9' }} onClick={limpar} title="Excluir o realizado (todos os anos/meses) para reimportar"><Trash2 size={13} /> Limpar</button>
+        <button style={{ ...S.btn, color: '#e67700', borderColor: 'rgba(251,191,36,0.20)' }} onClick={buscarCcFaltando} title="Lançamentos de receita/despesa sem CC cadastrado (CC obrigatório)"><AlertCircle size={13} /> CCs faltando</button>
+        <button style={{ ...S.btn, background: 'var(--violet)', color: '#ffffff', borderColor: 'var(--violet)' }} onClick={() => { setImportOpen(true); setImpProg(''); setImpLog([]); setLogXlsx(null) }}><Upload size={13} /> Importar</button>
+        <button style={{ ...S.btn, color: 'var(--red)', borderColor: 'rgba(248,113,113,0.35)' }} onClick={limpar} title="Excluir o realizado (todos os anos/meses) para reimportar"><Trash2 size={13} /> Limpar</button>
       </div>
 
       {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
@@ -458,7 +458,7 @@ export default function RealizadoDadosPage() {
                 <td style={S.tdR}>{MESES[r.mes]}</td>
                 <td style={{ ...S.td, ...S.mono }}>{r.empresa?.codigo || '—'}</td>
                 <td style={S.td}>{r.data ? String(r.data).split('-').reverse().join('/') : '—'}</td>
-                <td style={{ ...S.td, fontSize: 11, color: '#1971c2' }}>{r.conta_contabil?.plano_contas?.codigo || '—'}</td>
+                <td style={{ ...S.td, fontSize: 11, color: 'var(--blue)' }}>{r.conta_contabil?.plano_contas?.codigo || '—'}</td>
                 <td style={{ ...S.td, ...S.mono }}>{r.conta_contabil?.codigo || '—'}</td>
                 <td style={S.td}>{r.conta_contabil?.descricao || ''}</td>
                 <td style={{ ...S.td, ...S.mono }}>{r.filial?.codigo || '—'}</td>
@@ -467,9 +467,9 @@ export default function RealizadoDadosPage() {
                 <td style={S.td}>{r.historico || '—'}</td>
                 <td style={S.tdR}>{r.debito != null ? Number(r.debito).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '—'}</td>
                 <td style={S.tdR}>{r.credito != null ? Number(r.credito).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '—'}</td>
-                <td style={{ ...S.tdR, fontWeight: 600, color: Number(r.valor) < 0 ? '#e03131' : '#2f9e44' }}>{Number(r.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                <td style={{ ...S.tdR, fontWeight: 600, color: Number(r.valor) < 0 ? 'var(--red)' : 'var(--green)' }}>{Number(r.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                 <td style={{ ...S.td, ...S.mono }}>{r.lote ? `${r.lote}${r.sublote ? '/' + r.sublote : ''}` : '—'}</td>
-                <td style={{ ...S.td, fontSize: 11, color: r.origem === 'ERP' ? '#0c8599' : r.origem === 'IMPORT' ? '#e67700' : '#868e96' }}>{r.origem}</td>
+                <td style={{ ...S.td, fontSize: 11, color: r.origem === 'ERP' ? 'var(--cyan)' : r.origem === 'IMPORT' ? '#e67700' : 'var(--muted)' }}>{r.origem}</td>
                 <td style={S.td}></td>
               </tr>
             ))}
@@ -477,11 +477,11 @@ export default function RealizadoDadosPage() {
           {!loading && grid.rows.length > 0 && (
             <tfoot>
               <tr>
-                <td colSpan={10} style={{ ...S.td, fontWeight: 600, textAlign: 'right', background: '#f8f9fa' }}>Total · {grid.rows.length} lançamento{grid.rows.length > 1 ? 's' : ''}</td>
-                <td style={{ ...S.tdR, fontWeight: 700, background: '#f8f9fa' }}>{fmt2(somaDeb)}</td>
-                <td style={{ ...S.tdR, fontWeight: 700, background: '#f8f9fa' }}>{fmt2(somaCred)}</td>
-                <td style={{ ...S.tdR, fontWeight: 700, background: '#f8f9fa', color: somaVal < 0 ? '#e03131' : '#2f9e44' }}>{fmt2(somaVal)}</td>
-                <td colSpan={3} style={{ ...S.td, background: '#f8f9fa' }}></td>
+                <td colSpan={10} style={{ ...S.td, fontWeight: 600, textAlign: 'right', background: 'var(--bg)' }}>Total · {grid.rows.length} lançamento{grid.rows.length > 1 ? 's' : ''}</td>
+                <td style={{ ...S.tdR, fontWeight: 700, background: 'var(--bg)' }}>{fmt2(somaDeb)}</td>
+                <td style={{ ...S.tdR, fontWeight: 700, background: 'var(--bg)' }}>{fmt2(somaCred)}</td>
+                <td style={{ ...S.tdR, fontWeight: 700, background: 'var(--bg)', color: somaVal < 0 ? 'var(--red)' : 'var(--green)' }}>{fmt2(somaVal)}</td>
+                <td colSpan={3} style={{ ...S.td, background: 'var(--bg)' }}></td>
               </tr>
             </tfoot>
           )}
@@ -491,11 +491,11 @@ export default function RealizadoDadosPage() {
 
       {ccFaltOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setCcFaltOpen(false)}>
-          <div style={{ background: 'white', borderRadius: 14, padding: 24, width: 620, maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: 'var(--panel)', borderRadius: 14, padding: 24, width: 620, maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
               <strong style={{ fontSize: 15 }}>CCs faltando — receita/despesa sem CC ({ano}{empresaId ? ' · empresa selecionada' : ' · todas'})</strong>
               <div style={{ flex: 1 }} />
-              <X size={18} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={() => setCcFaltOpen(false)} />
+              <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={() => setCcFaltOpen(false)} />
             </div>
             <p style={{ ...S.sub, marginTop: 0 }}>Em contas de receita/despesa o CC é obrigatório. Aqui ficam os lançamentos com CC não cadastrado (código original do arquivo). Cadastre o CC em Cadastros → Centro de Custo e reimporte (ou recalcule).</p>
             {ccFaltBusy ? <div style={S.sub}>Buscando…</div> : ccFalt.length === 0 ? (
@@ -511,10 +511,10 @@ export default function RealizadoDadosPage() {
                   <tbody>
                     {ccFalt.map(g => (
                       <tr key={g.cc}>
-                        <td style={{ ...S.td, ...S.mono, fontWeight: 600, color: '#e8590c' }}>{g.cc}</td>
+                        <td style={{ ...S.td, ...S.mono, fontWeight: 600, color: 'var(--orange)' }}>{g.cc}</td>
                         <td style={S.tdR}>{g.n.toLocaleString('pt-BR')}</td>
-                        <td style={{ ...S.tdR, color: g.valor < 0 ? '#e03131' : '#2f9e44' }}>{fmt2(g.valor)}</td>
-                        <td style={{ ...S.td, fontSize: 11, color: '#868e96' }}>{g.contas.slice(0, 6).join(', ')}{g.contas.length > 6 ? `  +${g.contas.length - 6}` : ''}</td>
+                        <td style={{ ...S.tdR, color: g.valor < 0 ? 'var(--red)' : 'var(--green)' }}>{fmt2(g.valor)}</td>
+                        <td style={{ ...S.td, fontSize: 11, color: 'var(--muted)' }}>{g.contas.slice(0, 6).join(', ')}{g.contas.length > 6 ? `  +${g.contas.length - 6}` : ''}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -527,10 +527,10 @@ export default function RealizadoDadosPage() {
 
       {importOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => !impBusy && setImportOpen(false)}>
-          <div style={{ background: 'white', borderRadius: 14, padding: 24, width: 560, maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: 'var(--panel)', borderRadius: 14, padding: 24, width: 560, maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-              <strong style={{ fontSize: 16, color: '#212529' }}>Importar realizado</strong>
-              <X size={18} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={() => !impBusy && setImportOpen(false)} />
+              <strong style={{ fontSize: 16, color: 'var(--text)' }}>Importar realizado</strong>
+              <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={() => !impBusy && setImportOpen(false)} />
             </div>
 
             <div
@@ -538,32 +538,32 @@ export default function RealizadoDadosPage() {
               onDragOver={e => { e.preventDefault(); setDragOver(true) }}
               onDragLeave={() => setDragOver(false)}
               onDrop={e => { e.preventDefault(); setDragOver(false); const fs = Array.from(e.dataTransfer.files).filter(f => /\.(xlsx|xls|xlsm|csv)$/i.test(f.name)); if (fs.length) setDropFiles(p => [...p, ...fs]) }}
-              style={{ border: `2px dashed ${dragOver ? '#3b5bdb' : '#ced4da'}`, background: dragOver ? '#edf2ff' : '#fafbfc', borderRadius: 12, padding: '28px 16px', textAlign: 'center', cursor: 'pointer' }}>
-              <Upload size={26} style={{ color: dragOver ? '#3b5bdb' : '#adb5bd' }} />
-              <div style={{ marginTop: 8, fontSize: 14, color: '#495057' }}>Arraste os arquivos aqui ou <span style={{ color: '#3b5bdb', fontWeight: 600 }}>clique para selecionar</span></div>
-              <div style={{ fontSize: 12, color: '#adb5bd', marginTop: 4 }}>.xlsx — pode soltar vários meses de uma vez</div>
+              style={{ border: `2px dashed ${dragOver ? 'var(--violet)' : 'var(--border-strong)'}`, background: dragOver ? 'rgba(139,92,246,0.14)' : 'var(--bg-soft)', borderRadius: 12, padding: '28px 16px', textAlign: 'center', cursor: 'pointer' }}>
+              <Upload size={26} style={{ color: dragOver ? 'var(--violet)' : 'var(--muted)' }} />
+              <div style={{ marginTop: 8, fontSize: 14, color: 'var(--text-mid)' }}>Arraste os arquivos aqui ou <span style={{ color: 'var(--violet)', fontWeight: 600 }}>clique para selecionar</span></div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>.xlsx — pode soltar vários meses de uma vez</div>
             </div>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" multiple style={{ display: 'none' }}
               onChange={(e: ChangeEvent<HTMLInputElement>) => { const fs = Array.from(e.target.files || []); if (fs.length) setDropFiles(p => [...p, ...fs]); e.target.value = '' }} />
 
             {dropFiles.length > 0 && (
-              <div style={{ marginTop: 12, maxHeight: 150, overflow: 'auto', border: '1px solid #f1f3f5', borderRadius: 8 }}>
+              <div style={{ marginTop: 12, maxHeight: 150, overflow: 'auto', border: '1px solid var(--panel)', borderRadius: 8 }}>
                 {dropFiles.map((f, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 13, borderBottom: '1px solid #f8f9fa' }}>
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 13, borderBottom: '1px solid var(--bg)' }}>
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                    <span style={{ fontSize: 11, color: '#adb5bd' }}>{(f.size / 1024).toFixed(0)} KB</span>
-                    {!impBusy && <X size={14} style={{ cursor: 'pointer', color: '#ffa8a8' }} onClick={() => setDropFiles(p => p.filter((_, j) => j !== i))} />}
+                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>{(f.size / 1024).toFixed(0)} KB</span>
+                    {!impBusy && <X size={14} style={{ cursor: 'pointer', color: 'var(--red)' }} onClick={() => setDropFiles(p => p.filter((_, j) => j !== i))} />}
                   </div>
                 ))}
-                <div style={{ padding: '6px 10px', fontSize: 11, color: '#868e96', display: 'flex', justifyContent: 'space-between' }}>
+                <div style={{ padding: '6px 10px', fontSize: 11, color: 'var(--muted)', display: 'flex', justifyContent: 'space-between' }}>
                   <span>{dropFiles.length} arquivo(s)</span>
-                  {!impBusy && <span style={{ cursor: 'pointer', color: '#3b5bdb' }} onClick={() => setDropFiles([])}>limpar lista</span>}
+                  {!impBusy && <span style={{ cursor: 'pointer', color: 'var(--violet)' }} onClick={() => setDropFiles([])}>limpar lista</span>}
                 </div>
               </div>
             )}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
-              <label style={{ fontSize: 12, color: '#868e96' }}>Modo:</label>
+              <label style={{ fontSize: 12, color: 'var(--muted)' }}>Modo:</label>
               <select style={S.sel} value={modo} onChange={e => setModo(e.target.value as 'add' | 'full')} disabled={impBusy}>
                 <option value="add">Adicionar</option>
                 <option value="full">Substituir (escopo do arquivo)</option>
@@ -573,7 +573,7 @@ export default function RealizadoDadosPage() {
 
             {impProg && <div style={{ ...S.info, marginTop: 12 }}>{impProg}</div>}
             {impLog.length > 0 && (
-              <div style={{ marginTop: 8, maxHeight: 140, overflow: 'auto', fontSize: 12, fontFamily: 'monospace', color: '#495057', background: '#f8f9fa', borderRadius: 8, padding: '8px 10px' }}>
+              <div style={{ marginTop: 8, maxHeight: 140, overflow: 'auto', fontSize: 12, fontFamily: 'monospace', color: 'var(--text-mid)', background: 'var(--bg)', borderRadius: 8, padding: '8px 10px' }}>
                 {impLog.map((l, i) => <div key={i}>{l}</div>)}
               </div>
             )}
@@ -581,7 +581,7 @@ export default function RealizadoDadosPage() {
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
               {logXlsx && <button style={S.btn} onClick={() => downloadSheets('log_importacao_realizado.xlsx', [{ nome: 'Arquivos', aoa: logXlsx.arq }, { nome: 'Ignorados', aoa: logXlsx.ign }])}><Download size={13} /> Baixar log</button>}
               <button style={S.btn} onClick={() => !impBusy && setImportOpen(false)} disabled={impBusy}>Fechar</button>
-              <button style={{ ...S.btn, background: dropFiles.length && !impBusy ? '#2f9e44' : '#ced4da', color: 'white', borderColor: 'transparent', cursor: dropFiles.length && !impBusy ? 'pointer' : 'default' }} disabled={!dropFiles.length || impBusy} onClick={() => importarLote(dropFiles)}>
+              <button style={{ ...S.btn, background: dropFiles.length && !impBusy ? 'var(--green)' : 'var(--border-strong)', color: '#ffffff', borderColor: 'transparent', cursor: dropFiles.length && !impBusy ? 'pointer' : 'default' }} disabled={!dropFiles.length || impBusy} onClick={() => importarLote(dropFiles)}>
                 {impBusy ? 'Importando…' : `Importar ${dropFiles.length || ''}`}
               </button>
             </div>

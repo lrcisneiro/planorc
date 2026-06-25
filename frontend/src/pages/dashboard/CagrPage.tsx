@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase'
 import { computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
+import { nivoTheme } from '../../lib/nivoTheme'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
 import { FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
 import type { Item, CC } from './DashFiltros'
@@ -20,21 +21,21 @@ type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; 
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
-  title: { fontSize: 22, fontWeight: 600, color: '#212529', margin: 0 },
-  sub:   { fontSize: 13, color: '#868e96', margin: '4px 0 16px' },
+  title: { fontSize: 22, fontWeight: 600, color: 'var(--text)', margin: 0 },
+  sub:   { fontSize: 13, color: 'var(--muted)', margin: '4px 0 16px' },
   bar:   { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 },
-  sel:   { padding: '6px 10px', fontSize: 13, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: '#495057' },
-  btn:   { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'white', color: '#495057', border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer' },
-  card:  { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: 16, marginBottom: 16 },
-  cardT: { fontSize: 14, fontWeight: 600, color: '#212529', marginBottom: 10 },
-  chart: { height: 360 },
+  sel:   { padding: '6px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', color: 'var(--text-mid)' },
+  btn:   { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' },
+  card:  { background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 16 },
+  cardT: { fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 10 },
+  chart: { height: 360, background: 'var(--chart-bg)', borderRadius: 10, padding: 8 },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th:    { textAlign: 'right', padding: '8px 12px', color: '#868e96', fontWeight: 500, fontSize: 12, background: '#f8f9fa', borderBottom: '1px solid #e9ecef' },
-  thL:   { textAlign: 'left', padding: '8px 12px', color: '#868e96', fontWeight: 500, fontSize: 12, background: '#f8f9fa', borderBottom: '1px solid #e9ecef' },
-  td:    { textAlign: 'right', padding: '6px 12px', borderBottom: '1px solid #f1f3f5', color: '#343a40', whiteSpace: 'nowrap' },
-  tdL:   { textAlign: 'left', padding: '6px 12px', borderBottom: '1px solid #f1f3f5', color: '#343a40' },
-  empty: { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: '#aaa', fontSize: 14 },
-  pick:  { maxHeight: 230, overflow: 'auto', border: '1px solid #e9ecef', borderRadius: 8, padding: 8 },
+  th:    { textAlign: 'right', padding: '8px 12px', color: 'var(--muted)', fontWeight: 500, fontSize: 12, background: 'var(--bg)', borderBottom: '1px solid var(--border)' },
+  thL:   { textAlign: 'left', padding: '8px 12px', color: 'var(--muted)', fontWeight: 500, fontSize: 12, background: 'var(--bg)', borderBottom: '1px solid var(--border)' },
+  td:    { textAlign: 'right', padding: '6px 12px', borderBottom: '1px solid var(--panel)', color: 'var(--text)', whiteSpace: 'nowrap' },
+  tdL:   { textAlign: 'left', padding: '6px 12px', borderBottom: '1px solid var(--panel)', color: 'var(--text)' },
+  empty: { background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 14 },
+  pick:  { maxHeight: 230, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: 8 },
 }
 
 const SAVE = 'planorc_cagr_filtro'
@@ -154,12 +155,12 @@ export default function CagrPage() {
         <select style={S.sel} value={relId} onChange={e => setRelId(e.target.value)}>{rels.map(r => <option key={r.id} value={r.id}>{r.codigo} · {r.nome}</option>)}</select>
         <PeriodoButton width="min(420px, calc(100vw - 40px))" resumo={`${anoIni}→${anoFim} · até ${MESES[ateMes - 1]}`}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <span style={{ fontSize: 13, color: '#868e96' }}>de</span>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>de</span>
             <select style={S.sel} value={anoIni} onChange={e => setAnoIni(+e.target.value)}>{ANOS.map(y => <option key={y} value={y}>{y}</option>)}</select>
-            <span style={{ fontSize: 13, color: '#868e96' }}>até</span>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>até</span>
             <select style={S.sel} value={anoFim} onChange={e => setAnoFim(+e.target.value)}>{ANOS.map(y => <option key={y} value={y}>{y}</option>)}</select>
           </div>
-          <label style={{ fontSize: 12, fontWeight: 500, color: '#495057', display: 'block', marginBottom: 6 }}>Acumulado até o mês (mesma base nos dois anos)</label>
+          <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-mid)', display: 'block', marginBottom: 6 }}>Acumulado até o mês (mesma base nos dois anos)</label>
           <select style={S.sel} value={ateMes} onChange={e => setAteMes(+e.target.value)}>{MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
         </PeriodoButton>
         <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
@@ -167,7 +168,7 @@ export default function CagrPage() {
         <SalvarCardButton base="/dashboards/cagr" cor="#1098ad" cardId={cardId} getFiltros={() => ({ relId, anoIni, anoFim, ateMes, sel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })} />
       </div>
 
-      {erro && <div style={{ background: '#fff5f5', border: '1px solid #ffc9c9', color: '#c92a2a', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>{erro}</div>}
+      {erro && <div style={{ background: 'rgba(248,113,113,0.10)', border: '1px solid #ffc9c9', color: 'var(--red)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>{erro}</div>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 320px) 1fr', gap: 16, alignItems: 'start' }}>
         <div style={S.card}>
@@ -189,11 +190,11 @@ export default function CagrPage() {
               <div style={S.card}>
                 <div style={S.cardT}>CAGR por linha ({anoIni}→{anoFim})</div>
                 <div style={S.chart}>
-                  <ResponsiveBar data={chartData} keys={['CAGR']} indexBy="linha" layout="horizontal" margin={{ top: 6, right: 50, bottom: 30, left: 170 }}
+                  <ResponsiveBar theme={nivoTheme()} data={chartData} keys={['CAGR']} indexBy="linha" layout="horizontal" margin={{ top: 6, right: 50, bottom: 30, left: 170 }}
                     padding={0.3} colors={({ data }: any) => data.CAGR >= 0 ? '#2f9e44' : '#e03131'} enableGridX
                     valueFormat={(v: any) => `${v}%`} axisBottom={{ format: (v: any) => `${v}%` }}
                     label={(d: any) => `${d.value}%`} labelSkipWidth={9999}
-                    tooltip={({ indexValue, value }: any) => <div style={{ background: 'white', padding: '6px 10px', border: '1px solid #e9ecef', borderRadius: 6, fontSize: 12 }}>{indexValue}: <strong>{value}%</strong></div>} />
+                    tooltip={({ indexValue, value }: any) => <div style={{ background: 'var(--panel)', padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12 }}>{indexValue}: <strong>{value}%</strong></div>} />
                 </div>
               </div>
               <div style={{ ...S.card, padding: 0, overflow: 'auto' }}>
@@ -205,7 +206,7 @@ export default function CagrPage() {
                         <td style={S.tdL}>{x.desc}</td>
                         <td style={S.td}>{x.vi ? fmt(x.vi) : '—'}</td>
                         <td style={S.td}>{x.vf ? fmt(x.vf) : '—'}</td>
-                        <td style={{ ...S.td, fontWeight: 600, color: x.cagr == null ? '#adb5bd' : x.cagr >= 0 ? '#2f9e44' : '#e03131' }}>{x.cagr == null ? '—' : `${x.cagr >= 0 ? '+' : ''}${x.cagr.toFixed(1)}%`}</td>
+                        <td style={{ ...S.td, fontWeight: 600, color: x.cagr == null ? 'var(--muted)' : x.cagr >= 0 ? '#2f9e44' : '#e03131' }}>{x.cagr == null ? '—' : `${x.cagr >= 0 ? '+' : ''}${x.cagr.toFixed(1)}%`}</td>
                       </tr>
                     ))}
                   </tbody>

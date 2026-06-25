@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
+import { nivoTheme } from '../../lib/nivoTheme'
 import { ResponsiveLine } from '@nivo/line'
 import { Link } from 'react-router-dom'
 import { RefreshCw, Scale, Filter, X, ArrowLeft } from 'lucide-react'
@@ -29,27 +30,27 @@ async function fetchAll(q: () => any): Promise<any[]> {
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
-  title: { fontSize: 22, fontWeight: 600, color: '#212529', margin: 0, display: 'flex', alignItems: 'center', gap: 8 },
-  sub:   { fontSize: 13, color: '#868e96', margin: '4px 0 16px' },
+  title: { fontSize: 22, fontWeight: 600, color: 'var(--text)', margin: 0, display: 'flex', alignItems: 'center', gap: 8 },
+  sub:   { fontSize: 13, color: 'var(--muted)', margin: '4px 0 16px' },
   bar:   { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 16 },
-  sel:   { padding: '6px 10px', fontSize: 13, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: '#495057' },
-  btn:   { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'white', color: '#495057', border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer' },
-  secT:  { fontSize: 12, fontWeight: 700, color: '#adb5bd', textTransform: 'uppercase', letterSpacing: 0.5, margin: '18px 0 8px' },
+  sel:   { padding: '6px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', color: 'var(--text-mid)' },
+  btn:   { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' },
+  secT:  { fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5, margin: '18px 0 8px' },
   grid:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 },
-  card:  { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: 16 },
-  cLbl:  { fontSize: 12, color: '#868e96', fontWeight: 500 },
-  cVal:  { fontSize: 22, fontWeight: 700, color: '#212529', margin: '6px 0 2px' },
-  cSub:  { fontSize: 11, color: '#adb5bd' },
+  card:  { background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 },
+  cLbl:  { fontSize: 12, color: 'var(--muted)', fontWeight: 500 },
+  cVal:  { fontSize: 22, fontWeight: 700, color: 'var(--text)', margin: '6px 0 2px' },
+  cSub:  { fontSize: 11, color: 'var(--muted)' },
   grid2: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 16, marginTop: 16 },
-  chart: { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: 16 },
-  chartT:{ fontSize: 14, fontWeight: 600, color: '#212529', marginBottom: 4 },
-  empty: { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: '#aaa', fontSize: 14 },
-  chip:  { fontSize: 12, color: '#868e96', marginBottom: 16 },
-  pop:   { position: 'absolute', top: '110%', left: 0, zIndex: 1500, background: 'white', border: '1px solid #e9ecef', borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.16)', padding: 16, width: 'min(420px, 92vw)', maxHeight: '78vh', overflow: 'auto' },
-  label: { display: 'block', fontSize: 12, fontWeight: 500, color: '#495057', marginBottom: 6 },
-  input: { width: '100%', padding: '8px 10px', fontSize: 14, border: '1px solid #ced4da', borderRadius: 8, outline: 'none', boxSizing: 'border-box' },
+  chart: { background: 'var(--chart-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 },
+  chartT:{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 4 },
+  empty: { background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 14 },
+  chip:  { fontSize: 12, color: 'var(--muted)', marginBottom: 16 },
+  pop:   { position: 'absolute', top: '110%', left: 0, zIndex: 1500, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.16)', padding: 16, width: 'min(420px, 92vw)', maxHeight: '78vh', overflow: 'auto' },
+  label: { display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--text-mid)', marginBottom: 6 },
+  input: { width: '100%', padding: '8px 10px', fontSize: 14, border: '1px solid var(--border-strong)', borderRadius: 8, outline: 'none', boxSizing: 'border-box' },
 }
-const miniBtn: CSSProperties = { padding: '2px 8px', fontSize: 11, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', cursor: 'pointer', color: '#495057' }
+const miniBtn: CSSProperties = { padding: '2px 8px', fontSize: 11, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', cursor: 'pointer', color: 'var(--text-mid)' }
 
 function Checklist({ titulo, items, sel, setSel }: { titulo: string; items: Item[]; sel: string[]; setSel: (v: string[]) => void }) {
   const [b, setB] = useState('')
@@ -59,28 +60,28 @@ function Checklist({ titulo, items, sel, setSel }: { titulo: string; items: Item
     <div style={{ marginTop: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <label style={{ ...S.label, margin: 0 }}>{titulo}</label>
-        <span style={{ fontSize: 11, color: '#adb5bd' }}>{sel.length ? `${sel.length} de ${items.length}` : 'todas'}</span>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>{sel.length ? `${sel.length} de ${items.length}` : 'todas'}</span>
         <div style={{ flex: 1 }} />
         <button style={miniBtn} onClick={() => setSel(items.map(i => i.id))}>Todas</button>
         <button style={miniBtn} onClick={() => setSel([])}>Limpar</button>
       </div>
       <input style={{ ...S.input, marginBottom: 6 }} placeholder="filtrar..." value={b} onChange={e => setB(e.target.value)} />
-      <div style={{ maxHeight: 160, overflow: 'auto', border: '1px solid #f1f3f5', borderRadius: 8, padding: 4 }}>
+      <div style={{ maxHeight: 160, overflow: 'auto', border: '1px solid var(--panel)', borderRadius: 8, padding: 4 }}>
         {f.map(i => (
           <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 6px', fontSize: 12, cursor: 'pointer' }}>
             <input type="checkbox" checked={sel.includes(i.id)} onChange={() => toggle(i.id)} />
-            <span style={{ fontFamily: 'monospace', color: '#868e96', minWidth: 50 }}>{i.codigo}</span>
+            <span style={{ fontFamily: 'monospace', color: 'var(--muted)', minWidth: 50 }}>{i.codigo}</span>
             <span>{i.descricao}</span>
           </label>
         ))}
-        {!f.length && <div style={{ padding: 8, color: '#adb5bd', fontSize: 12 }}>Nenhum item.</div>}
+        {!f.length && <div style={{ padding: 8, color: 'var(--muted)', fontSize: 12 }}>Nenhum item.</div>}
       </div>
     </div>
   )
 }
 
 function Card({ lbl, val, sub, tone }: { lbl: string; val: string; sub?: string; tone?: 'good' | 'bad' | 'warn' }) {
-  const col = tone === 'good' ? '#2f9e44' : tone === 'bad' ? '#e03131' : tone === 'warn' ? '#f59f00' : '#212529'
+  const col = tone === 'good' ? '#2f9e44' : tone === 'bad' ? '#e03131' : tone === 'warn' ? '#f59f00' : 'var(--text)'
   return (
     <div style={S.card}>
       <div style={S.cLbl}>{lbl}</div>
@@ -248,9 +249,9 @@ export default function BalancoDashboardPage() {
       <p style={S.sub}>Posição (saldo acumulado do realizado) em {MESES[mes - 1]}/{ano}. Índices de ciclo usam Receita/Custos/EBITDA da DRE.</p>
 
       <div style={S.bar}>
-        <span style={{ fontSize: 12, color: '#adb5bd' }}>Balanço:</span>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Balanço:</span>
         <select style={S.sel} value={bpId} onChange={e => setBpId(e.target.value)}>{rels.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}</select>
-        <span style={{ fontSize: 12, color: '#adb5bd' }}>DRE:</span>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>DRE:</span>
         <select style={S.sel} value={dreId} onChange={e => setDreId(e.target.value)}><option value="">— (sem ciclo) —</option>{rels.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}</select>
         <div style={{ position: 'relative' }}>
           <button style={S.btn} onClick={() => setFiltroOpen(o => !o)}><Filter size={13} /> Empresa / Filial</button>
@@ -259,13 +260,13 @@ export default function BalancoDashboardPage() {
               <div onClick={() => setFiltroOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1400 }} />
               <div style={S.pop}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <strong style={{ fontSize: 14, color: '#212529' }}>Empresa / Filial</strong>
-                  <X size={18} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={() => setFiltroOpen(false)} />
+                  <strong style={{ fontSize: 14, color: 'var(--text)' }}>Empresa / Filial</strong>
+                  <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={() => setFiltroOpen(false)} />
                 </div>
-                <div style={{ fontSize: 12, color: '#adb5bd' }}>Marque para agrupar (consolida o que estiver marcado). Vazio = todas.</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Marque para agrupar (consolida o que estiver marcado). Vazio = todas.</div>
                 <Checklist titulo="Empresa" items={empresas} sel={empresaSel} setSel={setEmpresaSel} />
                 <Checklist titulo="Filial" items={filiais} sel={filialSel} setSel={setFilialSel} />
-                <button style={{ ...S.btn, width: '100%', justifyContent: 'center', marginTop: 14, background: '#3b5bdb', color: 'white', borderColor: '#3b5bdb' }} onClick={() => setFiltroOpen(false)}>Aplicar e fechar</button>
+                <button style={{ ...S.btn, width: '100%', justifyContent: 'center', marginTop: 14, background: '#3b5bdb', color: '#ffffff', borderColor: '#3b5bdb' }} onClick={() => setFiltroOpen(false)}>Aplicar e fechar</button>
               </div>
             </>
           )}
@@ -273,11 +274,11 @@ export default function BalancoDashboardPage() {
         <select style={S.sel} value={ano} onChange={e => setAno(Number(e.target.value))}>{ANOS.map(y => <option key={y} value={y}>{y}</option>)}</select>
         <select style={S.sel} value={mes} onChange={e => setMes(Number(e.target.value))}>{MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
-        {loading && <span style={{ fontSize: 12, color: '#aaa' }}>Carregando…</span>}
+        {loading && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Carregando…</span>}
       </div>
       <div style={S.chip}>{empresaSel.length ? `${empresaSel.length} empresa(s)` : 'todas as empresas'} · {filialSel.length ? `${filialSel.length} filial(is)` : 'todas as filiais'}</div>
 
-      {erro && <div style={{ background: '#fff5f5', border: '1px solid #ffc9c9', borderRadius: 8, padding: '10px 14px', color: '#c92a2a', fontSize: 13, marginBottom: 16 }}>⚠ {erro}</div>}
+      {erro && <div style={{ background: 'rgba(248,113,113,0.10)', border: '1px solid #ffc9c9', borderRadius: 8, padding: '10px 14px', color: 'var(--red)', fontSize: 13, marginBottom: 16 }}>⚠ {erro}</div>}
 
       {!temDados && !loading ? <div style={S.empty}>Sem dados de Balanço para os filtros. Confira se o relatório BP tem realizado amarrado.</div> : (
         <>
@@ -320,13 +321,13 @@ export default function BalancoDashboardPage() {
             <div style={S.chart}>
               <div style={S.chartT}>Composição do Ativo</div>
               <div style={{ height: Math.max(200, compAtivo.length * 34 + 40) }}>
-                <ResponsiveBar data={compAtivo} keys={['valor']} indexBy="grupo" layout="horizontal" margin={{ top: 6, right: 20, bottom: 24, left: 150 }} padding={0.3} colors={['#3b5bdb']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate />
+                <ResponsiveBar theme={nivoTheme()} data={compAtivo} keys={['valor']} indexBy="grupo" layout="horizontal" margin={{ top: 6, right: 20, bottom: 24, left: 150 }} padding={0.3} colors={['#3b5bdb']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate />
               </div>
             </div>
             <div style={S.chart}>
               <div style={S.chartT}>Composição do Passivo + PL</div>
               <div style={{ height: Math.max(200, compPassivo.length * 34 + 40) }}>
-                <ResponsiveBar data={compPassivo} keys={['valor']} indexBy="grupo" layout="horizontal" margin={{ top: 6, right: 20, bottom: 24, left: 150 }} padding={0.3} colors={['#e8590c']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate />
+                <ResponsiveBar theme={nivoTheme()} data={compPassivo} keys={['valor']} indexBy="grupo" layout="horizontal" margin={{ top: 6, right: 20, bottom: 24, left: 150 }} padding={0.3} colors={['#e8590c']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate />
               </div>
             </div>
           </div>
@@ -334,7 +335,7 @@ export default function BalancoDashboardPage() {
           <div style={{ ...S.chart, marginTop: 16 }}>
             <div style={S.chartT}>Evolução — Ativo Total × PL ({ano})</div>
             <div style={{ height: 300 }}>
-              <ResponsiveLine data={evol} margin={{ top: 10, right: 20, bottom: 40, left: 60 }} xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))} colors={['#3b5bdb', '#2f9e44']} pointSize={6} useMesh curve="monotoneX" axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableArea areaOpacity={0.05} legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 60, itemHeight: 16, symbolSize: 12 }]} />
+              <ResponsiveLine theme={nivoTheme()} data={evol} margin={{ top: 10, right: 20, bottom: 40, left: 60 }} xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))} colors={['#3b5bdb', '#2f9e44']} pointSize={6} useMesh curve="monotoneX" axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableArea areaOpacity={0.05} legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 60, itemHeight: 16, symbolSize: 12 }]} />
             </div>
           </div>
         </>

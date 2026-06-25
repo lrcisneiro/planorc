@@ -28,8 +28,23 @@ export const T = {
 
 export type Theme = typeof T
 
-// Helper opcional para alternar tema (use quando criar o interruptor de UI)
+// ===== Persistência da preferência de tema (localStorage) =====
+const THEME_KEY = 'planorc-theme'
+
+export function getTheme(): 'dark' | 'light' {
+  try { return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark' }
+  catch { return 'dark' }
+}
+
 export function setTheme(mode: 'dark' | 'light') {
+  if (mode === 'light') document.documentElement.dataset.theme = 'light'
+  else delete document.documentElement.dataset.theme
+  try { localStorage.setItem(THEME_KEY, mode) } catch { /* ignora */ }
+}
+
+// Aplica o tema salvo no carregamento (chamar cedo, antes de renderizar).
+export function initTheme() {
+  const mode = getTheme()
   if (mode === 'light') document.documentElement.dataset.theme = 'light'
   else delete document.documentElement.dataset.theme
 }

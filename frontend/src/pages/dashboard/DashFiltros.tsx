@@ -8,11 +8,11 @@ import { supabase, TENANT_ID } from '../../lib/supabase'
 export type Item = { id: string; codigo: string; descricao: string }
 
 const cut = (s: string, n: number) => (s || '').length > n ? s.slice(0, n) + '…' : (s || '')
-const miniBtn: CSSProperties = { padding: '2px 8px', fontSize: 11, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', cursor: 'pointer', color: '#495057' }
-const label: CSSProperties = { display: 'block', fontSize: 12, fontWeight: 500, color: '#495057', marginBottom: 6 }
-const btn: CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'white', color: '#495057', border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer' }
+const miniBtn: CSSProperties = { padding: '2px 8px', fontSize: 11, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', cursor: 'pointer', color: 'var(--text-mid)' }
+const label: CSSProperties = { display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--text-mid)', marginBottom: 6 }
+const btn: CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' }
 const overlay: CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1490 }
-const modalBox: CSSProperties = { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 1500, background: 'white', border: '1px solid #e9ecef', borderRadius: 14, boxShadow: '0 24px 60px rgba(0,0,0,0.25)', padding: 16, maxHeight: '85vh', overflowY: 'auto', overflowX: 'hidden' }
+const modalBox: CSSProperties = { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 1500, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 14, boxShadow: '0 24px 60px rgba(0,0,0,0.25)', padding: 16, maxHeight: '85vh', overflowY: 'auto', overflowX: 'hidden' }
 
 // Modal centralizado reutilizável (cabeçalho com Aplicar/X no topo)
 export function ModalPanel({ titulo, onClose, children, width }: { titulo: string; onClose: () => void; children: ReactNode; width?: string }) {
@@ -21,10 +21,10 @@ export function ModalPanel({ titulo, onClose, children, width }: { titulo: strin
       <div style={overlay} onClick={onClose} />
       <div style={{ ...modalBox, width: width || 'min(860px, calc(100vw - 40px))' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
-          <strong style={{ fontSize: 14, color: '#212529' }}>{titulo}</strong>
+          <strong style={{ fontSize: 14, color: 'var(--text)' }}>{titulo}</strong>
           <div style={{ flex: 1 }} />
-          <button style={{ ...btn, padding: '5px 12px', background: '#3b5bdb', color: 'white', borderColor: '#3b5bdb' }} onClick={onClose}>Aplicar e fechar</button>
-          <X size={18} style={{ cursor: 'pointer', color: '#adb5bd', marginLeft: 8 }} onClick={onClose} />
+          <button style={{ ...btn, padding: '5px 12px', background: 'var(--violet)', color: '#ffffff', borderColor: 'var(--violet)' }} onClick={onClose}>Aplicar e fechar</button>
+          <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)', marginLeft: 8 }} onClick={onClose} />
         </div>
         {children}
       </div>
@@ -51,20 +51,20 @@ export function Checklist({ titulo, items, sel, setSel }: { titulo: string; item
     <div style={{ marginTop: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <label style={{ ...label, margin: 0 }}>{titulo}</label>
-        <span style={{ fontSize: 11, color: '#adb5bd' }}>{sel.length ? `${sel.length} de ${items.length}` : 'todas'}</span>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>{sel.length ? `${sel.length} de ${items.length}` : 'todas'}</span>
         <div style={{ flex: 1 }} />
         <button style={miniBtn} onClick={() => setSel(items.map(i => i.id))}>Todas</button>
         <button style={miniBtn} onClick={() => setSel([])}>Limpar</button>
       </div>
-      {items.length > 8 && <input style={{ width: '100%', padding: '6px 8px', fontSize: 12, border: '1px solid #ced4da', borderRadius: 6, marginBottom: 6, boxSizing: 'border-box' }} placeholder="filtrar…" value={b} onChange={e => setB(e.target.value)} />}
-      <div style={{ maxHeight: 180, overflow: 'auto', border: '1px solid #f1f3f5', borderRadius: 8, padding: 6 }}>
+      {items.length > 8 && <input style={{ width: '100%', padding: '6px 8px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 6, marginBottom: 6, boxSizing: 'border-box' }} placeholder="filtrar…" value={b} onChange={e => setB(e.target.value)} />}
+      <div style={{ maxHeight: 180, overflow: 'auto', border: '1px solid var(--panel)', borderRadius: 8, padding: 6 }}>
         {f.map(i => (
           <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '3px 2px', cursor: 'pointer' }}>
             <input type="checkbox" checked={sel.includes(i.id)} onChange={() => toggle(i.id)} />
-            <span style={{ fontFamily: 'monospace', color: '#868e96', fontSize: 12 }}>{i.codigo}</span> {cut(i.descricao, 34)}
+            <span style={{ fontFamily: 'monospace', color: 'var(--muted)', fontSize: 12 }}>{i.codigo}</span> {cut(i.descricao, 34)}
           </label>
         ))}
-        {!f.length && <div style={{ fontSize: 12, color: '#adb5bd', padding: 6 }}>Nada encontrado.</div>}
+        {!f.length && <div style={{ fontSize: 12, color: 'var(--muted)', padding: 6 }}>Nada encontrado.</div>}
       </div>
     </div>
   )
@@ -142,7 +142,7 @@ export function SalvarCardButton({ base, getFiltros, cor, cardId }: { base: stri
   const salvarNovo = async () => {
     const nome = window.prompt('Nome do card (ex.: Análise Serviços):')?.trim()
     if (!nome) return
-    const { error } = await supabase.from('dashboard_card').insert({ tenant_id: TENANT_ID, nome, base, cor: cor || '#3b5bdb', filtros: getFiltros() })
+    const { error } = await supabase.from('dashboard_card').insert({ tenant_id: TENANT_ID, nome, base, cor: cor || 'var(--violet)', filtros: getFiltros() })
     if (error) { alert('Erro ao salvar: ' + error.message); return }
     alert('Card salvo! Veja em Dashboards › Meus cards.')
   }
@@ -155,7 +155,7 @@ export function SalvarCardButton({ base, getFiltros, cor, cardId }: { base: stri
   }
   return (
     <>
-      {cardId && <button style={{ ...btn, background: '#e7f5ff', borderColor: '#74c0fc', color: '#1971c2' }} onClick={atualizar} title="Salvar os filtros atuais NESTE card"><Bookmark size={13} /> Atualizar card</button>}
+      {cardId && <button style={{ ...btn, background: 'rgba(59,130,246,0.16)', borderColor: 'var(--blue)', color: 'var(--blue)' }} onClick={atualizar} title="Salvar os filtros atuais NESTE card"><Bookmark size={13} /> Atualizar card</button>}
       <button style={btn} onClick={salvarNovo} title="Salvar os filtros atuais como um NOVO card"><Bookmark size={13} /> {cardId ? 'Salvar como novo' : 'Salvar card'}</button>
     </>
   )

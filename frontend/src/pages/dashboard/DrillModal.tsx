@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
 import { ResponsiveBar } from '@nivo/bar'
+import { nivoTheme } from '../../lib/nivoTheme'
 import { X, ChevronRight, Download, FileDown } from 'lucide-react'
 
 declare const XLSX: any
@@ -34,19 +35,19 @@ async function fetchAll(build: () => any): Promise<any[]> {
 
 const S: Record<string, CSSProperties> = {
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 },
-  modal: { background: 'white', borderRadius: 14, width: 820, maxWidth: '94vw', maxHeight: '88vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(0,0,0,0.3)' },
-  head: { display: 'flex', alignItems: 'center', gap: 8, padding: '14px 18px', borderBottom: '1px solid #eef0f2' },
+  modal: { background: 'var(--panel)', borderRadius: 14, width: 820, maxWidth: '94vw', maxHeight: '88vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(0,0,0,0.3)' },
+  head: { display: 'flex', alignItems: 'center', gap: 8, padding: '14px 18px', borderBottom: '1px solid var(--panel-2)' },
   crumb: { display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', fontSize: 13, flex: 1 },
   body: { padding: 16, overflow: 'auto' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th: { textAlign: 'right', padding: '7px 10px', color: '#868e96', fontWeight: 500, fontSize: 12, background: '#f8f9fa', borderBottom: '1px solid #e9ecef' },
-  thL: { textAlign: 'left', padding: '7px 10px', color: '#868e96', fontWeight: 500, fontSize: 12, background: '#f8f9fa', borderBottom: '1px solid #e9ecef' },
-  td: { textAlign: 'right', padding: '6px 10px', borderBottom: '1px solid #f1f3f5', whiteSpace: 'nowrap' },
-  tdL: { textAlign: 'left', padding: '6px 10px', borderBottom: '1px solid #f1f3f5' },
+  th: { textAlign: 'right', padding: '7px 10px', color: 'var(--muted)', fontWeight: 500, fontSize: 12, background: 'var(--bg)', borderBottom: '1px solid var(--border)' },
+  thL: { textAlign: 'left', padding: '7px 10px', color: 'var(--muted)', fontWeight: 500, fontSize: 12, background: 'var(--bg)', borderBottom: '1px solid var(--border)' },
+  td: { textAlign: 'right', padding: '6px 10px', borderBottom: '1px solid var(--panel)', whiteSpace: 'nowrap' },
+  tdL: { textAlign: 'left', padding: '6px 10px', borderBottom: '1px solid var(--panel)' },
   rowBtn: { cursor: 'pointer' },
-  btn: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, background: 'white', color: '#495057', border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer' },
+  btn: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' },
 }
-const crumbItem = (last: boolean): CSSProperties => ({ cursor: last ? 'default' : 'pointer', color: last ? '#212529' : '#3b5bdb', fontWeight: last ? 600 : 400 })
+const crumbItem = (last: boolean): CSSProperties => ({ cursor: last ? 'default' : 'pointer', color: last ? 'var(--text)' : '#3b5bdb', fontWeight: last ? 600 : 400 })
 
 export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFilter, ccFilter, startNodeId, onClose }: Props) {
   const [tree, setTree] = useState<{ byId: Record<string, RL>; childrenByPai: Record<string, RL[]>; valR: Record<string, number>; valO: Record<string, number>; disabledMasters: Set<string> } | null>(null)
@@ -191,43 +192,43 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
           <div style={S.crumb}>
             {stack.map((id, i) => (
               <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                {i > 0 && <ChevronRight size={13} color="#adb5bd" />}
+                {i > 0 && <ChevronRight size={13} color="var(--muted)" />}
                 <span style={crumbItem(i === stack.length - 1)} onClick={() => i < stack.length - 1 && goTo(i)}>{cut(id === '__root' ? 'Relatório' : (byId[id]?.descricao || '—'), 30)}</span>
               </span>
             ))}
           </div>
-          <span style={{ fontSize: 12, color: '#868e96' }}>{anos.join(', ')} · {meses.length === 12 ? 'todos os meses' : meses.map(m => MESES_AB[m - 1]).join(', ')}</span>
-          <X size={18} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={onClose} />
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{anos.join(', ')} · {meses.length === 12 ? 'todos os meses' : meses.map(m => MESES_AB[m - 1]).join(', ')}</span>
+          <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} />
         </div>
 
         <div style={S.body}>
-          {loading && <div style={{ color: '#868e96', fontSize: 13 }}>Carregando…</div>}
+          {loading && <div style={{ color: 'var(--muted)', fontSize: 13 }}>Carregando…</div>}
 
           {/* nível com filhas → composição clicável (orçado × realizado) */}
           {!loading && !ehFolha && razao === null && (
             <>
-              <div style={{ fontSize: 12, color: '#868e96', marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
                 Clique no nome para descer; clique numa barra/valor para o razão. Total — Orçado: <strong>{fmt(nodeO(cur))}</strong> · Realizado: <strong>{fmt(nodeR(cur))}</strong>
                 {filhasOcultas > 0 && <span title="Há linhas marcadas como não visíveis no dashboard. Elas continuam no total acima, por isso as filhas listadas podem não somar o total." style={{ marginLeft: 8, fontWeight: 600, color: '#7048e8', border: '1px solid #d0bfff', borderRadius: 4, padding: '1px 6px' }}>+{filhasOcultas} oculta{filhasOcultas > 1 ? 's' : ''}</span>}
               </div>
-              <div style={{ height: Math.max(200, chartData.length * 40 + 50) }}>
-                <ResponsiveBar data={chartData} keys={['Orçado', 'Realizado']} indexBy="filha" layout="horizontal" groupMode="grouped"
-                  margin={{ top: 6, right: 26, bottom: 26, left: 180 }} padding={0.25} innerPadding={2} colors={['#adb5bd', '#3b5bdb']} enableGridX
+              <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: Math.max(200, chartData.length * 40 + 50) }}>
+                <ResponsiveBar theme={nivoTheme()} data={chartData} keys={['Orçado', 'Realizado']} indexBy="filha" layout="horizontal" groupMode="grouped"
+                  margin={{ top: 6, right: 26, bottom: 26, left: 180 }} padding={0.25} innerPadding={2} colors={['#9aa0aa', '#3b5bdb']} enableGridX
                   valueFormat={(v: any) => fmt(Number(v))} axisBottom={{ format: (v: any) => fmt(Number(v)) }} labelSkipWidth={9999}
                   onClick={(d: any) => { const id = d.data.id; const med: Medida = d.id === 'Orçado' ? 'Orçado' : 'Realizado'; if (childrenVis(id).length) push(id); else abrirRazao(med, id) }}
                   legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]}
-                  tooltip={({ id, value, data }: any) => <div style={{ background: 'white', padding: '6px 10px', border: '1px solid #e9ecef', borderRadius: 6, fontSize: 12 }}>{data.filha} · {id}: <strong>{fmt(Number(value))}</strong></div>} />
+                  tooltip={({ id, value, data }: any) => <div style={{ background: 'var(--panel)', padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12 }}>{data.filha} · {id}: <strong>{fmt(Number(value))}</strong></div>} />
               </div>
               <table style={S.table}>
                 <thead><tr><th style={S.thL}>Filha</th><th style={S.th}>Orçado</th><th style={S.th}>Realizado</th><th style={S.th}>Δ</th><th style={S.th}></th></tr></thead>
                 <tbody>
                   {filhas.map(c => { const d = c.R - c.O; return (
                     <tr key={c.id}>
-                      <td style={{ ...S.tdL, ...S.rowBtn }} title={c.temFilhas ? 'Descer' : 'Folha'} onClick={() => c.temFilhas && push(c.id)}>{c.temFilhas && <ChevronRight size={12} color="#adb5bd" style={{ verticalAlign: 'middle' }} />} {c.desc}</td>
-                      <td style={{ ...S.td, ...S.rowBtn, color: '#868e96' }} title="Razão do orçado" onClick={() => abrirRazao('Orçado', c.id)}>{fmt(c.O)}</td>
+                      <td style={{ ...S.tdL, ...S.rowBtn }} title={c.temFilhas ? 'Descer' : 'Folha'} onClick={() => c.temFilhas && push(c.id)}>{c.temFilhas && <ChevronRight size={12} color="var(--muted)" style={{ verticalAlign: 'middle' }} />} {c.desc}</td>
+                      <td style={{ ...S.td, ...S.rowBtn, color: 'var(--muted)' }} title="Razão do orçado" onClick={() => abrirRazao('Orçado', c.id)}>{fmt(c.O)}</td>
                       <td style={{ ...S.td, ...S.rowBtn, fontWeight: 600, color: '#1971c2' }} title="Razão do realizado" onClick={() => abrirRazao('Realizado', c.id)}>{fmt(c.R)}</td>
                       <td style={{ ...S.td, fontWeight: 600, color: d >= 0 ? '#2f9e44' : '#e03131' }} title="Realizado − Orçado">{(d >= 0 ? '+' : '') + fmt(d)}</td>
-                      <td style={{ ...S.td, ...S.rowBtn }} onClick={() => c.temFilhas ? push(c.id) : abrirRazao('Realizado', c.id)}><ChevronRight size={14} color="#adb5bd" /></td>
+                      <td style={{ ...S.td, ...S.rowBtn }} onClick={() => c.temFilhas ? push(c.id) : abrirRazao('Realizado', c.id)}><ChevronRight size={14} color="var(--muted)" /></td>
                     </tr>
                   )})}
                 </tbody>
@@ -240,13 +241,13 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
             <div style={{ textAlign: 'center', padding: '24px 12px' }}>
               <div style={{ fontSize: 14, marginBottom: 10 }}>{byId[cur]?.descricao}</div>
               <div style={{ display: 'flex', gap: 24, justifyContent: 'center', marginBottom: 18 }}>
-                <div><div style={{ fontSize: 11, color: '#868e96' }}>Orçado</div><div style={{ fontSize: 20, fontWeight: 700, color: '#495057' }}>{fmt(nodeO(cur))}</div></div>
-                <div><div style={{ fontSize: 11, color: '#868e96' }}>Realizado</div><div style={{ fontSize: 20, fontWeight: 700, color: '#1971c2' }}>{fmt(nodeR(cur))}</div></div>
-                {(() => { const d = nodeR(cur) - nodeO(cur); return <div><div style={{ fontSize: 11, color: '#868e96' }}>Δ</div><div style={{ fontSize: 20, fontWeight: 700, color: d >= 0 ? '#2f9e44' : '#e03131' }}>{(d >= 0 ? '+' : '') + fmt(d)}</div></div> })()}
+                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Orçado</div><div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-mid)' }}>{fmt(nodeO(cur))}</div></div>
+                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Realizado</div><div style={{ fontSize: 20, fontWeight: 700, color: '#1971c2' }}>{fmt(nodeR(cur))}</div></div>
+                {(() => { const d = nodeR(cur) - nodeO(cur); return <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Δ</div><div style={{ fontSize: 20, fontWeight: 700, color: d >= 0 ? '#2f9e44' : '#e03131' }}>{(d >= 0 ? '+' : '') + fmt(d)}</div></div> })()}
               </div>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                 <button style={S.btn} onClick={() => abrirRazao('Orçado', cur)}><FileDown size={14} /> Razão do orçado</button>
-                <button style={{ ...S.btn, background: '#3b5bdb', color: 'white', borderColor: '#3b5bdb' }} onClick={() => abrirRazao('Realizado', cur)}><FileDown size={14} /> Razão do realizado</button>
+                <button style={{ ...S.btn, background: '#3b5bdb', color: '#ffffff', borderColor: '#3b5bdb' }} onClick={() => abrirRazao('Realizado', cur)}><FileDown size={14} /> Razão do realizado</button>
               </div>
             </div>
           )}
@@ -255,8 +256,8 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
           {!loading && razao !== null && (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: razaoMed === 'Orçado' ? '#f1f3f5' : '#e7f5ff', color: razaoMed === 'Orçado' ? '#868e96' : '#1971c2' }}>{razaoMed}</span>
-                <span style={{ fontSize: 13, color: '#868e96' }}>Razão de <strong style={{ color: '#212529' }}>{byId[razaoNode]?.descricao}</strong> · {razao.length} item(s) · total <strong style={{ color: '#212529' }}>{fmt(somaRazao)}</strong></span>
+                <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: razaoMed === 'Orçado' ? 'var(--panel)' : 'rgba(59,130,246,0.16)', color: razaoMed === 'Orçado' ? 'var(--muted)' : '#1971c2' }}>{razaoMed}</span>
+                <span style={{ fontSize: 13, color: 'var(--muted)' }}>Razão de <strong style={{ color: 'var(--text)' }}>{byId[razaoNode]?.descricao}</strong> · {razao.length} item(s) · total <strong style={{ color: 'var(--text)' }}>{fmt(somaRazao)}</strong></span>
                 <div style={{ flex: 1 }} />
                 <button style={S.btn} onClick={() => setRazao(null)}>Voltar</button>
                 <button style={S.btn} onClick={exportRazao}><Download size={13} /> Exportar</button>
@@ -275,7 +276,7 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
                   <th style={{ ...S.th, cursor: 'pointer' }} onClick={() => sortClick('valor')}>Valor{seta('valor')}</th>
                 </tr></thead>
                 <tbody>
-                  {razao.length === 0 && <tr><td colSpan={razaoMed === 'Realizado' ? 10 : 5} style={{ ...S.tdL, textAlign: 'center', color: '#aaa', padding: 24 }}>Sem lançamentos para os filtros.</td></tr>}
+                  {razao.length === 0 && <tr><td colSpan={razaoMed === 'Realizado' ? 10 : 5} style={{ ...S.tdL, textAlign: 'center', color: 'var(--muted)', padding: 24 }}>Sem lançamentos para os filtros.</td></tr>}
                   {[...razao].sort((a, b) => { const s = sort.col === 'valor' ? (a.valor - b.valor) : String(a[sort.col] || '').localeCompare(String(b[sort.col] || ''), 'pt'); return sort.dir === 'asc' ? s : -s }).map((r, i) => (
                     <tr key={i}>
                       <td style={S.tdL} title={r.contaDesc}>{r.conta}</td>

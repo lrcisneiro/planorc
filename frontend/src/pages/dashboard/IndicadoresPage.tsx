@@ -18,17 +18,17 @@ type RL = RLData & { descricao: string; natureza: string | null; formato: any; c
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
-  title: { fontSize: 22, fontWeight: 600, color: '#212529', margin: 0 },
-  sub:   { fontSize: 13, color: '#868e96', margin: '4px 0 16px' },
+  title: { fontSize: 22, fontWeight: 600, color: 'var(--text)', margin: 0 },
+  sub:   { fontSize: 13, color: 'var(--muted)', margin: '4px 0 16px' },
   bar:   { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 16 },
-  sel:   { padding: '6px 10px', fontSize: 13, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: '#495057' },
-  btn:   { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'white', color: '#495057', border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer' },
+  sel:   { padding: '6px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', color: 'var(--text-mid)' },
+  btn:   { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' },
   kpis:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 },
-  kpi:   { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: 18 },
-  lbl:   { fontSize: 12, color: '#868e96', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.3 },
-  val:   { fontSize: 26, fontWeight: 700, color: '#212529', margin: '8px 0 4px' },
-  ksub:  { fontSize: 12, color: '#868e96', display: 'flex', alignItems: 'center', gap: 6 },
-  empty: { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: '#aaa', fontSize: 14 },
+  kpi:   { background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: 18 },
+  lbl:   { fontSize: 12, color: 'var(--muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.3 },
+  val:   { fontSize: 26, fontWeight: 700, color: 'var(--text)', margin: '8px 0 4px' },
+  ksub:  { fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 },
+  empty: { background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 14 },
 }
 
 const SAVE = 'planorc_indic_filtro'
@@ -121,7 +121,7 @@ export default function IndicadoresPage() {
     <div style={S.page}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
         <Link to="/dashboards" style={{ ...S.btn, textDecoration: 'none' }}><ArrowLeft size={14} /> Dashboards</Link>
-        <h1 style={S.title}>Indicadores{cardNome && <span style={{ color: '#0c8599' }}> · {cardNome}</span>}</h1>
+        <h1 style={S.title}>Indicadores{cardNome && <span style={{ color: 'var(--cyan)' }}> · {cardNome}</span>}</h1>
       </div>
       <p style={S.sub}>Linhas do relatório (incl. indicadores e medidas com filtro de CC) como cards — realizado × orçado, % execução e variação vs. {ano - 1}. Jan–{MESES[ateMes - 1]}/{ano}.</p>
 
@@ -130,14 +130,14 @@ export default function IndicadoresPage() {
         <select style={S.sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>{versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}</select>
         <button style={S.btn} onClick={() => setPickOpen(true)}><ListChecks size={14} /> Linhas{sel.length ? ` (${sel.length})` : ''}</button>
         <PeriodoButton width="min(420px, calc(100vw - 40px))" resumo={`${ano} · até ${MESES[ateMes - 1]}`}>
-          <label style={{ fontSize: 12, fontWeight: 500, color: '#495057', display: 'block', marginBottom: 6 }}>Ano</label>
+          <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-mid)', display: 'block', marginBottom: 6 }}>Ano</label>
           <select style={{ ...S.sel, marginBottom: 14 }} value={ano} onChange={e => setAno(+e.target.value)}>{[2022, 2023, 2024, 2025, 2026, 2027, 2028].map(y => <option key={y} value={y}>{y}</option>)}</select>
-          <label style={{ fontSize: 12, fontWeight: 500, color: '#495057', display: 'block', marginBottom: 6 }}>Acumulado até o mês</label>
+          <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-mid)', display: 'block', marginBottom: 6 }}>Acumulado até o mês</label>
           <select style={S.sel} value={ateMes} onChange={e => setAteMes(+e.target.value)}>{MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
         </PeriodoButton>
         <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         <button style={S.btn} onClick={load}><RefreshCw size={13} /></button>
-        <SalvarCardButton base="/dashboards/indicadores" cor="#0c8599" cardId={cardId} getFiltros={() => ({ relId, versaoId, ano, ateMes, sel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })} />
+        <SalvarCardButton base="/dashboards/indicadores" cor="var(--cyan)" cardId={cardId} getFiltros={() => ({ relId, versaoId, ano, ateMes, sel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })} />
       </div>
 
       {pickOpen && (
@@ -146,7 +146,7 @@ export default function IndicadoresPage() {
         </ModalPanel>
       )}
 
-      {erro && <div style={{ background: '#fff5f5', border: '1px solid #ffc9c9', color: '#c92a2a', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>{erro}</div>}
+      {erro && <div style={{ background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.35)', color: 'var(--red)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>{erro}</div>}
       {loading && <div style={S.sub}>Carregando…</div>}
       {!loading && (!cards || !cards.length) && <div style={S.empty}>Selecione um relatório e ao menos uma linha (botão "Linhas").</div>}
       {!loading && cards && cards.length > 0 && (
@@ -174,14 +174,14 @@ function Kpi({ c, anoPrev }: { c: Card; anoPrev: number }) {
       <div style={S.val}>{fmt(c.R)}</div>
       <div style={S.ksub}>
         Orçado {fmt(c.O)} · {c.isPct
-          ? <span style={{ color: bomY ? '#2f9e44' : '#e03131' }}>{d >= 0 ? '+' : ''}{formatValor(d, 'NUMERO', c.casas)} pp</span>
-          : (exec == null ? '—' : <span style={{ color: bomExec ? '#2f9e44' : '#e03131', display: 'inline-flex', alignItems: 'center', gap: 3 }}>{arrow(bomExec)}{exec.toFixed(0)}%</span>)}
+          ? <span style={{ color: bomY ? 'var(--green)' : 'var(--red)' }}>{d >= 0 ? '+' : ''}{formatValor(d, 'NUMERO', c.casas)} pp</span>
+          : (exec == null ? '—' : <span style={{ color: bomExec ? 'var(--green)' : 'var(--red)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>{arrow(bomExec)}{exec.toFixed(0)}%</span>)}
       </div>
-      <div style={{ ...S.ksub, marginTop: 2 }}>Δ (R−O) <strong style={{ color: d >= 0 ? '#2f9e44' : '#e03131' }}>{d >= 0 ? '+' : ''}{fmt(d)}</strong></div>
-      <div style={{ ...S.ksub, marginTop: 6, paddingTop: 6, borderTop: '1px solid #f1f3f5' }}>
-        <strong style={{ color: '#495057' }}>{anoPrev}</strong> {fmt(c.P)} · {c.isPct
-          ? <span style={{ color: bomY ? '#2f9e44' : '#e03131' }}>{(c.R - c.P) >= 0 ? '+' : ''}{formatValor(c.R - c.P, 'NUMERO', c.casas)} pp</span>
-          : (yoyPct == null ? '—' : <span style={{ color: bomY ? '#2f9e44' : '#e03131', display: 'inline-flex', alignItems: 'center', gap: 3 }}>{arrow(bomY)}{yoyPct >= 0 ? '+' : ''}{yoyPct.toFixed(0)}%</span>)}
+      <div style={{ ...S.ksub, marginTop: 2 }}>Δ (R−O) <strong style={{ color: d >= 0 ? 'var(--green)' : 'var(--red)' }}>{d >= 0 ? '+' : ''}{fmt(d)}</strong></div>
+      <div style={{ ...S.ksub, marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--panel)' }}>
+        <strong style={{ color: 'var(--text-mid)' }}>{anoPrev}</strong> {fmt(c.P)} · {c.isPct
+          ? <span style={{ color: bomY ? 'var(--green)' : 'var(--red)' }}>{(c.R - c.P) >= 0 ? '+' : ''}{formatValor(c.R - c.P, 'NUMERO', c.casas)} pp</span>
+          : (yoyPct == null ? '—' : <span style={{ color: bomY ? 'var(--green)' : 'var(--red)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>{arrow(bomY)}{yoyPct >= 0 ? '+' : ''}{yoyPct.toFixed(0)}%</span>)}
       </div>
     </div>
   )

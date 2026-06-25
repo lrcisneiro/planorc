@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase'
 import { computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
+import { nivoTheme } from '../../lib/nivoTheme'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
 import { FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
 import type { Item, CC } from './DashFiltros'
@@ -22,22 +23,22 @@ type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; 
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
-  title: { fontSize: 22, fontWeight: 600, color: '#212529', margin: 0 },
-  sub:   { fontSize: 13, color: '#868e96', margin: '4px 0 16px' },
+  title: { fontSize: 22, fontWeight: 600, color: 'var(--text)', margin: 0 },
+  sub:   { fontSize: 13, color: 'var(--muted)', margin: '4px 0 16px' },
   bar:   { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 },
-  sel:   { padding: '6px 10px', fontSize: 13, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: '#495057' },
-  btn:   { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'white', color: '#495057', border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer' },
-  card:  { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: 16, marginBottom: 16 },
-  cardT: { fontSize: 14, fontWeight: 600, color: '#212529', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
-  chart: { height: 340 },
+  sel:   { padding: '6px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', color: 'var(--text-mid)' },
+  btn:   { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' },
+  card:  { background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 16 },
+  cardT: { fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  chart: { height: 340, background: 'var(--chart-bg)', borderRadius: 10, padding: 8 },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th:    { textAlign: 'right', padding: '8px 12px', color: '#868e96', fontWeight: 500, fontSize: 12, background: '#f8f9fa', borderBottom: '1px solid #e9ecef', whiteSpace: 'nowrap' },
-  thL:   { textAlign: 'left', padding: '8px 12px', color: '#868e96', fontWeight: 500, fontSize: 12, background: '#f8f9fa', borderBottom: '1px solid #e9ecef', position: 'sticky', left: 0 },
-  td:    { textAlign: 'right', padding: '6px 12px', borderBottom: '1px solid #f1f3f5', color: '#343a40', whiteSpace: 'nowrap' },
-  tdL:   { textAlign: 'left', padding: '6px 12px', borderBottom: '1px solid #f1f3f5', color: '#343a40', position: 'sticky', left: 0, background: 'white' },
-  empty: { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: '#aaa', fontSize: 14 },
+  th:    { textAlign: 'right', padding: '8px 12px', color: 'var(--muted)', fontWeight: 500, fontSize: 12, background: 'var(--bg)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' },
+  thL:   { textAlign: 'left', padding: '8px 12px', color: 'var(--muted)', fontWeight: 500, fontSize: 12, background: 'var(--bg)', borderBottom: '1px solid var(--border)', position: 'sticky', left: 0 },
+  td:    { textAlign: 'right', padding: '6px 12px', borderBottom: '1px solid var(--panel)', color: 'var(--text)', whiteSpace: 'nowrap' },
+  tdL:   { textAlign: 'left', padding: '6px 12px', borderBottom: '1px solid var(--panel)', color: 'var(--text)', position: 'sticky', left: 0, background: 'var(--panel)' },
+  empty: { background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 14 },
 }
-const ybtn = (on: boolean): CSSProperties => ({ padding: '5px 11px', fontSize: 13, borderRadius: 6, cursor: 'pointer', border: '1px solid ' + (on ? '#3b5bdb' : '#dee2e6'), background: on ? '#3b5bdb' : 'white', color: on ? 'white' : '#495057' })
+const ybtn = (on: boolean): CSSProperties => ({ padding: '5px 11px', fontSize: 13, borderRadius: 6, cursor: 'pointer', border: '1px solid ' + (on ? '#3b5bdb' : 'var(--border-strong)'), background: on ? '#3b5bdb' : 'white', color: on ? 'white' : 'var(--text-mid)' })
 
 const SAVE = 'planorc_anual_filtro'
 const loadSaved = (): any => { try { return JSON.parse(localStorage.getItem(SAVE) || '{}') } catch { return {} } }
@@ -170,22 +171,22 @@ export default function ComparativoAnualPage() {
         <select style={S.sel} value={relId} onChange={e => setRelId(e.target.value)}>{rels.map(r => <option key={r.id} value={r.id}>{r.codigo} · {r.nome}</option>)}</select>
         <select style={S.sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>{versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}</select>
         <PeriodoButton resumo={`${[...anosSel].sort((a, b) => a - b).join(', ') || '—'} · até ${MESES[ateMes - 1]}`}>
-          <label style={{ fontSize: 12, fontWeight: 500, color: '#495057', display: 'block', marginBottom: 6 }}>Anos a comparar</label>
+          <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-mid)', display: 'block', marginBottom: 6 }}>Anos a comparar</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
             {ANOS.map(y => <button key={y} style={ybtn(anosSel.includes(y))} onClick={() => toggleAno(y)}>{y}</button>)}
           </div>
-          <label style={{ fontSize: 12, fontWeight: 500, color: '#495057', display: 'block', marginBottom: 6 }}>Acumulado até o mês (base equivalente em todos os anos)</label>
+          <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-mid)', display: 'block', marginBottom: 6 }}>Acumulado até o mês (base equivalente em todos os anos)</label>
           <select style={S.sel} value={ateMes} onChange={e => setAteMes(+e.target.value)}>{MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
         </PeriodoButton>
         <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         <select style={S.sel} value={medida} onChange={e => setMedida(e.target.value as any)}><option>Realizado</option><option>Orçado</option></select>
         <div style={{ flex: 1 }} />
-        <label style={{ fontSize: 12, color: '#868e96', display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={ocultarVazias} onChange={e => setOcultarVazias(e.target.checked)} /> ocultar vazias</label>
+        <label style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={ocultarVazias} onChange={e => setOcultarVazias(e.target.checked)} /> ocultar vazias</label>
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
         <SalvarCardButton base="/dashboards/anual" cor="#2f9e44" cardId={cardId} getFiltros={() => ({ relId, versaoId, anosSel, ateMes, medida, ocultarVazias, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })} />
       </div>
 
-      {erro && <div style={{ background: '#fff5f5', border: '1px solid #ffc9c9', color: '#c92a2a', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>{erro}</div>}
+      {erro && <div style={{ background: 'rgba(248,113,113,0.10)', border: '1px solid #ffc9c9', color: 'var(--red)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>{erro}</div>}
       {loading && <div style={S.sub}>Carregando…</div>}
       {!loading && !temDados && <div style={S.empty}>Sem dados para os anos/filtros selecionados.</div>}
 
@@ -200,9 +201,9 @@ export default function ComparativoAnualPage() {
               </select>
             </div>
             <div style={S.chart}>
-              <ResponsiveBar data={chartData as any} keys={['valor']} indexBy="ano" margin={{ top: 10, right: 20, bottom: 40, left: 70 }}
+              <ResponsiveBar theme={nivoTheme()} data={chartData as any} keys={['valor']} indexBy="ano" margin={{ top: 10, right: 20, bottom: 40, left: 70 }}
                 padding={0.35} colors={YCOLORS[0]} enableLabel={false} axisLeft={{ format: (v: any) => fmt(v) }}
-                valueFormat={(v: any) => fmt(v)} tooltip={({ indexValue, value, data }: any) => <div style={{ background: 'white', padding: '8px 10px', border: '1px solid #e9ecef', borderRadius: 6, fontSize: 12, boxShadow: '0 4px 14px rgba(0,0,0,0.08)' }}><strong>{indexValue}</strong>: {fmt(value)}{data.delta != null && <div style={{ color: data.delta >= 0 ? '#2f9e44' : '#e03131', marginTop: 2 }}>Δ vs ano anterior: {data.delta >= 0 ? '+' : ''}{fmt(data.delta)}{data.deltaPct != null ? ` (${data.deltaPct >= 0 ? '+' : ''}${data.deltaPct.toFixed(1)}%)` : ''}</div>}</div>} />
+                valueFormat={(v: any) => fmt(v)} tooltip={({ indexValue, value, data }: any) => <div style={{ background: 'var(--panel)', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, boxShadow: '0 4px 14px rgba(0,0,0,0.08)' }}><strong>{indexValue}</strong>: {fmt(value)}{data.delta != null && <div style={{ color: data.delta >= 0 ? '#2f9e44' : '#e03131', marginTop: 2 }}>Δ vs ano anterior: {data.delta >= 0 ? '+' : ''}{fmt(data.delta)}{data.deltaPct != null ? ` (${data.deltaPct >= 0 ? '+' : ''}${data.deltaPct.toFixed(1)}%)` : ''}</div>}</div>} />
             </div>
           </div>
 
@@ -218,7 +219,7 @@ export default function ComparativoAnualPage() {
                   <tr key={r.id}>
                     <td style={{ ...S.tdL, paddingLeft: 12 + r.depth * 16, fontWeight: isBold(r.tipo) ? 600 : 400 }}>{r.desc}</td>
                     {anos.map(y => <td key={y} style={{ ...S.td, fontWeight: isBold(r.tipo) ? 600 : 400 }}>{r.vals[y] ? fmt(r.vals[y]) : '—'}</td>)}
-                    <td style={{ ...S.td, color: r.cagr == null ? '#adb5bd' : r.cagr >= 0 ? '#2f9e44' : '#e03131', fontWeight: 600 }}>{r.cagr == null ? '—' : `${r.cagr >= 0 ? '+' : ''}${r.cagr.toFixed(1)}%`}</td>
+                    <td style={{ ...S.td, color: r.cagr == null ? 'var(--muted)' : r.cagr >= 0 ? '#2f9e44' : '#e03131', fontWeight: 600 }}>{r.cagr == null ? '—' : `${r.cagr >= 0 ? '+' : ''}${r.cagr.toFixed(1)}%`}</td>
                   </tr>
                 ))}
               </tbody>

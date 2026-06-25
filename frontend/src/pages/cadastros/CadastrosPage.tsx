@@ -15,40 +15,40 @@ type Aba = 'empresas' | 'filiais' | 'cc' | 'planos' | 'contas' | 'estrutura' | '
 const S = {
   page:     { padding: 24, fontFamily: 'system-ui, sans-serif' } as CSSProperties,
   header:   { marginBottom: 20 } as CSSProperties,
-  title:    { fontSize: 22, fontWeight: 600, color: '#212529', margin: 0 } as CSSProperties,
-  subtitle: { fontSize: 13, color: '#868e96', margin: '4px 0 0' } as CSSProperties,
-  tabs:     { display: 'flex', gap: 2, marginBottom: 20, borderBottom: '1px solid #e9ecef' } as CSSProperties,
+  title:    { fontSize: 22, fontWeight: 600, color: 'var(--text)', margin: 0 } as CSSProperties,
+  subtitle: { fontSize: 13, color: 'var(--muted)', margin: '4px 0 0' } as CSSProperties,
+  tabs:     { display: 'flex', gap: 2, marginBottom: 20, borderBottom: '1px solid var(--border)' } as CSSProperties,
   tab:      (active: boolean): CSSProperties => ({
     padding: '8px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer', border: 'none',
-    background: 'none', color: active ? '#3b5bdb' : '#868e96',
-    borderBottom: active ? '2px solid #3b5bdb' : '2px solid transparent',
+    background: 'none', color: active ? 'var(--violet)' : 'var(--muted)',
+    borderBottom: active ? '2px solid var(--violet)' : '2px solid transparent',
     marginBottom: -1, transition: 'all 0.15s',
   }),
-  card:     { background: 'white', borderRadius: 10, border: '1px solid #e9ecef', overflow: 'hidden' } as CSSProperties,
-  toolbar:  { display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end', padding: '10px 16px', borderBottom: '1px solid #f1f3f5' } as CSSProperties,
+  card:     { background: 'var(--panel)', borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden' } as CSSProperties,
+  toolbar:  { display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end', padding: '10px 16px', borderBottom: '1px solid var(--panel)' } as CSSProperties,
   table:    { width: '100%', borderCollapse: 'collapse' as const, fontSize: 14 },
-  th:       { textAlign: 'left' as const, padding: '9px 14px', color: '#868e96', fontWeight: 500, fontSize: 12, background: '#f8f9fa', borderBottom: '1px solid #e9ecef' },
-  td:       { padding: '9px 14px', borderBottom: '1px solid #f1f3f5', color: '#343a40' },
-  tdMono:   { padding: '9px 14px', borderBottom: '1px solid #f1f3f5', color: '#868e96', fontFamily: 'monospace', fontSize: 13 },
+  th:       { textAlign: 'left' as const, padding: '9px 14px', color: 'var(--muted)', fontWeight: 500, fontSize: 12, background: 'var(--bg)', borderBottom: '1px solid var(--border)' },
+  td:       { padding: '9px 14px', borderBottom: '1px solid var(--panel)', color: 'var(--text)' },
+  tdMono:   { padding: '9px 14px', borderBottom: '1px solid var(--panel)', color: 'var(--muted)', fontFamily: 'monospace', fontSize: 13 },
   badge:    (ativo: boolean): CSSProperties => ({
     display: 'inline-block', padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 500,
-    background: ativo ? '#ebfbee' : '#fff5f5', color: ativo ? '#2f9e44' : '#c92a2a',
+    background: ativo ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.10)', color: ativo ? 'var(--green)' : 'var(--red)',
   }),
-  btnAdd:   { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, background: '#3b5bdb', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer' } as CSSProperties,
-  btnImp:   { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, background: 'white', color: '#495057', border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer' } as CSSProperties,
-  treeBtn:  { display: 'flex', alignItems: 'center', gap: 4, padding: '3px 10px', fontSize: 12, background: 'white', color: '#495057', border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer' } as CSSProperties,
-  btnDel:   { background: 'none', border: 'none', cursor: 'pointer', color: '#dee2e6', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' } as CSSProperties,
-  input:    { padding: '5px 8px', fontSize: 13, border: '1px solid #ced4da', borderRadius: 6, outline: 'none', width: '100%', boxSizing: 'border-box' as const },
-  search:   { padding: '6px 10px', fontSize: 13, border: '1px solid #dee2e6', borderRadius: 6, outline: 'none', width: 240, boxSizing: 'border-box' as const },
-  select:   { padding: '5px 8px', fontSize: 13, border: '1px solid #ced4da', borderRadius: 6, outline: 'none', width: '100%', background: 'white' },
-  empty:    { padding: '40px 24px', textAlign: 'center' as const, color: '#aaa', fontSize: 13 },
-  erro:     { display: 'flex', alignItems: 'center', gap: 8, background: '#fff5f5', border: '1px solid #ffc9c9', borderRadius: 8, padding: '10px 14px', margin: '0 16px 12px', color: '#c92a2a', fontSize: 13 } as CSSProperties,
-  info:     { display: 'flex', alignItems: 'center', gap: 8, background: '#e7f5ff', border: '1px solid #a5d8ff', borderRadius: 8, padding: '10px 14px', margin: '0 16px 12px', color: '#1971c2', fontSize: 13 } as CSSProperties,
+  btnAdd:   { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, background: 'var(--violet)', color: '#ffffff', border: 'none', borderRadius: 6, cursor: 'pointer' } as CSSProperties,
+  btnImp:   { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' } as CSSProperties,
+  treeBtn:  { display: 'flex', alignItems: 'center', gap: 4, padding: '3px 10px', fontSize: 12, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' } as CSSProperties,
+  btnDel:   { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--border-strong)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' } as CSSProperties,
+  input:    { padding: '5px 8px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 6, outline: 'none', width: '100%', boxSizing: 'border-box' as const },
+  search:   { padding: '6px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 6, outline: 'none', width: 240, boxSizing: 'border-box' as const },
+  select:   { padding: '5px 8px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 6, outline: 'none', width: '100%', background: 'var(--panel)' },
+  empty:    { padding: '40px 24px', textAlign: 'center' as const, color: 'var(--muted)', fontSize: 13 },
+  erro:     { display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 8, padding: '10px 14px', margin: '0 16px 12px', color: 'var(--red)', fontSize: 13 } as CSSProperties,
+  info:     { display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(59,130,246,0.16)', border: '1px solid rgba(59,130,246,0.30)', borderRadius: 8, padding: '10px 14px', margin: '0 16px 12px', color: 'var(--blue)', fontSize: 13 } as CSSProperties,
   overlay:  { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 } as CSSProperties,
-  modal:    { background: 'white', borderRadius: 14, padding: 24, width: 460, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' } as CSSProperties,
-  mTitle:   { fontSize: 16, fontWeight: 600, marginBottom: 16, color: '#212529' } as CSSProperties,
+  modal:    { background: 'var(--panel)', borderRadius: 14, padding: 24, width: 460, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' } as CSSProperties,
+  mTitle:   { fontSize: 16, fontWeight: 600, marginBottom: 16, color: 'var(--text)' } as CSSProperties,
   field:    { marginBottom: 14 } as CSSProperties,
-  label:    { display: 'block', fontSize: 12, fontWeight: 500, color: '#495057', marginBottom: 6 } as CSSProperties,
+  label:    { display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--text-mid)', marginBottom: 6 } as CSSProperties,
   mFooter:  { display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 } as CSSProperties,
 }
 
@@ -195,7 +195,7 @@ function AddRow({ cols, initial, onSave, onCancel }: {
   const set = (k: string, v: string) => setVals(p => ({ ...p, [k]: v }))
 
   return (
-    <tr style={{ background: '#f0f4ff' }}>
+    <tr style={{ background: 'rgba(139,92,246,0.07)' }}>
       {cols.map(c => (
         <td key={c.key} style={S.td}>
           {c.type === 'select' ? (
@@ -215,7 +215,7 @@ function AddRow({ cols, initial, onSave, onCancel }: {
         </td>
       ))}
       <td style={{ ...S.td, whiteSpace: 'nowrap' as const }}>
-        <button style={{ ...S.btnDel, color: '#2f9e44' }} onClick={() => onSave(vals)}><Check size={15} /></button>
+        <button style={{ ...S.btnDel, color: 'var(--green)' }} onClick={() => onSave(vals)}><Check size={15} /></button>
         <button style={S.btnDel} onClick={onCancel}><X size={15} /></button>
       </td>
     </tr>
@@ -239,8 +239,8 @@ function Toolbar({ modelo, onImport, onExport, onAdd, busca, onBusca, total, mos
       {onBusca && (
         <>
           <input style={S.search} placeholder="🔎 Buscar..." value={busca || ''} onChange={e => onBusca(e.target.value)} />
-          {busca ? <span style={{ fontSize: 12, color: '#868e96', whiteSpace: 'nowrap' }}>{mostrando} de {total}</span>
-            : (total != null ? <span style={{ fontSize: 12, color: '#adb5bd', whiteSpace: 'nowrap' }}>{total} registro{total !== 1 ? 's' : ''}</span> : null)}
+          {busca ? <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{mostrando} de {total}</span>
+            : (total != null ? <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{total} registro{total !== 1 ? 's' : ''}</span> : null)}
           <div style={{ flex: 1 }} />
         </>
       )}
@@ -377,10 +377,10 @@ function EmpresasTab() {
             <tr key={e.id}>
               <td style={S.tdMono}>{e.codigo}</td>
               <td style={S.td}>{e.descricao}</td>
-              <td style={{ ...S.td, color: '#868e96' }}>{planoCod(e.plano_id) || '—'}</td>
+              <td style={{ ...S.td, color: 'var(--muted)' }}>{planoCod(e.plano_id) || '—'}</td>
               <td style={S.td}><span style={S.badge(e.ativo)}>{e.ativo ? 'Ativo' : 'Inativo'}</span></td>
               <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
-                <button style={{ ...S.btnDel, color: '#868e96' }} title="Editar" onClick={() => { setEditId(e.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
+                <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(e.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
                 <button style={S.btnDel} title="Excluir" onClick={() => del(e.id)}><Trash2 size={14} /></button>
               </td>
             </tr>
@@ -497,7 +497,7 @@ function FiliaisTab() {
               <td style={S.td}>{f.empresa?.descricao}</td>
               <td style={{ ...S.td, textAlign: 'right' }}>{f.imp_fat != null ? Number(f.imp_fat).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '—'}</td>
               <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
-                <button style={{ ...S.btnDel, color: '#868e96' }} title="Editar" onClick={() => { setEditId(f.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
+                <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(f.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
                 <button style={S.btnDel} title="Excluir" onClick={() => del(f.id)}><Trash2 size={14} /></button>
               </td>
             </tr>
@@ -638,8 +638,8 @@ function CentroCustoTab() {
       />
       {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
       {info && <div style={S.info}>{info}</div>}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderBottom: '1px solid #f1f3f5' }}>
-        <span style={{ fontSize: 12, color: '#868e96' }}>Área/Divisão/BU derivados da posição do código.</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderBottom: '1px solid var(--panel)' }}>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Área/Divisão/BU derivados da posição do código.</span>
         <div style={{ flex: 1 }} />
         <button style={S.btnImp} onClick={recalcAtributos}>Recalcular Área/Divisão/BU</button>
       </div>
@@ -656,16 +656,16 @@ function CentroCustoTab() {
               <AddRow key={c.id} cols={CC_COLS} initial={{ codigo: c.codigo, descricao: c.descricao, tipo: c.tipo || 'ANALITICA', pai_id: c.pai_id || '', area_cod: c.area_cod || '', divisao_cod: c.divisao_cod || '', bu_cod: c.bu_cod || '' }} onSave={v => save(v, c.id)} onCancel={() => setEditId(null)} />
             ) : (
               <tr key={c.id}>
-                <td style={{ ...S.tdMono, fontWeight: isSint ? 700 : 400, color: isSint ? '#212529' : '#868e96' }}>{c.codigo}</td>
+                <td style={{ ...S.tdMono, fontWeight: isSint ? 700 : 400, color: isSint ? 'var(--text)' : 'var(--muted)' }}>{c.codigo}</td>
                 <td style={{ ...S.td, fontWeight: isSint ? 600 : 400 }}>{c.descricao}</td>
-                <td style={{ ...S.td, color: isSint ? '#1971c2' : '#2f9e44', fontSize: 12, fontWeight: 500 }}>{c.tipo || 'ANALITICA'}</td>
+                <td style={{ ...S.td, color: isSint ? 'var(--blue)' : 'var(--green)', fontSize: 12, fontWeight: 500 }}>{c.tipo || 'ANALITICA'}</td>
                 <td style={{ ...S.tdMono }}>{codeById[c.pai_id] || '—'}</td>
-                <td style={{ ...S.td, color: '#495057' }}>{c.area_nome || '—'}</td>
-                <td style={{ ...S.td, color: '#868e96' }}>{c.divisao_nome || '—'}</td>
-                <td style={{ ...S.td, color: '#868e96' }}>{c.bu_nome || '—'}</td>
+                <td style={{ ...S.td, color: 'var(--text-mid)' }}>{c.area_nome || '—'}</td>
+                <td style={{ ...S.td, color: 'var(--muted)' }}>{c.divisao_nome || '—'}</td>
+                <td style={{ ...S.td, color: 'var(--muted)' }}>{c.bu_nome || '—'}</td>
                 <td style={S.td}><span style={S.badge(c.ativo)}>{c.ativo ? 'Ativo' : 'Inativo'}</span></td>
                 <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
-                  <button style={{ ...S.btnDel, color: '#868e96' }} title="Editar" onClick={() => { setEditId(c.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
+                  <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(c.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
                   <button style={S.btnDel} title="Excluir" onClick={() => del(c.id)}><Trash2 size={14} /></button>
                 </td>
               </tr>
@@ -786,13 +786,13 @@ function ContasTab() {
 
   return (
     <div style={S.card}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: '1px solid #f1f3f5' }}>
-        <span style={{ fontSize: 13, color: '#495057', fontWeight: 500 }}>Plano de contas:</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--panel)' }}>
+        <span style={{ fontSize: 13, color: 'var(--text-mid)', fontWeight: 500 }}>Plano de contas:</span>
         <select style={S.select} value={planoId} onChange={e => setPlanoId(e.target.value)}>
           {planos.length === 0 && <option value="">— crie um plano em "Planos de Contas" —</option>}
           {planos.map(p => <option key={p.id} value={p.id}>{p.codigo} · {p.nome}</option>)}
         </select>
-        <span style={{ fontSize: 12, color: '#adb5bd' }}>(as contas pertencem a este plano/ERP)</span>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>(as contas pertencem a este plano/ERP)</span>
       </div>
       <Toolbar
         modelo={() => baixarModelo('contas_contabeis', HEADERS, EXEMPLO)}
@@ -816,13 +816,13 @@ function ContasTab() {
               <AddRow key={c.id} cols={CT_COLS} initial={{ codigo: c.codigo, descricao: c.descricao, tipo: c.tipo || 'ANALITICA', natureza: c.natureza || '', pai_id: c.pai_id || '' }} onSave={v => save(v, c.id)} onCancel={() => setEditId(null)} />
             ) : (
               <tr key={c.id}>
-                <td style={{ ...S.tdMono, fontWeight: isSint ? 700 : 400, color: isSint ? '#212529' : '#868e96' }}>{c.codigo}</td>
+                <td style={{ ...S.tdMono, fontWeight: isSint ? 700 : 400, color: isSint ? 'var(--text)' : 'var(--muted)' }}>{c.codigo}</td>
                 <td style={{ ...S.td, fontWeight: isSint ? 600 : 400 }}>{c.descricao}</td>
-                <td style={{ ...S.td, color: isSint ? '#1971c2' : '#2f9e44', fontSize: 12, fontWeight: 500 }}>{c.tipo}</td>
-                <td style={{ ...S.td, fontSize: 12, color: '#495057' }}>{c.natureza || '—'}</td>
+                <td style={{ ...S.td, color: isSint ? 'var(--blue)' : 'var(--green)', fontSize: 12, fontWeight: 500 }}>{c.tipo}</td>
+                <td style={{ ...S.td, fontSize: 12, color: 'var(--text-mid)' }}>{c.natureza || '—'}</td>
                 <td style={S.tdMono}>{codeById[c.pai_id] || '—'}</td>
                 <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
-                  <button style={{ ...S.btnDel, color: '#868e96' }} title="Editar" onClick={() => { setEditId(c.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
+                  <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(c.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
                   <button style={S.btnDel} title="Excluir" onClick={() => del(c.id)}><Trash2 size={14} /></button>
                 </td>
               </tr>
@@ -949,10 +949,10 @@ function FuncionariosTab() {
             <tr key={f.id}>
               <td style={S.tdMono}>{f.matricula}</td>
               <td style={S.td}>{f.nome}</td>
-              <td style={{ ...S.td, color: '#868e96' }}>{f.filial?.descricao || '—'}</td>
-              <td style={{ ...S.td, color: '#868e96' }}>{f.centro_custo?.descricao || '—'}</td>
+              <td style={{ ...S.td, color: 'var(--muted)' }}>{f.filial?.descricao || '—'}</td>
+              <td style={{ ...S.td, color: 'var(--muted)' }}>{f.centro_custo?.descricao || '—'}</td>
               <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
-                <button style={{ ...S.btnDel, color: '#868e96' }} title="Editar" onClick={() => { setEditId(f.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
+                <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(f.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
                 <button style={S.btnDel} title="Excluir" onClick={() => del(f.id)}><Trash2 size={14} /></button>
               </td>
             </tr>
@@ -1047,7 +1047,7 @@ function VerbasTab() {
   const exportar = () => exportarDados('verbas', HEADERS, data.map(v => [v.codigo, v.descricao, v.tipo]))
 
   const corTipo: Record<string, string> = {
-    SALARIO: '#1971c2', ENCARGO: '#e67700', BENEFICIO: '#2f9e44', PROVISAO: '#6741d9', OUTRO: '#868e96',
+    SALARIO: 'var(--blue)', ENCARGO: '#e67700', BENEFICIO: 'var(--green)', PROVISAO: 'var(--violet)', OUTRO: 'var(--muted)',
   }
 
   return (
@@ -1074,9 +1074,9 @@ function VerbasTab() {
             <tr key={v.id}>
               <td style={S.tdMono}>{v.codigo}</td>
               <td style={S.td}>{v.descricao}</td>
-              <td style={{ ...S.td, color: corTipo[v.tipo] || '#868e96', fontWeight: 500, fontSize: 12 }}>{v.tipo}</td>
+              <td style={{ ...S.td, color: corTipo[v.tipo] || 'var(--muted)', fontWeight: 500, fontSize: 12 }}>{v.tipo}</td>
               <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
-                <button style={{ ...S.btnDel, color: '#868e96' }} title="Editar" onClick={() => { setEditId(v.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
+                <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(v.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
                 <button style={S.btnDel} title="Excluir" onClick={() => del(v.id)}><Trash2 size={14} /></button>
               </td>
             </tr>
@@ -1159,8 +1159,8 @@ function VersoesTab() {
               <td style={S.td}>{v.descricao}</td>
               <td style={S.td}>{v.ano}</td>
               <td style={{ ...S.td, width: 100, whiteSpace: 'nowrap' }}>
-                <button style={{ ...S.btnDel, color: '#1971c2' }} title="Copiar lançamentos de outra versão para esta" onClick={() => { setCopia({ destino: v }); setCopiaOrigem(''); setCopiaSubst(true); setErro(null) }}><Copy size={14} /></button>
-                <button style={{ ...S.btnDel, color: '#868e96' }} title="Editar" onClick={() => { setEditId(v.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
+                <button style={{ ...S.btnDel, color: 'var(--blue)' }} title="Copiar lançamentos de outra versão para esta" onClick={() => { setCopia({ destino: v }); setCopiaOrigem(''); setCopiaSubst(true); setErro(null) }}><Copy size={14} /></button>
+                <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(v.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
                 <button style={S.btnDel} title="Excluir" onClick={() => del(v.id)}><Trash2 size={14} /></button>
               </td>
             </tr>
@@ -1171,7 +1171,7 @@ function VersoesTab() {
       {copia && (
         <div style={S.overlay} onClick={() => !copiando && setCopia(null)}>
           <div style={S.modal} onClick={e => e.stopPropagation()}>
-            <div style={S.mTitle}>Copiar orçado → <span style={{ color: '#1971c2' }}>{copia.destino.codigo}</span></div>
+            <div style={S.mTitle}>Copiar orçado → <span style={{ color: 'var(--blue)' }}>{copia.destino.codigo}</span></div>
             <div style={S.field}>
               <label style={S.label}>Versão de origem</label>
               <select style={S.input} value={copiaOrigem} onChange={e => setCopiaOrigem(e.target.value)}>
@@ -1179,11 +1179,11 @@ function VersoesTab() {
                 {data.filter(v => v.id !== copia.destino.id).map(v => <option key={v.id} value={v.id}>{v.codigo} · {v.descricao}</option>)}
               </select>
             </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#495057' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-mid)' }}>
               <input type="checkbox" checked={copiaSubst} onChange={e => setCopiaSubst(e.target.checked)} />
               Substituir (apaga o orçado atual de "{copia.destino.codigo}" antes de copiar)
             </label>
-            <div style={{ fontSize: 12, color: '#868e96', marginTop: 8 }}>Copia todos os lançamentos do orçado (todas as empresas/linhas/períodos) da origem para esta versão.</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Copia todos os lançamentos do orçado (todas as empresas/linhas/períodos) da origem para esta versão.</div>
             {erro && <div style={{ ...S.erro, margin: '12px 0 0' }}><AlertCircle size={15} />{erro}</div>}
             <div style={S.mFooter}>
               <button style={S.btnImp} disabled={copiando} onClick={() => setCopia(null)}>Cancelar</button>
@@ -1244,25 +1244,25 @@ function ContaLinhaModal({ linha, onClose }: { linha: any; onClose: () => void }
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={{ ...S.modal, width: 560 }} onClick={e => e.stopPropagation()}>
-        <div style={S.mTitle}>Contas → <span style={{ color: '#1971c2' }}>{linha.codigo} · {linha.descricao}</span></div>
-        <div style={{ fontSize: 12, color: '#868e96', marginBottom: 6 }}>Contas contábeis cujo realizado é somado nesta linha. Valor importado = crédito − débito; use sinal −1 para inverter (ex.: deixar receita/despesa positiva).</div>
+        <div style={S.mTitle}>Contas → <span style={{ color: 'var(--blue)' }}>{linha.codigo} · {linha.descricao}</span></div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>Contas contábeis cujo realizado é somado nesta linha. Valor importado = crédito − débito; use sinal −1 para inverter (ex.: deixar receita/despesa positiva).</div>
         {mapeadas.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 12, color: '#868e96' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 12, color: 'var(--muted)' }}>
             <span>Aplicar a todas:</span>
-            <button onClick={() => todas(1)} style={{ padding: '3px 10px', border: '1px solid #b2f2bb', borderRadius: 6, cursor: 'pointer', background: '#ebfbee', color: '#2f9e44', fontWeight: 700 }}>+ Tudo</button>
-            <button onClick={() => todas(-1)} style={{ padding: '3px 10px', border: '1px solid #ffc9c9', borderRadius: 6, cursor: 'pointer', background: '#fff5f5', color: '#e03131', fontWeight: 700 }}>− Tudo</button>
+            <button onClick={() => todas(1)} style={{ padding: '3px 10px', border: '1px solid var(--green)', borderRadius: 6, cursor: 'pointer', background: 'rgba(52,211,153,0.12)', color: 'var(--green)', fontWeight: 700 }}>+ Tudo</button>
+            <button onClick={() => todas(-1)} style={{ padding: '3px 10px', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 6, cursor: 'pointer', background: 'rgba(248,113,113,0.10)', color: 'var(--red)', fontWeight: 700 }}>− Tudo</button>
           </div>
         )}
         <div style={{ maxHeight: 260, overflow: 'auto', margin: '4px 0' }}>
-          {mapeadas.length === 0 && <div style={{ fontSize: 13, color: '#adb5bd', padding: '8px 0' }}>Nenhuma conta amarrada ainda.</div>}
+          {mapeadas.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 0' }}>Nenhuma conta amarrada ainda.</div>}
           {mapeadas.map(m => (
-            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #f1f3f5' }}>
-              <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#868e96', minWidth: 90 }}>{m.conta_contabil?.codigo}</span>
-              {m.conta_contabil?.plano_contas?.codigo && <span style={{ fontSize: 10, color: '#1971c2', background: '#e7f5ff', borderRadius: 4, padding: '1px 5px' }}>{m.conta_contabil.plano_contas.codigo}</span>}
+            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--panel)' }}>
+              <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)', minWidth: 90 }}>{m.conta_contabil?.codigo}</span>
+              {m.conta_contabil?.plano_contas?.codigo && <span style={{ fontSize: 10, color: 'var(--blue)', background: 'rgba(59,130,246,0.16)', borderRadius: 4, padding: '1px 5px' }}>{m.conta_contabil.plano_contas.codigo}</span>}
               <span style={{ fontSize: 13, flex: 1 }}>{m.conta_contabil?.descricao}</span>
               <button onClick={() => toggle(m.id, m.sinal === 1 ? -1 : 1)} title="Inverter sinal"
-                style={{ width: 28, border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer', background: m.sinal === 1 ? '#ebfbee' : '#fff5f5', color: m.sinal === 1 ? '#2f9e44' : '#e03131', fontWeight: 700 }}>{m.sinal === 1 ? '+' : '−'}</button>
-              <button onClick={() => remove(m.id)} style={{ ...S.btnDel, color: '#ffa8a8' }}><Trash2 size={14} /></button>
+                style={{ width: 28, border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer', background: m.sinal === 1 ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.10)', color: m.sinal === 1 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>{m.sinal === 1 ? '+' : '−'}</button>
+              <button onClick={() => remove(m.id)} style={{ ...S.btnDel, color: 'var(--red)' }}><Trash2 size={14} /></button>
             </div>
           ))}
         </div>
@@ -1272,19 +1272,19 @@ function ContaLinhaModal({ linha, onClose }: { linha: any; onClose: () => void }
           {result.length > 0 && (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0', fontSize: 12 }}>
-                <button onClick={() => setSel(prev => { const n = new Set(prev); result.forEach(c => n.add(c.id)); return n })} style={{ background: 'none', border: 'none', color: '#1971c2', cursor: 'pointer', padding: 0 }}>Marcar resultados ({result.length})</button>
-                {sel.size > 0 && <button onClick={() => setSel(new Set())} style={{ background: 'none', border: 'none', color: '#868e96', cursor: 'pointer', padding: 0 }}>Limpar</button>}
+                <button onClick={() => setSel(prev => { const n = new Set(prev); result.forEach(c => n.add(c.id)); return n })} style={{ background: 'none', border: 'none', color: 'var(--blue)', cursor: 'pointer', padding: 0 }}>Marcar resultados ({result.length})</button>
+                {sel.size > 0 && <button onClick={() => setSel(new Set())} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: 0 }}>Limpar</button>}
                 <div style={{ flex: 1 }} />
                 <button disabled={!sel.size} onClick={() => addMany([...sel])} style={{ ...S.btnAdd, opacity: sel.size ? 1 : 0.5, cursor: sel.size ? 'pointer' : 'default' }}>Adicionar{sel.size ? ` ${sel.size}` : ''}</button>
               </div>
-              <div style={{ border: '1px solid #e9ecef', borderRadius: 8, maxHeight: 220, overflowY: 'auto' }}>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, maxHeight: 220, overflowY: 'auto' }}>
                 {result.map(c => { const on = sel.has(c.id); const elsewhere = linked.has(c.id); return (
-                  <div key={c.id} onClick={() => toggleSel(c.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f8f9fa', background: on ? '#e7f5ff' : elsewhere ? '#fff9db' : 'white' }}>
+                  <div key={c.id} onClick={() => toggleSel(c.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid var(--bg)', background: on ? 'rgba(59,130,246,0.16)' : elsewhere ? 'rgba(251,191,36,0.12)' : 'var(--panel)' }}>
                     <input type="checkbox" checked={on} readOnly />
-                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#868e96', minWidth: 90 }}>{c.codigo}</span>
-                    {(c as any).plano && <span style={{ fontSize: 10, color: '#1971c2', background: '#e7f5ff', borderRadius: 4, padding: '1px 5px' }}>{(c as any).plano}</span>}
+                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)', minWidth: 90 }}>{c.codigo}</span>
+                    {(c as any).plano && <span style={{ fontSize: 10, color: 'var(--blue)', background: 'rgba(59,130,246,0.16)', borderRadius: 4, padding: '1px 5px' }}>{(c as any).plano}</span>}
                     <span style={{ flex: 1, color: elsewhere ? '#b08900' : undefined }}>{c.descricao}</span>
-                    {elsewhere && <span title="já amarrada em outra linha" style={{ fontSize: 10, color: '#b08900', background: '#fff3bf', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>já amarrada</span>}
+                    {elsewhere && <span title="já amarrada em outra linha" style={{ fontSize: 10, color: '#b08900', background: 'rgba(251,191,36,0.14)', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>já amarrada</span>}
                   </div>) })}
               </div>
             </>
@@ -1399,7 +1399,7 @@ function EstruturaTab() {
         onAdd={() => { setAdding(true); setErro(null); setInfo(null) }} busca={busca} onBusca={setBusca} total={data.length} mostrando={filtered.length} />
       {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
       {info && <div style={S.info}>{info}</div>}
-      <div style={{ display: 'flex', gap: 6, padding: '6px 16px', borderBottom: '1px solid #f1f3f5' }}>
+      <div style={{ display: 'flex', gap: 6, padding: '6px 16px', borderBottom: '1px solid var(--panel)' }}>
         <button style={S.treeBtn} onClick={() => setCollapsed(new Set())}><ChevronsUpDown size={13} /> Expandir tudo</button>
         <button style={S.treeBtn} onClick={() => setCollapsed(new Set(data.filter(d => temFilhos(d.id)).map(d => d.id)))}>Recolher tudo</button>
       </div>
@@ -1419,16 +1419,16 @@ function EstruturaTab() {
               <td style={S.td}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingLeft: depth * 18 }}>
                   {temFilhos(c.id)
-                    ? <span onClick={() => toggle(c.id)} style={{ cursor: 'pointer', color: '#868e96', display: 'flex' }}>{collapsed.has(c.id) ? <ChevronRight size={14} /> : <ChevronDown size={14} />}</span>
+                    ? <span onClick={() => toggle(c.id)} style={{ cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}>{collapsed.has(c.id) ? <ChevronRight size={14} /> : <ChevronDown size={14} />}</span>
                     : <span style={{ width: 14, display: 'inline-block' }} />}
                   <span style={{ fontWeight: temFilhos(c.id) ? 600 : 400 }}>{c.descricao}</span>
                 </div>
               </td>
-              <td style={{ ...S.td, fontSize: 12, color: '#1971c2' }}>{tipoLabel(c.tipo_linha)}</td>
-              <td style={{ ...S.td, fontSize: 12, color: '#868e96' }}>{c.natureza || '—'}</td>
+              <td style={{ ...S.td, fontSize: 12, color: 'var(--blue)' }}>{tipoLabel(c.tipo_linha)}</td>
+              <td style={{ ...S.td, fontSize: 12, color: 'var(--muted)' }}>{c.natureza || '—'}</td>
               <td style={{ ...S.td, width: 100, whiteSpace: 'nowrap' }}>
-                <button style={{ ...S.btnDel, color: '#1971c2' }} title="Contas (DE-PARA do realizado)" onClick={() => setContaModal(c)}><Link2 size={14} /></button>
-                <button style={{ ...S.btnDel, color: '#868e96' }} title="Editar" onClick={() => { setEditId(c.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
+                <button style={{ ...S.btnDel, color: 'var(--blue)' }} title="Contas (DE-PARA do realizado)" onClick={() => setContaModal(c)}><Link2 size={14} /></button>
+                <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(c.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
                 <button style={S.btnDel} title="Excluir" onClick={() => del(c.id)}><Trash2 size={14} /></button>
               </td>
             </tr>
@@ -1484,9 +1484,9 @@ function PlanosTab() {
             <tr key={p.id}>
               <td style={S.tdMono}>{p.codigo}</td>
               <td style={S.td}>{p.nome}</td>
-              <td style={{ ...S.td, color: '#868e96' }}>{p.conta_contabil?.[0]?.count ?? 0}</td>
+              <td style={{ ...S.td, color: 'var(--muted)' }}>{p.conta_contabil?.[0]?.count ?? 0}</td>
               <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
-                <button style={{ ...S.btnDel, color: '#868e96' }} title="Editar" onClick={() => { setEditId(p.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
+                <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(p.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
                 <button style={S.btnDel} title="Excluir" onClick={() => del(p.id)}><Trash2 size={14} /></button>
               </td>
             </tr>
@@ -1642,7 +1642,7 @@ function LotesTab() {
   }
 
   const fmt = (n: number) => Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
-  const togBadge = (on: boolean): CSSProperties => ({ cursor: 'pointer', border: 'none', display: 'inline-block', padding: '2px 10px', borderRadius: 99, fontSize: 11, fontWeight: 500, background: on ? '#ebfbee' : '#f1f3f5', color: on ? '#2f9e44' : '#adb5bd' })
+  const togBadge = (on: boolean): CSSProperties => ({ cursor: 'pointer', border: 'none', display: 'inline-block', padding: '2px 10px', borderRadius: 99, fontSize: 11, fontWeight: 500, background: on ? 'rgba(52,211,153,0.12)' : 'var(--panel)', color: on ? 'var(--green)' : 'var(--muted)' })
 
   return (
     <div style={S.card}>
@@ -1653,19 +1653,19 @@ function LotesTab() {
         onAdd={() => { setAdding(true); setErro(null); setInfo(null) }}
         busca={busca} onBusca={setBusca} total={data.length} mostrando={filtered.length}
       />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: '1px solid #f1f3f5', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, color: '#868e96' }}>Lotes que zeram contas de resultado (encerramento/apuração) são excluídos dos comparativos por movimento. Após alterar aqui, clique em <strong>Recalcular</strong> na tela Realizado para os relatórios refletirem.</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--panel)', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Lotes que zeram contas de resultado (encerramento/apuração) são excluídos dos comparativos por movimento. Após alterar aqui, clique em <strong>Recalcular</strong> na tela Realizado para os relatórios refletirem.</span>
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 12, color: '#495057' }}>Ano (0 = todos)</span>
+        <span style={{ fontSize: 12, color: 'var(--text-mid)' }}>Ano (0 = todos)</span>
         <input type="number" style={{ ...S.input, width: 90 }} value={sugAno} onChange={e => setSugAno(+e.target.value)} />
         <button style={S.btnImp} onClick={sugerir} disabled={sugBusy}>{sugBusy ? 'Analisando…' : 'Sugerir por prefixo'}</button>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: '1px solid #f1f3f5', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, color: '#868e96' }}>Buscar lotes por <strong>histórico</strong> (termos separados por vírgula; use raízes p/ pegar variações):</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--panel)', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Buscar lotes por <strong>histórico</strong> (termos separados por vírgula; use raízes p/ pegar variações):</span>
         <input style={{ ...S.input, flex: 1, minWidth: 240 }} value={histTermo} onChange={e => setHistTermo(e.target.value)} placeholder="ENCERRAMENTO, EXERC, APURACAO" />
         <button style={S.btnImp} onClick={buscarHist} disabled={sugHBusy}>{sugHBusy ? 'Buscando…' : 'Buscar por histórico'}</button>
-        <div style={{ width: 1, height: 22, background: '#e9ecef' }} />
-        <button style={{ ...S.btnImp, color: '#c92a2a', borderColor: '#ffc9c9' }} onClick={aplicarDados} disabled={aplBusy} title="Apaga do fat_realizado os lançamentos que casam com as regras ativas e recalcula">
+        <div style={{ width: 1, height: 22, background: 'var(--border)' }} />
+        <button style={{ ...S.btnImp, color: 'var(--red)', borderColor: 'rgba(248,113,113,0.35)' }} onClick={aplicarDados} disabled={aplBusy} title="Apaga do fat_realizado os lançamentos que casam com as regras ativas e recalcula">
           <Trash2 size={13} /> {aplBusy ? 'Aplicando…' : 'Aplicar aos dados'}
         </button>
       </div>
@@ -1673,21 +1673,21 @@ function LotesTab() {
       {info && <div style={S.info}>{info}</div>}
 
       {sug !== null && (
-        <div style={{ margin: '0 16px 12px', border: '1px solid #ffe066', background: '#fff9db', borderRadius: 8, padding: 12 }}>
+        <div style={{ margin: '0 16px 12px', border: '1px solid var(--orange)', background: 'rgba(251,191,36,0.12)', borderRadius: 8, padding: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <strong style={{ fontSize: 13, color: '#664d03' }}>Lotes com prefixo de letra{sugAno ? ` em ${sugAno}` : ''} (convenção de fechamento, ex. "Q")</strong>
+            <strong style={{ fontSize: 13, color: 'var(--orange)' }}>Lotes com prefixo de letra{sugAno ? ` em ${sugAno}` : ''} (convenção de fechamento, ex. "Q")</strong>
             <div style={{ flex: 1 }} />
             {!!sug.length && <button style={{ ...S.btnAdd, padding: '4px 10px' }} onClick={addTodos}>Adicionar todos</button>}
             <button style={S.btnDel} onClick={() => setSug(null)}><X size={15} /></button>
           </div>
-          {sug.length === 0 ? <div style={{ fontSize: 12, color: '#868e96' }}>Nenhum lote com prefixo de letra encontrado (já cadastrado ou inexistente).</div> : (
+          {sug.length === 0 ? <div style={{ fontSize: 12, color: 'var(--muted)' }}>Nenhum lote com prefixo de letra encontrado (já cadastrado ou inexistente).</div> : (
             <table style={S.table}>
               <thead><tr><th style={S.th}>Prefixo</th><th style={S.th}>Exemplos</th><th style={{ ...S.th, textAlign: 'right' }}>Linhas</th><th style={{ ...S.th, textAlign: 'right' }}>Líquido</th><th style={{ ...S.th, textAlign: 'right' }}>Bruto</th><th style={S.th}>Meses</th><th style={S.th}></th></tr></thead>
               <tbody>
                 {sug.map((c, i) => (
                   <tr key={i}>
                     <td style={{ ...S.tdMono, fontWeight: 600 }}>{c.prefixo}…</td>
-                    <td style={{ ...S.td, fontSize: 12, color: '#868e96', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.exemplos}>{c.exemplos}</td>
+                    <td style={{ ...S.td, fontSize: 12, color: 'var(--muted)', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.exemplos}>{c.exemplos}</td>
                     <td style={{ ...S.td, textAlign: 'right' }}>{c.linhas}</td>
                     <td style={{ ...S.td, textAlign: 'right' }}>{fmt(c.soma)}</td>
                     <td style={{ ...S.td, textAlign: 'right' }}>{fmt(c.bruto)}</td>
@@ -1702,21 +1702,21 @@ function LotesTab() {
       )}
 
       {sugH !== null && (
-        <div style={{ margin: '0 16px 12px', border: '1px solid #ffe066', background: '#fff9db', borderRadius: 8, padding: 12 }}>
+        <div style={{ margin: '0 16px 12px', border: '1px solid var(--orange)', background: 'rgba(251,191,36,0.12)', borderRadius: 8, padding: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <strong style={{ fontSize: 13, color: '#664d03' }}>Lotes com histórico de fechamento{sugAno ? ` em ${sugAno}` : ''}</strong>
+            <strong style={{ fontSize: 13, color: 'var(--orange)' }}>Lotes com histórico de fechamento{sugAno ? ` em ${sugAno}` : ''}</strong>
             <div style={{ flex: 1 }} />
             {!!sugH.length && <button style={{ ...S.btnAdd, padding: '4px 10px' }} onClick={addTodosH}>Adicionar todos</button>}
             <button style={S.btnDel} onClick={() => setSugH(null)}><X size={15} /></button>
           </div>
-          {sugH.length === 0 ? <div style={{ fontSize: 12, color: '#868e96' }}>Nenhum lote encontrado com esses termos (ou já cadastrados).</div> : (
+          {sugH.length === 0 ? <div style={{ fontSize: 12, color: 'var(--muted)' }}>Nenhum lote encontrado com esses termos (ou já cadastrados).</div> : (
             <table style={S.table}>
               <thead><tr><th style={S.th}>Lote</th><th style={S.th}>Exemplos de histórico</th><th style={{ ...S.th, textAlign: 'right' }}>Linhas</th><th style={{ ...S.th, textAlign: 'right' }}>Líquido</th><th style={{ ...S.th, textAlign: 'right' }}>Bruto</th><th style={S.th}>Meses</th><th style={S.th}></th></tr></thead>
               <tbody>
                 {sugH.map((c, i) => (
                   <tr key={i}>
                     <td style={{ ...S.tdMono, fontWeight: 600 }}>{c.lote}</td>
-                    <td style={{ ...S.td, fontSize: 12, color: '#868e96', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.exemplos}>{c.exemplos}</td>
+                    <td style={{ ...S.td, fontSize: 12, color: 'var(--muted)', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.exemplos}>{c.exemplos}</td>
                     <td style={{ ...S.td, textAlign: 'right' }}>{c.n}</td>
                     <td style={{ ...S.td, textAlign: 'right' }}>{fmt(c.soma)}</td>
                     <td style={{ ...S.td, textAlign: 'right' }}>{fmt(c.bruto)}</td>
@@ -1745,12 +1745,12 @@ function LotesTab() {
               <td style={S.tdMono}>{l.lote}{l.por_prefixo ? '…' : ''}</td>
               <td style={S.td}><button style={togBadge(l.por_prefixo)} onClick={() => toggle(l, 'por_prefixo')} title="Casar por início do código (começa com)">{l.por_prefixo ? 'Sim' : 'Não'}</button></td>
               <td style={S.tdMono}>{l.sublote || '—'}</td>
-              <td style={S.td}>{empCod(l.empresa_id) || <span style={{ color: '#adb5bd' }}>todas</span>}</td>
+              <td style={S.td}>{empCod(l.empresa_id) || <span style={{ color: 'var(--muted)' }}>todas</span>}</td>
               <td style={S.td}>{l.descricao || '—'}</td>
               <td style={S.td}><button style={togBadge(l.ativo)} onClick={() => toggle(l, 'ativo')} title="Excluir nos comparativos">{l.ativo ? 'Sim' : 'Não'}</button></td>
               <td style={S.td}><button style={togBadge(l.pular_import)} onClick={() => toggle(l, 'pular_import')} title="Nem importar as linhas deste lote">{l.pular_import ? 'Sim' : 'Não'}</button></td>
               <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
-                <button style={{ ...S.btnDel, color: '#868e96' }} title="Editar" onClick={() => { setEditId(l.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
+                <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(l.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
                 <button style={S.btnDel} title="Excluir" onClick={() => del(l.id)}><Trash2 size={14} /></button>
               </td>
             </tr>

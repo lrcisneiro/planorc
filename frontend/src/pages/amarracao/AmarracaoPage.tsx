@@ -40,21 +40,21 @@ async function fetchAll(q: () => any): Promise<any[]> {
 }
 
 const S: Record<string, CSSProperties> = {
-  page:   { display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: '#f8f9fa', fontFamily: 'system-ui, sans-serif' },
-  bar:    { display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', background: 'white', borderBottom: '1px solid #e9ecef', flexWrap: 'wrap', flexShrink: 0 },
-  title:  { fontSize: 16, fontWeight: 600, color: '#212529', marginRight: 8, display: 'flex', alignItems: 'center', gap: 8 },
-  sel:    { padding: '6px 10px', fontSize: 13, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: '#495057' },
-  btn:    { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'white', color: '#495057', border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer' },
+  page:   { display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg)', fontFamily: 'system-ui, sans-serif' },
+  bar:    { display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', background: 'var(--panel)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap', flexShrink: 0 },
+  title:  { fontSize: 16, fontWeight: 600, color: 'var(--text)', marginRight: 8, display: 'flex', alignItems: 'center', gap: 8 },
+  sel:    { padding: '6px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', color: 'var(--text-mid)' },
+  btn:    { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' },
   body:   { flex: 1, display: 'grid', gridTemplateColumns: '1fr 64px 1fr', gap: 0, overflow: 'hidden' },
-  pane:   { display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'white', margin: 12, borderRadius: 12, border: '1px solid #e9ecef' },
-  paneH:  { padding: '10px 14px', borderBottom: '1px solid #f1f3f5', fontSize: 13, fontWeight: 600, color: '#212529', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' },
+  pane:   { display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--panel)', margin: 12, borderRadius: 12, border: '1px solid var(--border)' },
+  paneH:  { padding: '10px 14px', borderBottom: '1px solid var(--panel)', fontSize: 13, fontWeight: 600, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' },
   list:   { flex: 1, overflowY: 'auto', padding: 6 },
   mid:    { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 },
-  arrowB: { width: 48, height: 48, borderRadius: '50%', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' },
-  search: { width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #dee2e6', borderRadius: 8, outline: 'none', boxSizing: 'border-box', margin: '8px 0' },
+  arrowB: { width: 48, height: 48, borderRadius: '50%', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff' },
+  search: { width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 8, outline: 'none', boxSizing: 'border-box', margin: '8px 0' },
   row:    { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, borderRadius: 6, cursor: 'pointer' },
-  code:   { fontFamily: 'monospace', fontSize: 12, color: '#868e96', minWidth: 96 },
-  badge:  { fontSize: 10, color: '#1971c2', background: '#e7f5ff', borderRadius: 4, padding: '1px 5px' },
+  code:   { fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)', minWidth: 96 },
+  badge:  { fontSize: 10, color: 'var(--blue)', background: 'rgba(59,130,246,0.16)', borderRadius: 4, padding: '1px 5px' },
 }
 
 export default function AmarracaoPage() {
@@ -251,16 +251,16 @@ export default function AmarracaoPage() {
     <div style={S.page}>
       <div style={S.bar}>
         <span style={S.title}><Link2 size={18} /> Amarração de contas</span>
-        <span style={{ fontSize: 12, color: '#adb5bd' }}>Plano (contas):</span>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Plano (contas):</span>
         <select style={S.sel} value={planoId} onChange={e => { setPlanoId(e.target.value); setSelContas(new Set()) }}>
           {planos.map(p => <option key={p.id} value={p.id}>{p.codigo} · {p.nome}</option>)}
         </select>
-        <span style={{ fontSize: 12, color: '#adb5bd' }}>Relatório (destino):</span>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Relatório (destino):</span>
         <select style={S.sel} value={relId} onChange={e => { setRelId(e.target.value); setSelLinha('') }}>
           {rels.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
         </select>
         <div style={{ flex: 1 }} />
-        {msg && <span style={{ fontSize: 12, color: '#2f9e44' }}>{msg}</span>}
+        {msg && <span style={{ fontSize: 12, color: 'var(--green)' }}>{msg}</span>}
         <button style={S.btn} onClick={recalcular} title="Recalcular os agregados do realizado (cubos) — necessário após mudar amarrações"><RefreshCw size={13} /> Recalcular</button>
         <button style={S.btn} onClick={baixarModelo} title="Baixar modelo do DE-PARA"><Download size={13} /> Modelo</button>
         <button style={S.btn} onClick={exportar} title="Exportar todas as amarrações"><Download size={13} /> Exportar</button>
@@ -278,32 +278,32 @@ export default function AmarracaoPage() {
           <div style={S.paneH}>
             <span>Contas contábeis ({contasF.length})</span>
             <div style={{ display: 'flex', gap: 12 }}>
-              <label style={{ fontSize: 11, color: '#868e96', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontWeight: 400 }}>
+              <label style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontWeight: 400 }}>
                 <input type="checkbox" checked={soComMov} onChange={e => setSoComMov(e.target.checked)} /> com movimento
               </label>
-              <label style={{ fontSize: 11, color: '#868e96', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontWeight: 400 }}>
+              <label style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontWeight: 400 }}>
                 <input type="checkbox" checked={soNaoAmarradas} onChange={e => setSoNaoAmarradas(e.target.checked)} /> só não amarradas
               </label>
             </div>
           </div>
           <div style={{ padding: '0 10px' }}>
             <div style={{ position: 'relative' }}>
-              <Search size={13} style={{ position: 'absolute', left: 8, top: 17, color: '#ced4da' }} />
+              <Search size={13} style={{ position: 'absolute', left: 8, top: 17, color: 'var(--border-strong)' }} />
               <input style={{ ...S.search, paddingLeft: 26 }} placeholder="buscar conta..." value={buscaC} onChange={e => setBuscaC(e.target.value)} />
             </div>
             {gruposDisp.length > 1 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
                 {gruposDisp.map(g => { const on = grupos.has(g); return (
                   <button key={g} onClick={() => toggleGrupo(g)} title={GRUPO_LABEL[g] || ('Grupo ' + g)}
-                    style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, cursor: 'pointer', border: '1px solid ' + (on ? '#3b5bdb' : '#dee2e6'), background: on ? '#3b5bdb' : 'white', color: on ? 'white' : '#495057' }}>
+                    style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, cursor: 'pointer', border: '1px solid ' + (on ? 'var(--violet)' : 'var(--border-strong)'), background: on ? 'var(--violet)' : 'var(--panel)', color: on ? 'var(--panel)' : 'var(--text-mid)' }}>
                     {g}{GRUPO_LABEL[g] ? ` · ${GRUPO_LABEL[g]}` : ''}
                   </button>) })}
-                {grupos.size > 0 && <button onClick={() => setGrupos(new Set())} style={{ fontSize: 11, padding: '2px 8px', border: 'none', background: 'none', color: '#868e96', cursor: 'pointer' }}>limpar</button>}
+                {grupos.size > 0 && <button onClick={() => setGrupos(new Set())} style={{ fontSize: 11, padding: '2px 8px', border: 'none', background: 'none', color: 'var(--muted)', cursor: 'pointer' }}>limpar</button>}
               </div>
             )}
             <div style={{ display: 'flex', gap: 10, fontSize: 12, marginBottom: 4 }}>
-              <button onClick={() => setSelContas(prev => { const n = new Set(prev); contasF.filter(c => !isSint(c)).forEach(c => n.add(c.id)); return n })} style={{ background: 'none', border: 'none', color: '#3b5bdb', cursor: 'pointer', padding: 0 }}>Marcar visíveis</button>
-              {selContas.size > 0 && <button onClick={() => setSelContas(new Set())} style={{ background: 'none', border: 'none', color: '#868e96', cursor: 'pointer', padding: 0 }}>Limpar ({selContas.size})</button>}
+              <button onClick={() => setSelContas(prev => { const n = new Set(prev); contasF.filter(c => !isSint(c)).forEach(c => n.add(c.id)); return n })} style={{ background: 'none', border: 'none', color: 'var(--violet)', cursor: 'pointer', padding: 0 }}>Marcar visíveis</button>
+              {selContas.size > 0 && <button onClick={() => setSelContas(new Set())} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: 0 }}>Limpar ({selContas.size})</button>}
             </div>
           </div>
           <div style={S.list}>
@@ -312,16 +312,16 @@ export default function AmarracaoPage() {
               const est = sint ? estadoSint(c) : (selContas.has(c.id) ? 'all' : 'none')
               const on = est === 'all'; const am = amarradas.has(c.id)
               return (
-                <div key={c.id} onClick={() => clickConta(c)} style={{ ...S.row, background: on ? '#edf2ff' : est === 'some' ? '#f1f5ff' : 'transparent' }}>
+                <div key={c.id} onClick={() => clickConta(c)} style={{ ...S.row, background: on ? 'rgba(139,92,246,0.14)' : est === 'some' ? 'rgba(139,92,246,0.08)' : 'transparent' }}>
                   <input type="checkbox" checked={on} ref={el => { if (el) el.indeterminate = est === 'some' }} readOnly />
                   <span style={S.code}>{c.codigo}</span>
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: sint ? 600 : 400, color: sint ? '#1971c2' : undefined }}>{c.descricao}</span>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: sint ? 600 : 400, color: sint ? 'var(--blue)' : undefined }}>{c.descricao}</span>
                   {sint
-                    ? <span title="sintética — marca as analíticas filhas" style={{ fontSize: 10, color: '#1971c2', background: '#e7f5ff', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>sint · {selecionaveis(c).length}</span>
-                    : (am ? <span title="já amarrada" style={{ color: '#2f9e44', display: 'flex' }}><Check size={14} /></span> : <span style={{ fontSize: 10, color: '#ced4da' }}>—</span>)}
+                    ? <span title="sintética — marca as analíticas filhas" style={{ fontSize: 10, color: 'var(--blue)', background: 'rgba(59,130,246,0.16)', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>sint · {selecionaveis(c).length}</span>
+                    : (am ? <span title="já amarrada" style={{ color: 'var(--green)', display: 'flex' }}><Check size={14} /></span> : <span style={{ fontSize: 10, color: 'var(--border-strong)' }}>—</span>)}
                 </div>)
             })}
-            {!contasF.length && <div style={{ padding: 12, color: '#adb5bd', fontSize: 13 }}>Nenhuma conta.</div>}
+            {!contasF.length && <div style={{ padding: 12, color: 'var(--muted)', fontSize: 13 }}>Nenhuma conta.</div>}
           </div>
         </div>
 
@@ -329,18 +329,18 @@ export default function AmarracaoPage() {
         <div style={S.mid}>
           <button onClick={amarrar} disabled={!masterOfSel || !selContas.size}
             title={!masterOfSel ? 'Selecione uma linha à direita' : !selContas.size ? 'Marque contas à esquerda' : 'Amarrar'}
-            style={{ ...S.arrowB, background: (masterOfSel && selContas.size) ? '#3b5bdb' : '#ced4da', cursor: (masterOfSel && selContas.size) ? 'pointer' : 'default' }}>
+            style={{ ...S.arrowB, background: (masterOfSel && selContas.size) ? 'var(--violet)' : 'var(--border-strong)', cursor: (masterOfSel && selContas.size) ? 'pointer' : 'default' }}>
             <ArrowRight size={22} />
           </button>
-          <div style={{ fontSize: 11, color: '#adb5bd', textAlign: 'center', maxWidth: 60 }}>{selContas.size || 0} → linha</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center', maxWidth: 60 }}>{selContas.size || 0} → linha</div>
         </div>
 
         {/* DIREITA: relatório */}
         <div style={S.pane}>
-          <div style={S.paneH}><span>Estrutura do relatório ({visible.length})</span><span style={{ fontSize: 11, color: '#adb5bd', fontWeight: 400 }}>clique numa linha analítica</span></div>
+          <div style={S.paneH}><span>Estrutura do relatório ({visible.length})</span><span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400 }}>clique numa linha analítica</span></div>
           <div style={{ padding: '0 10px' }}>
             <div style={{ position: 'relative' }}>
-              <Search size={13} style={{ position: 'absolute', left: 8, top: 17, color: '#ced4da' }} />
+              <Search size={13} style={{ position: 'absolute', left: 8, top: 17, color: 'var(--border-strong)' }} />
               <input style={{ ...S.search, paddingLeft: 26 }} placeholder="buscar linha..." value={buscaL} onChange={e => setBuscaL(e.target.value)} />
             </div>
           </div>
@@ -351,7 +351,7 @@ export default function AmarracaoPage() {
               if (!analitica) {
                 // linha de hierarquia / totalizador — só leitura
                 return (
-                  <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', paddingLeft: ind, fontSize: 13, fontWeight: 600, color: l.tipo_linha === 'ESPACO' ? '#ced4da' : '#1971c2' }}>
+                  <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', paddingLeft: ind, fontSize: 13, fontWeight: 600, color: l.tipo_linha === 'ESPACO' ? 'var(--border-strong)' : 'var(--blue)' }}>
                     <span style={{ ...S.code, minWidth: 80 }}>{l.codigo}</span>
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.descricao}</span>
                   </div>
@@ -360,25 +360,25 @@ export default function AmarracaoPage() {
               const sel = l.id === selLinha
               const ls = linksByMaster[l.linha_orc_id || ''] || []
               return (
-                <div key={l.id} style={{ marginLeft: ind, border: '1px solid ' + (sel ? '#3b5bdb' : '#f1f3f5'), borderRadius: 8, marginBottom: 4, overflow: 'hidden' }}>
-                  <div onClick={() => setSelLinha(l.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', cursor: 'pointer', fontSize: 13, background: sel ? '#edf2ff' : 'white' }}>
+                <div key={l.id} style={{ marginLeft: ind, border: '1px solid ' + (sel ? 'var(--violet)' : 'var(--panel)'), borderRadius: 8, marginBottom: 4, overflow: 'hidden' }}>
+                  <div onClick={() => setSelLinha(l.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', cursor: 'pointer', fontSize: 13, background: sel ? 'rgba(139,92,246,0.14)' : 'var(--panel)' }}>
                     <span style={{ ...S.code, minWidth: 80 }}>{l.codigo}</span>
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.descricao}</span>
-                    <span style={{ fontSize: 11, color: ls.length ? '#2f9e44' : '#ced4da' }}>{ls.length ? `🔗 ${ls.length}` : 'sem contas'}</span>
+                    <span style={{ fontSize: 11, color: ls.length ? 'var(--green)' : 'var(--border-strong)' }}>{ls.length ? `🔗 ${ls.length}` : 'sem contas'}</span>
                   </div>
                   {ls.map(m => (
-                    <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px 4px 22px', fontSize: 12, borderTop: '1px solid #f8f9fa', background: '#fbfcfe' }}>
-                      <span style={{ fontFamily: 'monospace', color: '#868e96', minWidth: 90 }}>{m.conta_contabil?.codigo}</span>
+                    <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px 4px 22px', fontSize: 12, borderTop: '1px solid var(--bg)', background: 'var(--bg-soft)' }}>
+                      <span style={{ fontFamily: 'monospace', color: 'var(--muted)', minWidth: 90 }}>{m.conta_contabil?.codigo}</span>
                       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.conta_contabil?.descricao}</span>
                       <button onClick={() => toggleSinal(m.id, m.sinal === 1 ? -1 : 1)} title="Inverter sinal"
-                        style={{ width: 24, border: '1px solid #dee2e6', borderRadius: 5, cursor: 'pointer', background: m.sinal === 1 ? '#ebfbee' : '#fff5f5', color: m.sinal === 1 ? '#2f9e44' : '#e03131', fontWeight: 700 }}>{m.sinal === 1 ? '+' : '−'}</button>
-                      <button onClick={() => removeLink(m.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ffa8a8', display: 'flex' }}><Trash2 size={13} /></button>
+                        style={{ width: 24, border: '1px solid var(--border-strong)', borderRadius: 5, cursor: 'pointer', background: m.sinal === 1 ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.10)', color: m.sinal === 1 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>{m.sinal === 1 ? '+' : '−'}</button>
+                      <button onClick={() => removeLink(m.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--red)', display: 'flex' }}><Trash2 size={13} /></button>
                     </div>
                   ))}
                 </div>
               )
             })}
-            {!visible.length && <div style={{ padding: 12, color: '#adb5bd', fontSize: 13 }}>Selecione um relatório.</div>}
+            {!visible.length && <div style={{ padding: 12, color: 'var(--muted)', fontSize: 13 }}>Selecione um relatório.</div>}
           </div>
         </div>
       </div>

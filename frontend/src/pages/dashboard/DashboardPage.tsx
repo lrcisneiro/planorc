@@ -6,6 +6,7 @@ import type { LinhaCalc, Computed, Periodo, RawValues } from '../../lib/engine'
 import { totaisRelatorio } from '../../lib/relatorioTotais'
 import type { RLData } from '../../lib/relatorioTotais'
 import { ResponsiveBar } from '@nivo/bar'
+import { nivoTheme } from '../../lib/nivoTheme'
 import { ResponsiveLine } from '@nivo/line'
 import { Link } from 'react-router-dom'
 import { TrendingUp, TrendingDown, RefreshCw, ArrowLeft } from 'lucide-react'
@@ -22,17 +23,17 @@ const fmtK = (v: number) => Math.abs(v) >= 1000 ? (v / 1000).toLocaleString('pt-
 const pctOf = (real: number, orc: number) => orc === 0 ? null : (real / orc) * 100
 const cut = (s: string, n: number) => s.length > n ? s.slice(0, n) + '…' : s
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-const tipBox: CSSProperties = { background: 'white', padding: '8px 10px', border: '1px solid #e9ecef', borderRadius: 6, fontSize: 12, boxShadow: '0 4px 14px rgba(0,0,0,0.08)' }
+const tipBox: CSSProperties = { background: 'var(--panel)', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, boxShadow: '0 4px 14px rgba(0,0,0,0.08)' }
 // tooltip de Orçado × Realizado com Δ (R−O) e separador de milhar
 function TipOR({ titulo, data, hint }: { titulo: string; data: any; hint?: string }) {
   const o = Number(data['Orçado'] || 0), r = Number(data['Realizado'] || 0), d = r - o
   return (
     <div style={tipBox}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>{titulo}</div>
-      <div><span style={{ color: '#868e96' }}>Orçado:</span> {fmt(o)}</div>
-      <div><span style={{ color: '#868e96' }}>Realizado:</span> {fmt(r)}</div>
+      <div><span style={{ color: 'var(--muted)' }}>Orçado:</span> {fmt(o)}</div>
+      <div><span style={{ color: 'var(--muted)' }}>Realizado:</span> {fmt(r)}</div>
       <div style={{ color: d >= 0 ? '#2f9e44' : '#e03131', fontWeight: 600 }}>Δ (R−O): {fmt(d)}</div>
-      {hint && <div style={{ color: '#adb5bd', marginTop: 4 }}>{hint}</div>}
+      {hint && <div style={{ color: 'var(--muted)', marginTop: 4 }}>{hint}</div>}
     </div>
   )
 }
@@ -44,28 +45,28 @@ type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; 
 
 const S: Record<string, CSSProperties> = {
   page:   { padding: 24, fontFamily: 'system-ui, sans-serif' },
-  title:  { fontSize: 22, fontWeight: 600, color: '#212529', margin: 0 },
-  sub:    { fontSize: 13, color: '#868e96', margin: '4px 0 16px' },
+  title:  { fontSize: 22, fontWeight: 600, color: 'var(--text)', margin: 0 },
+  sub:    { fontSize: 13, color: 'var(--muted)', margin: '4px 0 16px' },
   bar:    { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 },
-  sel:    { padding: '6px 10px', fontSize: 13, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', color: '#495057' },
-  btn:    { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'white', color: '#495057', border: '1px solid #dee2e6', borderRadius: 6, cursor: 'pointer' },
-  chip:   { fontSize: 12, color: '#868e96', marginBottom: 16 },
+  sel:    { padding: '6px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', color: 'var(--text-mid)' },
+  btn:    { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 13, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' },
+  chip:   { fontSize: 12, color: 'var(--muted)', marginBottom: 16 },
   kpis:   { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14, marginBottom: 16 },
-  kpi:    { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: 16 },
-  kpiLbl: { fontSize: 12, color: '#868e96', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.3 },
-  kpiVal: { fontSize: 24, fontWeight: 700, color: '#212529', margin: '6px 0 2px' },
-  kpiSub: { fontSize: 12, color: '#868e96' },
+  kpi:    { background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 },
+  kpiLbl: { fontSize: 12, color: 'var(--muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.3 },
+  kpiVal: { fontSize: 24, fontWeight: 700, color: 'var(--text)', margin: '6px 0 2px' },
+  kpiSub: { fontSize: 12, color: 'var(--muted)' },
   grid2:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 16 },
-  card:   { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: 16, marginBottom: 16 },
-  cardT:  { fontSize: 14, fontWeight: 600, color: '#212529', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
-  chart:  { height: 320 },
-  empty:  { background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: '#aaa', fontSize: 14 },
-  label:  { display: 'block', fontSize: 12, fontWeight: 500, color: '#495057', marginBottom: 6 },
-  input:  { width: '100%', padding: '8px 10px', fontSize: 14, border: '1px solid #ced4da', borderRadius: 8, outline: 'none', boxSizing: 'border-box' },
-  pop:    { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 1500, background: 'white', border: '1px solid #e9ecef', borderRadius: 12, boxShadow: '0 24px 60px rgba(0,0,0,0.25)', padding: 16, width: 'min(860px, calc(100vw - 40px))', maxHeight: '85vh', overflowY: 'auto', overflowX: 'hidden' },
-  miniSeg:{ padding: '3px 10px', fontSize: 12, border: '1px solid #dee2e6', cursor: 'pointer', background: 'white', color: '#495057' },
+  card:   { background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 16 },
+  cardT:  { fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  chart:  { height: 320, background: 'var(--chart-bg)', borderRadius: 10, padding: 8 },
+  empty:  { background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 14 },
+  label:  { display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--text-mid)', marginBottom: 6 },
+  input:  { width: '100%', padding: '8px 10px', fontSize: 14, border: '1px solid var(--border-strong)', borderRadius: 8, outline: 'none', boxSizing: 'border-box' },
+  pop:    { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 1500, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 24px 60px rgba(0,0,0,0.25)', padding: 16, width: 'min(860px, calc(100vw - 40px))', maxHeight: '85vh', overflowY: 'auto', overflowX: 'hidden' },
+  miniSeg:{ padding: '3px 10px', fontSize: 12, border: '1px solid var(--border-strong)', cursor: 'pointer', background: 'var(--panel)', color: 'var(--text-mid)' },
 }
-const miniBtn: CSSProperties = { padding: '2px 8px', fontSize: 11, border: '1px solid #dee2e6', borderRadius: 6, background: 'white', cursor: 'pointer', color: '#495057' }
+const miniBtn: CSSProperties = { padding: '2px 8px', fontSize: 11, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', cursor: 'pointer', color: 'var(--text-mid)' }
 
 
 function AnoMesGrid({ anosSel, mesesSel, setAnosSel, setMesesSel }: {
@@ -75,22 +76,22 @@ function AnoMesGrid({ anosSel, mesesSel, setAnosSel, setMesesSel }: {
   const toggleMes = (m: number) => setMesesSel(mesesSel.includes(m) ? mesesSel.filter(x => x !== m) : [...mesesSel, m].sort((a, b) => a - b))
   return (
     <div>
-      <div style={{ border: '1px solid #e9ecef', borderRadius: 8, padding: 8, overflowX: 'auto' }}>
+      <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 8, overflowX: 'auto' }}>
         <div style={{ display: 'grid', gridTemplateColumns: `48px repeat(12, minmax(20px, 1fr))`, gap: 2, minWidth: 400 }}>
           <div />
           {MESES.map((m, i) => (
             <div key={i} onClick={() => toggleMes(i + 1)} title={`marcar ${m}`}
-              style={{ fontSize: 10, textAlign: 'center', padding: '2px 0', cursor: 'pointer', fontWeight: mesesSel.includes(i + 1) ? 700 : 400, color: mesesSel.includes(i + 1) ? '#3b5bdb' : '#adb5bd' }}>{m}</div>
+              style={{ fontSize: 10, textAlign: 'center', padding: '2px 0', cursor: 'pointer', fontWeight: mesesSel.includes(i + 1) ? 700 : 400, color: mesesSel.includes(i + 1) ? '#3b5bdb' : 'var(--muted)' }}>{m}</div>
           ))}
           {ANOS.map(y => (
             <Fragment key={y}>
               <div onClick={() => toggleAno(y)} title="marcar o ano"
-                style={{ fontSize: 12, fontWeight: anosSel.includes(y) ? 700 : 500, color: anosSel.includes(y) ? '#3b5bdb' : '#868e96', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>{y}</div>
+                style={{ fontSize: 12, fontWeight: anosSel.includes(y) ? 700 : 500, color: anosSel.includes(y) ? '#3b5bdb' : 'var(--muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>{y}</div>
               {MESES.map((_, i) => {
                 const on = anosSel.includes(y) && mesesSel.includes(i + 1)
                 const half = anosSel.includes(y) !== mesesSel.includes(i + 1)
                 return <div key={i} onClick={() => { if (!anosSel.includes(y)) toggleAno(y); if (!mesesSel.includes(i + 1)) toggleMes(i + 1) }}
-                  style={{ height: 22, borderRadius: 4, cursor: 'pointer', background: on ? '#3b5bdb' : '#f8f9fa', border: '1px solid ' + (on ? '#3b5bdb' : '#eef0f2'), opacity: half ? 0.45 : 1 }} />
+                  style={{ height: 22, borderRadius: 4, cursor: 'pointer', background: on ? '#3b5bdb' : 'var(--bg)', border: '1px solid ' + (on ? '#3b5bdb' : 'var(--panel-2)'), opacity: half ? 0.45 : 1 }} />
               })}
             </Fragment>
           ))}
@@ -111,15 +112,15 @@ function Gauge({ label, pct }: { label: string; pct: number | null }) {
   const pt = (deg: number) => [cx + r * Math.cos(deg * Math.PI / 180), cy - r * Math.sin(deg * Math.PI / 180)]
   const av = 180 - f * 180
   const [tx0, ty0] = pt(180), [tx1, ty1] = pt(0), [vx, vy] = pt(av)
-  const cor = pct == null ? '#ced4da' : pct >= 100 ? '#2f9e44' : pct >= 80 ? '#f59f00' : '#e03131'
+  const cor = pct == null ? 'var(--border-strong)' : pct >= 100 ? '#2f9e44' : pct >= 80 ? '#f59f00' : '#e03131'
   return (
     <div style={{ textAlign: 'center' }}>
       <svg viewBox="0 0 180 110" width="100%" style={{ maxWidth: 220 }}>
         <path d={`M ${tx0} ${ty0} A ${r} ${r} 0 0 1 ${tx1} ${ty1}`} fill="none" stroke="#edf0f2" strokeWidth={14} strokeLinecap="round" />
         <path d={`M ${tx0} ${ty0} A ${r} ${r} 0 0 1 ${vx} ${vy}`} fill="none" stroke={cor} strokeWidth={14} strokeLinecap="round" />
-        <text x={cx} y={cy - 6} textAnchor="middle" fontSize={26} fontWeight={700} fill="#212529">{pct == null ? '—' : Math.round(pct) + '%'}</text>
+        <text x={cx} y={cy - 6} textAnchor="middle" fontSize={26} fontWeight={700} fill="var(--text)">{pct == null ? '—' : Math.round(pct) + '%'}</text>
       </svg>
-      <div style={{ fontSize: 12, color: '#868e96', fontWeight: 500, marginTop: -6 }}>{label}</div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 500, marginTop: -6 }}>{label}</div>
     </div>
   )
 }
@@ -133,16 +134,16 @@ function IndicCard({ c, anoPrev }: { c: IC; anoPrev: number }) {
   const yoyPct = (!c.isPct && c.P !== 0) ? (c.R / c.P - 1) * 100 : null
   const bomY = c.desp ? c.R <= c.P : c.R >= c.P
   const Arrow = (bom: boolean) => bom ? <TrendingUp size={13} /> : <TrendingDown size={13} />
-  const ksub: CSSProperties = { fontSize: 12, color: '#868e96', display: 'flex', alignItems: 'center', gap: 6 }
+  const ksub: CSSProperties = { fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }
   return (
-    <div style={{ background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: 16 }}>
-      <div style={{ fontSize: 12, color: '#868e96', fontWeight: 500 }}>{c.label}</div>
-      <div style={{ fontSize: 24, fontWeight: 700, color: '#212529', margin: '6px 0 4px' }}>{f(c.R)}</div>
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+      <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 500 }}>{c.label}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)', margin: '6px 0 4px' }}>{f(c.R)}</div>
       <div style={ksub}>Orçado {f(c.O)} · {c.isPct
         ? <span style={{ color: bomY ? '#2f9e44' : '#e03131' }}>{d >= 0 ? '+' : ''}{formatValor(d, 'NUMERO', c.casas)} pp</span>
         : (exec == null ? '—' : <span style={{ color: bomExec ? '#2f9e44' : '#e03131', display: 'inline-flex', alignItems: 'center', gap: 3 }}>{Arrow(bomExec)}{exec.toFixed(0)}%</span>)}</div>
-      <div style={{ ...ksub, marginTop: 6, paddingTop: 6, borderTop: '1px solid #f1f3f5' }}>
-        <strong style={{ color: '#495057' }}>{anoPrev}</strong> {f(c.P)} · {c.isPct
+      <div style={{ ...ksub, marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--panel)' }}>
+        <strong style={{ color: 'var(--text-mid)' }}>{anoPrev}</strong> {f(c.P)} · {c.isPct
           ? <span style={{ color: bomY ? '#2f9e44' : '#e03131' }}>{(c.R - c.P) >= 0 ? '+' : ''}{formatValor(c.R - c.P, 'NUMERO', c.casas)} pp</span>
           : (yoyPct == null ? '—' : <span style={{ color: bomY ? '#2f9e44' : '#e03131', display: 'inline-flex', alignItems: 'center', gap: 3 }}>{Arrow(bomY)}{yoyPct >= 0 ? '+' : ''}{yoyPct.toFixed(0)}%</span>)}
       </div>
@@ -416,7 +417,7 @@ export default function DashboardPage() {
     return (
       <div style={S.kpi}>
         <div style={S.kpiLbl}>{lbl}</div>
-        <div style={{ ...S.kpiVal, color: desp ? '#e03131' : '#212529' }}>{fmt(f * real)}</div>
+        <div style={{ ...S.kpiVal, color: desp ? '#e03131' : 'var(--text)' }}>{fmt(f * real)}</div>
         <div style={S.kpiSub}>Orçado {fmt(f * orc)} <span style={{ color: up ? '#2f9e44' : '#e03131', fontWeight: 600 }}>({d >= 0 ? '+' : ''}{fmt(d)})</span> · {p == null ? '—' : <span style={{ color: up ? '#2f9e44' : '#e03131', fontWeight: 600 }}>{up ? <TrendingUp size={11} /> : <TrendingDown size={11} />} {p.toFixed(0)}%</span>}</div>
       </div>
     )
@@ -453,23 +454,23 @@ export default function DashboardPage() {
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
         <SalvarCardButton base="/dashboard" cor="#3b5bdb" cardId={cardId} getFiltros={() => ({ relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel })} />
         {indicCards.length > 0 && <button style={S.btn} onClick={() => setPickIndic(true)} title="Escolher quais indicadores exibir"><ListChecks size={13} /> Indicadores{indicSel.length ? ` (${indicSel.length})` : ''}</button>}
-        {loading && <span style={{ fontSize: 12, color: '#aaa' }}>Carregando…</span>}
+        {loading && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Carregando…</span>}
       </div>
       {pickIndic && (
         <ModalPanel titulo="Indicadores a exibir" onClose={() => setPickIndic(false)} width="min(520px, calc(100vw - 40px))">
           <Checklist titulo="Indicadores" items={indicCards.map(c => ({ id: c.id, codigo: '', descricao: c.label }))} sel={indicSel} setSel={setIndicSel} />
-          <div style={{ fontSize: 12, color: '#adb5bd', marginTop: 8 }}>Vazio = mostra todos. Use para esconder indicadores que não fazem sentido neste preset (ex.: EBITDA num recorte por CC).</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Vazio = mostra todos. Use para esconder indicadores que não fazem sentido neste preset (ex.: EBITDA num recorte por CC).</div>
         </ModalPanel>
       )}
       <div style={S.chip}>{chip}</div>
 
-      {erro && <div style={{ background: '#fff5f5', border: '1px solid #ffc9c9', borderRadius: 8, padding: '10px 14px', color: '#c92a2a', fontSize: 13, marginBottom: 16 }}>⚠ {erro}</div>}
+      {erro && <div style={{ background: 'rgba(248,113,113,0.10)', border: '1px solid #ffc9c9', borderRadius: 8, padding: '10px 14px', color: 'var(--red)', fontSize: 13, marginBottom: 16 }}>⚠ {erro}</div>}
 
       {!temDados && !loading ? (
         <div style={S.empty}>Sem dados para os filtros selecionados.</div>
       ) : (
         <>
-          <div style={{ fontSize: 11, color: '#adb5bd', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, marginBottom: 8 }}>Visão geral do relatório (não afetada pela linha agrupadora)</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, marginBottom: 8 }}>Visão geral do relatório (não afetada pela linha agrupadora)</div>
           <div style={S.kpis}>
             <KpiCard lbl="Resultado" orc={kpi.resOrc} real={kpi.resReal} />
             <KpiCard lbl="Receita" orc={kpi.recOrc} real={kpi.recReal} />
@@ -484,7 +485,7 @@ export default function DashboardPage() {
 
           {(() => { const vis = indicCards.filter(c => indicSel.includes(c.id)); return vis.length > 0 && (
             <>
-              <div style={{ fontSize: 11, color: '#adb5bd', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '16px 0 8px' }}>Indicadores do relatório</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '16px 0 8px' }}>Indicadores do relatório</div>
               <div style={S.kpis}>
                 {vis.map(c => <IndicCard key={c.id} c={c} anoPrev={(anosSel.length ? Math.min(...anosSel) : 0) - 1} />)}
               </div>
@@ -497,38 +498,38 @@ export default function DashboardPage() {
                 {compOcultas > 0 && <span title="Há linhas marcadas como não visíveis no dashboard. Elas continuam no cálculo, por isso as filhas podem não somar o total." style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: '#7048e8', border: '1px solid #d0bfff', borderRadius: 4, padding: '1px 6px' }}>+{compOcultas} oculta{compOcultas > 1 ? 's' : ''}</span>}
               </div>
               {composicao.length ? (
-                <div style={{ height: Math.max(220, composicao.length * 34 + 50) }}>
-                  <ResponsiveBar data={composicao} keys={['Orçado', 'Realizado']} indexBy="filha" layout="horizontal" groupMode="grouped"
+                <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: Math.max(220, composicao.length * 34 + 50) }}>
+                  <ResponsiveBar theme={nivoTheme()} data={composicao} keys={['Orçado', 'Realizado']} indexBy="filha" layout="horizontal" groupMode="grouped"
                     margin={{ top: 6, right: 24, bottom: 30, left: 160 }} padding={0.25} innerPadding={2}
-                    colors={['#adb5bd', '#3b5bdb']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
+                    colors={['#9aa0aa', '#3b5bdb']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
                     enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate onClick={(d: any) => d.data.id && qparams && setDrill({ nodeId: d.data.id })}
                     tooltip={({ data }: any) => <TipOR titulo={data.filha} data={data} hint="clique para detalhar" />}
                     legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
                 </div>
-              ) : <div style={{ padding: '40px 12px', color: '#adb5bd', fontSize: 13, textAlign: 'center' }}>Esta linha não tem filhas com valor.</div>}
+              ) : <div style={{ padding: '40px 12px', color: 'var(--muted)', fontSize: 13, textAlign: 'center' }}>Esta linha não tem filhas com valor.</div>}
             </div>
             <div style={S.card}>
               <div style={S.cardT}>Filhas ao longo dos meses (realizado)</div>
               {filhasMes.length ? (
                 <div style={S.chart}>
-                  <ResponsiveLine data={filhasMes} margin={{ top: 10, right: 16, bottom: 64, left: 56 }}
+                  <ResponsiveLine theme={nivoTheme()} data={filhasMes} margin={{ top: 10, right: 16, bottom: 64, left: 56 }}
                     xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
                     colors={filhasMes.map((_, i) => CAT[i % CAT.length])} pointSize={5} useMesh curve="monotoneX"
                     axisLeft={{ format: (v: any) => fmtK(Number(v)) }}
                     legends={[{ anchor: 'bottom', direction: 'row', translateY: 56, itemWidth: 110, itemHeight: 14, symbolSize: 10, itemsSpacing: 2 }]} />
                 </div>
-              ) : <div style={{ padding: '40px 12px', color: '#adb5bd', fontSize: 13, textAlign: 'center' }}>Sem filhas com realizado.</div>}
+              ) : <div style={{ padding: '40px 12px', color: 'var(--muted)', fontSize: 13, textAlign: 'center' }}>Sem filhas com realizado.</div>}
             </div>
           </div>
 
 
           <div style={S.grid2}>
             <div style={S.card}>
-              <div style={S.cardT}>Orçado × Realizado por mês <span style={{ fontSize: 11, fontWeight: 400, color: '#adb5bd' }}>(clique no mês p/ detalhar)</span></div>
+              <div style={S.cardT}>Orçado × Realizado por mês <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(clique no mês p/ detalhar)</span></div>
               <div style={S.chart}>
-                <ResponsiveBar data={orcRealMes} keys={['Orçado', 'Realizado']} indexBy="mes" groupMode="grouped"
+                <ResponsiveBar theme={nivoTheme()} data={orcRealMes} keys={['Orçado', 'Realizado']} indexBy="mes" groupMode="grouped"
                   margin={{ top: 10, right: 10, bottom: 40, left: 56 }} padding={0.25} innerPadding={2}
-                  colors={['#adb5bd', '#3b5bdb']} borderRadius={3}
+                  colors={['#9aa0aa', '#3b5bdb']} borderRadius={3}
                   axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
                   onClick={(d: any) => { const m = d.data?.mesN || (MESES.indexOf(String(d.indexValue)) + 1); if (m > 0 && qparams) setDrill({ nodeId: agrupId || '__root', meses: [m] }) }}
                   tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} />}
@@ -538,7 +539,7 @@ export default function DashboardPage() {
             <div style={S.card}>
               <div style={S.cardT}>Diferença (Realizado − Orçado) por mês</div>
               <div style={S.chart}>
-                <ResponsiveBar data={deltaMes} keys={['Δ']} indexBy="mes"
+                <ResponsiveBar theme={nivoTheme()} data={deltaMes} keys={['Δ']} indexBy="mes"
                   margin={{ top: 10, right: 10, bottom: 40, left: 56 }} padding={0.3} borderRadius={3}
                   colors={(b: any) => (b.value >= 0 ? '#2f9e44' : '#e03131')}
                   axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
@@ -550,7 +551,7 @@ export default function DashboardPage() {
           <div style={S.card}>
             <div style={S.cardT}>Acumulado (realizado) por ano</div>
             <div style={S.chart}>
-              <ResponsiveLine data={accLines} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
+              <ResponsiveLine theme={nivoTheme()} data={accLines} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
                 xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
                 colors={yearKeys.map((_, i) => YCOLORS[i % YCOLORS.length])} pointSize={6} pointBorderWidth={1} useMesh curve="monotoneX"
                 axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableArea areaOpacity={0.05}
@@ -561,7 +562,7 @@ export default function DashboardPage() {
           <div style={S.card}>
             <div style={S.cardT}>Cascata — {escopoNome} (realizado, por filha)</div>
             <div style={S.chart}>
-              <ResponsiveBar data={cascata} keys={['base', 'neg', 'pos', 'total']} indexBy="step"
+              <ResponsiveBar theme={nivoTheme()} data={cascata} keys={['base', 'neg', 'pos', 'total']} indexBy="step"
                 margin={{ top: 10, right: 10, bottom: 50, left: 56 }} padding={0.3}
                 colors={(b: any) => b.id === 'base' ? 'transparent' : b.id === 'total' ? '#3b5bdb' : b.id === 'pos' ? '#2f9e44' : '#e03131'}
                 axisLeft={{ format: (v: any) => fmtK(Number(v)) }} axisBottom={{ tickRotation: -30 }}
@@ -572,10 +573,10 @@ export default function DashboardPage() {
           <div style={S.grid2}>
             <div style={S.card}>
               <div style={S.cardT}>{escopoNome} por empresa</div>
-              <div style={{ height: Math.max(220, porEmpresa.length * 30 + 50) }}>
-                <ResponsiveBar data={porEmpresa} keys={['Orçado', 'Realizado']} indexBy="empresa" layout="horizontal" groupMode="grouped"
+              <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: Math.max(220, porEmpresa.length * 30 + 50) }}>
+                <ResponsiveBar theme={nivoTheme()} data={porEmpresa} keys={['Orçado', 'Realizado']} indexBy="empresa" layout="horizontal" groupMode="grouped"
                   margin={{ top: 6, right: 24, bottom: 30, left: 150 }} padding={0.25} innerPadding={2}
-                  colors={['#adb5bd', '#3b5bdb']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
+                  colors={['#9aa0aa', '#3b5bdb']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
                   enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
                   tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} />}
                   legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
@@ -584,22 +585,22 @@ export default function DashboardPage() {
             <div style={S.card}>
               <div style={S.cardT}>EBITDA por empresa</div>
               {ebitdaEmp.length ? (
-                <div style={{ height: Math.max(220, ebitdaEmp.length * 30 + 50) }}>
-                  <ResponsiveBar data={ebitdaEmp} keys={['Orçado', 'Realizado']} indexBy="empresa" layout="horizontal" groupMode="grouped"
+                <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: Math.max(220, ebitdaEmp.length * 30 + 50) }}>
+                  <ResponsiveBar theme={nivoTheme()} data={ebitdaEmp} keys={['Orçado', 'Realizado']} indexBy="empresa" layout="horizontal" groupMode="grouped"
                     margin={{ top: 6, right: 24, bottom: 30, left: 150 }} padding={0.25} innerPadding={2}
                     colors={['#ffd8a8', '#e8590c']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
                     enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
                     tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} />}
                     legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
                 </div>
-              ) : <div style={{ padding: '40px 12px', color: '#adb5bd', fontSize: 13, textAlign: 'center' }}>Nenhuma linha "EBITDA" encontrada neste relatório.</div>}
+              ) : <div style={{ padding: '40px 12px', color: 'var(--muted)', fontSize: 13, textAlign: 'center' }}>Nenhuma linha "EBITDA" encontrada neste relatório.</div>}
             </div>
           </div>
 
           <div style={S.card}>
             <div style={S.cardT}>Maiores desvios (Realizado − Orçado) — {escopoNome}</div>
-            <div style={{ height: Math.max(220, desvios.length * 26 + 50) }}>
-              <ResponsiveBar data={desvios} keys={['Δ']} indexBy="conta" layout="horizontal"
+            <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: Math.max(220, desvios.length * 26 + 50) }}>
+              <ResponsiveBar theme={nivoTheme()} data={desvios} keys={['Δ']} indexBy="conta" layout="horizontal"
                 margin={{ top: 6, right: 24, bottom: 24, left: 200 }} padding={0.3}
                 colors={(b: any) => (b.value >= 0 ? '#2f9e44' : '#e03131')} enableGridX
                 axisBottom={{ format: (v: any) => fmtK(Number(v)) }} valueFormat={(v: any) => fmt(Number(v))}

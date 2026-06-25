@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, Link2, Wallet, LogOut, Menu, X, SlidersHorizontal, Users, Layers, ShieldCheck, ListChecks, Sun, Moon } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, Link2, Wallet, LogOut, Menu, X, SlidersHorizontal, Users, Layers, ShieldCheck, ListChecks, Sun, Moon, ListTree } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { setTheme } from './lib/theme'
+import { setTheme, getTheme } from './lib/theme'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 import CadastrosPage from './pages/cadastros/CadastrosPage'
@@ -31,7 +31,8 @@ type NavGroup = { area: string; mode: string; dot: string; items: NavItem[] }
 
 const NAV_GROUPS: NavGroup[] = [
   { area: 'Orçamentação', mode: 'escrita', dot: '#8b5cf6', items: [
-    { to: '/orcamento', label: 'Orçamento',             icon: FileText },
+    { to: '/orcamento',  label: 'Orçamento',                icon: FileText },
+    { to: '/estruturas', label: 'Estruturas de relatórios', icon: ListTree },
     { label: 'Formulário de drivers',  icon: SlidersHorizontal, soon: true },
     { label: 'Posto de trabalho',      icon: Users,             soon: true },
     { label: 'Versões & cenários',     icon: Layers,            soon: true },
@@ -127,7 +128,7 @@ export default function App() {
 
 function Shell({ session }: { session: Session }) {
   const [menuOpen, setMenuOpen] = useState(false)
-  const [tema, setTema] = useState<'dark' | 'light'>('dark')
+  const [tema, setTema] = useState<'dark' | 'light'>(getTheme())
   const trocarTema = () => { const n = tema === 'dark' ? 'light' : 'dark'; setTheme(n); setTema(n) }
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 820px)').matches)
   useEffect(() => {
@@ -215,7 +216,10 @@ function Shell({ session }: { session: Session }) {
             <Route path="/dashboard"       element={<DashboardPage />} />
             <Route path="/balanco"         element={<BalancoDashboardPage />} />
             <Route path="/relatorios"      element={<RelatorioPage />} />
-            <Route path="/relatorios/:id"  element={<RelatorioEditorPage />} />
+            <Route path="/relatorios/:id"  element={<RelatorioEditorPage mode="consulta" />} />
+            <Route path="/orcar/:id"       element={<RelatorioEditorPage mode="orcar" />} />
+            <Route path="/estrutura/:id"   element={<RelatorioEditorPage mode="estrutura" />} />
+            <Route path="/estruturas"      element={<RelatorioPage linkBase="/estrutura" titulo="Estruturas de Relatórios" subtitulo="Edite a árvore, fórmulas e amarração de cada relatório" />} />
             <Route path="/dre"             element={<DrePage />} />
             <Route path="/orcamento"       element={<OrcadoDadosPage />} />
             <Route path="/realizado"       element={<RealizadoDadosPage />} />

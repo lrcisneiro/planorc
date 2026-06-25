@@ -10,33 +10,33 @@ type DimConfig  = { key: string; label: string; opcoes: DimOpcao[]; selecionados
 
 const S = {
   page:    { padding: 24, fontFamily: 'system-ui, sans-serif' } as React.CSSProperties,
-  title:   { fontSize: 22, fontWeight: 600, color: '#212529', margin: '0 0 4px' } as React.CSSProperties,
-  sub:     { fontSize: 13, color: '#868e96', margin: '0 0 20px' } as React.CSSProperties,
-  tabs:    { display: 'flex', gap: 4, borderBottom: '1px solid #e9ecef', marginBottom: 20 } as React.CSSProperties,
+  title:   { fontSize: 22, fontWeight: 600, color: 'var(--text)', margin: '0 0 4px' } as React.CSSProperties,
+  sub:     { fontSize: 13, color: 'var(--muted)', margin: '0 0 20px' } as React.CSSProperties,
+  tabs:    { display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', marginBottom: 20 } as React.CSSProperties,
   tab: (a: boolean): React.CSSProperties => ({
     padding: '8px 16px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
     border: 'none', background: 'none',
-    color: a ? '#3b5bdb' : '#868e96',
-    borderBottom: a ? '2px solid #3b5bdb' : '2px solid transparent',
+    color: a ? 'var(--violet)' : 'var(--muted)',
+    borderBottom: a ? '2px solid var(--violet)' : '2px solid transparent',
     marginBottom: -1,
   }),
-  card:    { background: 'white', borderRadius: 12, border: '1px solid #e9ecef', overflow: 'hidden' } as React.CSSProperties,
-  th:      { textAlign: 'left' as const, padding: '10px 16px', color: '#868e96', fontWeight: 500, fontSize: 12, background: '#f8f9fa', borderBottom: '1px solid #e9ecef' },
-  td:      { padding: '10px 16px', borderBottom: '1px solid #f1f3f5', color: '#343a40', fontSize: 13 },
+  card:    { background: 'var(--panel)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' } as React.CSSProperties,
+  th:      { textAlign: 'left' as const, padding: '10px 16px', color: 'var(--muted)', fontWeight: 500, fontSize: 12, background: 'var(--bg)', borderBottom: '1px solid var(--border)' },
+  td:      { padding: '10px 16px', borderBottom: '1px solid var(--panel)', color: 'var(--text)', fontSize: 13 },
   btn: (v: 'primary' | 'secondary'): React.CSSProperties => ({
     display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px',
-    borderRadius: 6, border: v === 'secondary' ? '1px solid #dee2e6' : 'none',
-    background: v === 'primary' ? '#3b5bdb' : 'white',
-    color: v === 'primary' ? 'white' : '#495057',
+    borderRadius: 6, border: v === 'secondary' ? '1px solid var(--border-strong)' : 'none',
+    background: v === 'primary' ? 'var(--violet)' : 'var(--panel)',
+    color: v === 'primary' ? 'var(--panel)' : 'var(--text-mid)',
     fontSize: 13, fontWeight: 500, cursor: 'pointer',
   }),
   badge: (r: string): React.CSSProperties => ({
     display: 'inline-block', padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 500,
-    background: r === 'admin' ? '#e7f5ff' : '#f1f3f5',
-    color: r === 'admin' ? '#1971c2' : '#495057',
+    background: r === 'admin' ? 'rgba(59,130,246,0.16)' : 'var(--panel)',
+    color: r === 'admin' ? 'var(--blue)' : 'var(--text-mid)',
   }),
   overlay: { position: 'fixed' as const, inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
-  modal:   { background: 'white', borderRadius: 16, padding: 28, width: 560, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' as const, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' },
+  modal:   { background: 'var(--panel)', borderRadius: 16, padding: 28, width: 560, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' as const, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' },
 }
 
 // ── Modal de configuração de acesso ──────────────────────
@@ -135,21 +135,21 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
   return (
     <div style={S.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={S.modal}>
-        <div style={{ fontSize: 17, fontWeight: 600, color: '#212529', marginBottom: 4 }}>
+        <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
           Acesso: {user.email}
         </div>
-        <div style={{ fontSize: 12, color: '#868e96', marginBottom: 20 }}>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
           Sem restrição = acesso a todos os itens da dimensão.
         </div>
 
         {loading ? (
-          <p style={{ color: '#aaa', textAlign: 'center', padding: 24 }}>Carregando...</p>
+          <p style={{ color: 'var(--muted)', textAlign: 'center', padding: 24 }}>Carregando...</p>
         ) : (
           dims.map(dim => (
             <div key={dim.key} style={{ marginBottom: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontWeight: 600, fontSize: 13, color: '#343a40' }}>{dim.label}</span>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#868e96', cursor: 'pointer' }}>
+                <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{dim.label}</span>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
                   <input type="checkbox"
                     checked={dim.selecionados.length === 0}
                     onChange={() => setSelecionados(dim.key, [])}
@@ -158,17 +158,17 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
                 </label>
               </div>
               {dim.selecionados.length > 0 && (
-                <div style={{ fontSize: 12, color: '#495057', marginBottom: 6 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-mid)', marginBottom: 6 }}>
                   {dim.selecionados.length} de {dim.opcoes.length} selecionados
                 </div>
               )}
-              <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid #e9ecef', borderRadius: 8, padding: '4px 0' }}>
+              <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 0' }}>
                 {dim.opcoes.length === 0 ? (
-                  <div style={{ padding: '8px 12px', color: '#aaa', fontSize: 12 }}>Nenhum item cadastrado</div>
+                  <div style={{ padding: '8px 12px', color: 'var(--muted)', fontSize: 12 }}>Nenhum item cadastrado</div>
                 ) : dim.opcoes.map(opt => (
                   <label key={opt.id}
                     style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', cursor: 'pointer', fontSize: 13 }}
-                    onMouseEnter={e => (e.currentTarget.style.background = '#f8f9fa')}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg)')}
                     onMouseLeave={e => (e.currentTarget.style.background = '')}>
                     <input type="checkbox"
                       checked={dim.selecionados.length === 0 || dim.selecionados.includes(opt.id)}
@@ -182,7 +182,7 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
                         }
                       }}
                     />
-                    <span style={{ color: dim.selecionados.length > 0 && !dim.selecionados.includes(opt.id) ? '#aaa' : '#343a40' }}>
+                    <span style={{ color: dim.selecionados.length > 0 && !dim.selecionados.includes(opt.id) ? 'var(--muted)' : 'var(--text)' }}>
                       {opt.label}
                     </span>
                   </label>
@@ -192,7 +192,7 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
           ))
         )}
 
-        {erro && <div style={{ padding: '8px 12px', borderRadius: 6, background: '#fff5f5', color: '#c92a2a', fontSize: 12, marginBottom: 12 }}>{erro}</div>}
+        {erro && <div style={{ padding: '8px 12px', borderRadius: 6, background: 'rgba(248,113,113,0.10)', color: 'var(--red)', fontSize: 12, marginBottom: 12 }}>{erro}</div>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
           <button style={S.btn('secondary')} onClick={onClose}>Cancelar</button>
@@ -240,33 +240,33 @@ function ModalConvidarUsuario({ onClose, onSuccess }: { onClose: () => void; onS
   return (
     <div style={S.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ ...S.modal, width: 420 }}>
-        <div style={{ fontSize: 17, fontWeight: 600, color: '#212529', marginBottom: 4 }}>Convidar usuário</div>
-        <div style={{ fontSize: 12, color: '#868e96', marginBottom: 20 }}>
+        <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>Convidar usuário</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
           Um email de convite será enviado com o link de acesso.
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#343a40', marginBottom: 6 }}>Email</label>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Email</label>
           <input
             type="email" value={email} autoFocus
             onChange={e => setEmail(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && convidar()}
             placeholder="usuario@empresa.com"
-            style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #dee2e6', fontSize: 13, boxSizing: 'border-box' as const }}
+            style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border-strong)', fontSize: 13, boxSizing: 'border-box' as const }}
           />
         </div>
 
         <div style={{ marginBottom: 20 }}>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#343a40', marginBottom: 6 }}>Perfil</label>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Perfil</label>
           <select value={role} onChange={e => setRole(e.target.value)}
-            style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #dee2e6', fontSize: 13 }}>
+            style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border-strong)', fontSize: 13 }}>
             <option value="viewer">Viewer — somente leitura</option>
             <option value="member">Member — leitura + edição</option>
             <option value="admin">Admin — acesso total + gestão</option>
           </select>
         </div>
 
-        {erro && <div style={{ padding: '8px 12px', borderRadius: 6, background: '#fff5f5', color: '#c92a2a', fontSize: 12, marginBottom: 12 }}>{erro}</div>}
+        {erro && <div style={{ padding: '8px 12px', borderRadius: 6, background: 'rgba(248,113,113,0.10)', color: 'var(--red)', fontSize: 12, marginBottom: 12 }}>{erro}</div>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button style={S.btn('secondary')} onClick={onClose}>Cancelar</button>
@@ -303,8 +303,8 @@ function UsuariosTab() {
 
   useEffect(() => { carregar() }, [])
 
-  if (loading) return <p style={{ color: '#aaa', padding: 16 }}>Carregando...</p>
-  if (erroAcesso) return <p style={{ color: '#c92a2a', padding: 16 }}>{erroAcesso}</p>
+  if (loading) return <p style={{ color: 'var(--muted)', padding: 16 }}>Carregando...</p>
+  if (erroAcesso) return <p style={{ color: 'var(--red)', padding: 16 }}>{erroAcesso}</p>
 
   return (
     <>
@@ -326,10 +326,10 @@ function UsuariosTab() {
           </thead>
           <tbody>
             {users.length === 0 ? (
-              <tr><td colSpan={4} style={{ ...S.td, textAlign: 'center', color: '#aaa', padding: 32 }}>Nenhum usuário encontrado.</td></tr>
+              <tr><td colSpan={4} style={{ ...S.td, textAlign: 'center', color: 'var(--muted)', padding: 32 }}>Nenhum usuário encontrado.</td></tr>
             ) : users.map(u => (
               <tr key={u.user_id}
-                onMouseEnter={e => (e.currentTarget.style.background = '#f8f9fa')}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg)')}
                 onMouseLeave={e => (e.currentTarget.style.background = '')}>
                 <td style={S.td}>{u.email}</td>
                 <td style={S.td}><span style={S.badge(u.role)}>{u.role}</span></td>
@@ -372,8 +372,8 @@ function AccessSummary({ userId }: { userId: string }) {
       .then(({ count: c }) => setCount(c ?? 0))
   }, [userId])
 
-  if (count === null) return <span style={{ color: '#aaa', fontSize: 12 }}>—</span>
-  if (count === 0) return <span style={{ color: '#2f9e44', fontSize: 12 }}>Acesso total</span>
+  if (count === null) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
+  if (count === 0) return <span style={{ color: 'var(--green)', fontSize: 12 }}>Acesso total</span>
   return <span style={{ color: '#e67700', fontSize: 12 }}>{count} dimensão(ões) restrita(s)</span>
 }
 

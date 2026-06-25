@@ -211,7 +211,13 @@ type Column = { key: string; label: string; cenarioKey?: string; period: Period;
 type Group  = { label: string; span: number; period?: Period; collapsible?: boolean; collapsed?: boolean }
 
 // ─── Component ───────────────────────────────────────────────
-export default function RelatorioEditorPage() {
+export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'consulta' | 'orcar' | 'estrutura' } = {}) {
+  // F1 — split por modo de interação:
+  //   consulta  = read-only (Relatórios/leitura)
+  //   orcar     = edita valores do orçado (Orçamentação/escrita)
+  //   estrutura = edita linhas/fórmulas/amarração (admin)
+  const podeOrcar = mode === 'orcar'
+  const podeEstrutura = mode === 'estrutura'
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const saved0 = savedFiltro(id)
@@ -253,6 +259,10 @@ export default function RelatorioEditorPage() {
   const [selId, setSelId] = useState<string | null>(null)
   const [contas,     setContas]     = useState<{ id: string; codigo: string; descricao: string; plano_id?: string; plano?: string }[]>([])
   const [contaLinks, setContaLinks] = useState<Record<string, any[]>>({})
+  // F1 estrutura — coluna de simulação (efêmera, não grava em fato)
+  const [simShow, setSimShow] = useState(false)
+  const [simVals, setSimVals] = useState<Record<string, number[]>>({})
+  const [addAfterId, setAddAfterId] = useState<string | null>(null)   // abre o "incluir linha" logo abaixo desta linha
   const [detalhado,  setDetalhado]  = useState<Record<string, Set<string>>>({})  // [cenario] -> Set(`linhaId-mes`) com detalhe (read-only)
   const [impMenu,    setImpMenu]    = useState(false)
   const [impMode,    setImpMode]    = useState<'linhas' | 'baseline_full' | 'baseline_add'>('baseline_full')
@@ -291,7 +301,7 @@ export default function RelatorioEditorPage() {
   // filial/CC "todas" = nada marcado OU tudo marcado (ambos = sem filtro)
   const filialAll = filialSel.length === 0 || filialSel.length === filiais.length
   const ccAll = (ccSel.length === 0 || ccSel.length === ccs.length) && !areaSel.length && !divisaoSel.length && !buSel.length
-  const editavel = !!empresaUnica && !!versaoId && filialAll && ccAll
+  const editavel = podeOrcar && !!empresaUnica && !!versaoId && filialAll && ccAll
   useEffect(() => { if (editavel) setAvisoLeituraOff(false) }, [editavel])   // reaparece num novo estado de leitura
 
   // ── Loads
@@ -712,7 +722,7 @@ export default function RelatorioEditorPage() {
       ? `${MESES[displayedMeses[0]?.mes - 1] ?? ''}/${displayedMeses[0]?.ano ?? ''} – ${MESES[displayedMeses[displayedMeses.length - 1]?.mes - 1] ?? ''}/${displayedMeses[displayedMeses.length - 1]?.ano ?? ''}`
       : lbl0
     // Editável: 1 mês, linha analítica, cenário = versão (orçado)
-    const editavelRazao = cen !== REALIZADO && l.tipo_linha === 'ANALITICA' && meses.length === 1
+    const editavelRazao = podeOrcar && cen !== REALIZADO && l.tipo_linha === 'ANALITICA' && meses.length === 1
     // F2: orçado consulta por linha MESTRE (fat_orcado.linha_id agora é mestre)
     const linhaIdsRl = editavelRazao ? [l.id] : linhasAnaliticasDe(l.id)
     const linhaIds = linhaIdsRl.map(orcOf).filter(Boolean) as string[]
@@ -1249,10 +1259,162 @@ export default function RelatorioEditorPage() {
 
   if (loading) return <div style={{ padding: 32, color: 'var(--muted)', fontSize: 14 }}>Carregando...</div>
 
+  // ── F1: modo ESTRUTURA — página limpa (só árvore + fórmula + simulação) ──
+  if (podeEstrutura) {
+    const childrenByPai: Record<string, Linha[]> = {}
+    linhas.forEach(l => { const k = l.pai_id ?? '__root'; (childrenByPai[k] ||= []).push(l) })
+    Object.values(childrenByPai).forEach(a => a.sort((x, y) => (x.ordem ?? 9999) - (y.ordem ?? 9999)))
+    const vis: { l: Linha; depth: number }[] = []
+    const walk = (k: string, depth: number) => (childrenByPai[k] || []).forEach(l => { vis.push({ l, depth }); if (!collapsed.has(l.id)) walk(l.id, depth + 1) })
+    walk('__root', 0)
+    const maxNivel = vis.reduce((m, v) => Math.max(m, v.depth + 1), 1)
+    const simPer: Periodo[] = [{ ano: 9999, mes: 1 }, { ano: 9999, mes: 2 }, { ano: 9999, mes: 3 }]
+    const simRaw: RawValues = {}
+    linhas.forEach(l => { if (l.tipo_linha === 'ANALITICA' && simVals[l.id]) { simRaw[l.id] = {}; simPer.forEach((p, i) => { const v = simVals[l.id][i]; if (v != null && !isNaN(v)) simRaw[l.id][pkey(p)] = { valor: v } }) } })
+    const simComp: Computed = simShow ? computeCenario(linhasCalc, simRaw, simPer) : {}
+    const setSim = (lid: string, i: number, v: number) => setSimVals(prev => { const a = (prev[lid] || [NaN, NaN, NaN]).slice(); a[i] = v; return { ...prev, [lid]: a } })
+    const hasKids = (lid: string) => !!childrenByPai[lid]?.length
+    // inclusão POSICIONADA: insere na posição certa do grupo e reordena (ordem limpa *10)
+    const addEstrutura = async () => {
+      if (!newDesc.trim() || !id || !adding) return
+      await ensureSnapshot()
+      const paiId = adding.paiId
+      const sibs = linhas.filter(l => l.pai_id === paiId).sort((a, b) => (a.ordem ?? 9999) - (b.ordem ?? 9999))
+      let insertIdx: number
+      if (addAfterId && addAfterId !== paiId) insertIdx = sibs.findIndex(s => s.id === addAfterId) + 1   // logo após a irmã selecionada
+      else if (addAfterId && addAfterId === paiId) insertIdx = 0                                          // filha → 1º filho
+      else insertIdx = sibs.length                                                                        // raiz/fim
+      const codigo = `L${Date.now().toString(36)}`
+      const { data: master, error: em } = await supabase.from('conta_orcamentaria').insert({ tenant_id: TENANT_ID, codigo, descricao: newDesc.trim(), tipo_linha: 'ANALITICA', natureza: 'NEUTRO' }).select('id').single()
+      if (em) { alert('Erro ao criar linha: ' + em.message); return }
+      const { data: nl, error } = await supabase.from('relatorio_linha').insert({ relatorio_id: id, pai_id: paiId, descricao: newDesc.trim(), codigo, tipo_linha: 'ANALITICA', natureza: 'NEUTRO', ordem: 0, formato: 'NUMERO', casas_decimais: 0, linha_orc_id: master?.id ?? null }).select('id').single()
+      if (error || !nl) { alert('Erro ao incluir linha: ' + (error?.message || '')); return }
+      const ordered = [...sibs]; ordered.splice(insertIdx, 0, { id: nl.id } as Linha)
+      for (let k = 0; k < ordered.length; k++) await supabase.from('relatorio_linha').update({ ordem: (k + 1) * 10 }).eq('id', ordered[k].id)
+      setAdding(null); setAddAfterId(null); setNewDesc('')
+      await loadRelatorio()
+    }
+    const inputRow = (paiId: string | null, depth: number) => (
+      <tr><td colSpan={simShow ? 7 : 4} style={{ padding: '6px 10px', paddingLeft: 10 + depth * 18 }}>
+        <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+          <input autoFocus value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder={paiId ? 'Nome da linha filha' : 'Nome da linha'}
+            style={{ width: 280, background: '#0c0c14', border: '1px solid var(--violet)', borderRadius: 6, color: 'var(--text)', fontSize: 13, padding: '5px 9px', outline: 'none' }}
+            onKeyDown={e => { if (e.key === 'Enter') addEstrutura(); if (e.key === 'Escape') { setAdding(null); setAddAfterId(null); setNewDesc('') } }} />
+          <button style={{ ...S.btnGreen, padding: '5px 12px' }} onClick={addEstrutura}>Adicionar</button>
+          <button style={{ ...S.btnGray, padding: '5px 10px' }} onClick={() => { setAdding(null); setAddAfterId(null); setNewDesc('') }}>Cancelar</button>
+        </span>
+      </td></tr>
+    )
+    const eth: CSSProperties = { padding: '7px 10px', fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.4px', borderBottom: '1px solid var(--border)', textAlign: 'right', whiteSpace: 'nowrap' }
+    const etd: CSSProperties = { padding: '4px 10px', fontSize: 13, borderBottom: '1px solid var(--panel)', whiteSpace: 'nowrap' }
+    const ab2: CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '3px 4px', borderRadius: 4, display: 'inline-flex', alignItems: 'center' }
+    const simInput: CSSProperties = { width: 72, background: '#0c0c14', border: '1px solid var(--border-strong)', borderRadius: 4, color: 'var(--text)', fontSize: 12, textAlign: 'right', padding: '2px 6px', outline: 'none' }
+    return (
+      <div style={S.page}>
+        <div style={S.header}>
+          <button style={S.back} onClick={() => navigate(-1)}><ChevronLeft size={15} /> Voltar</button>
+          <span style={S.title}>{relatorio?.nome ?? '...'} · <span style={{ color: 'var(--muted)', fontWeight: 400 }}>Estrutura</span></span>
+          <div style={{ flex: 1 }} />
+          <div style={{ display: 'flex', gap: 3, alignItems: 'center', marginRight: 4 }}>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Nível:</span>
+            {Array.from({ length: Math.min(maxNivel, 6) }, (_, i) => i + 1).map(n => (
+              <button key={n} onClick={() => recolherAteNivel(n)} title={`Mostrar até o nível ${n}`}
+                style={{ width: 24, height: 24, fontSize: 12, fontWeight: 600, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)', borderRadius: 6, cursor: 'pointer' }}>{n}</button>
+            ))}
+            <button onClick={expandirTudo} title="Expandir tudo" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '4px 8px', border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)', borderRadius: 6, cursor: 'pointer' }}><ChevronsUpDown size={12} /> Tudo</button>
+          </div>
+          <button onClick={() => setSimShow(s => !s)} style={{ ...S.sel, color: simShow ? 'var(--violet)' : 'var(--text-mid)', borderColor: simShow ? 'var(--violet)' : 'var(--border-strong)' }}>{simShow ? '✓ Simulação' : 'Simular fórmulas'}</button>
+          <button title={selId ? 'Adiciona no mesmo nível da linha selecionada' : 'Adiciona na raiz (nenhuma linha selecionada)'}
+            onClick={() => { const s = selId ? linhas.find(x => x.id === selId) : null; setAdding({ paiId: s ? s.pai_id : null }); setAddAfterId(s ? selId : null); setNewDesc('') }} style={{ ...S.btnPri, padding: '6px 12px' }}><Plus size={14} /> Nova linha</button>
+        </div>
+
+        <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px' }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 720 }}>
+            <thead>
+              <tr>
+                <th style={{ ...eth, textAlign: 'left' }}>Item da estrutura</th>
+                <th style={{ ...eth, textAlign: 'left' }}>Tipo</th>
+                <th style={{ ...eth, textAlign: 'left' }}>Fórmula</th>
+                {simShow && <th style={eth} title="Período de teste 1">P1</th>}
+                {simShow && <th style={eth} title="Período de teste 2 (testa =ANTERIOR())">P2</th>}
+                {simShow && <th style={eth} title="Período de teste 3">P3</th>}
+                <th style={{ ...eth, textAlign: 'right' }}>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {vis.map(({ l, depth }) => {
+                const ti = TIPO_INFO[l.tipo_linha]
+                const isFx = l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR'
+                const isAna = l.tipo_linha === 'ANALITICA'
+                const nLinks = contaLinks[l.id]?.length ?? 0
+                return (
+                  <Fragment key={l.id}>
+                  <tr onClick={() => setSelId(l.id)} style={{ background: selId === l.id ? 'rgba(139,92,246,0.13)' : undefined, boxShadow: selId === l.id ? 'inset 2px 0 0 var(--violet)' : undefined }}>
+                    <td style={{ ...etd, paddingLeft: 10 + depth * 18, cursor: 'pointer' }} onDoubleClick={() => setLinhaModal(l)} title="Clique para selecionar · duplo clique para editar">
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <span onClick={() => hasKids(l.id) && setCollapsed(p => { const n = new Set(p); n.has(l.id) ? n.delete(l.id) : n.add(l.id); return n })}
+                          style={{ width: 14, cursor: hasKids(l.id) ? 'pointer' : 'default', color: 'var(--muted)', fontSize: 10 }}>{hasKids(l.id) ? (collapsed.has(l.id) ? '▸' : '▾') : ''}</span>
+                        <span style={{ width: 7, height: 7, borderRadius: 2, background: ti.cor, flexShrink: 0 }} />
+                        <span style={{ color: l.tipo_linha === 'SOMAR_FILHOS' ? 'var(--text)' : 'var(--text-mid)', fontWeight: l.tipo_linha === 'SOMAR_FILHOS' ? 700 : 500 }}>{l.descricao || <em style={{ color: 'var(--faint)' }}>sem nome</em>}</span>
+                        {nLinks > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--green)' }} title="contas amarradas">🔗{nLinks}</span>}
+                      </span>
+                    </td>
+                    <td style={{ ...etd, color: 'var(--muted)', fontSize: 11 }}>{ti.label.split(' —')[0]}</td>
+                    <td style={{ ...etd, color: '#cbb8ff', fontFamily: 'monospace', fontSize: 12, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }}>{isFx ? (toDisplay(l.expressao) || '—') : ''}</td>
+                    {simShow && simPer.map((p, i) => (
+                      <td key={i} style={{ ...etd, textAlign: 'right' }}>
+                        {isAna
+                          ? <input style={simInput} type="number" value={simVals[l.id]?.[i] ?? ''} placeholder="0" onChange={e => setSim(l.id, i, parseNum(e.target.value))} />
+                          : <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-mid)' }}>{formatValor(simComp[l.id]?.[pkey(p)] ?? 0, l.formato, l.casas_decimais)}</span>}
+                      </td>
+                    ))}
+                    <td style={{ ...etd, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <button style={ab2} title="Mover ↑" onClick={() => moveLinha(l, -1)}><ArrowUp size={13} /></button>
+                      <button style={ab2} title="Mover ↓" onClick={() => moveLinha(l, 1)}><ArrowDown size={13} /></button>
+                      <button style={ab2} title="Desindentar" onClick={() => outdentLinha(l)}><ArrowLeft size={13} /></button>
+                      <button style={ab2} title="Indentar" onClick={() => indentLinha(l)}><ArrowRight size={13} /></button>
+                      <button style={ab2} title="Adicionar filha (abaixo desta linha)" onClick={() => { setCollapsed(p => { const n = new Set(p); n.delete(l.id); return n }); setAdding({ paiId: l.id }); setAddAfterId(l.id); setNewDesc('') }}><Plus size={13} /></button>
+                      <button style={ab2} title="Editar linha / fórmula" onClick={() => setLinhaModal(l)}><Pencil size={13} /></button>
+                      <button style={ab2} title="Amarração de contas desta linha" onClick={() => setContaModal(l)}><Link2 size={13} /></button>
+                      <button style={{ ...ab2, color: 'var(--red)' }} title="Excluir do relatório" onClick={() => deleteLinha(l.id)}><Trash2 size={13} /></button>
+                    </td>
+                  </tr>
+                  {adding && addAfterId === l.id && inputRow(adding.paiId, adding.paiId === l.id ? depth + 1 : depth)}
+                  </Fragment>
+                )
+              })}
+              {adding && addAfterId === null && inputRow(adding.paiId, 0)}
+              {!vis.length && !adding && <tr><td colSpan={simShow ? 7 : 4} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>Sem linhas. Use "Nova linha" para começar.</td></tr>}
+            </tbody>
+          </table>
+          {simShow && <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12 }}>Simulação: digite valores de teste nas linhas analíticas (P1/P2/P3) para ver as fórmulas calcularem. Nada é gravado — é só para validar fórmulas (P2 testa <code>=ANTERIOR()</code>).</p>}
+        </div>
+
+        {linhaModal && <LinhaModal linha={{ ...linhaModal, expressao: toDisplay(linhaModal.expressao) }} refLinhas={linhas.map(x => ({ codigo: x.codigo, descricao: x.descricao }))} ccs={ccs as any} onClose={() => setLinhaModal(null)} onSave={saveLinha} />}
+        {contaModal && (
+          <ContaLinkModal
+            linha={contaModal} contas={contas} mapeadas={contaLinks[contaModal.id] || []}
+            onAddMany={(cids) => addContaMany(contaModal.id, cids)} onRemove={removeConta} onToggleSinal={toggleSinal}
+            onClose={() => setContaModal(null)}
+          />
+        )}
+      </div>
+    )
+  }
+
   return (
     <div style={S.page}>
       <div style={S.header}>
         <button style={S.back} onClick={() => navigate('/relatorios')}><ChevronLeft size={15} /> Relatórios</button>
+        <div style={{ display: 'flex', gap: 2, background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 8, padding: 2 }}>
+          {([['consulta', '/relatorios', 'Consultar'], ['orcar', '/orcar', 'Orçar'], ['estrutura', '/estrutura', 'Estrutura']] as const).map(([m, base, label]) => (
+            <button key={m} onClick={() => navigate(`${base}/${id}`)}
+              style={{ fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                background: mode === m ? 'rgba(139,92,246,0.18)' : 'transparent', color: mode === m ? '#cbb8ff' : 'var(--muted)' }}>
+              {label}
+            </button>
+          ))}
+        </div>
         <span style={S.title}>{relatorio?.nome ?? '...'}</span>
 
         <select style={{ ...S.sel, borderColor: editavel ? 'var(--border-strong)' : 'var(--orange)' }} value={versaoId} onChange={e => setVersaoId(e.target.value)} title="Versão / cenário">
@@ -1410,6 +1572,7 @@ export default function RelatorioEditorPage() {
               {sel ? <>Linha: <b style={{ color: 'var(--text)' }}>{sel.descricao}</b></> : 'Selecione uma linha'}
             </span>
             <div style={{ flex: 1 }} />
+            {podeEstrutura && (<>
             <button style={ab} title="Mover para cima" onClick={act(l => moveLinha(l, -1))}><ArrowUp size={13} /></button>
             <button style={ab} title="Mover para baixo" onClick={act(l => moveLinha(l, 1))}><ArrowDown size={13} /></button>
             <button style={ab} title="Desindentar (subir nível)" onClick={act(outdentLinha)}><ArrowLeft size={13} /></button>
@@ -1422,12 +1585,13 @@ export default function RelatorioEditorPage() {
             <button style={ab} title="Editar linha" onClick={act(l => setLinhaModal(l))}><Pencil size={13} /></button>
             <button style={ab} title="Contas (DE-PARA do realizado)" onClick={act(l => setContaModal(l))}><Link2 size={13} /></button>
             <button style={{ ...ab, color: sel ? 'var(--red)' : 'var(--border-strong)' }} title="Excluir linha" onClick={act(l => { deleteLinha(l.id); setSelId(null) })}><Trash2 size={13} /></button>
+            </>)}
           </div>
         )
       })()}
 
       {valErro && (
-        <div style={{ margin: '8px 16px 0', padding: '8px 12px', background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 8, fontSize: 12, color: '#c92a2a' }}>
+        <div style={{ margin: '8px 16px 0', padding: '8px 12px', background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 8, fontSize: 12, color: 'var(--red)' }}>
           ⚠ Erro ao carregar valores: {valErro}
         </div>
       )}
@@ -1618,7 +1782,7 @@ export default function RelatorioEditorPage() {
       </div>
 
       {!editavel && !avisoLeituraOff && (
-        <div style={{ position: 'fixed', bottom: 16, right: 16, display: 'flex', alignItems: 'flex-start', gap: 8, background: 'rgba(251,191,36,0.14)', border: '1px solid var(--orange)', borderRadius: 8, padding: '8px 10px 8px 14px', fontSize: 13, color: '#856404', maxWidth: 320, boxShadow: '0 6px 18px rgba(0,0,0,0.12)', zIndex: 1400 }}>
+        <div style={{ position: 'fixed', bottom: 16, right: 16, display: 'flex', alignItems: 'flex-start', gap: 8, background: 'rgba(251,191,36,0.14)', border: '1px solid var(--orange)', borderRadius: 8, padding: '8px 10px 8px 14px', fontSize: 13, color: 'var(--orange)', maxWidth: 320, boxShadow: '0 6px 18px rgba(0,0,0,0.12)', zIndex: 1400 }}>
           <span>{versoes.length === 0
             ? 'Nenhuma versão cadastrada. Crie em Cadastros → Versões/Cenários (ex.: Orçado 2026).'
             : 'Somente leitura. Abra Filtros e selecione 1 empresa e 1 versão (Filial/CC em "todas") para editar.'}</span>
