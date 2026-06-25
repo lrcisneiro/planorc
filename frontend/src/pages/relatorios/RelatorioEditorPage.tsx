@@ -7,7 +7,8 @@ import {
 } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Computed, Periodo, TipoLinha, Formato } from '../../lib/engine'
 import FormulaCellInput from './FormulaCellInput'
-import { effectiveCcFilter, FiltrosButton, PeriodoButton } from '../dashboard/DashFiltros'
+import { effectiveCcFilter, FiltrosButton, PeriodoButton, Checklist, opcoesAttr } from '../dashboard/DashFiltros'
+import type { CC as CCItem } from '../dashboard/DashFiltros'
 import {
   ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Settings2, X,
   Sigma, FunctionSquare, Percent, Minus, Type, Download, Upload, Link2, ChevronsUpDown, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Pencil, Eye, EyeOff, Strikethrough, ListTree, History, RotateCcw, Save,
@@ -31,8 +32,10 @@ type Linha = LinhaCalc & {
   linha_orc_id: string | null   // âncora do dado na estrutura compartilhada (F2)
   visivel_dashboard: boolean    // só exibição (não afeta cálculo)
   visivel_relatorio: boolean    // só exibição (não afeta cálculo)
+  filtro_escopo: EscopoCC | null   // filtro de CC próprio da linha (sobrepõe a tela); só com nao_soma
   _depth: number
 }
+type EscopoCC = { cc?: string[]; area?: string[]; divisao?: string[]; bu?: string[] }
 type Relatorio = { id: string; codigo: string; nome: string; categoria?: string | null }
 type Empresa   = { id: string; codigo: string; descricao: string }
 type Versao    = { id: string; codigo: string }
@@ -265,12 +268,16 @@ export default function RelatorioEditorPage() {
   const [verOcultas, setVerOcultas] = useState(false)   // mostra linhas com visivel_relatorio=false p/ gerenciar
   const [showDeltaVal, setShowDeltaVal] = useState(false)   // coluna Δ valor no comparativo (além do Δ%)
   const [colapsados, setColapsados] = useState<Set<number>>(new Set())   // meses recolhidos no comparativo (só visual)
+  const [avisoLeituraOff, setAvisoLeituraOff] = useState(false)   // dispensar o aviso de somente-leitura
+  const [rawScoped, setRawScoped] = useState<Record<string, RawValues>>({})   // `${cen}::${sig}` → cenário escopado completo (linhas de apoio)
+  const [escSig, setEscSig] = useState<Record<string, string>>({})            // linhaId → assinatura do escopo
 
   const anos = useMemo(() => { const out: number[] = []; for (let y = pIni.ano; y <= pFim.ano; y++) out.push(y); return out }, [pIni.ano, pFim.ano])
   const periodos: Periodo[] = useMemo(() => mesesNoRange(pIni, pFim), [pIni.ano, pIni.mes, pFim.ano, pFim.mes]) // eslint-disable-line
 
   // F2: âncora do dado é a linha mestre (conta_orcamentaria). Mapas linha do relatório <-> mestre.
-  const rlOfOrc = useMemo(() => { const m: Record<string, string> = {}; for (const l of linhas) if (l.linha_orc_id) m[l.linha_orc_id] = l.id; return m }, [linhas])
+  // master→linha p/ o carregamento GLOBAL; ignora linhas de apoio escopadas (essas carregam por filtro próprio)
+  const rlOfOrc = useMemo(() => { const m: Record<string, string> = {}; for (const l of linhas) if (l.linha_orc_id && !l.nao_soma) m[l.linha_orc_id] = l.id; return m }, [linhas])
   const masterIds = useMemo(() => linhas.map(l => l.linha_orc_id).filter(Boolean) as string[], [linhas])
   const orcOf = (rlId: string) => linhas.find(l => l.id === rlId)?.linha_orc_id || null
 
@@ -285,6 +292,7 @@ export default function RelatorioEditorPage() {
   const filialAll = filialSel.length === 0 || filialSel.length === filiais.length
   const ccAll = (ccSel.length === 0 || ccSel.length === ccs.length) && !areaSel.length && !divisaoSel.length && !buSel.length
   const editavel = !!empresaUnica && !!versaoId && filialAll && ccAll
+  useEffect(() => { if (editavel) setAvisoLeituraOff(false) }, [editavel])   // reaparece num novo estado de leitura
 
   // ── Loads
   const loadRelatorio = useCallback(async () => {
@@ -292,7 +300,7 @@ export default function RelatorioEditorPage() {
     const { data: r } = await supabase.from('relatorio').select('id,codigo,nome, categoria_relatorio(codigo)').eq('id', id).single()
     setRelatorio(r ? { id: r.id, codigo: r.codigo, nome: r.nome, categoria: (r as any).categoria_relatorio?.codigo || null } : null)
     const { data: ls } = await supabase.from('relatorio_linha').select('*').eq('relatorio_id', id).order('ordem', { nullsFirst: false })
-    setLinhas((ls || []).map((l: any) => ({ ...l, visivel_dashboard: l.visivel_dashboard !== false, visivel_relatorio: l.visivel_relatorio !== false, _depth: 0 })))
+    setLinhas((ls || []).map((l: any) => ({ ...l, visivel_dashboard: l.visivel_dashboard !== false, visivel_relatorio: l.visivel_relatorio !== false, nao_soma: !!l.nao_soma, filtro_escopo: l.filtro_escopo || null, _depth: 0 })))
   }, [id])
 
   const loadViews = useCallback(async () => {
@@ -461,13 +469,58 @@ export default function RelatorioEditorPage() {
       }
     }
 
+    // ── Linhas de APOIO com filtro de CC próprio (nao_soma + filtro_escopo).
+    // Cada escopo distinto vira um CENÁRIO COMPLETO recarregado com o CC do escopo (todas as linhas).
+    // Guardamos o raw escopado (rawScopedNext) por `${cen}::${sig}`; os memos calculam valor e TOTAL
+    // recalculando a fórmula DENTRO desse cenário (total de % é recalculado, não somado).
+    const rawScopedNext: Record<string, RawValues> = {}
+    const escSigNext: Record<string, string> = {}
+    const escLinhas = linhas.filter(l => (l.tipo_linha === 'INDICADOR' || l.nao_soma) && l.filtro_escopo && Object.values(l.filtro_escopo).some(a => (a || []).length))
+    if (escLinhas.length) {
+      const grupos = new Map<string, string[]>()   // sig → ccList
+      for (const l of escLinhas) {
+        const e = l.filtro_escopo!
+        const cc = effectiveCcFilter(ccs as any, e.cc || [], e.area || [], e.divisao || [], e.bu || [])
+        if (!cc) continue   // escopo não restringe → segue o global
+        const sig = JSON.stringify([...cc].sort())
+        if (!grupos.has(sig)) grupos.set(sig, cc)
+        escSigNext[l.id] = sig
+      }
+      const masterToLines: Record<string, string[]> = {}
+      for (const l of linhas) if (l.linha_orc_id) (masterToLines[l.linha_orc_id] ||= []).push(l.id)
+      for (const [sig, ccList] of grupos) {
+        for (const cen of cenariosAtivos) {
+          const rawSc: RawValues = {}
+          const setMaster = (master: string, pk: string, cell: { valor?: number; expressao?: string }) => { for (const lid of (masterToLines[master] || [])) (rawSc[lid] ||= {})[pk] = cell }
+          if (cen === REALIZADO) {
+            if (isBalanco) {
+              for (const y of anos) {
+                const { data, error } = await supabase.rpc('relatorio_saldo_agg', { p_empresas: empresaSel, p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter })
+                if (error) throw new Error(error.message)
+                for (const r of data || []) setMaster(r.linha_id, `${y}-${r.mes}`, { valor: Number(r.saldo) || 0 })
+              }
+            } else {
+              const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: empresaSel, p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccList })
+              if (error) throw new Error(error.message)
+              for (const r of data || []) setMaster(r.linha_id, `${r.ano}-${r.mes}`, { valor: Number(r.valor) || 0 })
+            }
+          } else {
+            const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: empresaSel, p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccList })
+            if (error) throw new Error(error.message)
+            for (const r of data || []) setMaster(r.linha_id, `${r.ano}-${r.mes}`, (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 })
+          }
+          rawScopedNext[`${cen}::${sig}`] = rawSc
+        }
+      }
+    }
+
       if (myseq !== loadSeq.current) return   // um carregamento mais novo começou → descarta este
-      setRaw(next); setDetalhado(det); setRawEmp(nextEmp); setValErro(null)
+      setRaw(next); setDetalhado(det); setRawEmp(nextEmp); setRawScoped(rawScopedNext); setEscSig(escSigNext); setValErro(null)
     } catch (e: any) {
       console.error('loadValores erro:', e)
       setValErro(e?.message ?? String(e))
     }
-  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, pIni.ano, pFim.ano, pIni.mes, pFim.mes, cenariosAtivos, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEmpresa, empsCols]) // eslint-disable-line
+  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, pIni.ano, pFim.ano, pIni.mes, pFim.mes, cenariosAtivos, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEmpresa, empsCols, linhas]) // eslint-disable-line
 
   useEffect(() => { loadValores() }, [loadValores])
 
@@ -506,12 +559,26 @@ export default function RelatorioEditorPage() {
   }, [id, loadSnaps])
 
   // ── Cálculo por cenário
-  const linhasCalc = linhas as LinhaCalc[]
+  // exibição: linha escopada é tratada como ANALÍTICA (usa o valor escopado já armazenado em raw;
+  // não recalcula a fórmula no contexto global). nao_soma garante que fica fora do total.
+  const linhasCalc = useMemo<LinhaCalc[]>(() => linhas.map(l => ((l.tipo_linha === 'INDICADOR' || l.nao_soma) && l.filtro_escopo) ? ({ ...(l as LinhaCalc), tipo_linha: 'ANALITICA' }) : (l as LinhaCalc)), [linhas])
+  // tipos REAIS (fórmula continua fórmula) — usado p/ recalcular as linhas escopadas no cenário escopado
+  const linhasCalcReal = useMemo<LinhaCalc[]>(() => linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada, nao_soma: l.nao_soma })), [linhas])
+  // cenário escopado calculado (por `${cen}::${sig}`) — base p/ valores e TOTAIS das linhas de apoio
+  const scopedComputed = useMemo(() => {
+    const out: Record<string, Computed> = {}
+    for (const k in rawScoped) out[k] = computeCenario(linhasCalcReal, rawScoped[k], periodos)
+    return out
+  }, [rawScoped, linhasCalcReal, periodos])
+  const hasEsc = Object.keys(escSig).length > 0
   const computed = useMemo(() => {
     const out: Record<string, Computed> = {}
-    for (const cen of cenariosAtivos) out[cen] = computeCenario(linhasCalc, raw[cen] || {}, periodos)
+    for (const cen of cenariosAtivos) {
+      out[cen] = computeCenario(linhasCalc, raw[cen] || {}, periodos)
+      if (hasEsc) for (const lid in escSig) { const sc = scopedComputed[`${cen}::${escSig[lid]}`]; if (sc?.[lid]) out[cen][lid] = sc[lid] }
+    }
     return out
-  }, [linhas, raw, cenariosAtivos, periodos])
+  }, [linhas, raw, cenariosAtivos, periodos, scopedComputed, escSig, hasEsc])
   // ── Período: granularidade vem da VIEW; o intervalo (de–até, multi-ano) vem do filtro
   const gran = (view.filtros?.granularidade as string) || 'MENSAL'
   const mpb = MPB[gran] || 1
@@ -526,16 +593,22 @@ export default function RelatorioEditorPage() {
     return arr
   }, [periodos, mpb, gran, showYear])
   const displayedMeses = useMemo(() => buckets.flatMap(b => b.meses), [buckets])
+  // total de uma linha escopada = fórmula RECALCULADA dentro do cenário escopado (não soma dos meses)
+  const totEsc = (cen: string, meses: Periodo[]): Record<string, number> => {
+    const out: Record<string, number> = {}
+    for (const lid in escSig) { const sc = scopedComputed[`${cen}::${escSig[lid]}`]; if (sc) out[lid] = computeTotais(linhasCalcReal, sc, meses)[lid] }
+    return out
+  }
   const bucketTotais = useMemo(() => {
     const out: Record<string, Record<string, number>[]> = {}
-    for (const cen of cenariosAtivos) out[cen] = buckets.map(b => computeTotais(linhasCalc, computed[cen] || {}, b.meses))
+    for (const cen of cenariosAtivos) out[cen] = buckets.map(b => { const t = computeTotais(linhasCalc, computed[cen] || {}, b.meses); if (hasEsc) Object.assign(t, totEsc(cen, b.meses)); return t })
     return out
-  }, [linhas, computed, cenariosAtivos, buckets]) // eslint-disable-line
+  }, [linhas, computed, cenariosAtivos, buckets, scopedComputed, escSig, hasEsc]) // eslint-disable-line
   const totalByCen = useMemo(() => {
     const out: Record<string, Record<string, number>> = {}
-    for (const cen of cenariosAtivos) out[cen] = computeTotais(linhasCalc, computed[cen] || {}, displayedMeses)
+    for (const cen of cenariosAtivos) { out[cen] = computeTotais(linhasCalc, computed[cen] || {}, displayedMeses); if (hasEsc) Object.assign(out[cen], totEsc(cen, displayedMeses)) }
     return out
-  }, [linhas, computed, cenariosAtivos, displayedMeses]) // eslint-disable-line
+  }, [linhas, computed, cenariosAtivos, displayedMeses, scopedComputed, escSig, hasEsc]) // eslint-disable-line
 
   const cellVal = (cen: string, linhaId: string, period: Period): number =>
     period === 'TOTAL' ? (totalByCen[cen]?.[linhaId] ?? 0) : (bucketTotais[cen]?.[period as number]?.[linhaId] ?? 0)
@@ -959,8 +1032,10 @@ export default function RelatorioEditorPage() {
         const empresa_id = empMap[empCod]; const linha_id = lnMap[itemCod]
         if (!empresa_id || !linha_id) { skip++; if (empCod && !empresa_id) missEmp.add(empCod); if (itemCod && !linha_id) missItem.add(itemCod); continue }
         const filial_id = iFil >= 0 ? (filMap[String(row[iFil] ?? '').trim()] || null) : null
-        const cc_id = iCC >= 0 ? (ccMap[String(row[iCC] ?? '').trim()] || null) : null
+        const ccCodRaw = iCC >= 0 ? String(row[iCC] ?? '').trim() : ''
+        const cc_id = ccCodRaw ? (ccMap[ccCodRaw] || null) : null
         const dims: any = {}
+        if (ccCodRaw && !cc_id) dims.cc_orig = ccCodRaw   // CC não cadastrado → guarda o código p/ re-vincular depois
         if (iArea >= 0 && row[iArea] !== '' && row[iArea] != null) dims.area = String(row[iArea]).trim()
         if (iDiv >= 0 && row[iDiv] !== '' && row[iDiv] != null) dims.divisao = String(row[iDiv]).trim()
         if (iBU >= 0 && row[iBU] !== '' && row[iBU] != null) dims.bu = String(row[iBU]).trim()
@@ -1136,6 +1211,7 @@ export default function RelatorioEditorPage() {
       codigo: l.codigo.trim(), descricao: l.descricao.trim(), tipo_linha: l.tipo_linha,
       natureza: l.natureza || null, negrito: l.negrito, italico: l.italico, desativada: !!l.desativada,
       visivel_dashboard: l.visivel_dashboard !== false, visivel_relatorio: l.visivel_relatorio !== false,
+      nao_soma: !!l.nao_soma, filtro_escopo: ((l.tipo_linha === 'INDICADOR' || l.nao_soma) && l.filtro_escopo && Object.values(l.filtro_escopo).some(a => (a || []).length)) ? l.filtro_escopo : null,
       formato: l.formato, casas_decimais: l.casas_decimais, cor_texto: l.cor_texto || null,
       expressao: (l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR') ? (toStored(l.expressao) || null) : null,
     }
@@ -1423,6 +1499,7 @@ export default function RelatorioEditorPage() {
                       {!isSpac && contaLinks[l.id]?.length ? <span style={{ fontSize: 9, fontWeight: 700, color: '#2f9e44', flexShrink: 0 }} title="contas amarradas">🔗{contaLinks[l.id].length}</span> : null}
                       {l.visivel_relatorio === false ? <EyeOff size={12} style={{ color: '#fa5252', flexShrink: 0 }} /> : null}
                       {l.visivel_dashboard === false ? <span style={{ fontSize: 9, fontWeight: 700, color: '#7048e8', flexShrink: 0, border: '1px solid #d0bfff', borderRadius: 3, padding: '0 3px' }} title="oculta no dashboard">DASH</span> : null}
+                      {l.filtro_escopo ? <span style={{ fontSize: 9, fontWeight: 700, color: '#7048e8', flexShrink: 0, border: '1px solid #d0bfff', borderRadius: 3, padding: '0 3px' }} title="indicador com filtro de CC próprio (fora do total)">CC↧</span> : (l.nao_soma ? <span style={{ fontSize: 9, fontWeight: 700, color: '#7048e8', flexShrink: 0, border: '1px solid #d0bfff', borderRadius: 3, padding: '0 3px' }} title="linha de apoio (fora do total)">apoio</span> : null)}
                     </div>
                   </td>
                   {columns.map(c => {
@@ -1456,7 +1533,7 @@ export default function RelatorioEditorPage() {
                     const isDet = !!perUnico && !!detalhado[cen]?.has(`${l.id}-${pk}`)
                     const isLineFx = l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR'
                     const editLineFx = isLineFx && cen === versaoId && typeof c.period === 'number'
-                    const canEditCell = editable && cen === versaoId && !!perUnico && editavel && !isDet
+                    const canEditCell = editable && cen === versaoId && !!perUnico && editavel && !isDet && !l.nao_soma   // linha de apoio escopada = read-only
                     const canEdit = canEditCell || editLineFx
                     const isEditing = editCell?.linhaId === l.id && editCell?.period === c.period
                     const hasFx = !!perUnico && !!raw[cen]?.[l.id]?.[pk]?.expressao
@@ -1540,15 +1617,16 @@ export default function RelatorioEditorPage() {
         </table>
       </div>
 
-      {!editavel && (
-        <div style={{ position: 'fixed', bottom: 16, right: 16, background: '#fff3bf', border: '1px solid #ffd43b', borderRadius: 8, padding: '10px 16px', fontSize: 13, color: '#856404', maxWidth: 340 }}>
-          {versoes.length === 0
+      {!editavel && !avisoLeituraOff && (
+        <div style={{ position: 'fixed', bottom: 16, right: 16, display: 'flex', alignItems: 'flex-start', gap: 8, background: '#fff3bf', border: '1px solid #ffd43b', borderRadius: 8, padding: '8px 10px 8px 14px', fontSize: 13, color: '#856404', maxWidth: 320, boxShadow: '0 6px 18px rgba(0,0,0,0.12)', zIndex: 1400 }}>
+          <span>{versoes.length === 0
             ? 'Nenhuma versão cadastrada. Crie em Cadastros → Versões/Cenários (ex.: Orçado 2026).'
-            : 'Somente leitura. Abra Filtros e selecione 1 empresa e 1 versão (Filial/CC em "todas") para editar.'}
+            : 'Somente leitura. Abra Filtros e selecione 1 empresa e 1 versão (Filial/CC em "todas") para editar.'}</span>
+          <X size={16} style={{ cursor: 'pointer', flexShrink: 0, color: '#b8902a' }} onClick={() => setAvisoLeituraOff(true)} />
         </div>
       )}
 
-      {linhaModal && <LinhaModal linha={{ ...linhaModal, expressao: toDisplay(linhaModal.expressao) }} refLinhas={linhas.map(x => ({ codigo: x.codigo, descricao: x.descricao }))} onClose={() => setLinhaModal(null)} onSave={saveLinha} />}
+      {linhaModal && <LinhaModal linha={{ ...linhaModal, expressao: toDisplay(linhaModal.expressao) }} refLinhas={linhas.map(x => ({ codigo: x.codigo, descricao: x.descricao }))} ccs={ccs as any} onClose={() => setLinhaModal(null)} onSave={saveLinha} />}
       {viewModal && <ViewModal view={viewModal} versoes={versoes} onClose={() => setViewModal(null)} onSave={saveView} />}
       {razao && <RazaoModal {...razao} onClose={() => setRazao(null)} />}
       {pickerOpen && <EstruturaPicker masters={masters} jaNoRelatorio={new Set(linhas.map(l => l.codigo))} alvo={selId ? linhas.find(l => l.id === selId)?.descricao ?? null : null} onAdd={addDaEstrutura} onClose={() => setPickerOpen(false)} />}
@@ -1970,9 +2048,14 @@ function ContaLinkModal({ linha, contas, mapeadas, onAddMany, onRemove, onToggle
 }
 
 // ─── Modal: linha ────────────────────────────────────────────
-function LinhaModal({ linha, refLinhas, onClose, onSave }: { linha: Linha; refLinhas: { codigo: string; descricao: string }[]; onClose: () => void; onSave: (l: Linha) => void }) {
+function LinhaModal({ linha, refLinhas, ccs, onClose, onSave }: { linha: Linha; refLinhas: { codigo: string; descricao: string }[]; ccs: CCItem[]; onClose: () => void; onSave: (l: Linha) => void }) {
   const [l, setL] = useState<Linha>(linha)
   const isFormula = l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR'
+  const esc = l.filtro_escopo || {}
+  const setEsc = (patch: Partial<EscopoCC>) => setL({ ...l, filtro_escopo: { ...esc, ...patch } })
+  const areas = opcoesAttr(ccs, 'area_cod', 'area_nome')
+  const divisoes = opcoesAttr(ccs, 'divisao_cod', 'divisao_nome')
+  const bus = opcoesAttr(ccs, 'bu_cod', 'bu_nome')
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={S.modal} onClick={e => e.stopPropagation()}>
@@ -2051,6 +2134,24 @@ function LinhaModal({ linha, refLinhas, onClose, onSave }: { linha: Linha; refLi
             <label style={S.chk}><input type="checkbox" checked={l.visivel_relatorio !== false} onChange={e => setL({ ...l, visivel_relatorio: e.target.checked })} /> Visível no relatório</label>
             <label style={S.chk}><input type="checkbox" checked={l.visivel_dashboard !== false} onChange={e => setL({ ...l, visivel_dashboard: e.target.checked })} /> Visível no dashboard</label>
           </div>
+        </div>
+        <div style={{ borderTop: '1px solid #f1f3f5', paddingTop: 10, marginTop: 2 }}>
+          {l.tipo_linha === 'INDICADOR'
+            ? <div style={{ fontSize: 12, color: '#7048e8', marginBottom: 6 }}>Linha do tipo <strong>Indicador</strong>: aparece nos dashboards como card e fica fora do total.</div>
+            : <label style={{ ...S.chk, color: l.nao_soma ? '#7048e8' : '#495057' }}>
+                <input type="checkbox" checked={!!l.nao_soma} onChange={e => setL({ ...l, nao_soma: e.target.checked })} /> Não somar no total (linha de apoio; para indicador no dashboard, use o tipo Indicador)
+              </label>}
+          {(l.tipo_linha === 'INDICADOR' || l.nao_soma) && (
+            <div style={{ marginTop: 6, background: '#faf9ff', border: '1px solid #eee7ff', borderRadius: 8, padding: 10 }}>
+              <div style={{ fontSize: 12, color: '#868e96' }}>Filtro de Centro de Custo desta linha <strong>(opcional)</strong> — sobrepõe o filtro da tela; ano/empresa seguem o contexto. Vazio = segue a tela/preset.</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0 16px' }}>
+                <Checklist titulo="Área" items={areas} sel={esc.area || []} setSel={v => setEsc({ area: v })} />
+                <Checklist titulo="Divisão" items={divisoes} sel={esc.divisao || []} setSel={v => setEsc({ divisao: v })} />
+                <Checklist titulo="BU" items={bus} sel={esc.bu || []} setSel={v => setEsc({ bu: v })} />
+                <Checklist titulo="Centro de custo" items={ccs} sel={esc.cc || []} setSel={v => setEsc({ cc: v })} />
+              </div>
+            </div>
+          )}
         </div>
         <div style={S.mFooter}>
           <button style={S.btnSec} onClick={onClose}>Cancelar</button>

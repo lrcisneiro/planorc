@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Planorc · Menu v2 mesclado (Protótipo)</title>
+<style>
+  :root{
+    --bg:#0a0a0f; --bg-soft:#0e0e16; --panel:#14141d; --panel-2:#181823;
+    --border:rgba(255,255,255,0.07); --border-st:rgba(255,255,255,0.12);
+    --text:#e8e8f0; --text-mid:#b4b4c4; --muted:#74748a; --faint:#4a4a5a;
+    --violet:#8b5cf6; --violet-d:#6d3ff0; --blue:#3b82f6; --green:#34d399;
+    --red:#f87171; --orange:#fbbf24; --cyan:#22d3ee;
+    --r:14px; --r-sm:10px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(1200px 600px at 85% -10%, rgba(139,92,246,0.10), transparent 60%),
+      radial-gradient(900px 500px at -5% 8%, rgba(59,130,246,0.06), transparent 55%),
+      var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased; min-height:100%;
+  }
+  header{display:flex;align-items:center;gap:16px;padding:14px 26px;border-bottom:1px solid var(--border);
+    background:rgba(10,10,15,0.6);backdrop-filter:blur(8px);position:sticky;top:0;z-index:30}
+  .logo{display:flex;align-items:baseline;gap:10px}
+  .logo .mark{font-weight:800;font-size:15px;letter-spacing:3px;color:var(--text-mid)}
+  .logo .sub{font-weight:600;font-size:15px}
+  .spacer{flex:1}
+  .badge{font-size:11px;font-weight:700;letter-spacing:1px;padding:5px 11px;border-radius:999px;
+    background:linear-gradient(135deg,var(--violet),var(--violet-d));color:#fff;
+    box-shadow:0 0 0 1px rgba(139,92,246,0.4),0 4px 14px rgba(109,63,240,0.35)}
+
+  .legend{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 26px;border-bottom:1px solid var(--border);
+    background:linear-gradient(90deg,rgba(139,92,246,0.07),transparent 55%)}
+  .legend .t{font-size:12px;color:var(--muted);margin-right:2px}
+  .st{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px}
+  .st i{width:7px;height:7px;border-radius:50%}
+  .st-existe{background:rgba(59,130,246,0.14);color:#9cc4ff} .st-existe i{background:var(--blue)}
+  .st-reskin{background:rgba(251,191,36,0.13);color:var(--orange)} .st-reskin i{background:var(--orange)}
+  .st-novo{background:rgba(52,211,153,0.15);color:var(--green)} .st-novo i{background:var(--green)}
+  .st-parcial{background:rgba(34,211,238,0.13);color:#9fe9f5} .st-parcial i{background:var(--cyan)}
+
+  .layout{display:grid;grid-template-columns:300px 1fr;min-height:calc(100vh-118px)}
+  @media (max-width:920px){.layout{grid-template-columns:1fr}}
+
+  .side{border-right:1px solid var(--border);padding:14px 12px;background:rgba(255,255,255,0.012)}
+  .grp{margin-bottom:16px}
+  .grp-h{display:flex;align-items:center;gap:8px;font-size:10px;font-weight:700;letter-spacing:1px;
+    text-transform:uppercase;color:var(--muted);padding:6px 10px}
+  .grp-h .gd{width:8px;height:8px;border-radius:50%}
+  .grp-h .mode{margin-left:auto;font-size:9px;font-weight:600;color:var(--faint);text-transform:none;letter-spacing:0}
+  .navitem{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:var(--r-sm);
+    font-size:13px;color:var(--text-mid);cursor:pointer;transition:.12s;border:1px solid transparent}
+  .navitem:hover{background:var(--panel-2);color:var(--text)}
+  .navitem.active{background:rgba(139,92,246,0.16);border-color:rgba(139,92,246,0.4);color:#fff}
+  .navitem.sub{margin-left:18px;font-size:12.5px;padding:7px 11px;color:var(--muted)}
+  .navitem .ic{width:18px;text-align:center;opacity:.85;flex:0 0 auto}
+  .navitem .lbl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .navitem .dotst{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+  .ds-existe{background:var(--blue)} .ds-reskin{background:var(--orange)}
+  .ds-novo{background:var(--green)} .ds-parcial{background:var(--cyan)}
+
+  .main{padding:24px 30px 60px}
+  .h1{font-size:19px;font-weight:750}
+  .lead{font-size:13px;color:var(--muted);margin-top:6px;max-width:760px;line-height:1.55}
+  .counts{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 22px}
+  .cnt{background:linear-gradient(180deg,var(--panel),var(--bg-soft));border:1px solid var(--border);
+    border-radius:var(--r);padding:12px 16px;min-width:120px}
+  .cnt .n{font-size:24px;font-weight:750}
+  .cnt .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:3px}
+
+  .detail{border:1px solid var(--border);border-radius:var(--r);padding:20px 22px;background:var(--bg-soft);min-height:150px}
+  .detail .dtop{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .detail h3{font-size:16px;font-weight:700}
+  .route{font-size:11px;font-family:ui-monospace,monospace;color:var(--cyan);background:rgba(34,211,238,0.08);
+    border:1px solid rgba(34,211,238,0.25);padding:2px 8px;border-radius:6px}
+  .route.none{color:var(--faint);background:transparent;border-color:var(--border)}
+  .b-status{margin-left:auto}
+  .ddesc{font-size:13px;color:var(--text-mid);margin-top:14px;line-height:1.6}
+  .feats{list-style:none;margin-top:14px;display:flex;flex-wrap:wrap;gap:8px}
+  .feats li{font-size:12px;color:var(--text-mid);background:var(--panel);border:1px solid var(--border);padding:6px 11px;border-radius:999px}
+  .feats li::before{content:'✓ ';color:var(--green)}
+  .proto-tag{position:fixed;bottom:14px;right:16px;z-index:40;font-size:11px;color:var(--muted);
+    background:var(--panel);border:1px solid var(--border-st);padding:6px 12px;border-radius:999px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="mark">PLANORC</span><span class="sub">Menu v2 · mesclado com o que já existe</span></div>
+  <div class="spacer"></div>
+  <span class="badge">PROPOSTA DE NAVEGAÇÃO</span>
+</header>
+
+<div class="legend">
+  <span class="t">Status de cada item:</span>
+  <span class="st st-existe"><i></i>EXISTE — rota real hoje</span>
+  <span class="st st-reskin"><i></i>RE-ESTILIZA — existe, só muda o visual</span>
+  <span class="st st-parcial"><i></i>PARCIAL — base existe, ampliar</span>
+  <span class="st st-novo"><i></i>NOVO — a construir</span>
+</div>
+
+<div class="layout">
+  <nav class="side" id="side"></nav>
+  <div class="main">
+    <div class="h1">Menu reorganizado por modo — sem perder nada do que já está pronto</div>
+    <p class="lead">Cada item abaixo é uma rota <b>real</b> do app de hoje (do <code style="color:var(--cyan)">App.tsx</code>) reencaixada na
+      estrutura por modo de interação, ou uma proposta marcada como tal. O grosso é <b>EXISTE</b>/<b>RE-ESTILIZA</b>: a maior parte
+      do trabalho de migração é trocar a roupa, não refazer função. Clique num item para ver o detalhe.</p>
+
+    <div class="counts" id="counts"></div>
+    <div class="detail" id="detail"></div>
+  </div>
+</div>
+
+<div class="proto-tag">Protótipo v2 · merge rotas reais + modelo novo</div>
+
+<script>
+  // status: existe | reskin | parcial | novo
+  const NAV = [
+    { area:'Orçamentação', mode:'escrita', gd:'--violet', items:[
+      { id:'orcamento', ic:'✎', nm:'Orçamento', route:'/orcamento', status:'reskin',
+        desc:'Sua tela de dados do orçado (OrcadoDadosPage), já funcional. Na v2 ganha o tema dark; a lógica de edição/gravação do ORCADO permanece igual.',
+        feats:['Edição do orçado','Grava fat_orcado','Por empresa/versão/ano'] },
+      { id:'importar', ic:'⇪', nm:'Importar planilha', route:null, status:'parcial',
+        desc:'As áreas trazem o orçado de xlsx/CSV, como já é feito hoje na importação dos Cadastros. Reaproveita esse motor; entra como método de entrada do ORCADO.',
+        feats:['Upload xlsx/CSV','Mapeia coluna → item/mês','Reusa importador existente'] },
+      { id:'formulario', ic:'▭', nm:'Formulário de drivers', route:null, status:'novo',
+        desc:'Orçar a receita por direcionadores: quantidade × valor unitário do SKU × índice de correção. Calcula e escreve no orçado. (Tabelas formulario/formulario_linha já no schema.)',
+        feats:['Qtd × preço × índice','Calcula → ORCADO','Simulação de cenário'] },
+      { id:'posto', ic:'👤', nm:'Posto de trabalho (folha)', route:null, status:'novo',
+        desc:'Folha por funcionário/verba: o ERP descarrega o orçado como ponto de partida, você ajusta, e depois acompanha o realizado da folha (também do ERP). Usa funcionario/verba_folha/dim_values.',
+        feats:['Seed do ERP','Por funcionário/verba','Acompanha realizado da folha'] },
+      { id:'versoes', ic:'⎘', nm:'Versões & cenários', route:null, status:'parcial',
+        desc:'A tabela versao_orcamento já existe e é usada nas telas; falta uma tela própria para criar, comparar e congelar versões (ex.: BASELINE_2026 × REVISÃO_Q3).',
+        feats:['Criar/duplicar versão','Comparar cenários','Congelar baseline'] },
+    ]},
+    { area:'Dados / Integração', mode:'ERP', gd:'--cyan', items:[
+      { id:'realizado', ic:'⇄', nm:'Realizado', route:'/realizado', status:'reskin',
+        desc:'Carga do realizado vindo do ERP TOTVS (RealizadoDadosPage). Não é digitado — importado por lote. Na v2 só muda o visual.',
+        feats:['Carga do ERP','fat_realizado por lote','origem ERP/IMPORT'] },
+      { id:'saldos', ic:'⚖', nm:'Saldos / Balancete', route:'/saldos', status:'reskin',
+        desc:'Balancete mensal do ERP (SaldoDadosPage) que alimenta fat_saldo — base do Balanço. Re-estiliza no tema dark.',
+        feats:['Balancete do ERP','fat_saldo','Estoque por conta/filial/mês'] },
+      { id:'amarracao', ic:'🔗', nm:'Amarração (conta → linha)', route:'/amarracao', status:'reskin',
+        desc:'Mapeia conta contábil do ERP → linha de relatório (conta_linha). É o que resolve o realizado para a DRE. Funcional; só repaginar.',
+        feats:['conta_contabil → relatorio_linha','Sinal por conta','Detecta duplicatas'] },
+      { id:'lotes', ic:'◷', nm:'Lotes / Conciliação', route:null, status:'parcial',
+        desc:'Hoje há lote_ignorado (excluir lotes de encerramento) embutido no editor. Proposta: uma área própria de status de carga e conciliação (itens sem amarração, divergências).',
+        feats:['Status de carga','Lotes a ignorar','Itens sem amarração'] },
+    ]},
+    { area:'Relatórios / Acompanhamento', mode:'leitura', gd:'--green', items:[
+      { id:'dashboards', ic:'▦', nm:'Dashboards (hub)', route:'/dashboards', status:'reskin',
+        desc:'★ Porta de entrada do acompanhamento (DashboardsHubPage). Reúne em um só lugar: (1) os painéis FIXOS da ferramenta — Principal, Anual, CAGR, Executivo, Indicadores; e (2) os PRESETS do usuário, os "Meus Cards" salvos em dashboard_card, que abrem uma base já com os filtros aplicados (?card=id), com renomear/excluir. Re-estiliza no dark; a lógica de cubos/drill/YTD permanece. → Os presets do usuário moram AQUI, não no menu fixo.',
+        feats:['Bases fixas + Meus Cards','Presets do usuário (dashboard_card)','Abre base com ?card=id','Cubos · drill · YTD'], sub:[
+          { id:'principal', ic:'•', nm:'Dashboard principal', route:'/dashboard', status:'reskin',
+            desc:'Painel-base principal (DashboardPage): KPIs, Orçado × Realizado por mês/empresa, indicadores. É uma das BASES fixas — os "Meus Cards" são estados salvos dele (e das outras bases), aplicados via ?card=id.',
+            feats:['Base fixa','Aplica preset via ?card=id','Filtros empresa/filial/CC/versão','Recharts'] },
+          { id:'anual', ic:'•', nm:'Comparativo anual', route:'/dashboards/anual', status:'reskin' },
+          { id:'cagr', ic:'•', nm:'CAGR', route:'/dashboards/cagr', status:'reskin' },
+          { id:'executivo', ic:'•', nm:'Executivo', route:'/dashboards/executivo', status:'reskin' },
+          { id:'indicadores', ic:'•', nm:'Indicadores', route:'/dashboards/indicadores', status:'reskin' },
+          { id:'dash_presets', ic:'★', nm:'Meus Cards (presets)', route:null, status:'existe',
+            desc:'Os presets do usuário JÁ existentes (dashboard_card): nome + base + filtros salvos, que reabrem a base filtrada via ?card=id, com renomear/excluir no hub. É o espelho de "Meus Relatórios". Modelo de dono (migration 044): owner_id NULL = COMPARTILHADO (criado por admin, aparece p/ todos); preenchido = PESSOAL (só o dono vê).',
+            feats:['dashboard_card (já existe)','owner: compartilhado (admin) × pessoal','Abre base via ?card=id'] },
+        ]},
+      { id:'relatorios', ic:'▤', nm:'Relatórios (hub)', route:'/relatorios', status:'reskin',
+        desc:'★ Hub de relatórios — SIMÉTRICO ao de Dashboards (RelatorioPage). Lista os relatórios por categoria, tem "Novo relatório", duplicar/editar/excluir, e abre cada um no editor/visualizador rico (/relatorios/:id) com filtros de filial/CC/área/divisão/BU, presets de visão (view_config), cenários, comparativo, fórmulas, snapshots, exportação. DRE e Balanço são INSTÂNCIAS de relatório; você pode criar quantos quiser. É AQUI que o re-skin entrega mais valor — mantém TODAS as funções, só troca o visual. A página /dre que fiz foi prova de conceito e será absorvida por este hub.',
+        feats:['Lista/cria relatórios (hub)','Por categoria (DRE, BP…)','Abre editor /relatorios/:id','Visões (view_config) + presets pessoais'], sub:[
+          { id:'rel_dre', ic:'•', nm:'DRE', route:'/relatorios/:id', status:'reskin',
+            desc:'Uma instância de relatório (categoria DRE), renderizada pelo RelatorioEditorPage: Orçado × Realizado por linha, fórmulas, indicadores, todos os filtros e visões.',
+            feats:['Instância de relatório','Orçado × Realizado','Fórmulas/indicadores'] },
+          { id:'rel_bp', ic:'•', nm:'Balanço (BP)', route:'/relatorios/:id', status:'reskin',
+            desc:'Instância de relatório (categoria BP) — lê o realizado do saldo (fat_saldo). Tem também uma visão-painel dedicada em /balanco (BalancoDashboardPage).',
+            feats:['Categoria BP','Lê fat_saldo','Visão-painel em /balanco'] },
+          { id:'rel_presets', ic:'★', nm:'Meus Relatórios (presets)', route:null, status:'novo',
+            desc:'NOVO — traz o conceito de "Meus Cards" do dashboard para os relatórios. Botão "Salvar como" no editor grava o recorte atual (empresa, filial, CC, período, cenário + a view) como um preset nomeado, que reabre o relatório já filtrado (?card=id). Amplifica as visões (view_config = layout) com atalhos de filtro. Reusa o mecanismo do dashboard_card (base=/relatorios/:id) já com o dono (migration 044): NULL = compartilhado (admin), preenchido = pessoal.',
+            feats:['"Salvar como" no editor','Reusa dashboard_card + owner','Abre via ?card=id','Complementa as views (view_config)'] },
+          { id:'rel_novos', ic:'+', nm:'+ relatórios que você criar', route:null, status:'existe',
+            desc:'O hub já permite criar quantos relatórios quiser — estrutura de linhas própria, fórmulas, amarração. Cada um vira um card do hub. Funciona hoje (RelatorioPage: "Novo relatório" / duplicar).',
+            feats:['Novo relatório','Duplicar estrutura','Categoria própria'] },
+        ]},
+    ]},
+    { area:'Base', mode:'cadastros', gd:'--muted', items:[
+      { id:'cadastros', ic:'▣', nm:'Cadastros', route:'/cadastros', status:'reskin',
+        desc:'Cadastros completos (CadastrosPage): empresas, filiais, centro de custo, contas, plano orçamentário, dimensões etc. CRUD + importação já prontos; só repaginar.',
+        feats:['CRUD completo','Importação xlsx TOTVS','Dimensões configuráveis'] },
+      { id:'config', ic:'⚙', nm:'Configurações', route:'/config', status:'reskin',
+        desc:'Configurações (ConfiguracoesPage). Re-estiliza no tema dark.',
+        feats:['Contexto ativo','Preferências'] },
+    ]},
+  ];
+
+  const ST = {
+    existe:{cls:'st-existe', dot:'ds-existe', t:'EXISTE'},
+    reskin:{cls:'st-reskin', dot:'ds-reskin', t:'RE-ESTILIZA'},
+    parcial:{cls:'st-parcial', dot:'ds-parcial', t:'PARCIAL'},
+    novo:{cls:'st-novo', dot:'ds-novo', t:'NOVO'},
+  };
+  const MODE_T = { escrita:'escrita', ERP:'realizado · ERP', leitura:'leitura', cadastros:'base' };
+
+  // índice de itens (inclui sub)
+  const INDEX = {};
+  NAV.forEach(g => g.items.forEach(it => {
+    INDEX[it.id] = { ...it, mode:g.mode };
+    (it.sub||[]).forEach(s => INDEX[s.id] = { ...s, mode:g.mode, parent:it.nm,
+      desc: s.desc || `Sub-visão de ${it.nm}. Rota real ${s.route}. Re-estiliza no tema dark.`,
+      feats: s.feats || ['Visão de dashboard','Re-estiliza'] });
+  }));
+
+  // sidebar
+  document.getElementById('side').innerHTML = NAV.map(g=>`
+    <div class="grp">
+      <div class="grp-h"><span class="gd" style="background:var(${g.gd})"></span>${g.area}<span class="mode">${MODE_T[g.mode]}</span></div>
+      ${g.items.map(it=>`
+        <div class="navitem" data-id="${it.id}">
+          <span class="ic">${it.ic}</span><span class="lbl">${it.nm}</span>
+          <span class="dotst ${ST[it.status].dot}" title="${ST[it.status].t}"></span>
+        </div>
+        ${(it.sub||[]).map(s=>`
+          <div class="navitem sub" data-id="${s.id}">
+            <span class="ic">${s.ic}</span><span class="lbl">${s.nm}</span>
+            <span class="dotst ${ST[s.status].dot}"></span>
+          </div>`).join('')}
+      `).join('')}
+    </div>`).join('');
+
+  // contadores
+  const all = Object.values(INDEX);
+  const by = s => all.filter(i=>i.status===s).length;
+  document.getElementById('counts').innerHTML = [
+    ['Itens no menu', all.length, '--text'],
+    ['Já existem', by('existe')+by('reskin'), '--blue'],
+    ['Re-estilizar', by('reskin'), '--orange'],
+    ['Novos', by('novo'), '--green'],
+    ['Parciais', by('parcial'), '--cyan'],
+  ].map(([l,n,c])=>`<div class="cnt"><div class="n" style="color:var(${c})">${n}</div><div class="l">${l}</div></div>`).join('');
+
+  function show(id){
+    const it = INDEX[id]; if(!it) return;
+    const st = ST[it.status];
+    document.getElementById('detail').innerHTML = `
+      <div class="dtop">
+        <h3>${it.ic} ${it.nm}</h3>
+        <span class="route ${it.route?'':'none'}">${it.route || 'rota nova'}</span>
+        <span class="st ${st.cls} b-status"><i></i>${st.t}</span>
+      </div>
+      <div class="ddesc">${it.desc}</div>
+      <ul class="feats">${(it.feats||[]).map(f=>`<li>${f}</li>`).join('')}</ul>`;
+    document.querySelectorAll('.navitem').forEach(n=>n.classList.toggle('active', n.dataset.id===id));
+  }
+  document.querySelectorAll('.navitem').forEach(n=> n.onclick=()=>show(n.dataset.id));
+  show('relatorios');
+</script>
+</body>
+</html>

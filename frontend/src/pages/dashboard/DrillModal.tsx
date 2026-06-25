@@ -5,6 +5,7 @@ import { ResponsiveBar } from '@nivo/bar'
 import { X, ChevronRight, Download, FileDown } from 'lucide-react'
 
 declare const XLSX: any
+const MESES_AB = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
 type Props = {
   relId: string
@@ -18,7 +19,7 @@ type Props = {
   onClose: () => void
 }
 type Medida = 'Realizado' | 'Orçado'
-type RL = { id: string; pai_id: string | null; tipo_linha: any; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null; desativada: boolean; visivel_dashboard?: boolean }
+type RL = { id: string; pai_id: string | null; tipo_linha: any; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null; desativada: boolean; visivel_dashboard?: boolean; nao_soma?: boolean }
 
 const fmt = (v: number) => (v || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })
 const fmt2 = (v: number) => (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
@@ -63,7 +64,7 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
   useEffect(() => {
     (async () => {
       setLoading(true)
-      const { data: lr } = await supabase.from('relatorio_linha').select('id,pai_id,tipo_linha,natureza,linha_orc_id,descricao,ordem,desativada,visivel_dashboard').eq('relatorio_id', relId)
+      const { data: lr } = await supabase.from('relatorio_linha').select('id,pai_id,tipo_linha,natureza,linha_orc_id,descricao,ordem,desativada,visivel_dashboard,nao_soma').eq('relatorio_id', relId)
       const linhas = (lr || []) as RL[]
       const byId: Record<string, RL> = {}; linhas.forEach(l => { byId[l.id] = l })
       const childrenByPai: Record<string, RL[]> = {}
@@ -81,7 +82,7 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
       setTree({ byId, childrenByPai, valR, valO, disabledMasters })
       setLoading(false)
     })()
-  }, [relId]) // eslint-disable-line
+  }, [relId, anos.join(','), meses.join(','), empIds.join(','), JSON.stringify(filFilter), JSON.stringify(ccFilter)]) // eslint-disable-line
 
   if (!tree) return (
     <div style={S.overlay} onClick={onClose}><div style={S.modal} onClick={e => e.stopPropagation()}><div style={S.body}>Carregando…</div></div></div>
@@ -91,7 +92,7 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
   const natOf = (id: string | null): string | null => { if (!id) return null; const l = byId[id]; if (!l) return null; return (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : natOf(l.pai_id) }
   const facOf = (id: string) => natOf(id) === 'DESPESA' ? -1 : 1
   // childrenOf = travessia/totais (inclui ocultas, p/ o total bater com o relatório/EBITDA)
-  const childrenOf = (id: string) => (childrenByPai[id] || []).filter(c => c.tipo_linha !== 'ESPACO')
+  const childrenOf = (id: string) => (childrenByPai[id] || []).filter(c => c.tipo_linha !== 'ESPACO' && !c.nao_soma)
   // childrenVis = exibição (esconde visivel_dashboard=false)
   const childrenVis = (id: string) => childrenOf(id).filter(c => c.visivel_dashboard !== false)
   const subtreeMasters = (id: string): string[] => { const acc: string[] = [], st = [id]; while (st.length) { const n = st.pop()!; const m = byId[n]?.linha_orc_id; if (m && !disabledMasters.has(m)) acc.push(m); childrenOf(n).forEach(c => st.push(c.id)) } return acc }
@@ -191,10 +192,11 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
             {stack.map((id, i) => (
               <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 {i > 0 && <ChevronRight size={13} color="#adb5bd" />}
-                <span style={crumbItem(i === stack.length - 1)} onClick={() => i < stack.length - 1 && goTo(i)}>{cut(byId[id]?.descricao || '—', 30)}</span>
+                <span style={crumbItem(i === stack.length - 1)} onClick={() => i < stack.length - 1 && goTo(i)}>{cut(id === '__root' ? 'Relatório' : (byId[id]?.descricao || '—'), 30)}</span>
               </span>
             ))}
           </div>
+          <span style={{ fontSize: 12, color: '#868e96' }}>{anos.join(', ')} · {meses.length === 12 ? 'todos os meses' : meses.map(m => MESES_AB[m - 1]).join(', ')}</span>
           <X size={18} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={onClose} />
         </div>
 

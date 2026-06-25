@@ -16,6 +16,7 @@ export type LinhaCalc = {
   tipo_linha: TipoLinha
   expressao: string | null
   desativada?: boolean   // exibe valor (tachado) mas não entra em somas/refs
+  nao_soma?: boolean     // calcula e é referenciável, mas fica FORA do SOMAR_FILHOS (linha de apoio/indicador)
 }
 
 export type Periodo = { ano: number; mes: number }
@@ -111,7 +112,7 @@ export function computeCenario(linhas: LinhaCalc[], raw: RawValues, periodos: Pe
         if (l.tipo_linha === 'ESPACO') v = 0
         else if (l.tipo_linha === 'SOMAR_FILHOS') {
           v = (childrenOf[l.id] || [])
-            .filter(c => c.tipo_linha !== 'INDICADOR' && c.tipo_linha !== 'ESPACO' && !disabled.has(c.id))
+            .filter(c => c.tipo_linha !== 'INDICADOR' && c.tipo_linha !== 'ESPACO' && !disabled.has(c.id) && !c.nao_soma)
             .reduce((s, c) => s + (cur[c.id] ?? 0), 0)
         } else if (l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR') {
           v = evalExpr(l.expressao, l.id, idx, periodos, result, cur, codeToId, disabled)

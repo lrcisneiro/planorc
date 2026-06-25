@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
-import { Upload, Download, FileDown, AlertCircle, RefreshCw, Trash2, X } from 'lucide-react'
+import { Upload, Download, FileDown, AlertCircle, RefreshCw, Trash2, X, Filter } from 'lucide-react'
+import { useGrid, GridHead } from '../../lib/grid'
+import type { GCol } from '../../lib/grid'
 
 declare const XLSX: any
 
@@ -156,27 +158,98 @@ export default function RealizadoDadosPage() {
   const [impLog, setImpLog] = useState<string[]>([])
   const [logXlsx, setLogXlsx] = useState<{ arq: any[][]; ign: any[][] } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [ccFaltOpen, setCcFaltOpen] = useState(false)
+  const [ccFaltBusy, setCcFaltBusy] = useState(false)
+  const [ccFalt, setCcFalt] = useState<{ cc: string; n: number; valor: number; contas: string[] }[]>([])
+  const [ccFaltCap, setCcFaltCap] = useState(false)
+  const [ccFaltDet, setCcFaltDet] = useState<any[]>([])
 
   useEffect(() => {
-    supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => {
-      setEmpresas(r.data || []); if (r.data?.length) setEmpresaId(p => p || r.data![0].id)
-    })
+    supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
   }, [])
 
+  const GRID: GCol[] = [
+    { key: 'mes', label: 'Mês', align: 'right', get: r => r.mes },
+    { key: 'empresa', label: 'Empresa', get: r => r.empresa?.codigo || '' },
+    { key: 'data', label: 'Data', get: r => r.data || '' },
+    { key: 'plano', label: 'Plano', get: r => r.conta_contabil?.plano_contas?.codigo || '' },
+    { key: 'conta', label: 'Conta', get: r => r.conta_contabil?.codigo || '' },
+    { key: 'contaDesc', label: 'Descrição conta', get: r => r.conta_contabil?.descricao || '' },
+    { key: 'filial', label: 'Filial', get: r => r.filial?.codigo || '' },
+    { key: 'cc', label: 'CC', get: r => r.centro_custo?.codigo || '' },
+    { key: 'documento', label: 'Documento', get: r => r.documento || '' },
+    { key: 'historico', label: 'Histórico', get: r => r.historico || '' },
+    { key: 'debito', label: 'Débito', align: 'right', get: r => r.debito != null ? Number(r.debito) : null },
+    { key: 'credito', label: 'Crédito', align: 'right', get: r => r.credito != null ? Number(r.credito) : null },
+    { key: 'valor', label: 'Valor', align: 'right', get: r => Number(r.valor) },
+    { key: 'lote', label: 'Lote', get: r => r.lote ? `${r.lote}${r.sublote ? '/' + r.sublote : ''}` : '' },
+    { key: 'origem', label: 'Origem', get: r => r.origem || '' },
+  ]
+  const grid = useGrid(rows, GRID)
+
   const load = async () => {
-    if (!empresaId) { setRows([]); return }
     setLoading(true); setErro(null)
-    let q = supabase.from('fat_realizado')
-      .select('id,ano,mes,data,documento,historico,debito,credito,dc,valor,origem,lote,sublote, conta_contabil(codigo,descricao, plano_contas(codigo)), filial(codigo), centro_custo(codigo)')
-      .eq('empresa_id', empresaId).eq('ano', ano)
+    const cf = grid.cf
+    const f = (k: string) => (cf[k] || '').trim()
+    const like = (v: string) => `%${v}%`
+    // filtros de coluna que vão ao banco (joins com !inner quando filtrados)
+    const sel = `id,ano,mes,data,documento,historico,debito,credito,dc,valor,origem,lote,sublote,`
+      + ` empresa${f('empresa') ? '!inner' : ''}(codigo),`
+      + ` conta_contabil${(f('conta') || f('contaDesc')) ? '!inner' : ''}(codigo,descricao, plano_contas(codigo)),`
+      + ` filial${f('filial') ? '!inner' : ''}(codigo),`
+      + ` centro_custo${f('cc') ? '!inner' : ''}(codigo)`
+    let q = supabase.from('fat_realizado').select(sel).eq('ano', ano)
       .order('mes').order('data', { nullsFirst: true }).limit(2000)
+    if (empresaId) q = q.eq('empresa_id', empresaId)
     if (mes) q = q.eq('mes', mes)
+    if (f('mes') && !isNaN(+f('mes'))) q = q.eq('mes', +f('mes'))
+    if (f('documento')) q = q.ilike('documento', like(f('documento')))
+    if (f('historico')) q = q.ilike('historico', like(f('historico')))
+    if (f('lote')) q = q.ilike('lote', like(f('lote')))
+    if (f('origem')) q = q.ilike('origem', like(f('origem')))
+    if (f('cc')) q = q.ilike('centro_custo.codigo', like(f('cc')))
+    if (f('conta')) q = q.ilike('conta_contabil.codigo', like(f('conta')))
+    if (f('contaDesc')) q = q.ilike('conta_contabil.descricao', like(f('contaDesc')))
+    if (f('filial')) q = q.ilike('filial.codigo', like(f('filial')))
+    if (f('empresa')) q = q.ilike('empresa.codigo', like(f('empresa')))
     const { data, error } = await q
     if (error) setErro(error.message)
-    else setRows(data || [])
+    else setRows((data as any[]) || [])
     setLoading(false)
   }
-  useEffect(() => { load() }, [empresaId, ano, mes]) // eslint-disable-line
+  // recarrega ao mudar período/empresa ou os filtros de coluna (server-side, com debounce)
+  useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t) }, [empresaId, ano, mes, JSON.stringify(grid.cf)]) // eslint-disable-line
+
+  // CCs faltando: lançamentos de conta RECEITA/DESPESA com cc_id nulo (CC obrigatório). Agrupa pelo código original (dims.cc_orig).
+  const CAP = 20000
+  const buscarCcFaltando = async () => {
+    setCcFaltOpen(true); setCcFaltBusy(true); setCcFalt([]); setCcFaltCap(false); setCcFaltDet([])
+    let q = supabase.from('fat_realizado')
+      .select('ano,mes,data,documento,historico,debito,credito,valor,lote,sublote,dims, empresa(codigo), conta_contabil!inner(codigo,descricao,natureza)')
+      .is('cc_id', null).eq('ano', ano)
+      .in('conta_contabil.natureza', ['RECEITA', 'DESPESA']).order('mes').limit(CAP)
+    if (empresaId) q = q.eq('empresa_id', empresaId)
+    const { data, error } = await q
+    if (error) { setErro(error.message); setCcFaltBusy(false); return }
+    const rows = (data as any[]) || []
+    const m = new Map<string, { n: number; valor: number; contas: Set<string> }>()
+    for (const r of rows) {
+      const cc = (r.dims && (r.dims.cc_orig || r.dims.cc)) || '(sem CC no arquivo)'
+      const g = m.get(cc) || { n: 0, valor: 0, contas: new Set<string>() }
+      g.n++; g.valor += Number(r.valor) || 0; if (r.conta_contabil?.codigo) g.contas.add(r.conta_contabil.codigo)
+      m.set(cc, g)
+    }
+    const out = [...m.entries()].map(([cc, g]) => ({ cc, n: g.n, valor: g.valor, contas: [...g.contas].sort() })).sort((a, b) => b.n - a.n)
+    setCcFalt(out); setCcFaltDet(rows); setCcFaltCap(rows.length >= CAP); setCcFaltBusy(false)
+  }
+  const baixarCcFaltando = () => {
+    const aoa = [['CC (orig)', 'Empresa', 'Conta', 'Descrição conta', 'Natureza', 'Ano', 'Mês', 'Data', 'Documento', 'Histórico', 'Débito', 'Crédito', 'Valor', 'Lote', 'Sublote'],
+      ...ccFaltDet.map(r => [
+        (r.dims && (r.dims.cc_orig || r.dims.cc)) || '(sem CC)', r.empresa?.codigo || '', r.conta_contabil?.codigo || '', r.conta_contabil?.descricao || '', r.conta_contabil?.natureza || '',
+        r.ano, r.mes, r.data || '', r.documento || '', r.historico || '', r.debito ?? '', r.credito ?? '', r.valor ?? '', r.lote || '', r.sublote || '',
+      ])]
+    downloadSheets('cc_faltando_realizado.xlsx', [{ nome: 'CCs faltando', aoa }])
+  }
 
   const exportar = () => {
     const empCod = empresas.find(e => e.id === empresaId)?.codigo || ''
@@ -205,11 +278,14 @@ export default function RealizadoDadosPage() {
 
   // Recalcula o rollup mensal (agregados que alimentam DRE/dashboards)
   const recalcular = async () => {
-    setLoading(true); setErro(null); setInfo('Recalculando agregados…')
+    setLoading(true); setErro(null); setInfo('Re-vinculando CCs órfãos…')
+    const { data: nrel, error: e1 } = await supabase.rpc('revincular_cc_orfaos')
+    if (e1) { setLoading(false); setErro(e1.message); return }
+    setInfo(`Recalculando agregados…${nrel ? ` (${Number(nrel).toLocaleString('pt-BR')} lançamento(s) re-vinculados a CC)` : ''}`)
     const { error } = await supabase.rpc('refresh_realizado_mensal')
     setLoading(false)
     if (error) setErro(error.message)
-    else setInfo('Agregados recalculados.')
+    else setInfo(`Agregados recalculados.${nrel ? ` ${Number(nrel).toLocaleString('pt-BR')} lançamento(s) re-vinculados a CC.` : ''}`)
   }
 
   const importarLote = async (files: File[]) => {
@@ -217,13 +293,16 @@ export default function RealizadoDadosPage() {
     setImpBusy(true); setImpLog([]); setImpProg('Carregando cadastros…')
     try {
       const [{ data: contas }, { data: emps }, { data: fis }, { data: cc }] = await Promise.all([
-        supabase.from('conta_contabil').select('id,codigo,plano_id'),
+        supabase.from('conta_contabil').select('id,codigo,plano_id,natureza'),
         supabase.from('empresa').select('id,codigo,plano_id'),
         supabase.from('filial').select('id,codigo'),
         supabase.from('centro_custo').select('id,codigo'),
       ])
       const norm = (s: string) => s.replace(/\s+/g, '').toUpperCase()
       const contaMap: Record<string, string> = {}; (contas || []).forEach((c: any) => { contaMap[`${c.plano_id}|${norm(c.codigo)}`] = c.id })
+      const contaNat: Record<string, string> = {}; (contas || []).forEach((c: any) => { contaNat[c.id] = c.natureza || '' })
+      const ccObrig = (cid: string | undefined) => cid != null && (contaNat[cid] === 'RECEITA' || contaNat[cid] === 'DESPESA')   // CC obrigatório
+      const ccFaltando = new Map<string, number>()   // código do CC faltando → nº de lançamentos (conta receita/despesa)
       const empMap: Record<string, string> = {}; (emps || []).forEach((e: any) => { empMap[norm(e.codigo)] = e.id })
       const empPlano: Record<string, string> = {}; (emps || []).forEach((e: any) => { empPlano[e.id] = e.plano_id })
       const filMap: Record<string, string> = {}; (fis || []).forEach((f: any) => { filMap[norm(f.codigo)] = f.id })
@@ -271,17 +350,20 @@ export default function RealizadoDadosPage() {
           if (devePular(lote, sublote, empresa_id)) { ign++; addIgn(`lote ignorado (${lote}${sublote ? '/' + sublote : ''})`); continue }
           const filCod = txt(r, 'filial_codigo', 'filial', 'FILIAL')
           const ccCod = txt(r, 'cc_codigo', 'cc', 'centro_custo', 'CENTRO DE CUSTO')
+          const cc_id = ccCod ? (ccMap[norm(ccCod)] || null) : null
+          // CC é obrigatório em conta de receita/despesa → detecta os que faltam
+          if (!cc_id && ccObrig(conta_id)) { const k = ccCod || '(sem CC)'; ccFaltando.set(k, (ccFaltando.get(k) || 0) + 1) }
           const valor = +(cre - deb).toFixed(2)
           inserts.push({
             tenant_id: TENANT_ID, linha_id: null, conta_id, empresa_id,
             filial_id: filCod ? (filMap[norm(filCod)] || null) : null,
-            cc_id: ccCod ? (ccMap[norm(ccCod)] || null) : null,
+            cc_id,
             ano: comp.ano, mes: comp.mes, data: comp.dataISO,
             documento: txt(r, 'documento', 'doc', 'DOCUMENTO') || null,
             historico: txt(r, 'historico', 'Histórico', 'HISTORICO') || null,
             debito: deb || null, credito: cre || null, dc: cre >= deb ? 'C' : 'D',
             lote: lote || null, sublote: sublote || null,
-            valor, dims: {}, origem: 'IMPORT',
+            valor, dims: (ccCod && !cc_id) ? { cc_orig: ccCod } : {}, origem: 'IMPORT',
           })
           const ck = `${comp.ano}-${comp.mes}`; (comboEmp[ck] ||= new Set()).add(empresa_id)
         }
@@ -305,6 +387,13 @@ export default function RealizadoDadosPage() {
         arqResumo.push([file.name, raw.length, inserts.length, ign])
       }
       setImpProg(`Concluído: ${totIns.toLocaleString('pt-BR')} lançamento(s) de ${files.length} arquivo(s)${totIgn ? `, ${totIgn} ignorados` : ''}.`)
+      // ⚠ CC obrigatório (receita/despesa) faltando — lista os códigos de CC não cadastrados
+      if (ccFaltando.size) {
+        const total = [...ccFaltando.values()].reduce((s, n) => s + n, 0)
+        const lista = [...ccFaltando.entries()].sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c} (${n})`).join(', ')
+        log.push(`⚠ ${total.toLocaleString('pt-BR')} lançamento(s) de receita/despesa SEM CC cadastrado. CCs faltando: ${lista}. Cadastre-os em Cadastros → Centro de Custo e reimporte.`)
+        setImpLog([...log])
+      }
       // monta o log em xlsx (aba Arquivos + aba Ignorados) e baixa automaticamente se houver ignorados
       const arqAoa = [['arquivo', 'linhas', 'importados', 'ignorados'], ...arqResumo]
       const ignAoa = [['arquivo', 'motivo', 'empresa', 'conta', 'filial', 'cc', 'data', 'ano', 'mes', 'documento', 'historico', 'debito', 'credito'], ...ignDet]
@@ -321,6 +410,11 @@ export default function RealizadoDadosPage() {
     setImpBusy(false)
   }
 
+  const fmt2 = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+  const somaDeb = grid.rows.reduce((s, r) => s + (Number(r.debito) || 0), 0)
+  const somaCred = grid.rows.reduce((s, r) => s + (Number(r.credito) || 0), 0)
+  const somaVal = grid.rows.reduce((s, r) => s + (Number(r.valor) || 0), 0)
+
   return (
     <div style={S.page}>
       <div style={S.header}>
@@ -330,7 +424,7 @@ export default function RealizadoDadosPage() {
 
       <div style={S.bar}>
         <select style={S.sel} value={empresaId} onChange={e => setEmpresaId(e.target.value)}>
-          <option value="">— Empresa —</option>
+          <option value="">— Todas as empresas —</option>
           {empresas.map(e => <option key={e.id} value={e.id}>{e.codigo} · {e.descricao}</option>)}
         </select>
         <select style={S.sel} value={ano} onChange={e => setAno(Number(e.target.value))}>
@@ -341,9 +435,11 @@ export default function RealizadoDadosPage() {
           {MESES.slice(1).map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
         </select>
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
+        <button style={{ ...S.btn, ...(grid.filtrosOn ? { borderColor: '#3b5bdb', color: '#3b5bdb' } : {}) }} onClick={() => grid.setFiltrosOn(v => !v)} title="Mostrar/ocultar filtro por coluna"><Filter size={13} /> Filtrar colunas</button>
         <div style={S.spacer} />
         <button style={S.btn} onClick={exportar}><FileDown size={13} /> Exportar</button>
         <button style={S.btn} onClick={recalcular} title="Recalcular os agregados mensais (DRE/dashboards) — use após mudar lotes ignorados"><RefreshCw size={13} /> Recalcular</button>
+        <button style={{ ...S.btn, color: '#e67700', borderColor: '#ffe8cc' }} onClick={buscarCcFaltando} title="Lançamentos de receita/despesa sem CC cadastrado (CC obrigatório)"><AlertCircle size={13} /> CCs faltando</button>
         <button style={{ ...S.btn, background: '#3b5bdb', color: 'white', borderColor: '#3b5bdb' }} onClick={() => { setImportOpen(true); setImpProg(''); setImpLog([]); setLogXlsx(null) }}><Upload size={13} /> Importar</button>
         <button style={{ ...S.btn, color: '#e03131', borderColor: '#ffc9c9' }} onClick={limpar} title="Excluir o realizado (todos os anos/meses) para reimportar"><Trash2 size={13} /> Limpar</button>
       </div>
@@ -353,28 +449,14 @@ export default function RealizadoDadosPage() {
 
       <div style={S.card}>
         <table style={S.table}>
-          <thead><tr>
-            <th style={S.thR}>Mês</th>
-            <th style={S.th}>Data</th>
-            <th style={S.th}>Plano</th>
-            <th style={S.th}>Conta</th>
-            <th style={S.th}>Descrição conta</th>
-            <th style={S.th}>Filial</th>
-            <th style={S.th}>CC</th>
-            <th style={S.th}>Documento</th>
-            <th style={S.th}>Histórico</th>
-            <th style={S.thR}>Débito</th>
-            <th style={S.thR}>Crédito</th>
-            <th style={S.thR}>Valor</th>
-            <th style={S.th}>Lote</th>
-            <th style={S.th}>Origem</th>
-          </tr></thead>
+          <GridHead cols={GRID} grid={grid} thStyle={S.th} />
           <tbody>
-            {loading && <tr><td colSpan={14} style={S.empty}>Carregando...</td></tr>}
-            {!loading && rows.length === 0 && <tr><td colSpan={14} style={S.empty}>Nenhum lançamento para os filtros selecionados.<br /><small>Use "Importar Excel" com o razão (débito/crédito).</small></td></tr>}
-            {!loading && rows.map(r => (
+            {loading && <tr><td colSpan={16} style={S.empty}>Carregando...</td></tr>}
+            {!loading && grid.rows.length === 0 && <tr><td colSpan={16} style={S.empty}>{rows.length ? 'Nenhum resultado para o filtro de coluna.' : <>Nenhum lançamento para os filtros selecionados.<br /><small>Use "Importar Excel" com o razão (débito/crédito).</small></>}</td></tr>}
+            {!loading && grid.rows.map(r => (
               <tr key={r.id}>
                 <td style={S.tdR}>{MESES[r.mes]}</td>
+                <td style={{ ...S.td, ...S.mono }}>{r.empresa?.codigo || '—'}</td>
                 <td style={S.td}>{r.data ? String(r.data).split('-').reverse().join('/') : '—'}</td>
                 <td style={{ ...S.td, fontSize: 11, color: '#1971c2' }}>{r.conta_contabil?.plano_contas?.codigo || '—'}</td>
                 <td style={{ ...S.td, ...S.mono }}>{r.conta_contabil?.codigo || '—'}</td>
@@ -388,12 +470,60 @@ export default function RealizadoDadosPage() {
                 <td style={{ ...S.tdR, fontWeight: 600, color: Number(r.valor) < 0 ? '#e03131' : '#2f9e44' }}>{Number(r.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                 <td style={{ ...S.td, ...S.mono }}>{r.lote ? `${r.lote}${r.sublote ? '/' + r.sublote : ''}` : '—'}</td>
                 <td style={{ ...S.td, fontSize: 11, color: r.origem === 'ERP' ? '#0c8599' : r.origem === 'IMPORT' ? '#e67700' : '#868e96' }}>{r.origem}</td>
+                <td style={S.td}></td>
               </tr>
             ))}
           </tbody>
+          {!loading && grid.rows.length > 0 && (
+            <tfoot>
+              <tr>
+                <td colSpan={10} style={{ ...S.td, fontWeight: 600, textAlign: 'right', background: '#f8f9fa' }}>Total · {grid.rows.length} lançamento{grid.rows.length > 1 ? 's' : ''}</td>
+                <td style={{ ...S.tdR, fontWeight: 700, background: '#f8f9fa' }}>{fmt2(somaDeb)}</td>
+                <td style={{ ...S.tdR, fontWeight: 700, background: '#f8f9fa' }}>{fmt2(somaCred)}</td>
+                <td style={{ ...S.tdR, fontWeight: 700, background: '#f8f9fa', color: somaVal < 0 ? '#e03131' : '#2f9e44' }}>{fmt2(somaVal)}</td>
+                <td colSpan={3} style={{ ...S.td, background: '#f8f9fa' }}></td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
       {rows.length >= 2000 && <p style={S.sub}>Mostrando os primeiros 2000 lançamentos. Use os filtros (mês) para refinar.</p>}
+
+      {ccFaltOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setCcFaltOpen(false)}>
+          <div style={{ background: 'white', borderRadius: 14, padding: 24, width: 620, maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
+              <strong style={{ fontSize: 15 }}>CCs faltando — receita/despesa sem CC ({ano}{empresaId ? ' · empresa selecionada' : ' · todas'})</strong>
+              <div style={{ flex: 1 }} />
+              <X size={18} style={{ cursor: 'pointer', color: '#adb5bd' }} onClick={() => setCcFaltOpen(false)} />
+            </div>
+            <p style={{ ...S.sub, marginTop: 0 }}>Em contas de receita/despesa o CC é obrigatório. Aqui ficam os lançamentos com CC não cadastrado (código original do arquivo). Cadastre o CC em Cadastros → Centro de Custo e reimporte (ou recalcule).</p>
+            {ccFaltBusy ? <div style={S.sub}>Buscando…</div> : ccFalt.length === 0 ? (
+              <div style={{ ...S.info, marginTop: 8 }}>Nenhum lançamento de receita/despesa sem CC. 👍</div>
+            ) : (
+              <>
+                {ccFaltCap && <div style={S.erro}><AlertCircle size={15} />Resultado limitado a {CAP.toLocaleString('pt-BR')} linhas — refine por empresa.</div>}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+                  <button style={S.btn} onClick={baixarCcFaltando}><Download size={13} /> Baixar detalhado (xlsx)</button>
+                </div>
+                <table style={S.table}>
+                  <thead><tr><th style={S.th}>CC (código)</th><th style={S.thR}>Lançamentos</th><th style={S.thR}>Valor</th><th style={S.th}>Contas</th></tr></thead>
+                  <tbody>
+                    {ccFalt.map(g => (
+                      <tr key={g.cc}>
+                        <td style={{ ...S.td, ...S.mono, fontWeight: 600, color: '#e8590c' }}>{g.cc}</td>
+                        <td style={S.tdR}>{g.n.toLocaleString('pt-BR')}</td>
+                        <td style={{ ...S.tdR, color: g.valor < 0 ? '#e03131' : '#2f9e44' }}>{fmt2(g.valor)}</td>
+                        <td style={{ ...S.td, fontSize: 11, color: '#868e96' }}>{g.contas.slice(0, 6).join(', ')}{g.contas.length > 6 ? `  +${g.contas.length - 6}` : ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {importOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => !impBusy && setImportOpen(false)}>

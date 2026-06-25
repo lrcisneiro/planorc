@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { computeCenario, computeTotais } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Periodo } from '../../lib/engine'
 import { ArrowLeft, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react'
-import { FiltrosButton, PeriodoButton, effectiveCcFilter } from './DashFiltros'
+import { FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
 import type { Item, CC } from './DashFiltros'
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -15,7 +15,7 @@ const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').t
 
 type Rel = { id: string; codigo: string; nome: string }
 type Versao = { id: string; codigo: string }
-type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string }
+type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; nao_soma?: boolean }
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
@@ -71,6 +71,14 @@ export default function ExecutivoPage() {
   const [buSel, setBuSel] = useState<string[]>(Array.isArray(sv.buSel) ? sv.buSel : [])
   const [k, setK] = useState<{ rec: number[]; desp: number[]; eb: number[]; res: number[]; prev: { rec: number; desp: number; eb: number; res: number }; anoPrev: number } | null>(null)
   const [loading, setLoading] = useState(false); const [erro, setErro] = useState<string | null>(null)
+  const loadSeq = useRef(0)
+
+  const { cardId, nome: cardNome } = useCardPreset('/dashboards/executivo', (f) => {
+    if (f.relId !== undefined) setRelId(f.relId); if (f.versaoId !== undefined) setVersaoId(f.versaoId)
+    if (typeof f.ano === 'number') setAno(f.ano); if (typeof f.ateMes === 'number') setAteMes(f.ateMes)
+    if (Array.isArray(f.empresaSel)) setEmpresaSel(f.empresaSel); if (Array.isArray(f.filialSel)) setFilialSel(f.filialSel); if (Array.isArray(f.ccSel)) setCcSel(f.ccSel)
+    if (Array.isArray(f.areaSel)) setAreaSel(f.areaSel); if (Array.isArray(f.divisaoSel)) setDivisaoSel(f.divisaoSel); if (Array.isArray(f.buSel)) setBuSel(f.buSel)
+  })
 
   useEffect(() => {
     supabase.from('relatorio').select('id,codigo,nome').order('codigo').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => p || sv.relId || r.data![0].id) })
@@ -79,19 +87,20 @@ export default function ExecutivoPage() {
     supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
     supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo').then(r => setCcs(r.data || []))
   }, [])
-  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes })) }, [relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes])
+  useEffect(() => { if (cardId) return; localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes })) }, [cardId, relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes])
 
   const load = async () => {
     if (!relId || !versaoId) return
+    const myseq = ++loadSeq.current
     setLoading(true); setErro(null)
     try {
-      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao').eq('relatorio_id', relId)
+      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,nao_soma').eq('relatorio_id', relId)
       const linhas = (linhasRaw || []) as RL[]
       const byId: Record<string, RL> = {}; linhas.forEach(l => { byId[l.id] = l })
       const masterIds = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
       const rlOfMaster: Record<string, string> = {}; linhas.forEach(l => { if (l.linha_orc_id) rlOfMaster[l.linha_orc_id] = l.id })
       const disabled = new Set<string>(); linhas.forEach(l => { if (l.desativada && l.linha_orc_id) disabled.add(l.linha_orc_id) })
-      const linhasCalc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada }))
+      const linhasCalc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada, nao_soma: l.nao_soma }))
       const natCache: Record<string, string | null> = {}
       const natOf = (id: string | null): string | null => { if (!id) return null; if (id in natCache) return natCache[id]; const l = byId[id]; if (!l) return null; const n = (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : natOf(l.pai_id); natCache[id] = n; return n }
       const empIds = empresaSel.length ? empresaSel : empresas.map(e => e.id)
@@ -115,7 +124,7 @@ export default function ExecutivoPage() {
       for (const r of realRprev.data || []) { const rl = rlOfMaster[r.linha_id]; if (!rl || disabled.has(r.linha_id)) continue; (rawRealPrev[rl] = rawRealPrev[rl] || {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0, expressao: null } }
       const cO = computeCenario(linhasCalc, rawOrc, periodos), cR = computeCenario(linhasCalc, rawReal, periodos), cRp = computeCenario(linhasCalc, rawRealPrev, periodosPrev)
       const tO = computeTotais(linhasCalc, cO, periodos), tR = computeTotais(linhasCalc, cR, periodos), tRp = computeTotais(linhasCalc, cRp, periodosPrev)
-      const leaves = linhas.filter(l => l.tipo_linha === 'ANALITICA' && !l.desativada && l.linha_orc_id)
+      const leaves = linhas.filter(l => l.tipo_linha === 'ANALITICA' && !l.desativada && l.linha_orc_id && !l.nao_soma)
       let recO = 0, recR = 0, despO = 0, despR = 0, recRp = 0, despRp = 0
       for (const l of leaves) { const n = natOf(l.id); if (n === 'RECEITA') { recO += tO[l.id] || 0; recR += tR[l.id] || 0; recRp += tRp[l.id] || 0 } else if (n === 'DESPESA') { despO += tO[l.id] || 0; despR += tR[l.id] || 0; despRp += tRp[l.id] || 0 } }
       const ebN = linhas.find(l => norm(l.descricao).includes('ebitda'))
@@ -124,9 +133,10 @@ export default function ExecutivoPage() {
       const res = resN ? [tO[resN.id] || 0, tR[resN.id] || 0] : [leaves.reduce((s, l) => s + (tO[l.id] || 0), 0), leaves.reduce((s, l) => s + (tR[l.id] || 0), 0)]
       const ebPrev = ebN ? (tRp[ebN.id] || 0) : 0
       const resPrev = resN ? (tRp[resN.id] || 0) : leaves.reduce((s, l) => s + (tRp[l.id] || 0), 0)
+      if (myseq !== loadSeq.current) return
       setK({ rec: [recO, recR], desp: [-despO, -despR], eb, res, prev: { rec: recRp, desp: -despRp, eb: ebPrev, res: resPrev }, anoPrev })
-    } catch (e: any) { setErro(e?.message ?? String(e)) }
-    setLoading(false)
+    } catch (e: any) { if (myseq === loadSeq.current) setErro(e?.message ?? String(e)) }
+    if (myseq === loadSeq.current) setLoading(false)
   }
   useEffect(() => { load() }, [relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes, empresas, filiais, ccs]) // eslint-disable-line
 
@@ -134,7 +144,7 @@ export default function ExecutivoPage() {
     <div style={S.page}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
         <Link to="/dashboards" style={{ ...S.btn, textDecoration: 'none' }}><ArrowLeft size={14} /> Dashboards</Link>
-        <h1 style={S.title}>Visão executiva</h1>
+        <h1 style={S.title}>Visão executiva{cardNome && <span style={{ color: '#e8590c' }}> · {cardNome}</span>}</h1>
       </div>
       <p style={S.sub}>KPIs consolidados Jan–{MESES[ateMes - 1]}/{ano} — orçado × realizado nos mesmos meses, % de execução e variação vs. {ano - 1} (mesmos meses). Despesas exibidas como positivas.</p>
 
@@ -149,6 +159,7 @@ export default function ExecutivoPage() {
         </PeriodoButton>
         <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         <button style={S.btn} onClick={load}><RefreshCw size={13} /></button>
+        <SalvarCardButton base="/dashboards/executivo" cor="#e8590c" cardId={cardId} getFiltros={() => ({ relId, versaoId, ano, ateMes, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })} />
       </div>
 
       {erro && <div style={{ background: '#fff5f5', border: '1px solid #ffc9c9', color: '#c92a2a', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>{erro}</div>}

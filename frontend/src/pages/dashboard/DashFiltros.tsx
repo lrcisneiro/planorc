@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { CSSProperties } from 'react'
-import { Filter, X, CalendarRange } from 'lucide-react'
+import { Filter, X, CalendarRange, Bookmark } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { supabase, TENANT_ID } from '../../lib/supabase'
 
 export type Item = { id: string; codigo: string; descricao: string }
 
@@ -132,4 +134,48 @@ export function FiltrosButton({ empresas, filiais, ccs, empresaSel, setEmpresaSe
       )}
     </div>
   )
+}
+
+// ── "Meus Cards": salvar o estado atual (filtros) como preset de um dashboard-base.
+// Se cardId estiver presente (visualizando um card), oferece também "Atualizar card".
+export function SalvarCardButton({ base, getFiltros, cor, cardId }: { base: string; getFiltros: () => any; cor?: string; cardId?: string | null }) {
+  const salvarNovo = async () => {
+    const nome = window.prompt('Nome do card (ex.: Análise Serviços):')?.trim()
+    if (!nome) return
+    const { error } = await supabase.from('dashboard_card').insert({ tenant_id: TENANT_ID, nome, base, cor: cor || '#3b5bdb', filtros: getFiltros() })
+    if (error) { alert('Erro ao salvar: ' + error.message); return }
+    alert('Card salvo! Veja em Dashboards › Meus cards.')
+  }
+  const atualizar = async () => {
+    if (!cardId) return
+    if (!window.confirm('Atualizar este card com os filtros atuais?')) return
+    const { error } = await supabase.from('dashboard_card').update({ filtros: getFiltros() }).eq('id', cardId)
+    if (error) { alert('Erro ao atualizar: ' + error.message); return }
+    alert('Card atualizado.')
+  }
+  return (
+    <>
+      {cardId && <button style={{ ...btn, background: '#e7f5ff', borderColor: '#74c0fc', color: '#1971c2' }} onClick={atualizar} title="Salvar os filtros atuais NESTE card"><Bookmark size={13} /> Atualizar card</button>}
+      <button style={btn} onClick={salvarNovo} title="Salvar os filtros atuais como um NOVO card"><Bookmark size={13} /> {cardId ? 'Salvar como novo' : 'Salvar card'}</button>
+    </>
+  )
+}
+
+// Aplica um preset salvo quando a URL tem ?card=<id> e o base bate (sobrepõe o localStorage).
+// Retorna o cardId ativo — o dashboard usa isso para NÃO persistir no localStorage do base
+// enquanto está em modo card (evita o preset "vazar" para os filtros próprios do dashboard).
+export function useCardPreset(base: string, apply: (filtros: any) => void): { cardId: string | null; nome: string } {
+  const [sp] = useSearchParams()
+  const cardId = sp.get('card')
+  const [nome, setNome] = useState('')
+  const applyRef = useRef(apply); applyRef.current = apply
+  useEffect(() => {
+    if (!cardId) { setNome(''); return }
+    let vivo = true
+    supabase.from('dashboard_card').select('base,filtros,nome').eq('id', cardId).single().then(({ data }) => {
+      if (vivo && data && data.base === base) { setNome(data.nome || ''); if (data.filtros) applyRef.current(data.filtros) }
+    })
+    return () => { vivo = false }
+  }, [cardId, base])
+  return { cardId, nome }
 }

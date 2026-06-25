@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Planorc · Dashboard (Protótipo v2)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    /* superfícies */
+    --bg:        #0a0a0f;
+    --bg-soft:   #0e0e16;
+    --panel:     #14141d;
+    --panel-2:   #181823;
+    --border:    rgba(255,255,255,0.07);
+    --border-st: rgba(255,255,255,0.12);
+    /* texto */
+    --text:      #e8e8f0;
+    --text-mid:  #b4b4c4;
+    --muted:     #74748a;
+    --faint:     #4a4a5a;
+    /* acentos semânticos */
+    --violet:    #8b5cf6;
+    --violet-d:  #6d3ff0;
+    --blue:      #3b82f6;
+    --green:     #34d399;
+    --red:       #f87171;
+    --orange:    #fbbf24;
+    --cyan:      #22d3ee;
+    /* radii / sombra */
+    --r:         14px;
+    --r-sm:      10px;
+    font-synthesis: none;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(139,92,246,0.10), transparent 60%),
+      radial-gradient(900px 500px at -5% 10%, rgba(59,130,246,0.07), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "tnum" 1, "cv01" 1;
+    letter-spacing: 0.1px;
+  }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ---------- Top bar ---------- */
+  header {
+    display: flex; align-items: center; gap: 18px;
+    padding: 14px 26px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(10,10,15,0.6);
+    backdrop-filter: blur(8px);
+    position: sticky; top: 0; z-index: 20;
+  }
+  .logo { display: flex; align-items: baseline; gap: 10px; }
+  .logo .mark {
+    font-weight: 800; font-size: 15px; letter-spacing: 3px;
+    color: var(--text-mid);
+  }
+  .logo .sub { font-weight: 600; font-size: 15px; color: var(--text); }
+  .spacer { flex: 1; }
+  .badge {
+    font-size: 11px; font-weight: 700; letter-spacing: 1px;
+    padding: 5px 11px; border-radius: 999px;
+    background: linear-gradient(135deg, var(--violet), var(--violet-d));
+    color: #fff; box-shadow: 0 0 0 1px rgba(139,92,246,0.4), 0 4px 14px rgba(109,63,240,0.35);
+  }
+  .userchip {
+    font-size: 13px; color: var(--text-mid);
+    padding: 6px 12px; border: 1px solid var(--border-st); border-radius: 999px;
+  }
+
+  /* ---------- Filter bar ---------- */
+  .filters {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 12px 26px;
+    background: linear-gradient(90deg, rgba(139,92,246,0.10), rgba(139,92,246,0.02) 40%, transparent);
+    border-bottom: 1px solid var(--border);
+  }
+  .filters .eye { color: var(--violet); font-size: 13px; font-weight: 600; }
+  .select {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--border-st);
+    border-radius: var(--r-sm); padding: 8px 13px;
+    font-size: 13px; color: var(--text); cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .select:hover { border-color: var(--violet); background: var(--panel-2); }
+  .select .lbl { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  .select .chev { color: var(--muted); font-size: 11px; }
+
+  /* ---------- Layout ---------- */
+  main { padding: 22px 26px 60px; max-width: 1500px; margin: 0 auto; }
+  .grid-kpi {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(195px, 1fr));
+    margin-bottom: 22px;
+  }
+  .card {
+    background: linear-gradient(180deg, var(--panel), var(--bg-soft));
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 16px 18px;
+    position: relative;
+    transition: border-color .15s, transform .15s;
+  }
+  .card:hover { border-color: var(--border-st); }
+  .kpi .lbl {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); font-weight: 600; display: flex; align-items: center; gap: 7px;
+  }
+  .kpi .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .kpi .val { font-size: 28px; font-weight: 750; margin: 10px 0 4px; line-height: 1; }
+  .kpi .desc { font-size: 12px; color: var(--muted); }
+  .kpi .trend { font-size: 12px; font-weight: 600; margin-left: 8px; }
+  .up   { color: var(--green); }
+  .down { color: var(--red); }
+  .c-blue   { color: var(--blue); }
+  .c-green  { color: var(--green); }
+  .c-red    { color: var(--red); }
+  .c-orange { color: var(--orange); }
+  .c-violet { color: var(--violet); }
+  .c-cyan   { color: var(--cyan); }
+
+  /* ---------- Charts row ---------- */
+  .grid-main { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-bottom: 22px; }
+  @media (max-width: 980px){ .grid-main { grid-template-columns: 1fr; } .filters{padding:12px 18px} main{padding:18px} }
+  .panel-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .panel-h h3 { font-size: 14px; font-weight: 650; }
+  .panel-h .sub { font-size: 12px; color: var(--muted); }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--text-mid); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .chart-wrap { position: relative; height: 280px; margin-top: 12px; }
+  .gauge-wrap { position: relative; height: 200px; display: grid; place-items: center; margin-top: 10px; }
+  .gauge-center { position: absolute; text-align: center; }
+  .gauge-center .big { font-size: 34px; font-weight: 750; }
+  .gauge-center .sm { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .mini-stats { display: flex; justify-content: space-around; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .mini-stats div { text-align: center; }
+  .mini-stats .m-val { font-size: 18px; font-weight: 700; }
+  .mini-stats .m-lbl { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  /* ---------- Lists row ---------- */
+  .grid-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px; }
+  .list-h { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+  .list-h .pin { width: 9px; height: 9px; border-radius: 50%; }
+  .list-h h4 { font-size: 13px; font-weight: 650; flex: 1; }
+  .list-h .count { font-size: 18px; font-weight: 750; }
+  .row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 10px; border-radius: var(--r-sm);
+    transition: background .12s;
+  }
+  .row:hover { background: var(--panel-2); }
+  .row .name { font-size: 13px; color: var(--text-mid); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .v { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .row .pct { font-size: 11px; color: var(--muted); min-width: 48px; text-align: right; }
+  .footer-row { text-align: center; font-size: 12px; color: var(--muted); padding: 10px; margin-top: 4px; border-top: 1px solid var(--border); cursor: pointer; }
+  .footer-row:hover { color: var(--violet); }
+  .proto-tag {
+    position: fixed; bottom: 14px; right: 16px; z-index: 40;
+    font-size: 11px; color: var(--muted); background: var(--panel);
+    border: 1px solid var(--border-st); padding: 6px 12px; border-radius: 999px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="mark">PLANORC</span><span class="sub">Planejamento Orçamentário</span></div>
+  <div class="spacer"></div>
+  <span class="badge">BASELINE 2026</span>
+  <span class="userchip">Ricardo · Controladoria</span>
+</header>
+
+<div class="filters">
+  <span class="eye">◉ Visualizando:</span>
+  <div class="select"><span class="lbl">Empresa</span> 01 · Distribuidora <span class="chev">▾</span></div>
+  <div class="select"><span class="lbl">Versão</span> BASELINE_2026 <span class="chev">▾</span></div>
+  <div class="select"><span class="lbl">Período</span> Jan–Jun 2026 (YTD) <span class="chev">▾</span></div>
+  <div class="spacer"></div>
+  <div class="select" style="border-color:var(--violet);background:rgba(139,92,246,0.12)">⤓ Exportar DRE</div>
+</div>
+
+<main>
+
+  <!-- KPIs -->
+  <div class="grid-kpi" id="kpis"></div>
+
+  <!-- Charts -->
+  <div class="grid-main">
+    <div class="card">
+      <div class="panel-h">
+        <div><h3>Orçado × Realizado por mês</h3><div class="sub">Receita líquida · R$ mil · 2026</div></div>
+        <div class="legend">
+          <span><i style="background:var(--violet)"></i>Orçado</span>
+          <span><i style="background:var(--green)"></i>Realizado</span>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="barChart"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="panel-h"><div><h3>Execução orçamentária</h3><div class="sub">Receita realizada ÷ orçada · YTD</div></div></div>
+      <div class="gauge-wrap">
+        <canvas id="gauge"></canvas>
+        <div class="gauge-center"><div class="big c-green" id="execPct">—</div><div class="sm">execução YTD</div></div>
+      </div>
+      <div class="mini-stats">
+        <div><div class="m-val c-violet num">24,5M</div><div class="m-lbl">Orçado YTD</div></div>
+        <div><div class="m-val c-green num">23,6M</div><div class="m-lbl">Realizado YTD</div></div>
+        <div><div class="m-val c-red num">-0,9M</div><div class="m-lbl">Desvio</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lists -->
+  <div class="grid-lists">
+    <div class="card">
+      <div class="list-h"><span class="pin" style="background:var(--red)"></span><h4>🔻 Maiores desvios desfavoráveis</h4><span class="count c-red">8</span></div>
+      <div id="desfav"></div>
+      <div class="footer-row">Ver todos os 8 itens ▾</div>
+    </div>
+    <div class="card">
+      <div class="list-h"><span class="pin" style="background:var(--green)"></span><h4>🔺 Maiores desvios favoráveis</h4><span class="count c-green">6</span></div>
+      <div id="fav"></div>
+      <div class="footer-row">Ver todos os 6 itens ▾</div>
+    </div>
+    <div class="card">
+      <div class="list-h"><span class="pin" style="background:var(--blue)"></span><h4>📊 Execução por grupo (N1)</h4><span class="count c-blue">4</span></div>
+      <div id="grupos"></div>
+      <div class="footer-row">Abrir DRE completa ▾</div>
+    </div>
+  </div>
+
+</main>
+
+<div class="proto-tag">Protótipo v2 · dados ilustrativos</div>
+
+<script>
+  const fmt = (n) => n.toLocaleString('pt-BR');
+  const brl = (n) => 'R$ ' + n.toLocaleString('pt-BR');
+
+  // ---------- KPIs ----------
+  const kpis = [
+    { lbl:'Receita Realizada YTD', dot:'--green',  val:'R$ 23,6M', cls:'c-green',  desc:'Jan–Jun 2026', trend:'+8,2%', td:'up' },
+    { lbl:'Execução Orçamentária', dot:'--blue',   val:'96,3%',    cls:'c-blue',   desc:'realizado ÷ orçado', trend:'-3,7pp', td:'down' },
+    { lbl:'Resultado Líquido YTD', dot:'--violet', val:'R$ 3,1M',  cls:'c-violet', desc:'margem 13,1%', trend:'+1,4pp', td:'up' },
+    { lbl:'Despesa Realizada YTD', dot:'--orange', val:'R$ 20,5M', cls:'c-orange', desc:'97,1% do orçado', trend:'+2,1%', td:'down' },
+    { lbl:'Maior Desvio (item)',   dot:'--red',    val:'-R$ 412k', cls:'c-red',    desc:'Folha · Comercial', trend:'+18%', td:'down' },
+    { lbl:'Itens fora da meta',    dot:'--cyan',   val:'14 / 86',  cls:'c-cyan',   desc:'desvio > 5%', trend:'', td:'' },
+  ];
+  document.getElementById('kpis').innerHTML = kpis.map(k => `
+    <div class="card kpi">
+      <div class="lbl"><span class="dot" style="background:var(${k.dot})"></span>${k.lbl}</div>
+      <div class="val ${k.cls} num">${k.val}</div>
+      <div class="desc">${k.desc}${k.trend?`<span class="trend ${k.td}">${k.td==='up'?'▲':'▼'} ${k.trend}</span>`:''}</div>
+    </div>`).join('');
+
+  // ---------- Bar chart ----------
+  const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const orcado    = [4000,4050,4100,4150,4200,4250,4300,4250,4400,4450,4500,4600];
+  const realizado = [3820,4180,3960,4310,4250,4540,null,null,null,null,null,null];
+  new Chart(document.getElementById('barChart'), {
+    type:'bar',
+    data:{ labels:meses, datasets:[
+      { label:'Orçado', data:orcado, backgroundColor:'rgba(139,92,246,0.55)', borderRadius:5, borderSkipped:false, barPercentage:0.7, categoryPercentage:0.78 },
+      { label:'Realizado', data:realizado, backgroundColor:'rgba(52,211,153,0.9)', borderRadius:5, borderSkipped:false, barPercentage:0.7, categoryPercentage:0.78 },
+    ]},
+    options:{
+      maintainAspectRatio:false, responsive:true,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(c)=> c.dataset.label+': '+brl(c.parsed.y*1000) } } },
+      scales:{
+        x:{ grid:{display:false}, ticks:{ color:'#74748a', font:{size:11} } },
+        y:{ grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#74748a', font:{size:11}, callback:(v)=> v/1000+'M' } }
+      }
+    }
+  });
+
+  // ---------- Gauge ----------
+  const exec = 96.3;
+  document.getElementById('execPct').textContent = exec.toLocaleString('pt-BR')+'%';
+  new Chart(document.getElementById('gauge'), {
+    type:'doughnut',
+    data:{ datasets:[{ data:[exec, 100-exec], backgroundColor:['#34d399','rgba(255,255,255,0.06)'], borderWidth:0, circumference:270, rotation:225 }] },
+    options:{ maintainAspectRatio:false, responsive:true, cutout:'78%', plugins:{ legend:{display:false}, tooltip:{enabled:false} } }
+  });
+
+  // ---------- Lists ----------
+  const desfav = [
+    ['Folha · Comercial', -412, '+18%'], ['Fretes s/ vendas', -188, '+12%'],
+    ['Marketing digital', -141, '+27%'], ['Manutenção frota', -96, '+9%'],
+    ['Energia · CD', -74, '+15%'],
+  ];
+  const fav = [
+    ['Receita SaaS', 326, '+11%'], ['Receita Serviços', 210, '+7%'],
+    ['Viagens', 88, '-22%'], ['Material escritório', 41, '-31%'],
+    ['Telefonia', 28, '-14%'],
+  ];
+  const grupos = [
+    ['1 · Receita', 96.3, '--green'], ['2 · Despesas', 97.1, '--orange'],
+    ['3 · Result. Financeiro', 88.4, '--blue'], ['4 · Impostos s/ Result.', 101.2, '--red'],
+  ];
+  document.getElementById('desfav').innerHTML = desfav.map(([n,v,p])=>`
+    <div class="row"><span class="name">${n}</span><span class="v c-red num">${brl(v)}k</span><span class="pct">${p}</span></div>`).join('');
+  document.getElementById('fav').innerHTML = fav.map(([n,v,p])=>`
+    <div class="row"><span class="name">${n}</span><span class="v c-green num">+${brl(v)}k</span><span class="pct">${p}</span></div>`).join('');
+  document.getElementById('grupos').innerHTML = grupos.map(([n,v,c])=>`
+    <div class="row"><span class="name">${n}</span>
+      <span style="flex:1.2;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden">
+        <span style="display:block;height:100%;width:${Math.min(v,100)}%;background:var(${c})"></span></span>
+      <span class="v num" style="color:var(${c})">${v.toLocaleString('pt-BR')}%</span></div>`).join('');
+</script>
+</body>
+</html>

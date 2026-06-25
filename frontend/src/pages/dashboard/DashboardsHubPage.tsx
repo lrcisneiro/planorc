@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
-import { LayoutDashboard, BarChart3, Scale, Gauge, TrendingUp } from 'lucide-react'
+import { LayoutDashboard, BarChart3, Scale, Gauge, TrendingUp, ListChecks, Bookmark, Trash2, Pencil } from 'lucide-react'
+import { supabase } from '../../lib/supabase'
 
 const CARDS = [
   { to: '/dashboard',            titulo: 'DRE — Acompanhamento', desc: 'Execução orçado × realizado de UM ano, em granularidade mensal, trimestral ou semestral.', icon: LayoutDashboard, cor: '#3b5bdb' },
@@ -8,12 +10,20 @@ const CARDS = [
   { to: '/balanco',             titulo: 'Balanço', desc: 'Indicadores e índices patrimoniais: liquidez, endividamento, ciclo, estrutura.', icon: Scale, cor: '#7048e8' },
   { to: '/dashboards/executivo', titulo: 'Visão executiva', desc: 'KPIs de alto nível do ano: receita, EBITDA, resultado e execução orçamentária.', icon: Gauge, cor: '#e8590c' },
   { to: '/dashboards/cagr',      titulo: 'CAGR', desc: 'Crescimento anual composto de linhas selecionadas ao longo dos anos.', icon: TrendingUp, cor: '#1098ad' },
+  { to: '/dashboards/indicadores', titulo: 'Indicadores', desc: 'Linhas do relatório como cards (EBITDA, margens, medidas com filtro de CC) — realizado × orçado × ano anterior.', icon: ListChecks, cor: '#0c8599' },
 ]
+const BASE_NOME: Record<string, string> = {
+  '/dashboard': 'DRE — Acompanhamento', '/dashboards/anual': 'DRE — Comparativo anual', '/balanco': 'Balanço',
+  '/dashboards/executivo': 'Visão executiva', '/dashboards/cagr': 'CAGR', '/dashboards/indicadores': 'Indicadores',
+}
+
+type MeuCard = { id: string; nome: string; base: string; cor: string | null }
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
   title: { fontSize: 22, fontWeight: 600, color: '#212529', margin: 0 },
   sub:   { fontSize: 13, color: '#868e96', margin: '4px 0 20px' },
+  sechd: { fontSize: 12, color: '#adb5bd', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '26px 0 10px' },
   grid:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 },
   card:  { display: 'flex', gap: 14, alignItems: 'flex-start', background: 'white', border: '1px solid #e9ecef', borderRadius: 14, padding: 18, textDecoration: 'none', color: 'inherit', transition: 'box-shadow .15s, transform .15s' },
   ico:   { width: 44, height: 44, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
@@ -22,6 +32,25 @@ const S: Record<string, CSSProperties> = {
 }
 
 export default function DashboardsHubPage() {
+  const [meus, setMeus] = useState<MeuCard[]>([])
+  const loadMeus = () => { supabase.from('dashboard_card').select('id,nome,base,cor').order('ordem', { nullsFirst: false }).order('created_at').then(r => setMeus((r.data || []) as MeuCard[])) }
+  useEffect(() => { loadMeus() }, [])
+  const excluir = async (id: string, nome: string) => {
+    if (!window.confirm(`Excluir o card "${nome}"?`)) return
+    const { error } = await supabase.from('dashboard_card').delete().eq('id', id)
+    if (error) { alert('Erro: ' + error.message); return }
+    loadMeus()
+  }
+  const renomear = async (id: string, atual: string) => {
+    const novo = window.prompt('Novo nome do card:', atual)?.trim()
+    if (!novo || novo === atual) return
+    const { error } = await supabase.from('dashboard_card').update({ nome: novo }).eq('id', id)
+    if (error) { alert('Erro: ' + error.message); return }
+    loadMeus()
+  }
+
+  const hover = (on: boolean) => (e: any) => { e.currentTarget.style.boxShadow = on ? '0 10px 30px rgba(0,0,0,0.08)' : 'none'; e.currentTarget.style.transform = on ? 'translateY(-2px)' : 'none' }
+
   return (
     <div style={S.page}>
       <h1 style={S.title}>Dashboards</h1>
@@ -30,9 +59,7 @@ export default function DashboardsHubPage() {
         {CARDS.map(c => {
           const Icon = c.icon
           return (
-            <Link key={c.to} to={c.to} style={S.card}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 10px 30px rgba(0,0,0,0.08)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'none'; (e.currentTarget as HTMLElement).style.transform = 'none' }}>
+            <Link key={c.to} to={c.to} style={S.card} onMouseEnter={hover(true)} onMouseLeave={hover(false)}>
               <div style={{ ...S.ico, background: c.cor + '1a', color: c.cor }}><Icon size={22} /></div>
               <div>
                 <p style={S.ctit}>{c.titulo}</p>
@@ -42,6 +69,34 @@ export default function DashboardsHubPage() {
           )
         })}
       </div>
+
+      {meus.length > 0 && (
+        <>
+          <div style={S.sechd}>Meus cards</div>
+          <div style={S.grid}>
+            {meus.map(m => {
+              const cor = m.cor || '#3b5bdb'
+              return (
+                <Link key={m.id} to={`${m.base}?card=${m.id}`} style={S.card} onMouseEnter={hover(true)} onMouseLeave={hover(false)}>
+                  <div style={{ ...S.ico, background: cor + '1a', color: cor }}><Bookmark size={20} /></div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={S.ctit}>{m.nome}</p>
+                    <p style={S.cdesc}>{BASE_NOME[m.base] || m.base} · preset salvo</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                    <span title="Renomear" style={{ display: 'inline-flex' }} onClick={e => { e.preventDefault(); e.stopPropagation(); renomear(m.id, m.nome) }}>
+                      <Pencil size={15} style={{ color: '#ced4da', cursor: 'pointer' }} />
+                    </span>
+                    <span title="Excluir" style={{ display: 'inline-flex' }} onClick={e => { e.preventDefault(); e.stopPropagation(); excluir(m.id, m.nome) }}>
+                      <Trash2 size={15} style={{ color: '#ced4da', cursor: 'pointer' }} />
+                    </span>
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        </>
+      )}
     </div>
   )
 }

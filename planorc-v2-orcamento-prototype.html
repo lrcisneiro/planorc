@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Planorc · Orçamento (Protótipo v2)</title>
+<style>
+  :root{
+    --bg:#0a0a0f; --bg-soft:#0e0e16; --panel:#14141d; --panel-2:#181823;
+    --border:rgba(255,255,255,0.07); --border-st:rgba(255,255,255,0.12);
+    --text:#e8e8f0; --text-mid:#b4b4c4; --muted:#74748a; --faint:#4a4a5a;
+    --violet:#8b5cf6; --violet-d:#6d3ff0; --blue:#3b82f6; --green:#34d399;
+    --red:#f87171; --orange:#fbbf24; --cyan:#22d3ee;
+    --r:14px; --r-sm:10px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(1200px 600px at 85% -10%, rgba(139,92,246,0.10), transparent 60%),
+      radial-gradient(900px 500px at -5% 8%, rgba(59,130,246,0.06), transparent 55%),
+      var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased; font-feature-settings:"tnum" 1;
+  }
+  .num{font-variant-numeric:tabular-nums}
+
+  /* top bar */
+  header{display:flex;align-items:center;gap:18px;padding:14px 26px;border-bottom:1px solid var(--border);
+    background:rgba(10,10,15,0.6);backdrop-filter:blur(8px);position:sticky;top:0;z-index:30}
+  .logo{display:flex;align-items:baseline;gap:10px}
+  .logo .mark{font-weight:800;font-size:15px;letter-spacing:3px;color:var(--text-mid)}
+  .logo .sub{font-weight:600;font-size:15px}
+  .spacer{flex:1}
+  .badge{font-size:11px;font-weight:700;letter-spacing:1px;padding:5px 11px;border-radius:999px;
+    background:linear-gradient(135deg,var(--violet),var(--violet-d));color:#fff;
+    box-shadow:0 0 0 1px rgba(139,92,246,0.4),0 4px 14px rgba(109,63,240,0.35)}
+  .userchip{font-size:13px;color:var(--text-mid);padding:6px 12px;border:1px solid var(--border-st);border-radius:999px}
+
+  /* filter / toolbar */
+  .filters{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 26px;
+    background:linear-gradient(90deg,rgba(139,92,246,0.10),rgba(139,92,246,0.02) 40%,transparent);
+    border-bottom:1px solid var(--border)}
+  .eye{color:var(--violet);font-size:13px;font-weight:600}
+  .select{display:inline-flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border-st);
+    border-radius:var(--r-sm);padding:8px 13px;font-size:13px;color:var(--text);cursor:pointer;transition:.15s}
+  .select:hover{border-color:var(--violet);background:var(--panel-2)}
+  .select .lbl{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  .select .chev{color:var(--muted);font-size:11px}
+  .toggle{display:inline-flex;background:var(--panel);border:1px solid var(--border-st);border-radius:var(--r-sm);overflow:hidden}
+  .toggle button{background:transparent;border:0;color:var(--muted);font-size:12px;font-weight:600;padding:8px 14px;cursor:pointer}
+  .toggle button.on{background:rgba(139,92,246,0.22);color:#fff}
+  .btn-ghost{background:var(--panel);border:1px solid var(--border-st);border-radius:var(--r-sm);color:var(--text-mid);
+    font-size:12px;padding:8px 12px;cursor:pointer}
+  .btn-ghost:hover{border-color:var(--violet);color:var(--text)}
+
+  main{padding:18px 26px 70px;max-width:1600px;margin:0 auto}
+
+  /* table */
+  .tablewrap{border:1px solid var(--border);border-radius:var(--r);overflow:auto;background:var(--bg-soft);max-height:calc(100vh - 200px)}
+  table{border-collapse:separate;border-spacing:0;width:100%;min-width:1120px}
+  thead th{position:sticky;top:0;z-index:10;background:#11111a;color:var(--muted);font-size:11px;font-weight:600;
+    text-transform:uppercase;letter-spacing:.5px;padding:11px 10px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}
+  thead th.firstcol{text-align:left;left:0;z-index:12;min-width:300px}
+  th.firstcol,td.firstcol{position:sticky;left:0;background:var(--bg-soft)}
+  thead th.totcol,td.totcol{background:#10101a}
+  thead th.totcol{color:var(--text-mid)}
+  tbody td{font-size:13px;padding:0;text-align:right;border-bottom:1px solid rgba(255,255,255,0.04);white-space:nowrap;height:38px}
+  tbody td.firstcol{text-align:left;z-index:5}
+  .cellpad{padding:9px 10px}
+  td.totcol{font-weight:700;color:var(--text)}
+
+  /* row levels */
+  tr.n1 td{background:rgba(139,92,246,0.07)}
+  tr.n1 td.firstcol{background:#16131f}
+  tr.n1 .nm{font-weight:750;font-size:13px;letter-spacing:.2px}
+  tr.n2 td{background:rgba(255,255,255,0.015)}
+  tr.n2 td.firstcol{background:#13131c}
+  tr.n2 .nm{font-weight:650;color:var(--text)}
+  tr.n3 .nm{color:var(--text-mid);font-weight:500}
+  tr:hover td{background:rgba(255,255,255,0.03)}
+  tr.n1:hover td{background:rgba(139,92,246,0.11)}
+
+  .firstcell{display:flex;align-items:center;gap:6px;padding:9px 12px}
+  .chev{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;color:var(--muted);
+    font-size:10px;cursor:pointer;flex:0 0 auto;transition:transform .15s,color .15s}
+  .chev:hover{color:var(--violet)}
+  .chev.open{transform:rotate(90deg)}
+  .chev.leaf{visibility:hidden}
+  .code{font-size:10px;color:var(--faint);font-variant-numeric:tabular-nums;min-width:42px}
+  .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nat{font-size:9px;padding:1px 6px;border-radius:999px;margin-left:4px;font-weight:700;letter-spacing:.4px}
+  .nat.rec{background:rgba(52,211,153,0.15);color:var(--green)}
+  .nat.desp{background:rgba(251,191,36,0.13);color:var(--orange)}
+  .nat.neu{background:rgba(59,130,246,0.13);color:var(--blue)}
+
+  /* editable cell */
+  td.edit .cellpad{cursor:cell;border-radius:6px;transition:background .12s,box-shadow .12s}
+  td.edit:hover .cellpad{background:rgba(139,92,246,0.16);box-shadow:inset 0 0 0 1px rgba(139,92,246,0.4)}
+  td .cellinput{width:100%;background:#0c0c14;border:1px solid var(--violet);border-radius:6px;color:#fff;
+    font-size:13px;text-align:right;padding:8px 9px;outline:none;font-variant-numeric:tabular-nums}
+  .dim{color:var(--faint)}
+  .neg{color:var(--red)}
+
+  /* result footer */
+  .resbar{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:16px}
+  .rescard{background:linear-gradient(180deg,var(--panel),var(--bg-soft));border:1px solid var(--border);border-radius:var(--r);padding:14px 16px}
+  .rescard .l{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600}
+  .rescard .v{font-size:22px;font-weight:750;margin-top:8px}
+  .hint{font-size:12px;color:var(--muted);margin:10px 2px 0}
+  .proto-tag{position:fixed;bottom:14px;right:16px;z-index:40;font-size:11px;color:var(--muted);
+    background:var(--panel);border:1px solid var(--border-st);padding:6px 12px;border-radius:999px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="mark">PLANORC</span><span class="sub">Orçamento</span></div>
+  <div class="spacer"></div>
+  <span class="badge">BASELINE 2026</span>
+  <span class="userchip">Ricardo · Controladoria</span>
+</header>
+
+<div class="filters">
+  <span class="eye">◉ Editando:</span>
+  <div class="select"><span class="lbl">Empresa</span> 01 · Distribuidora <span class="chev">▾</span></div>
+  <div class="select"><span class="lbl">Versão</span> BASELINE_2026 <span class="chev">▾</span></div>
+  <div class="select"><span class="lbl">Ano</span> 2026 <span class="chev">▾</span></div>
+  <div class="toggle">
+    <button class="on">Orçado</button>
+    <button>Realizado</button>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn-ghost" id="expandAll">⤢ Expandir tudo</button>
+  <button class="btn-ghost" id="collapseAll">⤡ Recolher</button>
+  <div class="select" style="border-color:var(--green);background:rgba(52,211,153,0.10);color:var(--green)">✓ Salvo automaticamente</div>
+</div>
+
+<main>
+  <div class="tablewrap">
+    <table>
+      <thead><tr id="head"></tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div>
+  <p class="hint">Clique em qualquer célula de um item N3 (folha analítica) para editar — os totais de N2, N1 e o Resultado recalculam na hora.</p>
+
+  <div class="resbar" id="resbar"></div>
+</main>
+
+<div class="proto-tag">Protótipo v2 · dados ilustrativos</div>
+
+<script>
+  const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+  // base mensal sintética a partir de um valor + leve sazonalidade determinística
+  function gen(base){
+    return MESES.map((_,i)=> Math.round(base * (1 + 0.04*Math.sin(i/1.7) + 0.012*i)));
+  }
+
+  // plano orçamentário: N1 > N2 > N3(folha, editável)
+  const PLANO = [
+    {cod:'1', nm:'Receita', nat:'rec', children:[
+      {cod:'101', nm:'Receita de Revenda', children:[
+        {cod:'10101', nm:'Receita Software TOTVS', v:gen(1450)},
+        {cod:'10102', nm:'Receita Hardware', v:gen(620)},
+      ]},
+      {cod:'102', nm:'Receita de Serviços', children:[
+        {cod:'10201', nm:'Serviços de Implantação', v:gen(540)},
+        {cod:'10202', nm:'Consultoria especializada', v:gen(310)},
+      ]},
+      {cod:'103', nm:'Receita Recorrente SaaS', children:[
+        {cod:'10301', nm:'Assinaturas SaaS', v:gen(880)},
+        {cod:'10302', nm:'Suporte e manutenção', v:gen(470)},
+      ]},
+    ]},
+    {cod:'2', nm:'Despesas', nat:'desp', children:[
+      {cod:'201', nm:'Despesas Comerciais', children:[
+        {cod:'20101', nm:'Folha · Comercial', v:gen(940)},
+        {cod:'20102', nm:'Comissões s/ vendas', v:gen(530)},
+        {cod:'20103', nm:'Marketing e eventos', v:gen(295)},
+      ]},
+      {cod:'202', nm:'Despesas Administrativas', children:[
+        {cod:'20201', nm:'Folha · Administrativa', v:gen(1080)},
+        {cod:'20202', nm:'Aluguel e condomínio', v:gen(175)},
+        {cod:'20203', nm:'Energia e utilidades', v:gen(108)},
+      ]},
+      {cod:'203', nm:'Despesas Operacionais', children:[
+        {cod:'20301', nm:'Fretes s/ vendas', v:gen(245)},
+        {cod:'20302', nm:'Manutenção de frota', v:gen(138)},
+      ]},
+    ]},
+    {cod:'3', nm:'Resultado Financeiro', nat:'neu', children:[
+      {cod:'301', nm:'Receitas Financeiras', children:[
+        {cod:'30101', nm:'Rendimentos de aplicações', v:gen(46)},
+      ]},
+      {cod:'302', nm:'Despesas Financeiras', children:[
+        {cod:'30201', nm:'Juros e encargos', v:gen(38)},
+      ]},
+    ]},
+    {cod:'4', nm:'Custo de Impostos s/Resultado', nat:'desp', children:[
+      {cod:'401', nm:'Impostos s/ Lucro', children:[
+        {cod:'40101', nm:'IRPJ / CSLL', v:gen(360)},
+      ]},
+    ]},
+  ];
+
+  const open = {}; // codigo -> bool (expandido)
+  PLANO.forEach(n1=>{ open[n1.cod]=true; n1.children.forEach(n2=>open[n2.cod]=false); });
+
+  const fmt = n => n===0 ? '0' : n.toLocaleString('pt-BR');
+  const sum = arr => arr.reduce((a,b)=>a+b,0);
+
+  // soma recursiva dos 12 meses de um nó
+  function monthly(node){
+    if(node.v) return node.v;
+    const acc = new Array(12).fill(0);
+    node.children.forEach(c=>{ const m=monthly(c); for(let i=0;i<12;i++) acc[i]+=m[i]; });
+    return acc;
+  }
+
+  function head(){
+    let h = `<th class="firstcol">Item do plano orçamentário</th>`;
+    MESES.forEach(m=> h+=`<th>${m}</th>`);
+    h += `<th class="totcol">Total</th>`;
+    document.getElementById('head').innerHTML = h;
+  }
+
+  function cells(node, level, editable){
+    const m = monthly(node);
+    let html = '';
+    m.forEach((val,i)=>{
+      const neg = val<0?'neg':'';
+      if(editable){
+        html += `<td class="edit ${neg}" data-cod="${node.cod}" data-i="${i}"><div class="cellpad num">${fmt(val)}</div></td>`;
+      } else {
+        html += `<td class="${neg}"><div class="cellpad num ${val===0?'dim':''}">${fmt(val)}</div></td>`;
+      }
+    });
+    const tot = sum(m);
+    html += `<td class="totcol num ${tot<0?'neg':''}">${fmt(tot)}</td>`;
+    return html;
+  }
+
+  function rowFirst(node, level){
+    const hasKids = !!node.children;
+    const isOpen = open[node.cod];
+    const chev = !hasKids ? `<span class="chev leaf">▶</span>`
+      : `<span class="chev ${isOpen?'open':''}" data-toggle="${node.cod}">▶</span>`;
+    const pad = level*16;
+    const natTag = (level===0 && node.nat) ? `<span class="nat ${node.nat}">${({rec:'RECEITA',desp:'DESPESA',neu:'NEUTRO'})[node.nat]}</span>` : '';
+    return `<td class="firstcol"><div class="firstcell" style="padding-left:${12+pad}px">${chev}
+      <span class="code">${node.cod}</span><span class="nm">${node.nm}</span>${natTag}</div></td>`;
+  }
+
+  function render(){
+    const body = document.getElementById('body');
+    let rows = '';
+    function walk(node, level){
+      const isLeaf = !node.children;
+      const cls = `n${level+1}`;
+      rows += `<tr class="${cls}" data-cod="${node.cod}">${rowFirst(node,level)}${cells(node,level,isLeaf)}</tr>`;
+      if(node.children && open[node.cod]) node.children.forEach(c=>walk(c, level+1));
+    }
+    PLANO.forEach(n1=>walk(n1,0));
+    body.innerHTML = rows;
+    bindEdit(); bindToggle(); resumo();
+  }
+
+  function bindToggle(){
+    document.querySelectorAll('[data-toggle]').forEach(el=>{
+      el.onclick = ()=>{ const c=el.getAttribute('data-toggle'); open[c]=!open[c]; render(); };
+    });
+  }
+
+  // localizar nó por codigo
+  function findNode(cod){
+    let found=null;
+    (function w(arr){arr.forEach(n=>{ if(n.cod===cod) found=n; if(n.children) w(n.children); });})(PLANO);
+    return found;
+  }
+
+  function bindEdit(){
+    document.querySelectorAll('td.edit').forEach(td=>{
+      td.onclick = ()=>{
+        if(td.querySelector('input')) return;
+        const cod=td.dataset.cod, i=+td.dataset.i;
+        const node=findNode(cod); const cur=node.v[i];
+        td.innerHTML = `<input class="cellinput num" value="${cur}" />`;
+        const inp=td.querySelector('input'); inp.focus(); inp.select();
+        const commit=()=>{
+          const raw=inp.value.replace(/\./g,'').replace(',','.');
+          const num=parseFloat(raw); node.v[i]=isNaN(num)?cur:Math.round(num);
+          render();
+        };
+        inp.onkeydown=(e)=>{ if(e.key==='Enter'){commit();} if(e.key==='Escape'){render();} };
+        inp.onblur=commit;
+      };
+    });
+  }
+
+  function resumo(){
+    const get = cod => sum(monthly(findNode(cod)));
+    const receita  = get('1');
+    const despesas = get('2');
+    const resFin   = get('3');
+    const impostos = get('4');
+    const resultado = receita - despesas + resFin - impostos;
+    const margem = receita ? (resultado / receita * 100) : 0;
+    const corRes = resultado >= 0 ? 'var(--green)' : 'var(--red)';
+
+    const cards = [
+      { l:'Receita total',        v:'R$ '+fmt(receita)+' mil',          cor:'var(--green)'  },
+      { l:'Despesas + impostos',  v:'R$ '+fmt(despesas+impostos)+' mil', cor:'var(--orange)' },
+      { l:'Resultado financeiro', v:'R$ '+fmt(resFin)+' mil',           cor:'var(--blue)'   },
+      { l:'Resultado líquido',    v:'R$ '+fmt(resultado)+' mil',        cor:corRes          },
+      { l:'Margem líquida',       v:margem.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%', cor:'var(--violet)' },
+    ];
+    document.getElementById('resbar').innerHTML = cards.map(c=>
+      `<div class="rescard"><div class="l">${c.l}</div><div class="v num" style="color:${c.cor}">${c.v}</div></div>`
+    ).join('');
+  }
+
+  function setAll(state){ Object.keys(open).forEach(k=>{
+    // mantém N1 sempre, alterna N2
+    open[k]=state;
+  }); PLANO.forEach(n1=>open[n1.cod]=true); render(); }
+  document.getElementById('expandAll').onclick=()=>setAll(true);
+  document.getElementById('collapseAll').onclick=()=>setAll(false);
+
+  head(); render();
+</script>
+</body>
+</html>

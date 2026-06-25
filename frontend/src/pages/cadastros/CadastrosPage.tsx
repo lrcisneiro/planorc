@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
-import { decodeCC } from '../../lib/ccDims'
+import { decodeCC, AREA_MAP, DIVISAO_MAP, BU_MAP } from '../../lib/ccDims'
+import { useGrid, GridHead } from '../../lib/grid'
+import type { GCol } from '../../lib/grid'
 
 // SheetJS carregado via CDN no index.html
 declare const XLSX: any
@@ -85,6 +87,7 @@ function filtraBusca<T>(data: T[], q: string, texto: (r: T) => string): T[] {
   const termos = s.split(/\s+/)
   return data.filter(r => { const t = texto(r).toLowerCase(); return termos.every(x => t.includes(x)) })
 }
+
 
 // Monta árvore (pai_id) ordenada por código → lista achatada com profundidade
 function buildArvore(rows: any[]): { node: any; depth: number }[] {
@@ -301,6 +304,13 @@ function EmpresasTab() {
     fetchAll(() => supabase.from('plano_contas').select('id,codigo,nome').order('codigo')).then(setPlanos)
   }, [])
   const filtered = filtraBusca(data, busca, e => `${e.codigo} ${e.descricao} ${planoCod(e.plano_id)} ${e.ativo ? 'ativo' : 'inativo'}`)
+  const GRID: GCol[] = [
+    { key: 'codigo', label: 'Código' },
+    { key: 'descricao', label: 'Descrição' },
+    { key: 'plano', label: 'Plano (ERP)', get: e => planoCod(e.plano_id) },
+    { key: 'ativo', label: 'Status', get: e => e.ativo ? 'Ativo' : 'Inativo' },
+  ]
+  const grid = useGrid(filtered, GRID)
 
   const save = async (v: Record<string, string>, id?: string) => {
     if (!v.codigo || !v.descricao) { setErro('Código e descrição são obrigatórios'); return }
@@ -357,13 +367,11 @@ function EmpresasTab() {
       {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
       {info && <div style={S.info}>{info}</div>}
       <table style={S.table}>
-        <thead><tr>
-          <th style={S.th}>Código</th><th style={S.th}>Descrição</th><th style={S.th}>Plano (ERP)</th><th style={S.th}>Status</th><th style={S.th}></th>
-        </tr></thead>
+        <GridHead cols={GRID} grid={grid} thStyle={S.th} />
         <tbody>
           {adding && <AddRow cols={COLS} onSave={save} onCancel={() => setAdding(false)} />}
-          {filtered.length === 0 && !adding && <tr><td colSpan={5} style={S.empty}>{busca ? 'Nenhum resultado para a busca.' : <>Nenhuma empresa cadastrada.<br /><small>Use "Baixar modelo" e depois "Importar Excel".</small></>}</td></tr>}
-          {filtered.map(e => editId === e.id ? (
+          {grid.rows.length === 0 && !adding && <tr><td colSpan={5} style={S.empty}>{busca || grid.filtrosOn ? 'Nenhum resultado.' : <>Nenhuma empresa cadastrada.<br /><small>Use "Baixar modelo" e depois "Importar Excel".</small></>}</td></tr>}
+          {grid.rows.map(e => editId === e.id ? (
             <AddRow key={e.id} cols={COLS} initial={{ codigo: e.codigo, descricao: e.descricao, plano_id: e.plano_id || '' }} onSave={v => save(v, e.id)} onCancel={() => setEditId(null)} />
           ) : (
             <tr key={e.id}>
@@ -399,6 +407,7 @@ function FiliaisTab() {
     { key: 'codigo', placeholder: 'Código' },
     { key: 'descricao', placeholder: 'Descrição' },
     { key: 'empresa_id', placeholder: 'Empresa', type: 'select' as const, options: empresas.map(e => ({ value: e.id, label: `${e.codigo} · ${e.descricao}` })) },
+    { key: 'imp_fat', placeholder: 'ISS % (imp_fat)' },
   ]
 
   const load = async () => {
@@ -410,11 +419,18 @@ function FiliaisTab() {
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
   }, [])
   const filtered = filtraBusca(data, busca, f => `${f.codigo} ${f.descricao} ${f.empresa?.codigo || ''} ${f.empresa?.descricao || ''}`)
+  const GRID: GCol[] = [
+    { key: 'codigo', label: 'Código' },
+    { key: 'descricao', label: 'Descrição' },
+    { key: 'empresa', label: 'Empresa', get: f => f.empresa?.descricao || '' },
+    { key: 'imp_fat', label: 'ISS %', align: 'right', get: f => f.imp_fat ?? null },
+  ]
+  const grid = useGrid(filtered, GRID)
 
   const save = async (v: Record<string, string>, id?: string) => {
-    if (!v.codigo || !v.descricao || !v.empresa_id) { setErro('Todos os campos são obrigatórios'); return }
+    if (!v.codigo || !v.descricao || !v.empresa_id) { setErro('Código, descrição e empresa são obrigatórios'); return }
     setErro(null)
-    const payload = { codigo: v.codigo.trim(), descricao: v.descricao.trim(), empresa_id: v.empresa_id }
+    const payload = { codigo: v.codigo.trim(), descricao: v.descricao.trim(), empresa_id: v.empresa_id, imp_fat: v.imp_fat ? Number(String(v.imp_fat).replace(',', '.')) : null }
     const { error } = id
       ? await supabase.from('filial').update(payload).eq('id', id)
       : await supabase.from('filial').insert({ tenant_id: TENANT_ID, ...payload, ativo: true })
@@ -468,19 +484,18 @@ function FiliaisTab() {
       {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
       {info && <div style={S.info}>{info}</div>}
       <table style={S.table}>
-        <thead><tr>
-          <th style={S.th}>Código</th><th style={S.th}>Descrição</th><th style={S.th}>Empresa</th><th style={S.th}></th>
-        </tr></thead>
+        <GridHead cols={GRID} grid={grid} thStyle={S.th} />
         <tbody>
           {adding && <AddRow cols={COLS} onSave={save} onCancel={() => setAdding(false)} />}
-          {filtered.length === 0 && !adding && <tr><td colSpan={4} style={S.empty}>{busca ? 'Nenhum resultado para a busca.' : <>Nenhuma filial cadastrada.<br /><small>Use "Baixar modelo" e depois "Importar Excel".</small></>}</td></tr>}
-          {filtered.map(f => editId === f.id ? (
-            <AddRow key={f.id} cols={COLS} initial={{ codigo: f.codigo, descricao: f.descricao, empresa_id: f.empresa_id || '' }} onSave={v => save(v, f.id)} onCancel={() => setEditId(null)} />
+          {grid.rows.length === 0 && !adding && <tr><td colSpan={5} style={S.empty}>{busca || grid.filtrosOn ? 'Nenhum resultado.' : <>Nenhuma filial cadastrada.<br /><small>Use "Baixar modelo" e depois "Importar Excel".</small></>}</td></tr>}
+          {grid.rows.map(f => editId === f.id ? (
+            <AddRow key={f.id} cols={COLS} initial={{ codigo: f.codigo, descricao: f.descricao, empresa_id: f.empresa_id || '', imp_fat: f.imp_fat != null ? String(f.imp_fat) : '' }} onSave={v => save(v, f.id)} onCancel={() => setEditId(null)} />
           ) : (
             <tr key={f.id}>
               <td style={S.tdMono}>{f.codigo}</td>
               <td style={S.td}>{f.descricao}</td>
               <td style={S.td}>{f.empresa?.descricao}</td>
+              <td style={{ ...S.td, textAlign: 'right' }}>{f.imp_fat != null ? Number(f.imp_fat).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '—'}</td>
               <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
                 <button style={{ ...S.btnDel, color: '#868e96' }} title="Editar" onClick={() => { setEditId(f.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
                 <button style={S.btnDel} title="Excluir" onClick={() => del(f.id)}><Trash2 size={14} /></button>
@@ -506,12 +521,15 @@ function CentroCustoTab() {
   const EXEMPLO = ['1101', 'Comercial', 'ANALITICA', 'COMERCIAL', '11']
 
   const codeById: Record<string, string> = Object.fromEntries(data.map(c => [c.id, c.codigo]))
+  const opt = (m: Record<string, string>) => [{ value: '', label: '—' }, ...Object.entries(m).map(([value, label]) => ({ value, label: `${value} · ${label}` }))]
   const CC_COLS = [
     { key: 'codigo', placeholder: 'Código' },
     { key: 'descricao', placeholder: 'Descrição' },
     { key: 'tipo', placeholder: 'Tipo', type: 'select' as const, options: [{ value: 'ANALITICA', label: 'Analítica' }, { value: 'SINTETICA', label: 'Sintética' }] },
     { key: 'pai_id', placeholder: 'Pai', type: 'select' as const, options: data.map(c => ({ value: c.id, label: `${c.codigo} · ${c.descricao}` })) },
-    { key: 'area', placeholder: 'Área (opcional)' },
+    { key: 'area_cod', placeholder: 'Área', type: 'select' as const, options: opt(AREA_MAP) },
+    { key: 'divisao_cod', placeholder: 'Divisão', type: 'select' as const, options: opt(DIVISAO_MAP) },
+    { key: 'bu_cod', placeholder: 'BU', type: 'select' as const, options: opt(BU_MAP) },
   ]
 
   const load = async () => {
@@ -524,7 +542,17 @@ function CentroCustoTab() {
   const save = async (v: Record<string, string>, id?: string) => {
     if (!v.codigo || !v.descricao) { setErro('Código e descrição são obrigatórios'); return }
     setErro(null)
-    const payload = { codigo: v.codigo.trim(), descricao: v.descricao.trim(), tipo: v.tipo || 'ANALITICA', pai_id: v.pai_id || null, area: v.area?.trim() || null }
+    // dims: usa o que foi escolhido manualmente; se vazio, cai na decodificação pelo código (CC legado pode editar à mão)
+    const dec = decodeCC(v.codigo.trim())
+    const dim = {
+      area_cod: v.area_cod || dec.area_cod || null,
+      area_nome: v.area_cod ? (AREA_MAP[v.area_cod] || v.area_cod) : (dec.area_nome || null),
+      divisao_cod: v.divisao_cod || dec.divisao_cod || null,
+      divisao_nome: v.divisao_cod ? (DIVISAO_MAP[v.divisao_cod] || v.divisao_cod) : (dec.divisao_nome || null),
+      bu_cod: v.bu_cod || dec.bu_cod || null,
+      bu_nome: v.bu_cod ? (BU_MAP[v.bu_cod] || v.bu_cod) : (dec.bu_nome || null),
+    }
+    const payload = { codigo: v.codigo.trim(), descricao: v.descricao.trim(), tipo: v.tipo || 'ANALITICA', pai_id: v.pai_id || null, ...dim }
     const { error } = id
       ? await supabase.from('centro_custo').update(payload).eq('id', id)
       : await supabase.from('centro_custo').insert({ tenant_id: TENANT_ID, ...payload, ativo: true })
@@ -625,7 +653,7 @@ function CentroCustoTab() {
           {filtered.map(c => {
             const isSint = c.tipo === 'SINTETICA'
             return editId === c.id ? (
-              <AddRow key={c.id} cols={CC_COLS} initial={{ codigo: c.codigo, descricao: c.descricao, tipo: c.tipo || 'ANALITICA', pai_id: c.pai_id || '', area: c.area || '' }} onSave={v => save(v, c.id)} onCancel={() => setEditId(null)} />
+              <AddRow key={c.id} cols={CC_COLS} initial={{ codigo: c.codigo, descricao: c.descricao, tipo: c.tipo || 'ANALITICA', pai_id: c.pai_id || '', area_cod: c.area_cod || '', divisao_cod: c.divisao_cod || '', bu_cod: c.bu_cod || '' }} onSave={v => save(v, c.id)} onCancel={() => setEditId(null)} />
             ) : (
               <tr key={c.id}>
                 <td style={{ ...S.tdMono, fontWeight: isSint ? 700 : 400, color: isSint ? '#212529' : '#868e96' }}>{c.codigo}</td>
@@ -664,10 +692,13 @@ function ContasTab() {
   const EXEMPLO = ['1.1.01', 'Caixa Geral', 'ANALITICA', '1.1']
 
   const codeById: Record<string, string> = Object.fromEntries(data.map(c => [c.id, c.codigo]))
+  const NAT_OPTS = [{ value: 'ATIVO', label: 'Ativo' }, { value: 'PASSIVO', label: 'Passivo' }, { value: 'RECEITA', label: 'Receita' }, { value: 'DESPESA', label: 'Despesa' }, { value: 'TRANSITORIA', label: 'Transitória' }]
+  const natPorCodigo = (cod: string) => ({ '1': 'ATIVO', '2': 'PASSIVO', '3': 'RECEITA', '4': 'DESPESA' } as Record<string, string>)[(cod || '').trim()[0]] || 'TRANSITORIA'
   const CT_COLS = [
     { key: 'codigo', placeholder: 'Código' },
     { key: 'descricao', placeholder: 'Descrição' },
     { key: 'tipo', placeholder: 'Tipo', type: 'select' as const, options: [{ value: 'ANALITICA', label: 'Analítica' }, { value: 'SINTETICA', label: 'Sintética' }] },
+    { key: 'natureza', placeholder: 'Natureza', type: 'select' as const, options: NAT_OPTS },
     { key: 'pai_id', placeholder: 'Pai', type: 'select' as const, options: data.map(c => ({ value: c.id, label: `${c.codigo} · ${c.descricao}` })) },
   ]
 
@@ -681,13 +712,13 @@ function ContasTab() {
     catch (e: any) { setErro(String(e)) }
   }
   useEffect(() => { load() }, [planoId]) // eslint-disable-line
-  const filtered = filtraBusca(data, busca, c => `${c.codigo} ${c.descricao} ${c.tipo || ''} ${codeById[c.pai_id] || ''}`)
+  const filtered = filtraBusca(data, busca, c => `${c.codigo} ${c.descricao} ${c.tipo || ''} ${c.natureza || ''} ${codeById[c.pai_id] || ''}`)
 
   const save = async (v: Record<string, string>, id?: string) => {
     if (!v.codigo || !v.descricao) { setErro('Código e descrição são obrigatórios'); return }
     if (!planoId) { setErro('Selecione um plano de contas.'); return }
     setErro(null)
-    const payload = { codigo: v.codigo.trim(), descricao: v.descricao.trim(), tipo: v.tipo || 'ANALITICA', pai_id: v.pai_id || null }
+    const payload = { codigo: v.codigo.trim(), descricao: v.descricao.trim(), tipo: v.tipo || 'ANALITICA', natureza: v.natureza || natPorCodigo(v.codigo), pai_id: v.pai_id || null }
     const { error } = id
       ? await supabase.from('conta_contabil').update(payload).eq('id', id)
       : await supabase.from('conta_contabil').insert({ tenant_id: TENANT_ID, plano_id: planoId, ...payload, ativo: true })
@@ -774,20 +805,21 @@ function ContasTab() {
       {info && <div style={S.info}>{info}</div>}
       <table style={S.table}>
         <thead><tr>
-          <th style={S.th}>Código</th><th style={S.th}>Descrição</th><th style={S.th}>Tipo</th><th style={S.th}>Pai</th><th style={S.th}></th>
+          <th style={S.th}>Código</th><th style={S.th}>Descrição</th><th style={S.th}>Tipo</th><th style={S.th}>Natureza</th><th style={S.th}>Pai</th><th style={S.th}></th>
         </tr></thead>
         <tbody>
           {adding && <AddRow cols={CT_COLS} onSave={save} onCancel={() => setAdding(false)} />}
-          {filtered.length === 0 && !adding && <tr><td colSpan={5} style={S.empty}>{busca ? 'Nenhum resultado para a busca.' : <>Nenhuma conta cadastrada.<br /><small>Use "Importar Excel" (TOTVS CT1_CONTA ou modelo).</small></>}</td></tr>}
+          {filtered.length === 0 && !adding && <tr><td colSpan={6} style={S.empty}>{busca ? 'Nenhum resultado para a busca.' : <>Nenhuma conta cadastrada.<br /><small>Use "Importar Excel" (TOTVS CT1_CONTA ou modelo).</small></>}</td></tr>}
           {filtered.map(c => {
             const isSint = c.tipo === 'SINTETICA'
             return editId === c.id ? (
-              <AddRow key={c.id} cols={CT_COLS} initial={{ codigo: c.codigo, descricao: c.descricao, tipo: c.tipo || 'ANALITICA', pai_id: c.pai_id || '' }} onSave={v => save(v, c.id)} onCancel={() => setEditId(null)} />
+              <AddRow key={c.id} cols={CT_COLS} initial={{ codigo: c.codigo, descricao: c.descricao, tipo: c.tipo || 'ANALITICA', natureza: c.natureza || '', pai_id: c.pai_id || '' }} onSave={v => save(v, c.id)} onCancel={() => setEditId(null)} />
             ) : (
               <tr key={c.id}>
                 <td style={{ ...S.tdMono, fontWeight: isSint ? 700 : 400, color: isSint ? '#212529' : '#868e96' }}>{c.codigo}</td>
                 <td style={{ ...S.td, fontWeight: isSint ? 600 : 400 }}>{c.descricao}</td>
                 <td style={{ ...S.td, color: isSint ? '#1971c2' : '#2f9e44', fontSize: 12, fontWeight: 500 }}>{c.tipo}</td>
+                <td style={{ ...S.td, fontSize: 12, color: '#495057' }}>{c.natureza || '—'}</td>
                 <td style={S.tdMono}>{codeById[c.pai_id] || '—'}</td>
                 <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
                   <button style={{ ...S.btnDel, color: '#868e96' }} title="Editar" onClick={() => { setEditId(c.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>

@@ -6,7 +6,7 @@ import { computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
-import { FiltrosButton, PeriodoButton, effectiveCcFilter } from './DashFiltros'
+import { FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
 import type { Item, CC } from './DashFiltros'
 
 const ANOS = [2022, 2023, 2024, 2025, 2026, 2027, 2028]
@@ -16,7 +16,7 @@ const fmt = (v: number) => (v || 0).toLocaleString('pt-BR', { maximumFractionDig
 const cut = (s: string, n: number) => s.length > n ? s.slice(0, n) + '…' : s
 
 type Rel = { id: string; codigo: string; nome: string }
-type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null }
+type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null; nao_soma?: boolean }
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
@@ -60,13 +60,21 @@ export default function CagrPage() {
   const [res, setRes] = useState<{ id: string; desc: string; vi: number; vf: number; cagr: number | null }[]>([])
   const [loading, setLoading] = useState(false); const [erro, setErro] = useState<string | null>(null)
 
+  const { cardId, nome: cardNome } = useCardPreset('/dashboards/cagr', (f) => {
+    if (f.relId !== undefined) setRelId(f.relId)
+    if (typeof f.anoIni === 'number') setAnoIni(f.anoIni); if (typeof f.anoFim === 'number') setAnoFim(f.anoFim); if (typeof f.ateMes === 'number') setAteMes(f.ateMes)
+    if (Array.isArray(f.sel)) setSel(f.sel)
+    if (Array.isArray(f.empresaSel)) setEmpresaSel(f.empresaSel); if (Array.isArray(f.filialSel)) setFilialSel(f.filialSel); if (Array.isArray(f.ccSel)) setCcSel(f.ccSel)
+    if (Array.isArray(f.areaSel)) setAreaSel(f.areaSel); if (Array.isArray(f.divisaoSel)) setDivisaoSel(f.divisaoSel); if (Array.isArray(f.buSel)) setBuSel(f.buSel)
+  })
+
   useEffect(() => {
     supabase.from('relatorio').select('id,codigo,nome').order('codigo').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => p || sv.relId || r.data![0].id) })
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
     supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
     supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo').then(r => setCcs(r.data || []))
   }, [])
-  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anoIni, anoFim, ateMes, sel })) }, [relId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anoIni, anoFim, ateMes, sel])
+  useEffect(() => { if (cardId) return; localStorage.setItem(SAVE, JSON.stringify({ relId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anoIni, anoFim, ateMes, sel })) }, [cardId, relId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anoIni, anoFim, ateMes, sel])
 
   // carrega as linhas do relatório p/ o seletor
   useEffect(() => {
@@ -89,13 +97,13 @@ export default function CagrPage() {
     if (!relId || anoFim <= anoIni) { setRes([]); return }
     setLoading(true); setErro(null)
     try {
-      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,ordem').eq('relatorio_id', relId)
+      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,ordem,nao_soma').eq('relatorio_id', relId)
       const linhas = (linhasRaw || []) as RL[]
       const byId: Record<string, RL> = {}; linhas.forEach(l => { byId[l.id] = l })
       const masterIds = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
       const rlOfMaster: Record<string, string> = {}; linhas.forEach(l => { if (l.linha_orc_id) rlOfMaster[l.linha_orc_id] = l.id })
       const disabled = new Set<string>(); linhas.forEach(l => { if (l.desativada && l.linha_orc_id) disabled.add(l.linha_orc_id) })
-      const linhasCalc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada }))
+      const linhasCalc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada, nao_soma: l.nao_soma }))
       const natCache: Record<string, string | null> = {}
       const natOf = (id: string | null): string | null => { if (!id) return null; if (id in natCache) return natCache[id]; const l = byId[id]; if (!l) return null; const n = (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : natOf(l.pai_id); natCache[id] = n; return n }
       const facOf = (id: string) => natOf(id) === 'DESPESA' ? -1 : 1
@@ -138,7 +146,7 @@ export default function CagrPage() {
     <div style={S.page}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
         <Link to="/dashboards" style={{ ...S.btn, textDecoration: 'none' }}><ArrowLeft size={14} /> Dashboards</Link>
-        <h1 style={S.title}>CAGR — crescimento anual composto</h1>
+        <h1 style={S.title}>CAGR — crescimento anual composto{cardNome && <span style={{ color: '#1098ad' }}> · {cardNome}</span>}</h1>
       </div>
       <p style={S.sub}>CAGR = (valor final / valor inicial) ^ (1/anos) − 1. Sobre o realizado (cubo anual). Despesas como positivas.</p>
 
@@ -156,6 +164,7 @@ export default function CagrPage() {
         </PeriodoButton>
         <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         <button style={S.btn} onClick={load}><RefreshCw size={13} /></button>
+        <SalvarCardButton base="/dashboards/cagr" cor="#1098ad" cardId={cardId} getFiltros={() => ({ relId, anoIni, anoFim, ateMes, sel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })} />
       </div>
 
       {erro && <div style={{ background: '#fff5f5', border: '1px solid #ffc9c9', color: '#c92a2a', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>{erro}</div>}

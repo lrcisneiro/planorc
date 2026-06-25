@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Planorc · DRE Orçado × Realizado (Protótipo v2)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0a0a0f; --bg-soft:#0e0e16; --panel:#14141d; --panel-2:#181823;
+    --border:rgba(255,255,255,0.07); --border-st:rgba(255,255,255,0.12);
+    --text:#e8e8f0; --text-mid:#b4b4c4; --muted:#74748a; --faint:#4a4a5a;
+    --violet:#8b5cf6; --violet-d:#6d3ff0; --blue:#3b82f6; --green:#34d399;
+    --red:#f87171; --orange:#fbbf24; --cyan:#22d3ee;
+    --r:14px; --r-sm:10px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(1200px 600px at 85% -10%, rgba(139,92,246,0.10), transparent 60%),
+      radial-gradient(900px 500px at -5% 8%, rgba(59,130,246,0.06), transparent 55%),
+      var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased; font-feature-settings:"tnum" 1;
+  }
+  .num{font-variant-numeric:tabular-nums}
+
+  header{display:flex;align-items:center;gap:18px;padding:14px 26px;border-bottom:1px solid var(--border);
+    background:rgba(10,10,15,0.6);backdrop-filter:blur(8px);position:sticky;top:0;z-index:30}
+  .logo{display:flex;align-items:baseline;gap:10px}
+  .logo .mark{font-weight:800;font-size:15px;letter-spacing:3px;color:var(--text-mid)}
+  .logo .sub{font-weight:600;font-size:15px}
+  .spacer{flex:1}
+  .badge{font-size:11px;font-weight:700;letter-spacing:1px;padding:5px 11px;border-radius:999px;
+    background:linear-gradient(135deg,var(--violet),var(--violet-d));color:#fff;
+    box-shadow:0 0 0 1px rgba(139,92,246,0.4),0 4px 14px rgba(109,63,240,0.35)}
+  .userchip{font-size:13px;color:var(--text-mid);padding:6px 12px;border:1px solid var(--border-st);border-radius:999px}
+
+  .filters{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 26px;
+    background:linear-gradient(90deg,rgba(139,92,246,0.10),rgba(139,92,246,0.02) 40%,transparent);
+    border-bottom:1px solid var(--border)}
+  .eye{color:var(--violet);font-size:13px;font-weight:600}
+  .select{display:inline-flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border-st);
+    border-radius:var(--r-sm);padding:8px 13px;font-size:13px;color:var(--text);cursor:pointer;transition:.15s}
+  .select:hover{border-color:var(--violet);background:var(--panel-2)}
+  .select .lbl{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  .select .chev{color:var(--muted);font-size:11px}
+  .toggle{display:inline-flex;background:var(--panel);border:1px solid var(--border-st);border-radius:var(--r-sm);overflow:hidden}
+  .toggle button{background:transparent;border:0;color:var(--muted);font-size:12px;font-weight:600;padding:8px 14px;cursor:pointer}
+  .toggle button.on{background:rgba(139,92,246,0.22);color:#fff}
+
+  main{padding:20px 26px 70px;max-width:1600px;margin:0 auto}
+
+  /* KPI strip */
+  .grid-kpi{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));margin-bottom:18px}
+  .card{background:linear-gradient(180deg,var(--panel),var(--bg-soft));border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;transition:border-color .15s}
+  .card:hover{border-color:var(--border-st)}
+  .kpi .lbl{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:7px}
+  .kpi .dot{width:7px;height:7px;border-radius:50%}
+  .kpi .vals{display:flex;align-items:baseline;gap:8px;margin:10px 0 5px}
+  .kpi .v{font-size:23px;font-weight:750;line-height:1}
+  .kpi .vs{font-size:13px;color:var(--muted)}
+  .kpi .desc{font-size:12px}
+  .pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}
+  .pill.up{background:rgba(52,211,153,0.15);color:var(--green)}
+  .pill.down{background:rgba(248,113,113,0.15);color:var(--red)}
+  .pill.neu{background:rgba(59,130,246,0.15);color:var(--blue)}
+  .c-blue{color:var(--blue)} .c-green{color:var(--green)} .c-red{color:var(--red)}
+  .c-orange{color:var(--orange)} .c-violet{color:var(--violet)} .c-cyan{color:var(--cyan)}
+
+  /* chart */
+  .chartcard{margin-bottom:18px}
+  .panel-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+  .panel-h h3{font-size:14px;font-weight:650}
+  .panel-h .sub{font-size:12px;color:var(--muted)}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--text-mid)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+  .chart-wrap{position:relative;height:230px;margin-top:12px}
+
+  /* DRE table */
+  .tablewrap{border:1px solid var(--border);border-radius:var(--r);overflow:auto;background:var(--bg-soft)}
+  table{border-collapse:separate;border-spacing:0;width:100%;min-width:880px}
+  thead th{position:sticky;top:0;z-index:10;background:#11111a;color:var(--muted);font-size:11px;font-weight:600;
+    text-transform:uppercase;letter-spacing:.5px;padding:11px 14px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}
+  thead th.firstcol{text-align:left;left:0;z-index:12;min-width:320px}
+  th.firstcol,td.firstcol{position:sticky;left:0}
+  thead th.firstcol{background:#11111a}
+  tbody td{font-size:13px;padding:10px 14px;text-align:right;border-bottom:1px solid rgba(255,255,255,0.04);white-space:nowrap}
+  tbody td.firstcol{text-align:left}
+
+  tr.n1 td{background:rgba(139,92,246,0.07)}
+  tr.n1 td.firstcol{background:#16131f}
+  tr.n1 .nm{font-weight:750}
+  tr.n2 td{background:rgba(255,255,255,0.015)}
+  tr.n2 td.firstcol{background:#13131c}
+  tr.n2 .nm{font-weight:650}
+  tr.n3 td.firstcol{background:var(--bg-soft)}
+  tr.n3 .nm{color:var(--text-mid);font-weight:500}
+  tr:hover td{background:rgba(255,255,255,0.03)}
+  tr.n1:hover td{background:rgba(139,92,246,0.11)}
+
+  .firstcell{display:flex;align-items:center;gap:6px}
+  .chev{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;color:var(--muted);
+    font-size:10px;cursor:pointer;flex:0 0 auto;transition:transform .15s,color .15s}
+  .chev:hover{color:var(--violet)}
+  .chev.open{transform:rotate(90deg)}
+  .chev.leaf{visibility:hidden}
+  .code{font-size:10px;color:var(--faint);font-variant-numeric:tabular-nums;min-width:42px}
+  .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nat{font-size:9px;padding:1px 6px;border-radius:999px;margin-left:4px;font-weight:700;letter-spacing:.4px}
+  .nat.rec{background:rgba(52,211,153,0.15);color:var(--green)}
+  .nat.desp{background:rgba(251,191,36,0.13);color:var(--orange)}
+  .nat.neu{background:rgba(59,130,246,0.13);color:var(--blue)}
+  td .var{display:inline-flex;align-items:center;gap:5px;justify-content:flex-end;font-weight:600}
+  .fav{color:var(--green)} .unfav{color:var(--red)} .flat{color:var(--muted)}
+  .barwrap{display:inline-block;width:54px;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;vertical-align:middle;margin-left:8px}
+  .barwrap > i{display:block;height:100%}
+  .realcol{color:var(--text)}
+  .orccol{color:var(--text-mid)}
+
+  .hint{font-size:12px;color:var(--muted);margin:12px 2px 0}
+  .proto-tag{position:fixed;bottom:14px;right:16px;z-index:40;font-size:11px;color:var(--muted);
+    background:var(--panel);border:1px solid var(--border-st);padding:6px 12px;border-radius:999px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="mark">PLANORC</span><span class="sub">DRE Gerencial · Orçado × Realizado</span></div>
+  <div class="spacer"></div>
+  <span class="badge">BASELINE 2026</span>
+  <span class="userchip">Ricardo · Controladoria</span>
+</header>
+
+<div class="filters">
+  <span class="eye">◉ Analisando:</span>
+  <div class="select"><span class="lbl">Empresa</span> 01 · Distribuidora <span class="chev">▾</span></div>
+  <div class="select"><span class="lbl">Versão</span> BASELINE_2026 <span class="chev">▾</span></div>
+  <div class="toggle">
+    <button class="on">Acumulado YTD</button>
+    <button>Por mês</button>
+  </div>
+  <div class="select"><span class="lbl">Período</span> Jan–Jun 2026 <span class="chev">▾</span></div>
+  <div class="spacer"></div>
+  <div class="select" style="border-color:var(--violet);background:rgba(139,92,246,0.12)">⤓ Exportar DRE</div>
+</div>
+
+<main>
+  <div class="grid-kpi" id="kpis"></div>
+
+  <div class="card chartcard">
+    <div class="panel-h">
+      <div><h3>Receita líquida · Orçado × Realizado</h3><div class="sub">R$ mil · por mês · 2026 (realizado até Jun)</div></div>
+      <div class="legend">
+        <span><i style="background:var(--violet)"></i>Orçado</span>
+        <span><i style="background:var(--green)"></i>Realizado</span>
+      </div>
+    </div>
+    <div class="chart-wrap"><canvas id="bar"></canvas></div>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th class="firstcol">Item · DRE gerencial</th>
+        <th>Orçado YTD</th>
+        <th>Realizado YTD</th>
+        <th>Δ R$</th>
+        <th>Δ %</th>
+        <th style="min-width:90px">Execução</th>
+      </tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div>
+  <p class="hint">Δ colorido por <b>favorabilidade</b>: em receita, realizado acima do orçado é favorável (verde); em despesa, realizado acima do orçado é desfavorável (vermelho). Clique nos itens para expandir/recolher.</p>
+</main>
+
+<div class="proto-tag">Protótipo v2 · dados ilustrativos</div>
+
+<script>
+  const MESES=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const YTD=6; // meses realizados (Jan–Jun)
+  const gen = base => MESES.map((_,i)=> Math.round(base*(1+0.04*Math.sin(i/1.7)+0.012*i)));
+
+  // PLANO com orçado (v) e fator de realização por item (f) p/ gerar realizado
+  const PLANO=[
+    {cod:'1',nm:'Receita',nat:'rec',children:[
+      {cod:'101',nm:'Receita de Revenda',children:[
+        {cod:'10101',nm:'Receita Software TOTVS',v:gen(1450),f:0.98},
+        {cod:'10102',nm:'Receita Hardware',v:gen(620),f:1.06},
+      ]},
+      {cod:'102',nm:'Receita de Serviços',children:[
+        {cod:'10201',nm:'Serviços de Implantação',v:gen(540),f:0.93},
+        {cod:'10202',nm:'Consultoria especializada',v:gen(310),f:1.02},
+      ]},
+      {cod:'103',nm:'Receita Recorrente SaaS',children:[
+        {cod:'10301',nm:'Assinaturas SaaS',v:gen(880),f:1.12},
+        {cod:'10302',nm:'Suporte e manutenção',v:gen(470),f:1.04},
+      ]},
+    ]},
+    {cod:'2',nm:'Despesas',nat:'desp',children:[
+      {cod:'201',nm:'Despesas Comerciais',children:[
+        {cod:'20101',nm:'Folha · Comercial',v:gen(940),f:1.09},
+        {cod:'20102',nm:'Comissões s/ vendas',v:gen(530),f:1.03},
+        {cod:'20103',nm:'Marketing e eventos',v:gen(295),f:1.19},
+      ]},
+      {cod:'202',nm:'Despesas Administrativas',children:[
+        {cod:'20201',nm:'Folha · Administrativa',v:gen(1080),f:1.01},
+        {cod:'20202',nm:'Aluguel e condomínio',v:gen(175),f:1.00},
+        {cod:'20203',nm:'Energia e utilidades',v:gen(108),f:1.08},
+      ]},
+      {cod:'203',nm:'Despesas Operacionais',children:[
+        {cod:'20301',nm:'Fretes s/ vendas',v:gen(245),f:1.05},
+        {cod:'20302',nm:'Manutenção de frota',v:gen(138),f:0.95},
+      ]},
+    ]},
+    {cod:'3',nm:'Resultado Financeiro',nat:'neu',children:[
+      {cod:'301',nm:'Receitas Financeiras',children:[
+        {cod:'30101',nm:'Rendimentos de aplicações',v:gen(46),f:1.08},
+      ]},
+      {cod:'302',nm:'Despesas Financeiras',children:[
+        {cod:'30201',nm:'Juros e encargos',v:gen(38),f:1.11},
+      ]},
+    ]},
+    {cod:'4',nm:'Custo de Impostos s/Resultado',nat:'desp',children:[
+      {cod:'401',nm:'Impostos s/ Lucro',children:[
+        {cod:'40101',nm:'IRPJ / CSLL',v:gen(360),f:0.99},
+      ]},
+    ]},
+  ];
+
+  const open={}; PLANO.forEach(n1=>{ open[n1.cod]=true; n1.children.forEach(n2=>open[n2.cod]=false); });
+  const fmt = n => Math.round(n).toLocaleString('pt-BR');
+  const fmtS = n => (n>=0?'+':'−')+'R$ '+Math.abs(Math.round(n)).toLocaleString('pt-BR');
+
+  // orçado YTD (Jan–Jun) e realizado YTD de um nó (recursivo)
+  function orcYTD(node){
+    if(node.v) return node.v.slice(0,YTD).reduce((a,b)=>a+b,0);
+    return node.children.reduce((a,c)=>a+orcYTD(c),0);
+  }
+  function realYTD(node){
+    if(node.v) return node.v.slice(0,YTD).reduce((a,b)=>a+Math.round(b*node.f),0);
+    return node.children.reduce((a,c)=>a+realYTD(c),0);
+  }
+  // séries mensais agregadas (p/ gráfico) de toda Receita (N1 cod '1')
+  function serieMensal(cod, real){
+    const node = find(cod); const acc=new Array(12).fill(0);
+    (function w(n){ if(n.v){ for(let i=0;i<12;i++){ const isR=i<YTD; acc[i]+= real?(isR?Math.round(n.v[i]*n.f):null):n.v[i]; } }
+      else n.children.forEach(w); })(node);
+    return acc;
+  }
+  function find(cod){ let r=null; (function w(a){a.forEach(n=>{if(n.cod===cod)r=n; if(n.children)w(n.children);});})(PLANO); return r; }
+
+  // favorabilidade: rec → real>orc favorável; desp → real<orc favorável
+  function favClass(nat, orc, real){
+    const d = real-orc;
+    if(Math.abs(d) < orc*0.002) return 'flat';
+    if(nat==='rec') return d>0?'fav':'unfav';
+    if(nat==='desp') return d<0?'fav':'unfav';
+    return d>0?'fav':'unfav';
+  }
+
+  // ---- KPIs ----
+  const recO=orcYTD(find('1')), recR=realYTD(find('1'));
+  const desO=orcYTD(find('2'))+orcYTD(find('4')), desR=realYTD(find('2'))+realYTD(find('4'));
+  const finO=orcYTD(find('3')), finR=realYTD(find('3'));
+  const resO=recO-desO+0, resR=recR-desR+0;
+  const exec = recR/recO*100;
+  const pp=(a,b)=> (a/b*100);
+  const kpis=[
+    {lbl:'Receita realizada', dot:'--green', v:'R$ '+fmt(recR), vs:'de R$ '+fmt(recO), pill:(recR-recO), nat:'rec', cls:'c-green'},
+    {lbl:'Despesa realizada', dot:'--orange', v:'R$ '+fmt(desR), vs:'de R$ '+fmt(desO), pill:(desR-desO), nat:'desp', cls:'c-orange'},
+    {lbl:'Resultado líquido', dot:'--violet', v:'R$ '+fmt(resR), vs:'orç. R$ '+fmt(resO), pill:(resR-resO), nat:'rec', cls:(resR>=0?'c-green':'c-red')},
+    {lbl:'Execução da receita', dot:'--blue', v:exec.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%', vs:'meta 100%', pill:(recR-recO), nat:'rec', cls:'c-blue'},
+  ];
+  document.getElementById('kpis').innerHTML = kpis.map(k=>{
+    const fc=favClass(k.nat, (k.lbl==='Despesa realizada'?desO:k.lbl==='Resultado líquido'?resO:recO),
+                            (k.lbl==='Despesa realizada'?desR:k.lbl==='Resultado líquido'?resR:recR));
+    const pc = fc==='fav'?'up':fc==='unfav'?'down':'neu';
+    const pctTxt = (k.pill>=0?'+':'−')+Math.abs(k.pill/ (k.lbl==='Despesa realizada'?desO:k.lbl==='Resultado líquido'?Math.abs(resO):recO) *100).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
+    return `<div class="card kpi">
+      <div class="lbl"><span class="dot" style="background:var(${k.dot})"></span>${k.lbl}</div>
+      <div class="vals"><span class="v ${k.cls} num">${k.v}</span><span class="vs num">${k.vs}</span></div>
+      <div class="desc"><span class="pill ${pc}">${pctTxt} vs orçado</span></div>
+    </div>`;
+  }).join('');
+
+  // ---- Chart ----
+  const orcSerie=serieMensal('1',false), realSerie=serieMensal('1',true);
+  new Chart(document.getElementById('bar'),{
+    type:'bar',
+    data:{labels:MESES,datasets:[
+      {label:'Orçado',data:orcSerie,backgroundColor:'rgba(139,92,246,0.5)',borderRadius:5,borderSkipped:false,barPercentage:0.72,categoryPercentage:0.8},
+      {label:'Realizado',data:realSerie,backgroundColor:'rgba(52,211,153,0.9)',borderRadius:5,borderSkipped:false,barPercentage:0.72,categoryPercentage:0.8},
+    ]},
+    options:{maintainAspectRatio:false,responsive:true,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:(c)=> c.parsed.y==null?'—':c.dataset.label+': R$ '+(c.parsed.y).toLocaleString('pt-BR')+' mil'}}},
+      scales:{x:{grid:{display:false},ticks:{color:'#74748a',font:{size:11}}},
+              y:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#74748a',font:{size:11},callback:v=>(v/1000)+'M'}}}}
+  });
+
+  // ---- DRE table ----
+  function rootNat(cod){ return cod[0]==='1'?'rec':cod[0]==='2'?'desp':cod[0]==='3'?'neu':'desp'; }
+  function firstCell(node,level){
+    const hasKids=!!node.children, isOpen=open[node.cod];
+    const chev = !hasKids?`<span class="chev leaf">▶</span>`:`<span class="chev ${isOpen?'open':''}" data-toggle="${node.cod}">▶</span>`;
+    const natTag=(level===0&&node.nat)?`<span class="nat ${node.nat}">${({rec:'RECEITA',desp:'DESPESA',neu:'NEUTRO'})[node.nat]}</span>`:'';
+    return `<td class="firstcol"><div class="firstcell" style="padding-left:${level*16}px">${chev}
+      <span class="code">${node.cod}</span><span class="nm">${node.nm}</span>${natTag}</div></td>`;
+  }
+  function dataCells(node){
+    const o=orcYTD(node), r=realYTD(node), d=r-o, pct=o?d/o*100:0;
+    const nat=rootNat(node.cod);
+    const fc=favClass(nat,o,r);
+    const arrow = fc==='fav'?'▲':fc==='unfav'?'▼':'▬';
+    const exec=o?Math.min(r/o*100,140):0;
+    const barCol = fc==='fav'?'var(--green)':fc==='unfav'?'var(--red)':'var(--muted)';
+    return `<td class="orccol num">${fmt(o)}</td>
+      <td class="realcol num">${fmt(r)}</td>
+      <td class="num ${fc}">${fmtS(d)}</td>
+      <td class="num"><span class="var ${fc}">${arrow} ${Math.abs(pct).toLocaleString('pt-BR',{maximumFractionDigits:1})}%</span></td>
+      <td><span class="barwrap"><i style="width:${Math.min(exec/140*100,100)}%;background:${barCol}"></i></span></td>`;
+  }
+  function render(){
+    let rows='';
+    (function walk(node,level){
+      rows+=`<tr class="n${level+1}">${firstCell(node,level)}${dataCells(node)}</tr>`;
+      if(node.children&&open[node.cod]) node.children.forEach(c=>walk(c,level+1));
+    });
+    PLANO.forEach(n1=>{ (function walk(node,level){
+      rows+=`<tr class="n${level+1}">${firstCell(node,level)}${dataCells(node)}</tr>`;
+      if(node.children&&open[node.cod]) node.children.forEach(c=>walk(c,level+1));
+    })(n1,0); });
+
+    // linha de resultado
+    const o=recO-desO, r=recR-desR, d=r-o, pct=o?d/o*100:0;
+    const fc=r>=o?'fav':'unfav';
+    rows+=`<tr class="n1"><td class="firstcol"><div class="firstcell"><span class="chev leaf">▶</span>
+      <span class="code">=</span><span class="nm">RESULTADO LÍQUIDO</span></div></td>
+      <td class="orccol num">${fmt(o)}</td><td class="realcol num">${fmt(r)}</td>
+      <td class="num ${fc}">${fmtS(d)}</td>
+      <td class="num"><span class="var ${fc}">${r>=o?'▲':'▼'} ${Math.abs(pct).toLocaleString('pt-BR',{maximumFractionDigits:1})}%</span></td>
+      <td><span class="barwrap"><i style="width:${Math.min(Math.abs(r/o*100),100)}%;background:${r>=o?'var(--green)':'var(--red)'}"></i></span></td></tr>`;
+
+    document.getElementById('body').innerHTML=rows;
+    document.querySelectorAll('[data-toggle]').forEach(el=> el.onclick=()=>{const c=el.getAttribute('data-toggle');open[c]=!open[c];render();});
+  }
+  render();
+</script>
+</body>
+</html>

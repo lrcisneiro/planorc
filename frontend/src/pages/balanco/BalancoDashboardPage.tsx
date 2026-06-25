@@ -19,7 +19,7 @@ const dias = (v: number | null) => v == null || !isFinite(v) ? '—' : Math.roun
 
 type Rel = { id: string; nome: string }
 type Item = { id: string; codigo: string; descricao: string }
-type RL = { id: string; pai_id: string | null; codigo: string; descricao: string; tipo_linha: any; expressao: string | null; natureza: string | null; desativada: boolean; linha_orc_id: string | null }
+type RL = { id: string; pai_id: string | null; codigo: string; descricao: string; tipo_linha: any; expressao: string | null; natureza: string | null; desativada: boolean; linha_orc_id: string | null; nao_soma?: boolean }
 
 async function fetchAll(q: () => any): Promise<any[]> {
   const out: any[] = []; let from = 0; const size = 1000
@@ -131,7 +131,7 @@ export default function BalancoDashboardPage() {
       const todosMeses = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
       // ── BALANÇO: saldo (balancete) no mês de referência — leitura DIRETA, sem acumular
-      const bpLines = (await fetchAll(() => supabase.from('relatorio_linha').select('id,pai_id,codigo,descricao,tipo_linha,expressao,natureza,desativada,linha_orc_id').eq('relatorio_id', bpId))) as RL[]
+      const bpLines = (await fetchAll(() => supabase.from('relatorio_linha').select('id,pai_id,codigo,descricao,tipo_linha,expressao,natureza,desativada,linha_orc_id,nao_soma').eq('relatorio_id', bpId))) as RL[]
       const bpMasters = [...new Set(bpLines.filter(l => l.tipo_linha === 'ANALITICA' && l.linha_orc_id).map(l => l.linha_orc_id))] as string[]
       const rlOf: Record<string, string> = {}; bpLines.forEach(l => { if (l.linha_orc_id) rlOf[l.linha_orc_id] = l.id })
       const rpc = (anos: number[], meses: number[], linhas: string[]) => supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: linhas, p_filiais: filIds, p_ccs: null })
@@ -142,7 +142,7 @@ export default function BalancoDashboardPage() {
       const saldoAt = (master: string, m: number) => saldoM[master]?.[m] || 0
 
       // engine: saldo por linha (período único) — robusto a subtotais/fórmulas
-      const calc: LinhaCalc[] = bpLines.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada }))
+      const calc: LinhaCalc[] = bpLines.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada, nao_soma: l.nao_soma }))
       const SP: Periodo = { ano: 0, mes: 1 }; const PK = pkey(SP)
       const computed: Computed = {}; calc.forEach(l => { computed[l.id] = {} })
       for (const m of bpMasters) { if (rlOf[m]) computed[rlOf[m]][PK] = saldoAt(m, mes) }
@@ -181,7 +181,7 @@ export default function BalancoDashboardPage() {
       // ── DRE (YTD do ano até o mês) para Receita / Custos / EBITDA
       let Receita = 0, Despesa = 0, EBITDA = 0
       if (dreId) {
-        const dreLines = (await fetchAll(() => supabase.from('relatorio_linha').select('id,pai_id,codigo,descricao,tipo_linha,expressao,natureza,desativada,linha_orc_id').eq('relatorio_id', dreId))) as RL[]
+        const dreLines = (await fetchAll(() => supabase.from('relatorio_linha').select('id,pai_id,codigo,descricao,tipo_linha,expressao,natureza,desativada,linha_orc_id,nao_soma').eq('relatorio_id', dreId))) as RL[]
         const dMasters = [...new Set(dreLines.filter(l => l.tipo_linha === 'ANALITICA' && l.linha_orc_id).map(l => l.linha_orc_id))] as string[]
         const dRlOf: Record<string, string> = {}; dreLines.forEach(l => { if (l.linha_orc_id) dRlOf[l.linha_orc_id] = l.id })
         const dById: Record<string, RL> = {}; dreLines.forEach(l => { dById[l.id] = l })
@@ -192,11 +192,11 @@ export default function BalancoDashboardPage() {
         if (dre.error) throw new Error(dre.error.message)
         const valByM: Record<string, number> = {}
         for (const r of dre.data || []) valByM[r.linha_id] = (valByM[r.linha_id] || 0) + (Number(r.valor) || 0)
-        const dcalc: LinhaCalc[] = dreLines.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada }))
+        const dcalc: LinhaCalc[] = dreLines.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada, nao_soma: l.nao_soma }))
         const dcomp: Computed = {}; dcalc.forEach(l => { dcomp[l.id] = {} })
         for (const m of dMasters) { if (dRlOf[m]) dcomp[dRlOf[m]][PK] = valByM[m] || 0 }
         const dtot = computeTotais(dcalc, dcomp, [SP])
-        for (const l of dreLines) { if (l.tipo_linha !== 'ANALITICA' || l.desativada || !l.linha_orc_id) continue; const n = natOf(l.id); if (n === 'RECEITA') Receita += Math.abs(dtot[l.id] || 0); else if (n === 'DESPESA') Despesa += Math.abs(dtot[l.id] || 0) }
+        for (const l of dreLines) { if (l.tipo_linha !== 'ANALITICA' || l.desativada || !l.linha_orc_id || l.nao_soma) continue; const n = natOf(l.id); if (n === 'RECEITA') Receita += Math.abs(dtot[l.id] || 0); else if (n === 'DESPESA') Despesa += Math.abs(dtot[l.id] || 0) }
         const eb = dreLines.find(l => norm(l.descricao).includes('ebitda'))
         EBITDA = eb ? (dtot[eb.id] || 0) : 0
       }

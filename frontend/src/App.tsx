@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, Link2, Wallet, LogOut, Menu, X } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, Link2, Wallet, LogOut, Menu, X, BarChart3 } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 import CadastrosPage from './pages/cadastros/CadastrosPage'
@@ -14,7 +14,9 @@ import DashboardsHubPage from './pages/dashboard/DashboardsHubPage'
 import ComparativoAnualPage from './pages/dashboard/ComparativoAnualPage'
 import CagrPage from './pages/dashboard/CagrPage'
 import ExecutivoPage from './pages/dashboard/ExecutivoPage'
+import IndicadoresPage from './pages/dashboard/IndicadoresPage'
 import BalancoDashboardPage from './pages/balanco/BalancoDashboardPage'
+import DrePage from './pages/dre/DrePage'
 import AmarracaoPage from './pages/amarracao/AmarracaoPage'
 import SaldoDadosPage from './pages/saldos/SaldoDadosPage'
 import ConfiguracoesPage from './pages/configuracoes/ConfiguracoesPage'
@@ -23,6 +25,7 @@ import LoginPage from './pages/login/LoginPage'
 const NAV = [
   { to: '/dashboards', label: 'Dashboards',    icon: LayoutDashboard },
   { to: '/relatorios', label: 'Relatórios',    icon: Table2 },
+  { to: '/dre',        label: 'DRE (v2)',      icon: BarChart3 },
   { to: '/orcamento',  label: 'Orçamento',     icon: FileText },
   { to: '/realizado',  label: 'Realizado',     icon: Receipt },
   { to: '/saldos',     label: 'Saldos (BP)',   icon: Wallet },
@@ -131,10 +134,12 @@ function Shell({ session }: { session: Session }) {
             <Route path="/dashboards/anual"     element={<ComparativoAnualPage />} />
             <Route path="/dashboards/cagr"      element={<CagrPage />} />
             <Route path="/dashboards/executivo" element={<ExecutivoPage />} />
+            <Route path="/dashboards/indicadores" element={<IndicadoresPage />} />
             <Route path="/dashboard"       element={<DashboardPage />} />
             <Route path="/balanco"         element={<BalancoDashboardPage />} />
             <Route path="/relatorios"      element={<RelatorioPage />} />
             <Route path="/relatorios/:id"  element={<RelatorioEditorPage />} />
+            <Route path="/dre"             element={<DrePage />} />
             <Route path="/orcamento"       element={<OrcadoDadosPage />} />
             <Route path="/realizado"       element={<RealizadoDadosPage />} />
             <Route path="/saldos"          element={<SaldoDadosPage />} />

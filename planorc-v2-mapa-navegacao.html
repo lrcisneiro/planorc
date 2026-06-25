@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Planorc · Mapa de Navegação v2 (Protótipo)</title>
+<style>
+  :root{
+    --bg:#0a0a0f; --bg-soft:#0e0e16; --panel:#14141d; --panel-2:#181823;
+    --border:rgba(255,255,255,0.07); --border-st:rgba(255,255,255,0.12);
+    --text:#e8e8f0; --text-mid:#b4b4c4; --muted:#74748a; --faint:#4a4a5a;
+    --violet:#8b5cf6; --violet-d:#6d3ff0; --blue:#3b82f6; --green:#34d399;
+    --red:#f87171; --orange:#fbbf24; --cyan:#22d3ee;
+    --r:14px; --r-sm:10px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(1200px 600px at 85% -10%, rgba(139,92,246,0.10), transparent 60%),
+      radial-gradient(900px 500px at -5% 8%, rgba(59,130,246,0.06), transparent 55%),
+      var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased; font-feature-settings:"tnum" 1;
+    min-height:100%;
+  }
+
+  header{display:flex;align-items:center;gap:18px;padding:14px 26px;border-bottom:1px solid var(--border);
+    background:rgba(10,10,15,0.6);backdrop-filter:blur(8px);position:sticky;top:0;z-index:30}
+  .logo{display:flex;align-items:baseline;gap:10px}
+  .logo .mark{font-weight:800;font-size:15px;letter-spacing:3px;color:var(--text-mid)}
+  .logo .sub{font-weight:600;font-size:15px}
+  .spacer{flex:1}
+  .badge{font-size:11px;font-weight:700;letter-spacing:1px;padding:5px 11px;border-radius:999px;
+    background:linear-gradient(135deg,var(--violet),var(--violet-d));color:#fff;
+    box-shadow:0 0 0 1px rgba(139,92,246,0.4),0 4px 14px rgba(109,63,240,0.35)}
+
+  /* legenda de modo */
+  .modes{display:flex;align-items:center;gap:10px;padding:11px 26px;border-bottom:1px solid var(--border);
+    background:linear-gradient(90deg,rgba(139,92,246,0.08),transparent 50%)}
+  .modes .t{font-size:12px;color:var(--muted);margin-right:4px}
+  .mtag{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;border:1px solid var(--border-st)}
+  .mtag i{width:8px;height:8px;border-radius:50%}
+  .m-write i{background:var(--violet)} .m-write{color:#cbb8ff}
+  .m-erp i{background:var(--cyan)} .m-erp{color:#9fe9f5}
+  .m-read i{background:var(--green)} .m-read{color:#a7f0d4}
+  .m-base i{background:var(--muted)} .m-base{color:var(--text-mid)}
+
+  .layout{display:grid;grid-template-columns:268px 1fr;min-height:calc(100vh - 108px)}
+  @media (max-width:900px){.layout{grid-template-columns:1fr}}
+
+  /* sidebar */
+  .side{border-right:1px solid var(--border);padding:16px 12px;background:rgba(255,255,255,0.012)}
+  .grp{margin-bottom:16px}
+  .grp-h{display:flex;align-items:center;gap:8px;font-size:10px;font-weight:700;letter-spacing:1px;
+    text-transform:uppercase;color:var(--muted);padding:6px 10px}
+  .grp-h .gd{width:8px;height:8px;border-radius:50%}
+  .navitem{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:var(--r-sm);
+    font-size:13px;color:var(--text-mid);cursor:pointer;transition:.12s;border:1px solid transparent}
+  .navitem:hover{background:var(--panel-2);color:var(--text)}
+  .navitem.active{background:rgba(139,92,246,0.16);border-color:rgba(139,92,246,0.4);color:#fff}
+  .navitem .ic{width:18px;text-align:center;opacity:.85}
+  .navitem .nb{margin-left:auto;font-size:9px;font-weight:700;padding:1px 6px;border-radius:999px}
+  .nb.novo{background:rgba(52,211,153,0.16);color:var(--green)}
+  .nb.erp{background:rgba(34,211,238,0.14);color:var(--cyan)}
+
+  /* main */
+  .main{padding:22px 28px 60px}
+  .h1{font-size:19px;font-weight:750;letter-spacing:.2px}
+  .lead{font-size:13px;color:var(--muted);margin-top:6px;max-width:760px;line-height:1.55}
+
+  /* flow diagram */
+  .flow{margin:26px 0 30px;border:1px solid var(--border);border-radius:var(--r);padding:26px 22px;
+    background:linear-gradient(180deg,var(--panel),var(--bg-soft))}
+  .flow-h{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600;margin-bottom:20px}
+  .sources{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:680px;margin:0 auto}
+  .fbox{border-radius:var(--r);padding:15px 16px;border:1px solid var(--border-st);position:relative}
+  .fbox .ft{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .fbox .fd{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5}
+  .fbox.write{border-color:rgba(139,92,246,0.45);background:rgba(139,92,246,0.07)}
+  .fbox.erp{border-color:rgba(34,211,238,0.4);background:rgba(34,211,238,0.05)}
+  .fbox .chip{position:absolute;top:-10px;right:12px;font-size:9px;font-weight:700;padding:3px 8px;border-radius:999px}
+  .write .chip{background:var(--violet);color:#fff}
+  .erp .chip{background:var(--cyan);color:#04222a}
+  .fbox .methods{display:flex;flex-direction:column;gap:6px;margin-top:11px}
+  .fbox .methods span{font-size:11px;color:var(--text-mid);background:rgba(255,255,255,0.04);
+    border:1px solid var(--border);padding:6px 9px;border-radius:8px}
+  .fbox .methods em{color:var(--cyan);font-style:normal;font-weight:600}
+  .arrows{display:flex;justify-content:center;gap:200px;margin:6px auto;max-width:680px}
+  .arrows span{color:var(--faint);font-size:20px}
+  .consol{max-width:680px;margin:6px auto;border:1px dashed var(--border-st);border-radius:var(--r);
+    padding:14px 16px;text-align:center;background:rgba(255,255,255,0.02)}
+  .consol .ct{font-weight:700;font-size:13px}
+  .consol .cc{font-size:11px;color:var(--muted);margin-top:4px}
+  .consol code{color:var(--cyan);font-size:11px}
+  .downarrow{text-align:center;color:var(--faint);font-size:20px;margin:6px 0}
+  .read-out{max-width:680px;margin:0 auto;border:1px solid rgba(52,211,153,0.4);background:rgba(52,211,153,0.06);
+    border-radius:var(--r);padding:15px 16px;text-align:center}
+  .read-out .rt{font-weight:700;font-size:13px;color:#bdf3dd;display:flex;align-items:center;justify-content:center;gap:8px}
+  .read-out .rd{font-size:11px;color:var(--muted);margin-top:5px}
+
+  /* detail panel */
+  .detail{border:1px solid var(--border);border-radius:var(--r);padding:20px 22px;background:var(--bg-soft);min-height:160px}
+  .detail .dtop{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .detail h3{font-size:16px;font-weight:700}
+  .detail .badge2{font-size:10px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.4px}
+  .b-write{background:rgba(139,92,246,0.16);color:#cbb8ff}
+  .b-erp{background:rgba(34,211,238,0.14);color:#9fe9f5}
+  .b-read{background:rgba(52,211,153,0.15);color:#a7f0d4}
+  .b-base{background:rgba(255,255,255,0.07);color:var(--text-mid)}
+  .b-status{margin-left:auto;font-size:10px;font-weight:700;padding:3px 9px;border-radius:999px}
+  .st-mantem{background:rgba(59,130,246,0.14);color:#9cc4ff}
+  .st-novo{background:rgba(52,211,153,0.16);color:var(--green)}
+  .st-reest{background:rgba(251,191,36,0.13);color:var(--orange)}
+  .detail .ddesc{font-size:13px;color:var(--text-mid);margin-top:14px;line-height:1.6}
+  .detail .feats{list-style:none;margin-top:14px;display:flex;flex-wrap:wrap;gap:8px}
+  .detail .feats li{font-size:12px;color:var(--text-mid);background:var(--panel);border:1px solid var(--border);
+    padding:6px 11px;border-radius:999px}
+  .detail .feats li::before{content:'✓ ';color:var(--green)}
+  .proto-tag{position:fixed;bottom:14px;right:16px;z-index:40;font-size:11px;color:var(--muted);
+    background:var(--panel);border:1px solid var(--border-st);padding:6px 12px;border-radius:999px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="mark">PLANORC</span><span class="sub">Mapa de Navegação · v2</span></div>
+  <div class="spacer"></div>
+  <span class="badge">PROPOSTA DE ARQUITETURA</span>
+</header>
+
+<div class="modes">
+  <span class="t">Modo de cada área:</span>
+  <span class="mtag m-write"><i></i>Escrita — você digita</span>
+  <span class="mtag m-erp"><i></i>Realizado — carga do ERP</span>
+  <span class="mtag m-read"><i></i>Leitura — acompanhamento</span>
+  <span class="mtag m-base"><i></i>Base — cadastros de apoio</span>
+</div>
+
+<div class="layout">
+  <!-- SIDEBAR -->
+  <nav class="side" id="side"></nav>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="h1">Separar por modo de interação: orçar · integrar · acompanhar</div>
+    <p class="lead">A ideia central é deixar de misturar escrita e leitura num só ambiente. Quem <b>orça</b> alimenta o orçado por
+      vários caminhos — digitação, planilha, formulário de drivers ou posto de trabalho (folha). O <b>realizado</b> nunca é
+      digitado: chega do ERP TOTVS por carga. E quem <b>acompanha</b> só lê: cards, gráficos e a DRE Orçado × Realizado.
+      Tudo, orçado e realizado, se encontra na tabela <code style="color:var(--cyan)">fat_lancamento</code>.</p>
+
+    <!-- FLUXO DE DADOS -->
+    <div class="flow">
+      <div class="flow-h">Como o dado flui</div>
+      <div class="sources">
+        <div class="fbox write">
+          <span class="chip">ESCRITA</span>
+          <div class="ft">✎ Orçado</div>
+          <div class="fd">Quatro métodos de entrada, todos gravam <code style="color:#cbb8ff">tipo_lancamento = ORCADO</code>:</div>
+          <div class="methods">
+            <span>✎ Editor manual — grade N1/N2/N3</span>
+            <span>⇪ Importar planilha (xlsx/CSV)</span>
+            <span>▭ Formulário de drivers — qtd × valor unit. SKU × índice</span>
+            <span>👤 Posto de trabalho — folha por funcionário/verba <em>· seed do ERP</em></span>
+          </div>
+        </div>
+        <div class="fbox erp">
+          <span class="chip">ERP</span>
+          <div class="ft">⇄ Realizado (TOTVS)</div>
+          <div class="fd">Importação / sincronização. Grava <code style="color:#9fe9f5">tipo_lancamento = REALIZADO</code>. Sem digitação manual.</div>
+        </div>
+      </div>
+      <div class="arrows"><span>↓</span><span>↓</span></div>
+      <div class="consol">
+        <div class="ct">⛁ fat_lancamento</div>
+        <div class="cc">tabela fato única · ORCADO + REALIZADO convivem por <code>versao · item · empresa · ano · mês</code></div>
+      </div>
+      <div class="downarrow">↓</div>
+      <div class="read-out">
+        <div class="rt">📊 Relatórios / Acompanhamento</div>
+        <div class="rd">Dashboard · DRE Orçado × Realizado · gráficos · múltiplas visões — somente leitura</div>
+      </div>
+    </div>
+
+    <!-- DETALHE DA TELA SELECIONADA -->
+    <div class="detail" id="detail"></div>
+  </div>
+</div>
+
+<div class="proto-tag">Protótipo v2 · arquitetura proposta</div>
+
+<script>
+  // estrutura de navegação proposta
+  const NAV = [
+    { area:'Orçamentação · entrada do orçado', mode:'write', gd:'--violet', items:[
+      { id:'editor', ic:'✎', nm:'Editor de Orçado', status:'reest', desc:'A grade hierárquica N1/N2/N3 que você já tem, repaginada no estilo dark. Edição célula a célula por item e mês, com totais recursivos e salvamento automático. Some o toggle "Realizado" daqui — esta área é só orçado.',
+        feats:['Hierarquia N1/N2/N3','Edição inline','Totais recursivos','upsert no Supabase'] },
+      { id:'importar-orcado', ic:'⇪', nm:'Importar Orçado (planilha)', status:'reest', desc:'As áreas trazem o orçado de planilhas, como já é feito na versão atual do Planorc. Upload de xlsx/CSV, mapeamento de colunas → item N3 / mês, e gravação como ORCADO. Reaproveita o motor de importação que você já construiu nos Cadastros.',
+        feats:['Upload xlsx/CSV','Mapeia coluna → item/mês','Validação antes de gravar','Grava ORCADO'] },
+      { id:'formulario', ic:'▭', nm:'Formulário de Receita (drivers)', status:'novo', desc:'Orçar a receita por direcionadores em vez de digitar o valor final: quantidade prevista de venda × valor unitário do SKU × índice de correção. O formulário calcula e escreve o orçado no item de receita correspondente. Permite simular volume e preço.',
+        feats:['Qtd prevista × preço SKU','Índice de correção','Cálculo → ORCADO','Simulação de volume/preço'] },
+      { id:'posto', ic:'👤', nm:'Posto de Trabalho (folha)', status:'novo', nb:'erp', desc:'Modo dedicado à folha: o ERP TOTVS descarrega o orçado por funcionário/verba como ponto de partida (seed), você ajusta o headcount e as rubricas, e o resultado vira ORCADO nos itens grupo_folha. Depois, o mesmo posto acompanha o realizado da folha — também vindo do ERP — funcionário a funcionário. Usa as tabelas funcionario / verba_folha e o cubo dim_values que já existem.',
+        feats:['Seed do orçado via ERP','Por funcionário / verba','Itens grupo_folha','Acompanha realizado da folha (ERP)'] },
+      { id:'versoes', ic:'⎘', nm:'Versões & Cenários', status:'novo', desc:'Criar, comparar e congelar versões de orçamento (ex.: BASELINE_2026, REVISÃO_Q3). Base para análise de cenários — hoje o select de versão existe mas é mockado.',
+        feats:['Múltiplas versões','Comparar cenários','Congelar baseline'] },
+      { id:'governanca', ic:'⚑', nm:'Governança & Aprovação', status:'novo', desc:'Fluxo colaborativo: quem preenche, quem revisa, quem aprova cada parte do orçamento. Trilha de alterações.',
+        feats:['Workflow de aprovação','Trilha de auditoria','Colaboração'] },
+    ]},
+    { area:'Dados / Integração', mode:'erp', gd:'--cyan', items:[
+      { id:'importar', ic:'⇄', nm:'Importar Realizado (ERP)', status:'novo', nb:'erp', desc:'Carga do realizado vindo do TOTVS — NÃO é digitado. Importação de arquivo (xlsx/CSV no formato TOTVS, que você já detecta) ou integração direta. Grava tipo_lancamento = REALIZADO em fat_lancamento.',
+        feats:['Formato TOTVS auto-detectado','Mapeia conta → item N3','Carga por período','Sem entrada manual'] },
+      { id:'conciliacao', ic:'≅', nm:'Conciliação', status:'novo', desc:'Conferência da carga: itens do ERP que não casaram com o plano orçamentário, contas sem amarração (item_conta_contabil), divergências de período.',
+        feats:['Itens sem amarração','Divergências','Validação de carga'] },
+      { id:'status', ic:'◷', nm:'Status de Carga', status:'novo', desc:'Histórico das importações: o que entrou, quando, por qual período, com quantas linhas. Última sincronização do realizado.',
+        feats:['Histórico de cargas','Último sync','Log de erros'] },
+    ]},
+    { area:'Relatórios / Acompanhamento', mode:'read', gd:'--green', items:[
+      { id:'dashboard', ic:'▦', nm:'Dashboard', status:'novo', nb:'novo', desc:'A tela de KPIs do primeiro protótipo: receita orçada vs realizada YTD, % execução, resultado, principais desvios. Leitura — não altera dado.',
+        feats:['KPIs semânticos','Execução orçamentária','Maiores desvios','Gráfico Orçado × Realizado'] },
+      { id:'dre', ic:'▤', nm:'DRE Orçado × Realizado', status:'novo', nb:'novo', desc:'A DRE do terceiro protótipo: tabela hierárquica com Orçado | Realizado | Δ R$ | Δ%, cor por favorabilidade. Hoje a DrePage é só placeholder — aqui ela ganha vida.',
+        feats:['Δ% por favorabilidade','Acumulado YTD / por mês','Linha de Resultado','Exportação'] },
+      { id:'analises', ic:'◑', nm:'Análises & Visões', status:'novo', desc:'As "visões diferentes" que você mencionou: recortar Orçado × Realizado por grupo N1, centro de custo, dimensão (verba, funcionário, projeto), período. Gráficos comparativos.',
+        feats:['Por centro de custo','Por dimensão (cubo)','Por período','Recharts'] },
+    ]},
+    { area:'Base', mode:'base', gd:'--muted', items:[
+      { id:'cadastros', ic:'▣', nm:'Cadastros', status:'mantem', desc:'As 8 abas que você já construiu, intactas: Empresas, Filiais, Centro de Custo, Conta Contábil, Verbas, Funcionários, Dimensões, Plano Orçamentário. CRUD completo + importação. Só re-estilizadas no tema dark.',
+        feats:['8 abas','CRUD completo','Importação xlsx TOTVS','item_conta_contabil','Dimensões configuráveis'] },
+      { id:'config', ic:'⚙', nm:'Configurações', status:'mantem', desc:'Empresa/versão/ano ativos, preferências, usuários. Escopo a definir.',
+        feats:['Contexto ativo','Preferências'] },
+    ]},
+  ];
+
+  const STATUS = {
+    mantem:{cls:'st-mantem', t:'MANTÉM'},
+    reest:{cls:'st-reest', t:'RE-ESTILIZA'},
+    novo:{cls:'st-novo', t:'NOVO'},
+  };
+  const MODEB = { write:'b-write', erp:'b-erp', read:'b-read', base:'b-base' };
+  const MODET = { write:'Escrita', erp:'Realizado · ERP', read:'Leitura', base:'Base' };
+
+  // render sidebar
+  const side=document.getElementById('side');
+  side.innerHTML = NAV.map(g=>`
+    <div class="grp">
+      <div class="grp-h"><span class="gd" style="background:var(${g.gd})"></span>${g.area}</div>
+      ${g.items.map(it=>`
+        <div class="navitem" data-id="${it.id}">
+          <span class="ic">${it.ic}</span><span>${it.nm}</span>
+          ${it.nb?`<span class="nb ${it.nb}">${it.nb==='erp'?'ERP':'novo'}</span>`:''}
+        </div>`).join('')}
+    </div>`).join('');
+
+  function showDetail(id){
+    let item,mode;
+    NAV.forEach(g=>g.items.forEach(it=>{ if(it.id===id){item=it;mode=g.mode;} }));
+    if(!item) return;
+    const st=STATUS[item.status];
+    document.getElementById('detail').innerHTML=`
+      <div class="dtop">
+        <h3>${item.ic} ${item.nm}</h3>
+        <span class="badge2 ${MODEB[mode]}">${MODET[mode]}</span>
+        <span class="b-status ${st.cls}">${st.t}</span>
+      </div>
+      <div class="ddesc">${item.desc}</div>
+      <ul class="feats">${item.feats.map(f=>`<li>${f}</li>`).join('')}</ul>`;
+    document.querySelectorAll('.navitem').forEach(n=>n.classList.toggle('active', n.dataset.id===id));
+  }
+  document.querySelectorAll('.navitem').forEach(n=> n.onclick=()=>showDetail(n.dataset.id));
+  showDetail('editor');
+</script>
+</body>
+</html>

@@ -96,6 +96,14 @@ export default function OrcadoDadosPage() {
   }
   useEffect(() => { load() }, [empresaId, versaoId, ano]) // eslint-disable-line
 
+  const revincular = async () => {
+    setErro(null); setInfo('Re-vinculando CCs órfãos (realizado + orçado)…')
+    const { data: n, error } = await supabase.rpc('revincular_cc_orfaos')
+    if (error) { setErro(error.message); setInfo(null); return }
+    setInfo(`${Number(n || 0).toLocaleString('pt-BR')} lançamento(s) re-vinculados a CC.`)
+    load()
+  }
+
   const exportar = () => {
     const aoa = [HEADERS, ...rows.map(r => [
       r.conta_orcamentaria?.codigo || '',
@@ -173,6 +181,7 @@ export default function OrcadoDadosPage() {
           {ANOS.map(y => <option key={y} value={y}>{y}</option>)}
         </select>
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
+        <button style={{ ...S.btn, color: '#e67700', borderColor: '#ffe8cc' }} onClick={revincular} title="Preencher o CC dos lançamentos órfãos (importados antes do CC ser cadastrado), pelo código original"><AlertCircle size={13} /> Re-vincular CCs</button>
         <div style={S.spacer} />
         <button style={S.btn} onClick={exportar}><FileDown size={13} /> Exportar</button>
         <button style={S.btn} onClick={() => downloadSheet('modelo_orcado.xlsx', [HEADERS, EXEMPLO])}><Download size={13} /> Baixar modelo</button>

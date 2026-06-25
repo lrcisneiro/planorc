@@ -1,14 +1,17 @@
-import { useEffect, useState, Fragment } from 'react'
+import { useEffect, useState, useRef, Fragment } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
-import { computeCenario, computeTotais, pkey } from '../../lib/engine'
+import { computeCenario, computeTotais, pkey, formatValor } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo, RawValues } from '../../lib/engine'
+import { totaisRelatorio } from '../../lib/relatorioTotais'
+import type { RLData } from '../../lib/relatorioTotais'
 import { ResponsiveBar } from '@nivo/bar'
 import { ResponsiveLine } from '@nivo/line'
 import { Link } from 'react-router-dom'
 import { TrendingUp, TrendingDown, RefreshCw, ArrowLeft } from 'lucide-react'
 import DrillModal from './DrillModal'
-import { effectiveCcFilter, FiltrosButton, PeriodoButton } from './DashFiltros'
+import { effectiveCcFilter, FiltrosButton, PeriodoButton, SalvarCardButton, useCardPreset, ModalPanel, Checklist } from './DashFiltros'
+import { ListChecks } from 'lucide-react'
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 const ANOS = [2024, 2025, 2026, 2027, 2028]
@@ -37,7 +40,7 @@ function TipOR({ titulo, data, hint }: { titulo: string; data: any; hint?: strin
 type Rel = { id: string; codigo: string; nome: string }
 type Versao = { id: string; codigo: string }
 type Item = { id: string; codigo: string; descricao: string }
-type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null; visivel_dashboard?: boolean }
+type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null; visivel_dashboard?: boolean; nao_soma?: boolean; filtro_escopo?: any; formato?: any; casas_decimais?: number }
 
 const S: Record<string, CSSProperties> = {
   page:   { padding: 24, fontFamily: 'system-ui, sans-serif' },
@@ -121,6 +124,32 @@ function Gauge({ label, pct }: { label: string; pct: number | null }) {
   )
 }
 
+type IC = { id: string; label: string; isPct: boolean; desp: boolean; casas: number; formato: any; R: number; O: number; P: number }
+function IndicCard({ c, anoPrev }: { c: IC; anoPrev: number }) {
+  const f = (v: number) => formatValor(v, c.formato, c.casas)
+  const d = c.R - c.O
+  const exec = (!c.isPct && c.O !== 0) ? (c.R / c.O) * 100 : null
+  const bomExec = exec == null ? true : c.desp ? exec <= 100 : exec >= 100
+  const yoyPct = (!c.isPct && c.P !== 0) ? (c.R / c.P - 1) * 100 : null
+  const bomY = c.desp ? c.R <= c.P : c.R >= c.P
+  const Arrow = (bom: boolean) => bom ? <TrendingUp size={13} /> : <TrendingDown size={13} />
+  const ksub: CSSProperties = { fontSize: 12, color: '#868e96', display: 'flex', alignItems: 'center', gap: 6 }
+  return (
+    <div style={{ background: 'white', border: '1px solid #e9ecef', borderRadius: 12, padding: 16 }}>
+      <div style={{ fontSize: 12, color: '#868e96', fontWeight: 500 }}>{c.label}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, color: '#212529', margin: '6px 0 4px' }}>{f(c.R)}</div>
+      <div style={ksub}>Orçado {f(c.O)} · {c.isPct
+        ? <span style={{ color: bomY ? '#2f9e44' : '#e03131' }}>{d >= 0 ? '+' : ''}{formatValor(d, 'NUMERO', c.casas)} pp</span>
+        : (exec == null ? '—' : <span style={{ color: bomExec ? '#2f9e44' : '#e03131', display: 'inline-flex', alignItems: 'center', gap: 3 }}>{Arrow(bomExec)}{exec.toFixed(0)}%</span>)}</div>
+      <div style={{ ...ksub, marginTop: 6, paddingTop: 6, borderTop: '1px solid #f1f3f5' }}>
+        <strong style={{ color: '#495057' }}>{anoPrev}</strong> {f(c.P)} · {c.isPct
+          ? <span style={{ color: bomY ? '#2f9e44' : '#e03131' }}>{(c.R - c.P) >= 0 ? '+' : ''}{formatValor(c.R - c.P, 'NUMERO', c.casas)} pp</span>
+          : (yoyPct == null ? '—' : <span style={{ color: bomY ? '#2f9e44' : '#e03131', display: 'inline-flex', alignItems: 'center', gap: 3 }}>{Arrow(bomY)}{yoyPct >= 0 ? '+' : ''}{yoyPct.toFixed(0)}%</span>)}
+      </div>
+    </div>
+  )
+}
+
 const SAVE = 'planorc_dash_filtro'
 function loadSaved(): any { try { return JSON.parse(localStorage.getItem(SAVE) || '{}') } catch { return {} } }
 
@@ -145,6 +174,16 @@ export default function DashboardPage() {
   const [buSel, setBuSel] = useState<string[]>(Array.isArray(sv.buSel) ? sv.buSel : [])
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const loadSeq = useRef(0)
+
+  // Meus Cards: aplica preset quando ?card=<id> bate com este dashboard
+  const { cardId, nome: cardNome } = useCardPreset('/dashboard', (f) => {
+    if (f.relId !== undefined) setRelId(f.relId); if (f.versaoId !== undefined) setVersaoId(f.versaoId); if (f.agrupId !== undefined) setAgrupId(f.agrupId)
+    if (Array.isArray(f.anosSel)) setAnosSel(f.anosSel); if (Array.isArray(f.mesesSel)) setMesesSel(f.mesesSel)
+    if (Array.isArray(f.empresaSel)) setEmpresaSel(f.empresaSel); if (Array.isArray(f.filialSel)) setFilialSel(f.filialSel); if (Array.isArray(f.ccSel)) setCcSel(f.ccSel)
+    if (Array.isArray(f.areaSel)) setAreaSel(f.areaSel); if (Array.isArray(f.divisaoSel)) setDivisaoSel(f.divisaoSel); if (Array.isArray(f.buSel)) setBuSel(f.buSel)
+    if (Array.isArray(f.indicSel)) setIndicSel(f.indicSel)
+  })
 
   const [escopoNome, setEscopoNome] = useState('Relatório inteiro')
   const [kpi, setKpi] = useState({ resOrc: 0, resReal: 0, recOrc: 0, recReal: 0, despOrc: 0, despReal: 0 })
@@ -152,13 +191,16 @@ export default function DashboardPage() {
   const [accLines, setAccLines] = useState<any[]>([])
   const [composicao, setComposicao] = useState<any[]>([])
   const [compOcultas, setCompOcultas] = useState(0)
+  const [indicCards, setIndicCards] = useState<{ id: string; label: string; isPct: boolean; desp: boolean; casas: number; formato: any; R: number; O: number; P: number }[]>([])
+  const [indicSel, setIndicSel] = useState<string[]>(Array.isArray(sv.indicSel) ? sv.indicSel : [])   // quais indicadores exibir (vazio = todos)
+  const [pickIndic, setPickIndic] = useState(false)
   const [filhasMes, setFilhasMes] = useState<any[]>([])
   const [cascata, setCascata] = useState<any[]>([])
   const [porEmpresa, setPorEmpresa] = useState<any[]>([])
   const [ebitdaEmp, setEbitdaEmp] = useState<any[]>([])
   const [desvios, setDesvios] = useState<any[]>([])
   const [temDados, setTemDados] = useState(false)
-  const [drill, setDrill] = useState<{ nodeId: string } | null>(null)
+  const [drill, setDrill] = useState<{ nodeId: string; meses?: number[] } | null>(null)
   const [qparams, setQparams] = useState<{ empIds: string[]; anos: number[]; meses: number[]; filFilter: string[] | null; ccFilter: string[] | null } | null>(null)
 
   useEffect(() => {
@@ -169,18 +211,23 @@ export default function DashboardPage() {
     supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo').then(r => setCcs(r.data || []))
   }, []) // eslint-disable-line
 
-  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })) }, [relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel])
+  useEffect(() => { if (cardId) return; localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel })) }, [cardId, relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel])
 
   const load = async () => {
     if (!relId || !versaoId || !anosSel.length || !mesesSel.length) return
+    const myseq = ++loadSeq.current   // descarta resultados de cargas antigas (ex.: preset aplica filtro e dispara 2ª carga)
     setLoading(true); setErro(null)
     try {
-      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,ordem,visivel_dashboard').eq('relatorio_id', relId)
+      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,ordem,visivel_dashboard,nao_soma,filtro_escopo,formato,casas_decimais').eq('relatorio_id', relId)
       const linhas = (linhasRaw || []) as RL[]
       const byId: Record<string, RL> = {}; linhas.forEach(l => { byId[l.id] = l })
       const childrenByPai: Record<string, RL[]> = {}
       linhas.forEach(l => { const k = l.pai_id || '__root'; (childrenByPai[k] = childrenByPai[k] || []).push(l) })
       Object.values(childrenByPai).forEach(arr => arr.sort((a, b) => (a.ordem ?? 9999) - (b.ordem ?? 9999)))
+      // sequência de exibição = ordem da árvore do relatório (DFS), p/ ordenar os cards de indicadores
+      const seqOrd: Record<string, number> = {}; let _si = 0
+      const dfsSeq = (k: string) => { for (const c of (childrenByPai[k] || [])) { seqOrd[c.id] = _si++; dfsSeq(c.id) } }
+      dfsSeq('__root')
       const masterIds = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
       const descByMaster: Record<string, string> = {}, rlOfMaster: Record<string, string> = {}
       linhas.forEach(l => { if (l.linha_orc_id) { descByMaster[l.linha_orc_id] = l.descricao; rlOfMaster[l.linha_orc_id] = l.id } })
@@ -217,7 +264,7 @@ export default function DashboardPage() {
       const scopedSet = new Set(scopedMasters)
       // filhas diretas do nó (ou raiz) e a qual filha cada master pertence
       // visivel_dashboard=false some do display, mas continua no cálculo (totais/EBITDA via leaves+engine)
-      const allChildren = (childrenByPai[agrup || '__root'] || []).filter(c => c.tipo_linha !== 'ESPACO')
+      const allChildren = (childrenByPai[agrup || '__root'] || []).filter(c => c.tipo_linha !== 'ESPACO' && !c.nao_soma)
       const nodeChildren = allChildren.filter(c => c.visivel_dashboard !== false)
       const childrenOcultas = allChildren.length - nodeChildren.length
       const masterToChild: Record<string, string> = {}, childDesc: Record<string, string> = {}
@@ -232,9 +279,25 @@ export default function DashboardPage() {
       const anos = [...anosSel].sort((a, b) => a - b), meses = [...mesesSel].sort((a, b) => a - b)
       setQparams({ empIds, anos, meses, filFilter, ccFilter })
 
+      // cards dinâmicos: linhas de apoio/indicador do relatório (respeita visivel_dashboard) — usa o helper p/ escopo de CC
+      const indicLines = linhas.filter(l => (l.tipo_linha === 'INDICADOR' || l.nao_soma) && l.visivel_dashboard !== false)
+        .sort((a, b) => (seqOrd[a.id] ?? 9999) - (seqOrd[b.id] ?? 9999))
+      if (indicLines.length) {
+        const baseI = { linhas: linhas as RLData[], ccs: ccs as any, empresas: empIds, meses, filialFilter: filFilter, ccFilter }
+        const [iOrc, iReal, iPrev] = await Promise.all([
+          totaisRelatorio({ ...baseI, cen: versaoId, anos }),
+          totaisRelatorio({ ...baseI, cen: 'REALIZADO', anos }),
+          totaisRelatorio({ ...baseI, cen: 'REALIZADO', anos: anos.map(a => a - 1) }),
+        ])
+        if (myseq !== loadSeq.current) return   // carga mais nova já começou → não sobrescreve com dados antigos
+        const byIdI: Record<string, RL> = {}; linhas.forEach(l => { byIdI[l.id] = l })
+        const natOfI = (id: string | null): string | null => { if (!id) return null; const l = byIdI[id]; if (!l) return null; return (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : natOfI(l.pai_id) }
+        setIndicCards(indicLines.map(l => { const f = natOfI(l.id) === 'DESPESA' ? -1 : 1; return { id: l.id, label: l.descricao, isPct: l.formato === 'PERCENTUAL', desp: natOfI(l.id) === 'DESPESA', casas: l.casas_decimais ?? (l.formato === 'PERCENTUAL' ? 1 : 0), formato: l.formato, R: f * (iReal[l.id] || 0), O: f * (iOrc[l.id] || 0), P: f * (iPrev[l.id] || 0) } }))
+      } else if (myseq === loadSeq.current) setIndicCards([])
+
       // orçado/realizado ESCOPADOS ao nó; lineEmp FULL (p/ EBITDA = fórmula do relatório inteiro)
       const ebNode = linhas.find(l => (l.descricao || '').toLowerCase().includes('ebitda'))
-      const linhasCalc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada }))
+      const linhasCalc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada, nao_soma: l.nao_soma }))
       const [orcR, realR, lineEmpR] = await Promise.all([
         supabase.rpc('relatorio_orcado_agg', { p_versao: versaoId, p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
         supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
@@ -253,7 +316,7 @@ export default function DashboardPage() {
       for (const r of realR.data || []) { const rl = rlOfMaster[r.linha_id]; if (!rl || disabledMasters.has(r.linha_id)) continue; (rawReal[rl] = rawReal[rl] || {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0, expressao: null } }
       const cOrc = computeCenario(linhasCalc, rawOrc, periodos), cReal = computeCenario(linhasCalc, rawReal, periodos)
       const tOrc = computeTotais(linhasCalc, cOrc, periodos), tReal = computeTotais(linhasCalc, cReal, periodos)
-      const leaves = linhas.filter(l => l.tipo_linha === 'ANALITICA' && !l.desativada && l.linha_orc_id)
+      const leaves = linhas.filter(l => l.tipo_linha === 'ANALITICA' && !l.desativada && l.linha_orc_id && !l.nao_soma)
 
       // agregações ESCOPADAS (por mês/ano, por master, por filha) a partir da engine
       const omYM: Record<number, Record<number, number>> = {}, rmYM: Record<number, Record<number, number>> = {}
@@ -280,7 +343,7 @@ export default function DashboardPage() {
       const nodeFac = agrup ? natFac(natOfLine(agrup) || '') : 1
       const childNat: Record<string, string> = {}; nodeChildren.forEach(c => { childNat[c.id] = natOfLine(c.id) || '' })
 
-      const orMes = meses.map(m => ({ mes: MESES[m - 1], Orçado: Math.round(nodeFac * (omM[m] || 0)), Realizado: Math.round(nodeFac * (rmM[m] || 0)) }))
+      const orMes = meses.map(m => ({ mes: MESES[m - 1], mesN: m, Orçado: Math.round(nodeFac * (omM[m] || 0)), Realizado: Math.round(nodeFac * (rmM[m] || 0)) }))
       const acc = anos.map(y => { let a = 0; return { id: String(y), data: meses.map(m => { a += rmYM[y]?.[m] || 0; return { x: MESES[m - 1], y: Math.round(nodeFac * a) } }) } })
 
       const comps = nodeChildren.filter(c => (childOrc[c.id] || childReal[c.id])).map(c => { const f = natFac(childNat[c.id]); return { id: c.id, filha: cut(childDesc[c.id], 26), Orçado: Math.round(f * (childOrc[c.id] || 0)), Realizado: Math.round(f * (childReal[c.id] || 0)) } })
@@ -310,7 +373,8 @@ export default function DashboardPage() {
         ;(orcEM[e] = orcEM[e] || {})[m] = o; (realEM[e] = realEM[e] || {})[m] = r
         if (scopedSet.has(m)) { (totByEmp[e] = totByEmp[e] || { o: 0, r: 0 }).o += o; totByEmp[e].r += r }
       }
-      const pe = Object.entries(totByEmp).map(([id, v]) => ({ empresa: empName[id] || '?', Orçado: Math.round(nodeFac * v.o), Realizado: Math.round(nodeFac * v.r) })).sort((a, b) => b.Realizado - a.Realizado).slice(0, 14)
+      // top 14 por Realizado; ascendente p/ o gráfico horizontal exibir o maior no topo
+      const pe = Object.entries(totByEmp).map(([id, v]) => ({ empresa: empName[id] || '?', Orçado: Math.round(nodeFac * v.o), Realizado: Math.round(nodeFac * v.r) })).sort((a, b) => b.Realizado - a.Realizado).slice(0, 14).reverse()
 
       const SP: Periodo = { ano: 0, mes: 1 }; const EPK = pkey(SP)
       const evalTot = (lineId: string, valByMaster?: Record<string, number>) => {
@@ -321,18 +385,19 @@ export default function DashboardPage() {
       let eb: any[] = []
       if (ebNode) {
         eb = Object.keys(orcEM).filter(id => empSet.has(id)).map(id => ({ empresa: empName[id] || '?', Orçado: Math.round(evalTot(ebNode.id, orcEM[id])), Realizado: Math.round(evalTot(ebNode.id, realEM[id])) }))
-          .filter(x => x.Orçado || x.Realizado).sort((a, b) => b.Realizado - a.Realizado).slice(0, 14)
+          .filter(x => x.Orçado || x.Realizado).sort((a, b) => b.Realizado - a.Realizado).slice(0, 14).reverse()
       }
 
       const desv = scopedMasters.map(m => ({ m, conta: descByMaster[m] || '—', d: (realByMaster[m] || 0) - (orcByMaster[m] || 0) }))
         .filter(x => x.d).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 12).reverse().map(x => ({ conta: cut(x.conta, 26), Δ: Math.round(x.d), nodeId: rlOfMaster[x.m] }))
 
+      if (myseq !== loadSeq.current) return   // carga mais nova já começou → descarta esta
       setKpi({ resOrc: resOrcKpi, resReal: resRealKpi, recOrc: recOF, recReal: recRF, despOrc: despOF, despReal: despRF })
       setOrcRealMes(orMes); setAccLines(acc); setComposicao(comps); setCompOcultas(childrenOcultas); setFilhasMes(fMes); setCascata(steps)
       setPorEmpresa(pe); setEbitdaEmp(eb); setDesvios(desv)
       setTemDados(Object.keys(omM).length > 0 || Object.keys(rmM).length > 0)
-    } catch (e: any) { setErro(e?.message ?? String(e)) }
-    setLoading(false)
+    } catch (e: any) { if (myseq === loadSeq.current) setErro(e?.message ?? String(e)) }
+    if (myseq === loadSeq.current) setLoading(false)
   }
   useEffect(() => { load() }, [relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs]) // eslint-disable-line
 
@@ -347,11 +412,12 @@ export default function DashboardPage() {
   const KpiCard = ({ lbl, orc, real, desp }: { lbl: string; orc: number; real: number; desp?: boolean }) => {
     const p = pctOf(real, orc); const up = real >= orc
     const f = desp ? -1 : 1   // despesa exibida positiva (dado é negativo)
+    const d = f * (real - orc)   // delta (Realizado − Orçado) na orientação exibida
     return (
       <div style={S.kpi}>
         <div style={S.kpiLbl}>{lbl}</div>
         <div style={{ ...S.kpiVal, color: desp ? '#e03131' : '#212529' }}>{fmt(f * real)}</div>
-        <div style={S.kpiSub}>Orçado {fmt(f * orc)} · {p == null ? '—' : <span style={{ color: up ? '#2f9e44' : '#e03131', fontWeight: 600 }}>{up ? <TrendingUp size={11} /> : <TrendingDown size={11} />} {p.toFixed(0)}%</span>}</div>
+        <div style={S.kpiSub}>Orçado {fmt(f * orc)} <span style={{ color: up ? '#2f9e44' : '#e03131', fontWeight: 600 }}>({d >= 0 ? '+' : ''}{fmt(d)})</span> · {p == null ? '—' : <span style={{ color: up ? '#2f9e44' : '#e03131', fontWeight: 600 }}>{up ? <TrendingUp size={11} /> : <TrendingDown size={11} />} {p.toFixed(0)}%</span>}</div>
       </div>
     )
   }
@@ -360,7 +426,7 @@ export default function DashboardPage() {
     <div style={S.page}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
         <Link to="/dashboards" style={{ ...S.btn, textDecoration: 'none' }}><ArrowLeft size={14} /> Dashboards</Link>
-        <h1 style={S.title}>DRE — Acompanhamento</h1>
+        <h1 style={S.title}>DRE — Acompanhamento{cardNome && <span style={{ color: '#3b5bdb' }}> · {cardNome}</span>}</h1>
       </div>
       <p style={S.sub}>Escopo: <strong>{escopoNome}</strong>. Execução orçado × realizado, por filha e por empresa.</p>
 
@@ -385,8 +451,16 @@ export default function DashboardPage() {
         </PeriodoButton>
         <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs as any} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
+        <SalvarCardButton base="/dashboard" cor="#3b5bdb" cardId={cardId} getFiltros={() => ({ relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel })} />
+        {indicCards.length > 0 && <button style={S.btn} onClick={() => setPickIndic(true)} title="Escolher quais indicadores exibir"><ListChecks size={13} /> Indicadores{indicSel.length ? ` (${indicSel.length})` : ''}</button>}
         {loading && <span style={{ fontSize: 12, color: '#aaa' }}>Carregando…</span>}
       </div>
+      {pickIndic && (
+        <ModalPanel titulo="Indicadores a exibir" onClose={() => setPickIndic(false)} width="min(520px, calc(100vw - 40px))">
+          <Checklist titulo="Indicadores" items={indicCards.map(c => ({ id: c.id, codigo: '', descricao: c.label }))} sel={indicSel} setSel={setIndicSel} />
+          <div style={{ fontSize: 12, color: '#adb5bd', marginTop: 8 }}>Vazio = mostra todos. Use para esconder indicadores que não fazem sentido neste preset (ex.: EBITDA num recorte por CC).</div>
+        </ModalPanel>
+      )}
       <div style={S.chip}>{chip}</div>
 
       {erro && <div style={{ background: '#fff5f5', border: '1px solid #ffc9c9', borderRadius: 8, padding: '10px 14px', color: '#c92a2a', fontSize: 13, marginBottom: 16 }}>⚠ {erro}</div>}
@@ -407,6 +481,15 @@ export default function DashboardPage() {
             <Gauge label="Execução Receita" pct={pctOf(kpi.recReal, kpi.recOrc)} />
             <Gauge label="Execução Despesa" pct={pctOf(kpi.despReal, kpi.despOrc)} />
           </div>
+
+          {(() => { const vis = indicCards.filter(c => indicSel.includes(c.id)); return vis.length > 0 && (
+            <>
+              <div style={{ fontSize: 11, color: '#adb5bd', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '16px 0 8px' }}>Indicadores do relatório</div>
+              <div style={S.kpis}>
+                {vis.map(c => <IndicCard key={c.id} c={c} anoPrev={(anosSel.length ? Math.min(...anosSel) : 0) - 1} />)}
+              </div>
+            </>
+          ) })()}
 
           <div style={S.grid2}>
             <div style={S.card}>
@@ -441,12 +524,13 @@ export default function DashboardPage() {
 
           <div style={S.grid2}>
             <div style={S.card}>
-              <div style={S.cardT}>Orçado × Realizado por mês</div>
+              <div style={S.cardT}>Orçado × Realizado por mês <span style={{ fontSize: 11, fontWeight: 400, color: '#adb5bd' }}>(clique no mês p/ detalhar)</span></div>
               <div style={S.chart}>
                 <ResponsiveBar data={orcRealMes} keys={['Orçado', 'Realizado']} indexBy="mes" groupMode="grouped"
                   margin={{ top: 10, right: 10, bottom: 40, left: 56 }} padding={0.25} innerPadding={2}
                   colors={['#adb5bd', '#3b5bdb']} borderRadius={3}
                   axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                  onClick={(d: any) => { const m = d.data?.mesN || (MESES.indexOf(String(d.indexValue)) + 1); if (m > 0 && qparams) setDrill({ nodeId: agrupId || '__root', meses: [m] }) }}
                   tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} />}
                   legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
               </div>
@@ -526,7 +610,7 @@ export default function DashboardPage() {
       )}
 
       {drill && qparams && (
-        <DrillModal relId={relId} versaoId={versaoId} empIds={qparams.empIds} anos={qparams.anos} meses={qparams.meses}
+        <DrillModal relId={relId} versaoId={versaoId} empIds={qparams.empIds} anos={qparams.anos} meses={drill.meses || qparams.meses}
           filFilter={qparams.filFilter} ccFilter={qparams.ccFilter} startNodeId={drill.nodeId} onClose={() => setDrill(null)} />
       )}
     </div>

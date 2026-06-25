@@ -6,7 +6,7 @@ import { computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
-import { FiltrosButton, PeriodoButton, effectiveCcFilter } from './DashFiltros'
+import { FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
 import type { Item, CC } from './DashFiltros'
 
 const ANOS = [2022, 2023, 2024, 2025, 2026, 2027, 2028]
@@ -18,7 +18,7 @@ const cut = (s: string, n: number) => s.length > n ? s.slice(0, n) + '…' : s
 
 type Rel = { id: string; codigo: string; nome: string }
 type Versao = { id: string; codigo: string }
-type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null }
+type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null; nao_soma?: boolean }
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
@@ -64,6 +64,14 @@ export default function ComparativoAnualPage() {
   const [chartLine, setChartLine] = useState('')
   const [loading, setLoading] = useState(false); const [erro, setErro] = useState<string | null>(null); const [temDados, setTemDados] = useState(true)
 
+  const { cardId, nome: cardNome } = useCardPreset('/dashboards/anual', (f) => {
+    if (f.relId !== undefined) setRelId(f.relId); if (f.versaoId !== undefined) setVersaoId(f.versaoId)
+    if (Array.isArray(f.anosSel)) setAnosSel(f.anosSel); if (typeof f.ateMes === 'number') setAteMes(f.ateMes); if (f.medida) setMedida(f.medida)
+    if (typeof f.ocultarVazias === 'boolean') setOcultarVazias(f.ocultarVazias)
+    if (Array.isArray(f.empresaSel)) setEmpresaSel(f.empresaSel); if (Array.isArray(f.filialSel)) setFilialSel(f.filialSel); if (Array.isArray(f.ccSel)) setCcSel(f.ccSel)
+    if (Array.isArray(f.areaSel)) setAreaSel(f.areaSel); if (Array.isArray(f.divisaoSel)) setDivisaoSel(f.divisaoSel); if (Array.isArray(f.buSel)) setBuSel(f.buSel)
+  })
+
   useEffect(() => {
     supabase.from('relatorio').select('id,codigo,nome').order('codigo').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => p || sv.relId || r.data![0].id) })
     supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => { setVersoes(r.data || []); if (r.data?.length) setVersaoId(p => p || sv.versaoId || r.data![0].id) })
@@ -71,13 +79,13 @@ export default function ComparativoAnualPage() {
     supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
     supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo').then(r => setCcs(r.data || []))
   }, [])
-  useEffect(() => { localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anosSel, ateMes, medida, ocultarVazias })) }, [relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anosSel, ateMes, medida, ocultarVazias])
+  useEffect(() => { if (cardId) return; localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anosSel, ateMes, medida, ocultarVazias })) }, [cardId, relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anosSel, ateMes, medida, ocultarVazias])
 
   const load = async () => {
     if (!relId || !versaoId) return
     setLoading(true); setErro(null)
     try {
-      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,ordem').eq('relatorio_id', relId)
+      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,ordem,nao_soma').eq('relatorio_id', relId)
       const linhas = (linhasRaw || []) as RL[]
       const byId: Record<string, RL> = {}; linhas.forEach(l => { byId[l.id] = l })
       const childrenByPai: Record<string, RL[]> = {}
@@ -86,7 +94,7 @@ export default function ComparativoAnualPage() {
       const masterIds = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
       const rlOfMaster: Record<string, string> = {}; linhas.forEach(l => { if (l.linha_orc_id) rlOfMaster[l.linha_orc_id] = l.id })
       const disabled = new Set<string>(); linhas.forEach(l => { if (l.desativada && l.linha_orc_id) disabled.add(l.linha_orc_id) })
-      const linhasCalc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada }))
+      const linhasCalc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada, nao_soma: l.nao_soma }))
       // natureza efetiva (herda do ancestral) p/ exibir despesa positiva
       const natCache: Record<string, string | null> = {}
       const natOf = (id: string | null): string | null => { if (!id) return null; if (id in natCache) return natCache[id]; const l = byId[id]; if (!l) return null; const n = (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : natOf(l.pai_id); natCache[id] = n; return n }
@@ -123,7 +131,7 @@ export default function ComparativoAnualPage() {
       const out: { id: string; depth: number; desc: string; tipo: any; vals: Record<number, number>; cagr: number | null }[] = []
       const walk = (paiKey: string, depth: number) => {
         for (const c of (childrenByPai[paiKey] || [])) {
-          if (c.tipo_linha !== 'ESPACO') {
+          if (c.tipo_linha !== 'ESPACO' && !c.nao_soma) {
             const f = facOf(c.id)
             const vals: Record<number, number> = {}
             anos.forEach(y => { vals[y] = f * (totByYear[y]?.[c.id] || 0) })
@@ -154,7 +162,7 @@ export default function ComparativoAnualPage() {
     <div style={S.page}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
         <Link to="/dashboards" style={{ ...S.btn, textDecoration: 'none' }}><ArrowLeft size={14} /> Dashboards</Link>
-        <h1 style={S.title}>DRE — Comparativo anual</h1>
+        <h1 style={S.title}>DRE — Comparativo anual{cardNome && <span style={{ color: '#2f9e44' }}> · {cardNome}</span>}</h1>
       </div>
       <p style={S.sub}>Vários anos em base equivalente: compara os meses <strong>Jan–{MESES[ateMes - 1]}</strong> em todos os anos. Despesas exibidas como positivas.</p>
 
@@ -174,6 +182,7 @@ export default function ComparativoAnualPage() {
         <div style={{ flex: 1 }} />
         <label style={{ fontSize: 12, color: '#868e96', display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={ocultarVazias} onChange={e => setOcultarVazias(e.target.checked)} /> ocultar vazias</label>
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
+        <SalvarCardButton base="/dashboards/anual" cor="#2f9e44" cardId={cardId} getFiltros={() => ({ relId, versaoId, anosSel, ateMes, medida, ocultarVazias, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })} />
       </div>
 
       {erro && <div style={{ background: '#fff5f5', border: '1px solid #ffc9c9', color: '#c92a2a', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>{erro}</div>}
