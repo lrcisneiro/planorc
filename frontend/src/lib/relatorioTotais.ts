@@ -19,6 +19,7 @@ type Opts = {
   cen: 'REALIZADO' | string          // string = versaoId (orçado)
   empresas: string[]; anos: number[]; meses: number[]
   filialFilter: string[] | null; ccFilter: string[] | null
+  ccPermitidos?: string[] | null     // F2: escopo VER do usuário (null = sem restrição). Limita o filtro_escopo das linhas.
 }
 
 // Retorna { [lineId]: total } sobre anos×meses, com as linhas escopadas recalculadas no seu CC.
@@ -65,8 +66,11 @@ export async function totaisRelatorio(o: Opts): Promise<Record<string, number>> 
     if (!(indic && l.filtro_escopo)) continue
     const e = l.filtro_escopo
     if (!Object.values(e).some(a => (a || []).length)) continue
-    const cc = effectiveCcFilter(ccs, e.cc || [], e.area || [], e.divisao || [], e.bu || [])
-    if (!cc) continue
+    let cc = effectiveCcFilter(ccs, e.cc || [], e.area || [], e.divisao || [], e.bu || [])
+    // F2: cruza o escopo próprio da linha com o que o usuário pode VER
+    if (o.ccPermitidos) cc = cc === null ? [...o.ccPermitidos] : cc.filter(id => o.ccPermitidos!.includes(id))
+    if (cc === null) continue                       // sem restrição → segue o global
+    if (cc.length === 0) { out[l.id] = 0; continue } // usuário não acessa nenhum CC do escopo da linha
     const sig = JSON.stringify([...cc].sort())
     let g = grupos.get(sig); if (!g) { g = { cc, ids: [] }; grupos.set(sig, g) }
     g.ids.push(l.id)

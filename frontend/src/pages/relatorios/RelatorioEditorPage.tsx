@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, useCallback, useRef, Fragment } from 'rea
 import type { CSSProperties, ChangeEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { useUserAccess } from '../../hooks/useUserAccess'
+import { useCapacidades } from '../../hooks/useCapacidades'
 import {
   computeCenario, computeTotais, formatValor, parseNum, pkey,
 } from '../../lib/engine'
@@ -220,6 +222,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const podeEstrutura = mode === 'estrutura'
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const acesso = useUserAccess()   // F2: escopo VER/ORÇAR + negar
+  const cap = useCapacidades()     // F2: capacidades (Orçar / Estrutura)
   const saved0 = savedFiltro(id)
 
   const [relatorio, setRelatorio] = useState<Relatorio | null>(null)
@@ -334,6 +338,14 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     if (v.length) setVersaoId(prev => prev || v[0].id)
   }, [])
 
+  // F2: poda as seleções ao escopo VER do usuário (e re-default p/ a 1ª empresa permitida)
+  useEffect(() => {
+    if (acesso.loading) return
+    setEmpresaSel(prev => { const f = prev.filter(x => acesso.canSee('empresa', x)); if (f.length) return f; const ok = acesso.filterList('empresa', empresas); return ok.length ? [ok[0].id] : [] })
+    setFilialSel(prev => prev.filter(x => acesso.canSee('filial', x)))
+    setCcSel(prev => prev.filter(x => acesso.canSee('centro_custo', x)))
+  }, [acesso.loading, empresas]) // eslint-disable-line
+
   const loadContas = useCallback(async () => {
     const { data } = await supabase.from('conta_contabil').select('id,codigo,descricao,plano_id, plano_contas(codigo)').order('codigo')
     setContas((data || []).map((c: any) => ({ id: c.id, codigo: c.codigo, descricao: c.descricao, plano_id: c.plano_id, plano: c.plano_contas?.codigo || '' })))
@@ -401,8 +413,17 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const myseq = ++loadSeq.current   // só conta os carregamentos "de verdade" (com deps prontas)
     try {
     // filtra filial/CC só quando é um subconjunto (nem vazio nem tudo = sem filtro, inclui consolidados null)
-    const filialFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
-    const ccFilter = effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel)
+    const filialFilter0 = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
+    const ccFilter0 = effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel)
+    // F2: aplica o escopo VER mesmo SEM filtro explícito (vazio = "todos" → interseção com o permitido)
+    const aplicaEscopo = (f: string[] | null, todos: { id: string }[], dim: string): string[] | null => {
+      const permitidos = todos.filter(i => acesso.canSee(dim, i.id)).map(i => i.id)
+      if (permitidos.length >= todos.length) return f
+      if (f === null) return permitidos
+      return f.filter(idd => permitidos.includes(idd))
+    }
+    const filialFilter = aplicaEscopo(filialFilter0, filiais, 'filial')
+    const ccFilter = aplicaEscopo(ccFilter0, ccs as any, 'centro_custo')
     const isBalanco = relatorio?.categoria === 'BP'   // Balanço lê o realizado do saldo (fat_saldo)
     // carrega só os meses exibidos (evita puxar o ano inteiro)
     const mesesExib = [...new Set(periodos.map(p => p.mes))]
@@ -490,7 +511,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       const grupos = new Map<string, string[]>()   // sig → ccList
       for (const l of escLinhas) {
         const e = l.filtro_escopo!
-        const cc = effectiveCcFilter(ccs as any, e.cc || [], e.area || [], e.divisao || [], e.bu || [])
+        // escopo próprio da linha (ex.: "margem de serviço") cruzado com o escopo VER do usuário
+        const cc = aplicaEscopo(effectiveCcFilter(ccs as any, e.cc || [], e.area || [], e.divisao || [], e.bu || []), ccs as any, 'centro_custo')
         if (!cc) continue   // escopo não restringe → segue o global
         const sig = JSON.stringify([...cc].sort())
         if (!grupos.has(sig)) grupos.set(sig, cc)
@@ -530,7 +552,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       console.error('loadValores erro:', e)
       setValErro(e?.message ?? String(e))
     }
-  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, pIni.ano, pFim.ano, pIni.mes, pFim.mes, cenariosAtivos, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEmpresa, empsCols, linhas]) // eslint-disable-line
+  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, pIni.ano, pFim.ano, pIni.mes, pFim.mes, cenariosAtivos, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEmpresa, empsCols, linhas, acesso.loading]) // eslint-disable-line
 
   useEffect(() => { loadValores() }, [loadValores])
 
@@ -714,8 +736,17 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const abrirRazao = (l: Linha, period: Period, cen: string) => {
     if (l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR' || l.tipo_linha === 'ESPACO') return
     if (!empresaSel.length) return
-    const filialFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
-    const ccFilter = effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel)
+    const filialFilter0 = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
+    const ccFilter0 = effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel)
+    // F2: aplica o escopo VER mesmo SEM filtro explícito (vazio = "todos" → interseção com o permitido)
+    const aplicaEscopo = (f: string[] | null, todos: { id: string }[], dim: string): string[] | null => {
+      const permitidos = todos.filter(i => acesso.canSee(dim, i.id)).map(i => i.id)
+      if (permitidos.length >= todos.length) return f
+      if (f === null) return permitidos
+      return f.filter(idd => permitidos.includes(idd))
+    }
+    const filialFilter = aplicaEscopo(filialFilter0, filiais, 'filial')
+    const ccFilter = aplicaEscopo(ccFilter0, ccs as any, 'centro_custo')
     const meses: Periodo[] = period === 'TOTAL' ? displayedMeses : (buckets[period as number]?.meses ?? [])
     const lbl0 = period === 'TOTAL' ? 'Período' : (buckets[period as number]?.label ?? '')
     const periodoLabel = period === 'TOTAL'
@@ -1407,7 +1438,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       <div style={S.header}>
         <button style={S.back} onClick={() => navigate('/relatorios')}><ChevronLeft size={15} /> Relatórios</button>
         <div style={{ display: 'flex', gap: 2, background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 8, padding: 2 }}>
-          {([['consulta', '/relatorios', 'Consultar'], ['orcar', '/orcar', 'Orçar'], ['estrutura', '/estrutura', 'Estrutura']] as const).map(([m, base, label]) => (
+          {([['consulta', '/relatorios', 'Consultar'], ['orcar', '/orcar', 'Orçar'], ['estrutura', '/estrutura', 'Estrutura']] as const).filter(([m]) => m === 'consulta' || (m === 'orcar' ? cap.can('orcar') : cap.can('estrutura'))).map(([m, base, label]) => (
             <button key={m} onClick={() => navigate(`${base}/${id}`)}
               style={{ fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
                 background: mode === m ? 'rgba(139,92,246,0.18)' : 'transparent', color: mode === m ? '#cbb8ff' : 'var(--muted)' }}>
@@ -1428,7 +1459,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             <span style={{ marginLeft: 6, color: 'var(--muted)' }}>(granularidade na Visão)</span>
           </div>
         </PeriodoButton>
-        <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs as any} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
+        <FiltrosButton empresas={acesso.filterList('empresa', empresas)} filiais={acesso.filterList('filial', filiais)} ccs={acesso.filterList('centro_custo', ccs) as any} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
           {(empresaSel.length === 0 ? 'nenhuma empresa' : empresaSel.length === empresas.length ? 'Todas empresas' : empresaSel.length === 1 ? (empresas.find(e => e.id === empresaSel[0])?.codigo || '1 empresa') : `${empresaSel.length} empresas`)}
           {' · '}{versoes.find(v => v.id === versaoId)?.codigo || '—'}{' · '}{pIni.ano === pFim.ano ? pIni.ano : `${pIni.ano}–${pFim.ano}`}
@@ -1650,7 +1681,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
               return (
                 <Fragment key={l.id}>
                 <tr style={{ background: rowBgSel }} onClick={() => setSelId(l.id)}>
-                  <td style={{ ...S.tdDesc, background: rowBgSel, borderLeft: isSel ? '3px solid var(--violet)' : '3px solid transparent', cursor: 'pointer' }}>
+                  <td style={{ ...S.tdDesc, background: `linear-gradient(${rowBgSel}, ${rowBgSel}), var(--bg)`, borderLeft: isSel ? '3px solid var(--violet)' : '3px solid transparent', cursor: 'pointer' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingLeft: depth * 18, height: 22 }}>
                       <button style={{ ...S.iconBtn, width: 18, flexShrink: 0 }} onClick={e => { e.stopPropagation(); hasKids && toggle(l.id) }}>
                         {hasKids ? (isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />) : <span style={{ width: 12 }} />}

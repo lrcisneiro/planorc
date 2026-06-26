@@ -5,7 +5,8 @@ import { supabase } from '../../lib/supabase'
 import { computeCenario, computeTotais } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Periodo } from '../../lib/engine'
 import { ArrowLeft, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react'
-import { FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
+import { escopoFiltro, FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
+import { useUserAccess } from '../../hooks/useUserAccess'
 import type { Item, CC } from './DashFiltros'
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -64,6 +65,7 @@ export default function ExecutivoPage() {
   const [empresas, setEmpresas] = useState<Item[]>([]); const [filiais, setFiliais] = useState<Item[]>([]); const [ccs, setCcs] = useState<CC[]>([])
   const [relId, setRelId] = useState(''); const [versaoId, setVersaoId] = useState(''); const [ano, setAno] = useState<number>(sv.ano || 2026); const [ateMes, setAteMes] = useState<number>(sv.ateMes || ULT_FECHADO)
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
+  const acessoDash = useUserAccess()
   const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
   const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
   const [areaSel, setAreaSel] = useState<string[]>(Array.isArray(sv.areaSel) ? sv.areaSel : [])
@@ -103,9 +105,9 @@ export default function ExecutivoPage() {
       const linhasCalc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada, nao_soma: l.nao_soma }))
       const natCache: Record<string, string | null> = {}
       const natOf = (id: string | null): string | null => { if (!id) return null; if (id in natCache) return natCache[id]; const l = byId[id]; if (!l) return null; const n = (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : natOf(l.pai_id); natCache[id] = n; return n }
-      const empIds = empresaSel.length ? empresaSel : empresas.map(e => e.id)
-      const filFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
-      const ccFilter = effectiveCcFilter(ccs, ccSel, areaSel, divisaoSel, buSel)
+      const empIds = escopoFiltro(empresaSel.length ? empresaSel : empresas.map(e => e.id), empresas, 'empresa', acessoDash.canSee) ?? []
+      const filFilter = escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acessoDash.canSee)
+      const ccFilter = escopoFiltro(effectiveCcFilter(ccs, ccSel, areaSel, divisaoSel, buSel), ccs, 'centro_custo', acessoDash.canSee)
       const meses = Array.from({ length: ateMes }, (_, i) => i + 1)
       if (!masterIds.length || !empIds.length) { setK(null); setLoading(false); return }
 
@@ -138,7 +140,7 @@ export default function ExecutivoPage() {
     } catch (e: any) { if (myseq === loadSeq.current) setErro(e?.message ?? String(e)) }
     if (myseq === loadSeq.current) setLoading(false)
   }
-  useEffect(() => { load() }, [relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes, empresas, filiais, ccs]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes, empresas, filiais, ccs, acessoDash.loading]) // eslint-disable-line
 
   return (
     <div style={S.page}>

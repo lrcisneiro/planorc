@@ -7,7 +7,8 @@ import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
 import { nivoTheme } from '../../lib/nivoTheme'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
-import { FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
+import { escopoFiltro, FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
+import { useUserAccess } from '../../hooks/useUserAccess'
 import type { Item, CC } from './DashFiltros'
 
 const ANOS = [2022, 2023, 2024, 2025, 2026, 2027, 2028]
@@ -49,6 +50,7 @@ export default function CagrPage() {
   const [ccs, setCcs] = useState<CC[]>([])
   const [relId, setRelId] = useState('')
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
+  const acessoDash = useUserAccess()
   const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
   const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
   const [areaSel, setAreaSel] = useState<string[]>(Array.isArray(sv.areaSel) ? sv.areaSel : [])
@@ -109,9 +111,9 @@ export default function CagrPage() {
       const natOf = (id: string | null): string | null => { if (!id) return null; if (id in natCache) return natCache[id]; const l = byId[id]; if (!l) return null; const n = (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : natOf(l.pai_id); natCache[id] = n; return n }
       const facOf = (id: string) => natOf(id) === 'DESPESA' ? -1 : 1
 
-      const empIds = empresaSel.length ? empresaSel : empresas.map(e => e.id)
-      const filFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
-      const ccFilter = effectiveCcFilter(ccs, ccSel, areaSel, divisaoSel, buSel)
+      const empIds = escopoFiltro(empresaSel.length ? empresaSel : empresas.map(e => e.id), empresas, 'empresa', acessoDash.canSee) ?? []
+      const filFilter = escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acessoDash.canSee)
+      const ccFilter = escopoFiltro(effectiveCcFilter(ccs, ccSel, areaSel, divisaoSel, buSel), ccs, 'centro_custo', acessoDash.canSee)
       const anos = [anoIni, anoFim]
       if (!masterIds.length || !empIds.length) { setRes([]); setLoading(false); return }
       const meses = Array.from({ length: ateMes }, (_, i) => i + 1)
@@ -138,7 +140,7 @@ export default function CagrPage() {
     } catch (e: any) { setErro(e?.message ?? String(e)) }
     setLoading(false)
   }
-  useEffect(() => { load() }, [relId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anoIni, anoFim, ateMes, sel, empresas, filiais, ccs]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anoIni, anoFim, ateMes, sel, empresas, filiais, ccs, acessoDash.loading]) // eslint-disable-line
 
   const toggle = (id: string) => setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
   const chartData = res.filter(x => x.cagr != null).sort((a, b) => (a.cagr || 0) - (b.cagr || 0)).map(x => ({ linha: cut(x.desc, 28), CAGR: +(x.cagr || 0).toFixed(1) }))

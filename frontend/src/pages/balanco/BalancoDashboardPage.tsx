@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useUserAccess } from '../../hooks/useUserAccess'
+import { escopoFiltro } from '../dashboard/DashFiltros'
 import { computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
@@ -102,6 +104,7 @@ export default function BalancoDashboardPage() {
   const [bpId, setBpId] = useState('')
   const [dreId, setDreId] = useState<string>(sv.dreId || '')
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
+  const acessoDash = useUserAccess()
   const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
   const [filtroOpen, setFiltroOpen] = useState(false)
   const [ano, setAno] = useState<number>(sv.ano || 2026)
@@ -126,8 +129,8 @@ export default function BalancoDashboardPage() {
     if (!bpId) return
     setLoading(true); setErro(null)
     try {
-      const empIds = empresaSel.length ? empresaSel : empresas.map(e => e.id)
-      const filIds = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
+      const empIds = escopoFiltro(empresaSel.length ? empresaSel : empresas.map(e => e.id), empresas, 'empresa', acessoDash.canSee) ?? []
+      const filIds = escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acessoDash.canSee)
       if (!empIds.length) { setTemDados(false); setLoading(false); return }
       const todosMeses = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
@@ -238,7 +241,7 @@ export default function BalancoDashboardPage() {
     } catch (e: any) { setErro(e?.message ?? String(e)) }
     setLoading(false)
   }
-  useEffect(() => { load() }, [bpId, dreId, empresaSel, filialSel, ano, mes, empresas.length, filiais.length]) // eslint-disable-line
+  useEffect(() => { load() }, [bpId, dreId, empresaSel, filialSel, ano, mes, empresas.length, filiais.length, acessoDash.loading]) // eslint-disable-line
 
   return (
     <div style={S.page}>

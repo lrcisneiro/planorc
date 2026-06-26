@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-do
 import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, Link2, Wallet, LogOut, Menu, X, SlidersHorizontal, Users, Layers, ShieldCheck, ListChecks, Sun, Moon, ListTree } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { setTheme, getTheme } from './lib/theme'
+import { useCapacidades } from './hooks/useCapacidades'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 import CadastrosPage from './pages/cadastros/CadastrosPage'
@@ -26,31 +27,31 @@ import LoginPage from './pages/login/LoginPage'
 
 // Menu agrupado por modo de interação (igual ao protótipo planorc-v2-menu-mesclado).
 // `soon: true` = item proposto (aparece, mas ainda não navega).
-type NavItem = { label: string; icon: LucideIcon; to?: string; soon?: boolean }
+type NavItem = { label: string; icon: LucideIcon; to?: string; soon?: boolean; cap?: string }
 type NavGroup = { area: string; mode: string; dot: string; items: NavItem[] }
 
 const NAV_GROUPS: NavGroup[] = [
   { area: 'Orçamentação', mode: 'escrita', dot: '#8b5cf6', items: [
-    { to: '/orcamento',  label: 'Orçamento',                icon: FileText },
-    { to: '/estruturas', label: 'Estruturas de relatórios', icon: ListTree },
+    { to: '/orcamento',  label: 'Orçamento',                icon: FileText, cap: 'menu.orcamento' },
+    { to: '/estruturas', label: 'Estruturas de relatórios', icon: ListTree, cap: 'menu.estruturas' },
     { label: 'Formulário de drivers',  icon: SlidersHorizontal, soon: true },
     { label: 'Posto de trabalho',      icon: Users,             soon: true },
     { label: 'Versões & cenários',     icon: Layers,            soon: true },
     { label: 'Governança & aprovação', icon: ShieldCheck,       soon: true },
   ] },
   { area: 'Dados · ERP', mode: 'realizado', dot: '#22d3ee', items: [
-    { to: '/realizado', label: 'Realizado',   icon: Receipt },
-    { to: '/saldos',    label: 'Saldos (BP)', icon: Wallet },
-    { to: '/amarracao', label: 'Amarração',   icon: Link2 },
+    { to: '/realizado', label: 'Realizado',   icon: Receipt, cap: 'menu.realizado' },
+    { to: '/saldos',    label: 'Saldos (BP)', icon: Wallet,  cap: 'menu.saldos' },
+    { to: '/amarracao', label: 'Amarração',   icon: Link2,   cap: 'menu.amarracao' },
     { label: 'Lotes / Conciliação', icon: ListChecks, soon: true },
   ] },
   { area: 'Relatórios', mode: 'leitura', dot: '#34d399', items: [
-    { to: '/dashboards', label: 'Dashboards', icon: LayoutDashboard },
-    { to: '/relatorios', label: 'Relatórios', icon: Table2 },
+    { to: '/dashboards', label: 'Dashboards', icon: LayoutDashboard, cap: 'menu.dashboards' },
+    { to: '/relatorios', label: 'Relatórios', icon: Table2,          cap: 'menu.relatorios' },
   ] },
   { area: 'Base', mode: '', dot: 'var(--muted)', items: [
-    { to: '/cadastros', label: 'Cadastros',     icon: BookOpen },
-    { to: '/config',    label: 'Configurações', icon: Settings },
+    { to: '/cadastros', label: 'Cadastros',     icon: BookOpen, cap: 'menu.cadastros' },
+    { to: '/config',    label: 'Configurações', icon: Settings, cap: 'menu.config' },
   ] },
 ]
 
@@ -130,6 +131,7 @@ function Shell({ session }: { session: Session }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [tema, setTema] = useState<'dark' | 'light'>(getTheme())
   const trocarTema = () => { const n = tema === 'dark' ? 'light' : 'dark'; setTheme(n); setTema(n) }
+  const { can } = useCapacidades()   // F2: capacidades (catálogo × papel) controlam menus/funções
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 820px)').matches)
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 820px)')
@@ -156,14 +158,17 @@ function Shell({ session }: { session: Session }) {
           .po-navlink:focus, .po-navlink:focus-visible{ outline:none !important; box-shadow:none; }
         `}</style>
         <nav style={S.nav}>
-          {NAV_GROUPS.map(g => (
+          {NAV_GROUPS.map(g => {
+            const itens = g.items.filter(it => it.soon || !it.cap || can(it.cap))
+            if (!itens.length) return null
+            return (
             <div key={g.area} style={S.group}>
               <div style={S.groupH}>
                 <span style={{ ...S.groupDot, background: g.dot }} />
                 <span>{g.area}</span>
                 {g.mode && <span style={S.groupMode}>{g.mode}</span>}
               </div>
-              {g.items.map((item) => {
+              {itens.map((item) => {
                 const Icon = item.icon
                 if (item.soon || !item.to) {
                   return (
@@ -188,7 +193,8 @@ function Shell({ session }: { session: Session }) {
                 )
               })}
             </div>
-          ))}
+            )
+          })}
         </nav>
         <div style={S.footer}>
           <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.user?.email}</div>

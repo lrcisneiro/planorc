@@ -42,6 +42,7 @@ const S = {
 // ── Modal de configuração de acesso ──────────────────────
 function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void }) {
   const [dims, setDims] = useState<DimConfig[]>([])
+  const [ccRows, setCcRows] = useState<any[]>([])   // CCs com área/divisão/BU p/ os atalhos
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [erro, setErro] = useState('')
@@ -54,11 +55,13 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
     const [
       { data: empresas },
       { data: filiais },
+      { data: ccsData },
       { data: dimensoes },
       { data: regrasExist },
     ] = await Promise.all([
       supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
       supabase.from('filial').select('id,codigo,descricao').order('codigo'),
+      supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
       supabase.from('dimensao').select('id,codigo,label,tabela_ref').eq('ativo', true).order('ordem'),
       supabase.from('user_acesso_regra').select('dimensao,valor_ids').eq('user_id', user.user_id),
     ])
@@ -78,10 +81,15 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
         opcoes: (filiais || []).map((f: Filial) => ({ id: f.id, label: `${f.codigo} — ${f.descricao}` })),
         selecionados: regraMap['filial'] || [],
       },
+      {
+        key: 'centro_custo', label: 'Centro de Custo',
+        opcoes: (ccsData || []).map((c: any) => ({ id: c.id, label: `${c.codigo} — ${c.descricao}` })),
+        selecionados: regraMap['centro_custo'] || [],
+      },
     ]
 
-    // Dimensões dinâmicas
-    await Promise.all((dimensoes || []).map(async (dim: Dimensao) => {
+    // Dimensões dinâmicas (CC já é fixo acima — não duplicar)
+    await Promise.all((dimensoes || []).filter((d: Dimensao) => d.tabela_ref !== 'centro_custo').map(async (dim: Dimensao) => {
       let opcoes: DimOpcao[] = []
       if (dim.tabela_ref === 'centro_custo') {
         const { data } = await supabase.from('centro_custo').select('id,codigo,descricao').eq('ativo', true).order('codigo')
@@ -103,7 +111,21 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
     }))
 
     setDims(dimConfigs)
+    setCcRows(ccsData || [])
     setLoading(false)
+  }
+
+  // Atalhos de Centro de Custo: agrupam por área/divisão/BU
+  const distinctAttr = (codeAttr: string, nameAttr: string) => {
+    const m = new Map<string, string>()
+    for (const c of ccRows) { const code = c[codeAttr]; if (code) m.set(code, c[nameAttr] || code) }
+    return [...m.entries()].map(([code, nome]) => ({ code, nome })).sort((a, b) => a.nome.localeCompare(b.nome))
+  }
+  const toggleGrupoCC = (codeAttr: string, code: string) => {
+    const ids = ccRows.filter(c => c[codeAttr] === code).map(c => c.id)
+    const sel = dims.find(d => d.key === 'centro_custo')?.selecionados || []
+    const allIn = ids.length > 0 && ids.every(id => sel.includes(id))
+    setSelecionados('centro_custo', allIn ? sel.filter(id => !ids.includes(id)) : [...new Set([...sel, ...ids])])
   }
 
   const setSelecionados = (key: string, ids: string[]) =>
@@ -122,10 +144,11 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
     const records = dims.map(d => ({
       user_id: user.user_id,
       dimensao: d.key,
+      escopo: 'VER',          // F2: por ora a tela grava o escopo de consulta
       valor_ids: d.selecionados,
     }))
     const { error } = await supabase.from('user_acesso_regra').upsert(records, {
-      onConflict: 'tenant_id,user_id,dimensao',
+      onConflict: 'tenant_id,user_id,dimensao,escopo',
     })
     setSaving(false)
     if (error) { setErro(error.message); return }
@@ -147,19 +170,45 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
         ) : (
           dims.map(dim => (
             <div key={dim.key} style={{ marginBottom: 20 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 10, flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{dim.label}</span>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
-                  <input type="checkbox"
-                    checked={dim.selecionados.length === 0}
-                    onChange={() => setSelecionados(dim.key, [])}
-                  />
-                  Sem restrição
-                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <button type="button" onClick={() => setSelecionados(dim.key, dim.opcoes.map(o => o.id))}
+                    style={{ background: 'none', border: 'none', color: 'var(--violet)', fontSize: 12, cursor: 'pointer', padding: 0 }}>Marcar todos</button>
+                  <button type="button" onClick={() => setSelecionados(dim.key, [])}
+                    style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, cursor: 'pointer', padding: 0 }}>Desmarcar todos</button>
+                </div>
               </div>
-              {dim.selecionados.length > 0 && (
-                <div style={{ fontSize: 12, color: 'var(--text-mid)', marginBottom: 6 }}>
-                  {dim.selecionados.length} de {dim.opcoes.length} selecionados
+              <div style={{ fontSize: 12, color: dim.selecionados.length === 0 ? 'var(--muted)' : 'var(--text-mid)', marginBottom: 6 }}>
+                {dim.selecionados.length === 0
+                  ? 'Sem restrição — acesso a todos. Marque os itens permitidos para restringir.'
+                  : `${dim.selecionados.length} de ${dim.opcoes.length} permitidos`}
+              </div>
+              {dim.key === 'centro_custo' && ccRows.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  {([['area_cod', 'area_nome', 'Área'], ['divisao_cod', 'divisao_nome', 'Divisão'], ['bu_cod', 'bu_nome', 'BU']] as const).map(([ca, na, lbl]) => {
+                    const grupos = distinctAttr(ca, na)
+                    if (!grupos.length) return null
+                    return (
+                      <div key={ca} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, color: 'var(--muted)', width: 56, flexShrink: 0 }}>{lbl}:</span>
+                        {grupos.map(g => {
+                          const ids = ccRows.filter(c => c[ca] === g.code).map(c => c.id)
+                          const allIn = ids.length > 0 && ids.every(id => dim.selecionados.includes(id))
+                          const someIn = ids.some(id => dim.selecionados.includes(id))
+                          return (
+                            <button key={g.code} type="button" onClick={() => toggleGrupoCC(ca, g.code)} title={`${ids.length} CC(s)`}
+                              style={{ fontSize: 11, padding: '2px 9px', borderRadius: 999, cursor: 'pointer',
+                                border: '1px solid ' + (allIn ? 'var(--violet)' : someIn ? 'rgba(139,92,246,0.4)' : 'var(--border-strong)'),
+                                background: allIn ? 'rgba(139,92,246,0.18)' : 'transparent',
+                                color: allIn ? '#cbb8ff' : someIn ? 'var(--text-mid)' : 'var(--muted)' }}>
+                              {g.nome}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )
+                  })}
                 </div>
               )}
               <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 0' }}>
@@ -171,18 +220,10 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg)')}
                     onMouseLeave={e => (e.currentTarget.style.background = '')}>
                     <input type="checkbox"
-                      checked={dim.selecionados.length === 0 || dim.selecionados.includes(opt.id)}
-                      disabled={dim.selecionados.length === 0}
-                      onChange={() => {
-                        if (dim.selecionados.length === 0) {
-                          // Primeira seleção específica: marca todos exceto este
-                          setSelecionados(dim.key, dim.opcoes.map(o => o.id).filter(id => id !== opt.id))
-                        } else {
-                          toggleItem(dim.key, opt.id)
-                        }
-                      }}
+                      checked={dim.selecionados.includes(opt.id)}
+                      onChange={() => toggleItem(dim.key, opt.id)}
                     />
-                    <span style={{ color: dim.selecionados.length > 0 && !dim.selecionados.includes(opt.id) ? 'var(--muted)' : 'var(--text)' }}>
+                    <span style={{ color: dim.selecionados.includes(opt.id) ? 'var(--text)' : 'var(--muted)' }}>
                       {opt.label}
                     </span>
                   </label>

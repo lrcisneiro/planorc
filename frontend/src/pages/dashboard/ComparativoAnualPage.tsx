@@ -7,7 +7,8 @@ import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
 import { nivoTheme } from '../../lib/nivoTheme'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
-import { FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
+import { escopoFiltro, FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
+import { useUserAccess } from '../../hooks/useUserAccess'
 import type { Item, CC } from './DashFiltros'
 
 const ANOS = [2022, 2023, 2024, 2025, 2026, 2027, 2028]
@@ -52,6 +53,7 @@ export default function ComparativoAnualPage() {
   const [ccs, setCcs] = useState<CC[]>([])
   const [relId, setRelId] = useState(''); const [versaoId, setVersaoId] = useState('')
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
+  const acessoDash = useUserAccess()
   const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
   const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
   const [areaSel, setAreaSel] = useState<string[]>(Array.isArray(sv.areaSel) ? sv.areaSel : [])
@@ -102,9 +104,9 @@ export default function ComparativoAnualPage() {
       const facOf = (id: string) => natOf(id) === 'DESPESA' ? -1 : 1
 
       const anos = [...anosSel].sort((a, b) => a - b)
-      const empIds = empresaSel.length ? empresaSel : empresas.map(e => e.id)
-      const filFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
-      const ccFilter = effectiveCcFilter(ccs, ccSel, areaSel, divisaoSel, buSel)
+      const empIds = escopoFiltro(empresaSel.length ? empresaSel : empresas.map(e => e.id), empresas, 'empresa', acessoDash.canSee) ?? []
+      const filFilter = escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acessoDash.canSee)
+      const ccFilter = escopoFiltro(effectiveCcFilter(ccs, ccSel, areaSel, divisaoSel, buSel), ccs, 'centro_custo', acessoDash.canSee)
       if (!masterIds.length || !empIds.length || !anos.length) { setRows([]); setTemDados(false); setLoading(false); return }
 
       const meses = Array.from({ length: ateMes }, (_, i) => i + 1)
@@ -151,7 +153,7 @@ export default function ComparativoAnualPage() {
     } catch (e: any) { setErro(e?.message ?? String(e)) }
     setLoading(false)
   }
-  useEffect(() => { load() }, [relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anosSel, ateMes, medida, ocultarVazias, empresas, filiais, ccs]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anosSel, ateMes, medida, ocultarVazias, empresas, filiais, ccs, acessoDash.loading]) // eslint-disable-line
 
   const anos = [...anosSel].sort((a, b) => a - b)
   const toggleAno = (y: number) => setAnosSel(s => s.includes(y) ? s.filter(x => x !== y) : [...s, y])

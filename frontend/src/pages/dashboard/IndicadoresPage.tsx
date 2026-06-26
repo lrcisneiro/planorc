@@ -6,7 +6,8 @@ import { formatValor } from '../../lib/engine'
 import { totaisRelatorio } from '../../lib/relatorioTotais'
 import type { RLData } from '../../lib/relatorioTotais'
 import { ArrowLeft, RefreshCw, TrendingUp, TrendingDown, ListChecks } from 'lucide-react'
-import { FiltrosButton, PeriodoButton, ModalPanel, Checklist, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
+import { escopoFiltro, FiltrosButton, PeriodoButton, ModalPanel, Checklist, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
+import { useUserAccess } from '../../hooks/useUserAccess'
 import type { Item, CC } from './DashFiltros'
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -42,6 +43,7 @@ export default function IndicadoresPage() {
   const [empresas, setEmpresas] = useState<Item[]>([]); const [filiais, setFiliais] = useState<Item[]>([]); const [ccs, setCcs] = useState<CC[]>([])
   const [relId, setRelId] = useState(''); const [versaoId, setVersaoId] = useState(''); const [ano, setAno] = useState<number>(sv.ano || 2026); const [ateMes, setAteMes] = useState<number>(sv.ateMes || ULT_FECHADO)
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
+  const acessoDash = useUserAccess()
   const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
   const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
   const [areaSel, setAreaSel] = useState<string[]>(Array.isArray(sv.areaSel) ? sv.areaSel : [])
@@ -94,11 +96,12 @@ export default function IndicadoresPage() {
     const myseq = ++loadSeq.current
     setLoading(true); setErro(null)
     try {
-      const empIds = empresaSel.length ? empresaSel : empresas.map(e => e.id)
-      const filFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
-      const ccFilter = effectiveCcFilter(ccs, ccSel, areaSel, divisaoSel, buSel)
+      const empIds = escopoFiltro(empresaSel.length ? empresaSel : empresas.map(e => e.id), empresas, 'empresa', acessoDash.canSee) ?? []
+      const filFilter = escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acessoDash.canSee)
+      const ccFilter = escopoFiltro(effectiveCcFilter(ccs, ccSel, areaSel, divisaoSel, buSel), ccs, 'centro_custo', acessoDash.canSee)
       const meses = Array.from({ length: ateMes }, (_, i) => i + 1)
-      const base = { linhas: linhas as RLData[], ccs, empresas: empIds, meses, filialFilter: filFilter, ccFilter }
+      const ccPerm = ccs.every(c => acessoDash.canSee('centro_custo', c.id)) ? null : ccs.filter(c => acessoDash.canSee('centro_custo', c.id)).map(c => c.id)
+      const base = { linhas: linhas as RLData[], ccs, empresas: empIds, meses, filialFilter: filFilter, ccFilter, ccPermitidos: ccPerm }
       const [orc, real, prev] = await Promise.all([
         totaisRelatorio({ ...base, cen: versaoId, anos: [ano] }),
         totaisRelatorio({ ...base, cen: 'REALIZADO', anos: [ano] }),
@@ -113,7 +116,7 @@ export default function IndicadoresPage() {
     } catch (e: any) { if (myseq === loadSeq.current) setErro(e?.message ?? String(e)) }
     if (myseq === loadSeq.current) setLoading(false)
   }
-  useEffect(() => { load() }, [relId, versaoId, sel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes, empresas, filiais, ccs, linhas]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, versaoId, sel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes, empresas, filiais, ccs, linhas, acessoDash.loading]) // eslint-disable-line
 
   const linhaItems: Item[] = linhas.filter(l => l.tipo_linha !== 'ESPACO').map(l => ({ id: l.id, codigo: l.codigo, descricao: l.descricao }))
 

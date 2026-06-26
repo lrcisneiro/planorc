@@ -102,6 +102,15 @@ export function effectiveCcFilter(ccs: CC[], ccSel: string[], areaSel: string[],
   return ids
 }
 
+// F2: intersecciona um filtro (ou null=todos) com o escopo VER permitido da dimensão.
+// Mesmo sem filtro explícito, restringe ao permitido.
+export function escopoFiltro(f: string[] | null, todos: { id: string }[], dim: string, canSee: (d: string, id: string) => boolean): string[] | null {
+  const permitidos = todos.filter(i => canSee(dim, i.id)).map(i => i.id)
+  if (permitidos.length >= todos.length) return f   // sem restrição nessa dimensão
+  if (f === null) return permitidos                 // sem filtro explícito → aplica o escopo
+  return f.filter(idd => permitidos.includes(idd))  // interseção filtro × escopo
+}
+
 // Botão "Filtros" com popover Empresa/Filial/CC + Área/Divisão/BU (multi-seleção). Vazio = todas.
 export function FiltrosButton({ empresas, filiais, ccs, empresaSel, setEmpresaSel, filialSel, setFilialSel, ccSel, setCcSel, areaSel, setAreaSel, divisaoSel, setDivisaoSel, buSel, setBuSel }: {
   empresas: Item[]; filiais: Item[]; ccs: CC[]

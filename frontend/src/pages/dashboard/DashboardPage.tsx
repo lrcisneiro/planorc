@@ -11,7 +11,8 @@ import { ResponsiveLine } from '@nivo/line'
 import { Link } from 'react-router-dom'
 import { TrendingUp, TrendingDown, RefreshCw, ArrowLeft } from 'lucide-react'
 import DrillModal from './DrillModal'
-import { effectiveCcFilter, FiltrosButton, PeriodoButton, SalvarCardButton, useCardPreset, ModalPanel, Checklist } from './DashFiltros'
+import { escopoFiltro, effectiveCcFilter, FiltrosButton, PeriodoButton, SalvarCardButton, useCardPreset, ModalPanel, Checklist } from './DashFiltros'
+import { useUserAccess } from '../../hooks/useUserAccess'
 import { ListChecks } from 'lucide-react'
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -168,6 +169,7 @@ export default function DashboardPage() {
   const [anosSel, setAnosSel] = useState<number[]>(Array.isArray(sv.anosSel) && sv.anosSel.length ? sv.anosSel : [2026])
   const [mesesSel, setMesesSel] = useState<number[]>(Array.isArray(sv.mesesSel) && sv.mesesSel.length ? sv.mesesSel : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
+  const acessoDash = useUserAccess()
   const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
   const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
   const [areaSel, setAreaSel] = useState<string[]>(Array.isArray(sv.areaSel) ? sv.areaSel : [])
@@ -272,10 +274,10 @@ export default function DashboardPage() {
       nodeChildren.forEach(c => { childDesc[c.id] = c.descricao; subMasters(c.id).forEach(m => { masterToChild[m] = c.id }) })
 
       const allEmp = empresas.map(e => e.id)
-      const empIds = empresaSel.length ? empresaSel : allEmp
+      const empIds = escopoFiltro(empresaSel.length ? empresaSel : allEmp, empresas, 'empresa', acessoDash.canSee) ?? []
       const empSet = new Set(empIds)
-      const filFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
-      const ccFilter = effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel)
+      const filFilter = escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acessoDash.canSee)
+      const ccFilter = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acessoDash.canSee)
       if (!scopedMasters.length || !empIds.length) { setTemDados(false); setLoading(false); return }
       const anos = [...anosSel].sort((a, b) => a - b), meses = [...mesesSel].sort((a, b) => a - b)
       setQparams({ empIds, anos, meses, filFilter, ccFilter })
@@ -284,7 +286,8 @@ export default function DashboardPage() {
       const indicLines = linhas.filter(l => (l.tipo_linha === 'INDICADOR' || l.nao_soma) && l.visivel_dashboard !== false)
         .sort((a, b) => (seqOrd[a.id] ?? 9999) - (seqOrd[b.id] ?? 9999))
       if (indicLines.length) {
-        const baseI = { linhas: linhas as RLData[], ccs: ccs as any, empresas: empIds, meses, filialFilter: filFilter, ccFilter }
+        const ccPermI = (ccs as any).every((c: any) => acessoDash.canSee('centro_custo', c.id)) ? null : (ccs as any).filter((c: any) => acessoDash.canSee('centro_custo', c.id)).map((c: any) => c.id)
+        const baseI = { linhas: linhas as RLData[], ccs: ccs as any, empresas: empIds, meses, filialFilter: filFilter, ccFilter, ccPermitidos: ccPermI }
         const [iOrc, iReal, iPrev] = await Promise.all([
           totaisRelatorio({ ...baseI, cen: versaoId, anos }),
           totaisRelatorio({ ...baseI, cen: 'REALIZADO', anos }),
@@ -400,7 +403,7 @@ export default function DashboardPage() {
     } catch (e: any) { if (myseq === loadSeq.current) setErro(e?.message ?? String(e)) }
     if (myseq === loadSeq.current) setLoading(false)
   }
-  useEffect(() => { load() }, [relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs, acessoDash.loading]) // eslint-disable-line
 
   const anosOrd = [...anosSel].sort((a, b) => a - b)
   const yearKeys = anosOrd.map(String)
