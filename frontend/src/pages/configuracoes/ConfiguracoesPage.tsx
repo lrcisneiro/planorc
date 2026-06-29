@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { CAPACIDADES } from '../../lib/capacidades'
+import type { Papel } from '../../lib/capacidades'
 
 type TenantUser = { user_id: string; email: string; role: string }
 type Empresa    = { id: string; codigo: string; descricao: string }
@@ -43,9 +45,11 @@ const S = {
 function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void }) {
   const [dims, setDims] = useState<DimConfig[]>([])
   const [ccRows, setCcRows] = useState<any[]>([])   // CCs com área/divisão/BU p/ os atalhos
+  const [funcOv, setFuncOv] = useState<Record<string, boolean>>({})  // override de capacidade (só os explícitos)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [erro, setErro] = useState('')
+  const papelUser = (user.role as Papel)
 
   useEffect(() => {
     carregarTudo()
@@ -58,16 +62,21 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
       { data: ccsData },
       { data: dimensoes },
       { data: regrasExist },
+      { data: funcExist },
     ] = await Promise.all([
       supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
       supabase.from('filial').select('id,codigo,descricao').order('codigo'),
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
       supabase.from('dimensao').select('id,codigo,label,tabela_ref').eq('ativo', true).order('ordem'),
       supabase.from('user_acesso_regra').select('dimensao,valor_ids').eq('user_id', user.user_id),
+      supabase.from('user_acesso_funcao').select('capacidade,permitido').eq('user_id', user.user_id),
     ])
 
     const regraMap: Record<string, string[]> = {}
     for (const r of regrasExist || []) regraMap[r.dimensao] = r.valor_ids || []
+    const fov: Record<string, boolean> = {}
+    for (const r of (funcExist as any[]) || []) fov[r.capacidade] = r.permitido
+    setFuncOv(fov)
 
     // Carrega opções de cada dimensão
     const dimConfigs: DimConfig[] = [
@@ -150,10 +159,22 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
     const { error } = await supabase.from('user_acesso_regra').upsert(records, {
       onConflict: 'tenant_id,user_id,dimensao,escopo',
     })
+    if (error) { setSaving(false); setErro(error.message); return }
+
+    // Override de capacidade: regrava só os explícitos (ausência = herda o papel)
+    await supabase.from('user_acesso_funcao').delete().eq('user_id', user.user_id)
+    const funcRecords = Object.entries(funcOv).map(([capacidade, permitido]) => ({ user_id: user.user_id, capacidade, permitido }))
+    if (funcRecords.length) {
+      const { error: ef } = await supabase.from('user_acesso_funcao').insert(funcRecords)
+      if (ef) { setSaving(false); setErro(ef.message); return }
+    }
+
     setSaving(false)
-    if (error) { setErro(error.message); return }
     onClose()
   }
+
+  const setFunc = (key: string, val: 'herda' | boolean) =>
+    setFuncOv(prev => { const n = { ...prev }; if (val === 'herda') delete n[key]; else n[key] = val; return n })
 
   return (
     <div style={S.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
@@ -168,7 +189,46 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
         {loading ? (
           <p style={{ color: 'var(--muted)', textAlign: 'center', padding: 24 }}>Carregando...</p>
         ) : (
-          dims.map(dim => (
+          <>
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 4 }}>Funções e menus</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+              "Herdar" segue o padrão do perfil ({user.role}). Liberar/Negar sobrepõem só para este usuário.
+            </div>
+            {(['Funções', 'Menu'] as const).map(cat => (
+              <div key={cat} style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>{cat}</div>
+                {CAPACIDADES.filter(c => c.categoria === cat).map(c => {
+                  const cur: 'herda' | boolean = c.key in funcOv ? funcOv[c.key] : 'herda'
+                  const padrao = c.padrao[papelUser] ?? false
+                  return (
+                    <div key={c.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '4px 0' }}>
+                      <span style={{ fontSize: 13, color: 'var(--text)' }}>{c.label}</span>
+                      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                        {([['herda', `Herdar (${padrao ? 'sim' : 'não'})`], [true, 'Liberar'], [false, 'Negar']] as const).map(([val, lbl]) => {
+                          const active = cur === val
+                          // admin não pode ser negado em Configurações (blindagem contra auto-lockout)
+                          const travado = c.key === 'menu.config' && papelUser === 'admin' && val === false
+                          const color = val === true ? 'var(--green)' : val === false ? 'var(--red)' : 'var(--text-mid)'
+                          return (
+                            <button key={String(val)} type="button" disabled={travado} onClick={() => !travado && setFunc(c.key, val)}
+                              title={travado ? 'Admin sempre mantém acesso a Configurações' : undefined}
+                              style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, cursor: travado ? 'not-allowed' : 'pointer', opacity: travado ? 0.4 : 1,
+                                border: '1px solid ' + (active ? color : 'var(--border-strong)'),
+                                background: active ? (val === true ? 'rgba(52,211,153,0.15)' : val === false ? 'rgba(248,113,113,0.12)' : 'var(--bg)') : 'transparent',
+                                color: active ? color : 'var(--muted)', fontWeight: active ? 700 : 500 }}>
+                              {lbl}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+          {dims.map(dim => (
             <div key={dim.key} style={{ marginBottom: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 10, flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{dim.label}</span>
@@ -230,7 +290,8 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
                 ))}
               </div>
             </div>
-          ))
+          ))}
+          </>
         )}
 
         {erro && <div style={{ padding: '8px 12px', borderRadius: 6, background: 'rgba(248,113,113,0.10)', color: 'var(--red)', fontSize: 12, marginBottom: 12 }}>{erro}</div>}

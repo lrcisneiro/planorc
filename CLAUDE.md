@@ -9,8 +9,8 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 - **Frontend**: React 19 + TypeScript + Vite, em `frontend/`. É onde está praticamente toda a lógica — os dados vão direto ao Supabase via SDK do cliente.
 - **Backend**: FastAPI (Python), em `backend/` — incipiente, só `/health`. Raramente necessário.
 - **Banco**: Supabase (PostgreSQL 15+) — credenciais em `frontend/.env` (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`). Multi-tenant com Row Level Security por `tenant_id`.
-- **UI**: Tailwind CSS v4 + objetos de estilo inline (`S`) misturados. Sem biblioteca de componentes; ícones via `lucide-react`.
-- **Gráficos**: Recharts.
+- **UI**: Tailwind CSS v4 + objetos de estilo inline (`S`) misturados. Sem biblioteca de componentes; ícones via `lucide-react`. Tema dark/light parametrizado por CSS variables (`lib/theme.ts`), com toggle persistido em `localStorage`.
+- **Gráficos**: @nivo. As cores do tema são lidas em runtime das CSS variables via `lib/nivoTheme.ts` (`nivoTheme()`), porque o @nivo aplica cor como atributo SVG e não resolve `var()`.
 - **Roteamento**: React Router v7.
 - **Agregação pesada**: feita no banco via funções RPC (`relatorio_orcado_agg`, `relatorio_realizado_agg`, `relatorio_saldo_agg` e variantes `_anual`), chamadas com `supabase.rpc(...)`.
 
@@ -29,20 +29,25 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 | `/dashboard` | `DashboardPage` | dashboard principal |
 | `/balanco` | `BalancoDashboardPage` | Balanço (lê `fat_saldo`) |
 | `/relatorios` | `RelatorioPage` | lista de relatórios |
-| `/relatorios/:id` | `RelatorioEditorPage` | editor de relatório (DRE Orçado × Realizado, fórmulas) |
+| `/relatorios/:id` | `RelatorioEditorPage mode="consulta"` | **Consultar** — DRE Orçado × Realizado (leitura) |
+| `/orcar/:id` | `RelatorioEditorPage mode="orcar"` | **Orçar** — edição dos valores de orçado |
+| `/estrutura/:id` | `RelatorioEditorPage mode="estrutura"` | **Estrutura** — árvore/fórmulas/amarração (admin) |
+| `/estruturas` | `RelatorioPage linkBase="/estrutura"` | hub que abre os relatórios em modo Estrutura (menu Orçamento) |
 | `/orcamento` | `OrcadoDadosPage` | dados de orçado |
 | `/realizado` | `RealizadoDadosPage` | dados de realizado (importado do ERP) |
 | `/saldos` | `SaldoDadosPage` | saldos/balancete |
 | `/amarracao` | `AmarracaoPage` | amarração conta contábil → linha de relatório |
 | `/cadastros` | `CadastrosPage` | cadastros |
-| `/config` | `ConfiguracoesPage` | configurações |
+| `/config` | `ConfiguracoesPage` | configurações (usuários, acesso a dados e capacidades) |
 | (login) | `LoginPage` | autenticação |
 
-Páginas **não roteadas** (legado, manter cautela antes de reusar): `orcamento/OrcamentoPage.tsx`, `templates/TemplatePage.tsx`, `templates/TemplateEditorPage.tsx`, `lancamentos/LancamentosPage.tsx`, `dre/DrePage.tsx`.
+> **Split do editor (F1):** `RelatorioEditorPage` recebe a prop `mode ∈ consulta | orcar | estrutura`. É **um componente só** com três experiências — `consulta` (só leitura), `orcar` (edita só o orçado; realizado nunca é digitado, vem do ERP) e `estrutura` (edita a árvore/fórmulas, sem meses/visões/filtros). Não são três páginas separadas.
+
+Páginas **não roteadas** (legado, manter cautela antes de reusar): `orcamento/OrcamentoPage.tsx`, `templates/TemplatePage.tsx`, `templates/TemplateEditorPage.tsx`, `lancamentos/LancamentosPage.tsx`. (`/dre` → `DrePage` está roteada mas é legado.)
 
 ## Modelo de dados (Supabase — linhagem v3)
 
-Todas as tabelas têm `tenant_id` e RLS. Base SQL em `schema_v2.sql`; evoluções em `schema_v3_*.sql` (migrations numeradas até a 043+). Não há um `schema_atual.sql` consolidado nesta pasta — o estado vivo é a soma das migrations.
+Todas as tabelas têm `tenant_id` e RLS. Base SQL em `schema_v2.sql`; evoluções em `schema_v3_*.sql` (migrations numeradas até a 046+). Não há um `schema_atual.sql` consolidado nesta pasta — o estado vivo é a soma das migrations. Migrations recentes relevantes: `v3_044` (owner nos presets/`dashboard_card`), `v3_045` (escopo `VER`/`ORCAR` + `negados` em `user_acesso_regra`), `v3_046` (`user_acesso_funcao` — override de capacidade por usuário).
 
 ### Organização / dimensões fixas
 - **`empresa`** — **agrupador / visão**, não é o CNPJ. Ex.: "Unidade Rio Preto". Usada para separar resultados por unidade de negócio.
@@ -54,7 +59,7 @@ Todas as tabelas têm `tenant_id` e RLS. Base SQL em `schema_v2.sql`; evoluçõe
 ### Plano de contas (multi-ERP)
 - **`plano_contas`** — plano de contas por ERP (resolve colisão de códigos entre ERPs). `empresa` aponta para um plano.
 - **`conta_contabil`** — conta do razão (`plano_id`). Origem do realizado.
-- **`conta_orcamentaria`** — (renomeada de `linha_orcamentaria`) plano de contas orçamentário.
+- **`conta_orcamentaria`** — (renomeada de `linha_orcamentaria`) plano de contas orçamentário. Funciona como **chave-mestre** (`id`/`codigo`/`descricao`/`natureza`) que ancora o fato (`fat_orcado`/`fat_realizado` agregam por `linha_orc_id` → master) e a amarração (`conta_linha`). **Atenção:** as colunas `tipo_linha` e `pai_id` (hierarquia) do master são **vestigiais** — nenhum engine/RPC as consome; a estrutura/analítica-sintética que monta a DRE vive em `relatorio_linha`, por relatório. O cadastro em Cadastros → Estrutura foi **achatado** (lista por código, sem árvore nem tipo); as colunas continuam no banco só por compatibilidade.
 
 ### Estrutura de relatório (o "coração" — DRE/Balanço gerencial)
 - **`categoria_relatorio`** — agrupa relatórios.
@@ -78,18 +83,37 @@ Todas as tabelas têm `tenant_id` e RLS. Base SQL em `schema_v2.sql`; evoluçõe
 - **`dashboard_card`** — cards configuráveis dos dashboards.
 - **snapshots** (`relatorio_snapshot`, RPCs `criar_snapshot`/`restaurar_snapshot`) — congelar estados.
 - **`indice_economico`** / **`indice_valor`** — índices de correção.
-- **Acesso**: `tenant`, `user_tenant`, `user_acesso_regra`, `grupo_empresarial`.
+- **Acesso**: `tenant`, `user_tenant` (papel `admin`/`member`/`viewer`), `user_acesso_regra` (escopo de dados por dimensão — colunas `escopo ∈ VER|ORCAR`, `valor_ids` = permitidos, `negados`), `user_acesso_funcao` (override de capacidade por usuário), `grupo_empresarial`. Ver seção **Permissões (F2)**.
 
 ### Agregação (RPC, no banco)
 `relatorio_orcado_agg`, `relatorio_realizado_agg`, `relatorio_saldo_agg` e variantes `_anual`/`_empresa` consolidam os fatos por linha/empresa/período para alimentar relatórios e dashboards. `refresh_realizado_mensal` materializa o realizado.
+
+## Permissões (F2)
+
+Duas camadas independentes, **hoje aplicadas no frontend** (enforcement de RLS/RPC no banco é dívida pendente):
+
+**1. Dados — quem vê/orça quais dimensões.** Hook `useUserAccess` (`hooks/useUserAccess.ts`) lê `user_acesso_regra` e expõe `canSee` (escopo `VER`), `canEdit` (escopo `ORCAR`, com fallback para `VER`), `filterList`/`filterEdit`, e `isAdmin`. Regra por dimensão = allow-list (`valor_ids`; vazio = tudo) menos `negados`. **Admin ignora todo o escopo de dados** (`canSee`/`canEdit` retornam `true`). O escopo é cruzado com os filtros de tela por interseção (`aplicaEscopo` no editor; `escopoFiltro` em `DashFiltros.tsx`, usado por todos os dashboards). Linhas INDICADOR com `filtro_escopo` próprio também são cruzadas com o escopo do usuário (no editor e em `lib/relatorioTotais.ts`, via `ccPermitidos`).
+
+**2. Funções/menus — o que aparece.** Catálogo único em `lib/capacidades.ts` (`CAPACIDADES`: `key`, `label`, `categoria ∈ Funções|Menu`, `padrao` por papel). Hook `useCapacidades` resolve `can(key)` com precedência **override por usuário (`user_acesso_funcao`) > padrão do papel > liberado (se não catalogado)**. Menus (`NAV_GROUPS` em `App.tsx`) e botões de ação (`orcar`/`estrutura`) são gateados por `can(...)`. Blindagem: admin nunca perde `menu.config`.
+
+> **Convenção — incluir uma funcionalidade nova no controle de acesso:** (1) adicionar uma entrada em `CAPACIDADES` (chave + label + categoria + `padrao` por papel); (2) gatear o elemento na tela com `can('chave')`. A seção "Funções e menus" em Configurações itera o catálogo, então a nova capacidade aparece sozinha com os controles Herdar/Liberar/Negar; `user_acesso_funcao` guarda por chave de texto, sem migration. Enquanto não catalogada, `can()` devolve `true` (não esconde nada por engano). Dimensão de **dados** nova é outro caminho: cadastro de `dimensao`.
 
 ## Legado em transição
 
 O frontend ainda referencia `fat_lancamento` (~10 pontos) — tabela fato única do modelo antigo (`tipo_lancamento ORCADO|REALIZADO`, ligada a `plano_orcamentario`). A linhagem v3 migrou para `fat_orcado` + `fat_realizado` + `fat_saldo`. Ao mexer em fluxo de dados, preferir as tabelas v3 e tratar referências a `fat_lancamento`/`plano_orcamentario` como legado a ser migrado, não como padrão.
 
-## Redesign de UX em andamento (v2 — proposta)
+## Redesign de UX v2 (implementado na branch `feat/v2-dark`)
 
-Há uma proposta de repaginação (tema dark moderno) e reorganização da navegação **por modo de interação**, em protótipos HTML standalone na raiz da pasta (`planorc-v2-*.html`): Dashboard, Orçamento, DRE e um Mapa de Navegação. Princípio: separar **escrita** (orçar — editor, importação de planilha, formulário de drivers, posto de trabalho/folha) de **leitura** (acompanhar — dashboards, DRE, análises), sendo o **realizado sempre vindo do ERP** (nunca digitado). É só proposta visual; não altera o código atual.
+O que era proposta já está **no código** (branch `feat/v2-dark`, ainda não mergeada na `main` no momento desta nota):
+
+- **Tema dark/light** parametrizado por CSS variables com toggle persistido (ver Stack).
+- **Navegação por modo de interação** (`NAV_GROUPS` em `App.tsx`): separa **escrita** (Orçar, importação, estrutura) de **leitura** (Dashboards, Consultar, análises). O **realizado sempre vem do ERP**, nunca é digitado.
+- **Split do editor (F1)** por `mode` (consulta/orcar/estrutura) — ver seção de Rotas.
+- **Permissões (F2)** — ver seção própria.
+
+Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho dessa direção e podem ser tratados como histórico.
+
+**Fases seguintes planejadas:** F3 (grade de Orçar dedicada), F4 (workflow/governança/aprovação), F5 (métodos avançados de orçamentação — drivers, posto de trabalho/folha, presets), F6 (presets "Meus Relatórios" com `owner_id`). Pendências da F2: escopo de edição ORÇAR nas células, esconder opções fora de escopo nos dropdowns, e hardening de RLS/RPC no banco.
 
 ## Convenções de código
 

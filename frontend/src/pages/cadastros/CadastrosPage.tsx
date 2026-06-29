@@ -7,7 +7,7 @@ import type { GCol } from '../../lib/grid'
 
 // SheetJS carregado via CDN no index.html
 declare const XLSX: any
-import { Plus, Trash2, Check, X, Upload, AlertCircle, Download, FileDown, Pencil, Copy, Link2, ChevronRight, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { Plus, Trash2, Check, X, Upload, AlertCircle, Download, FileDown, Pencil, Copy, Link2 } from 'lucide-react'
 
 type Aba = 'empresas' | 'filiais' | 'cc' | 'planos' | 'contas' | 'estrutura' | 'funcionarios' | 'verbas' | 'versoes' | 'lotes'
 
@@ -90,20 +90,6 @@ function filtraBusca<T>(data: T[], q: string, texto: (r: T) => string): T[] {
 
 
 // Monta árvore (pai_id) ordenada por código → lista achatada com profundidade
-function buildArvore(rows: any[]): { node: any; depth: number }[] {
-  const byPai: Record<string, any[]> = {}
-  for (const r of rows) { const p = r.pai_id ?? '__root'; (byPai[p] ||= []).push(r) }
-  const cmp = (a: any, b: any) => String(a.codigo).localeCompare(String(b.codigo), undefined, { numeric: true })
-  Object.values(byPai).forEach(arr => arr.sort(cmp))
-  const out: { node: any; depth: number }[] = []; const seen = new Set<string>()
-  const walk = (pid: string, depth: number) => {
-    for (const n of byPai[pid] || []) { if (seen.has(n.id)) continue; seen.add(n.id); out.push({ node: n, depth }); walk(n.id, depth + 1) }
-  }
-  walk('__root', 0)
-  for (const r of rows) if (!seen.has(r.id)) { seen.add(r.id); out.push({ node: r, depth: 0 }) }  // órfãos
-  return out
-}
-
 // Pai (conta/CC superior) pelo prefixo do código.
 // Códigos com ponto: remove o último segmento ('1.1.01' -> '1.1' -> '1').
 // Códigos contíguos: maior prefixo existente ('10101' -> '101' -> '1').
@@ -1197,13 +1183,6 @@ function VersoesTab() {
 }
 
 // ─── EstruturaTab (conta_orcamentaria — estrutura compartilhada) ──
-const TIPOS_LINHA = [
-  { value: 'ANALITICA', label: 'Analítica' },
-  { value: 'SOMAR_FILHOS', label: 'Somar filhos' },
-  { value: 'FORMULA', label: 'Fórmula' },
-  { value: 'INDICADOR', label: 'Indicador' },
-  { value: 'ESPACO', label: 'Espaço' },
-]
 const NATUREZAS = [
   { value: 'RECEITA', label: 'Receita' },
   { value: 'DESPESA', label: 'Despesa' },
@@ -1301,24 +1280,18 @@ function EstruturaTab() {
   const [adding, setAdding] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [erro, setErro] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [contaModal, setContaModal] = useState<any | null>(null)
 
-  const HEADERS = ['codigo', 'descricao', 'tipo', 'natureza', 'pai_codigo']
-  const EXEMPLO = ['2', 'DESPESAS', 'SOMAR_FILHOS', 'DESPESA', '']
-  const codeById: Record<string, string> = Object.fromEntries(data.map(c => [c.id, c.codigo]))
-  const byId: Record<string, any> = Object.fromEntries(data.map(c => [c.id, c]))
-  const tipoLabel = (t: string) => TIPOS_LINHA.find(x => x.value === t)?.label || t
-  const temFilhos = (id: string) => data.some(d => d.pai_id === id)
-  const toggle = (id: string) => setCollapsed(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const HEADERS = ['codigo', 'descricao', 'natureza']
+  const EXEMPLO = ['2', 'DESPESAS', 'DESPESA']
+  // indentação só visual, derivada do próprio código (1 · 1.1 · 1.1.1). A estrutura real vive no relatório.
+  const depthCod = (cod: string) => Math.max(0, String(cod || '').split('.').length - 1)
   const COLS = [
     { key: 'codigo', placeholder: 'Código' },
     { key: 'descricao', placeholder: 'Descrição' },
-    { key: 'tipo_linha', placeholder: 'Tipo', type: 'select' as const, options: TIPOS_LINHA },
     { key: 'natureza', placeholder: 'Natureza', type: 'select' as const, options: NATUREZAS },
-    { key: 'pai_id', placeholder: 'Pai', type: 'select' as const, options: data.map(c => ({ value: c.id, label: `${c.codigo} · ${c.descricao}` })) },
   ]
 
   const load = async () => {
@@ -1326,26 +1299,16 @@ function EstruturaTab() {
     catch (e: any) { setErro(String(e)) }
   }
   useEffect(() => { load() }, [])
-  const filtered = filtraBusca(data, busca, c => `${c.codigo} ${c.descricao} ${tipoLabel(c.tipo_linha)} ${c.natureza || ''} ${codeById[c.pai_id] || ''}`)
-  // árvore: na busca, mantém os resultados + ancestrais (para dar contexto)
-  const keepIds: Set<string> | null = busca.trim()
-    ? (() => { const k = new Set<string>(); for (const c of filtered) { let x: any = c; while (x) { k.add(x.id); x = byId[x.pai_id] } } return k })()
-    : null
-  const arvore = buildArvore(data)
-  const visivel = arvore.filter(({ node }) => {
-    if (keepIds && !keepIds.has(node.id)) return false
-    let p = byId[node.pai_id]
-    while (p) { if (collapsed.has(p.id)) return false; p = byId[p.pai_id] }
-    return true
-  })
+  const filtered = (filtraBusca(data, busca, c => `${c.codigo} ${c.descricao} ${c.natureza || ''}`) as any[])
+    .slice().sort((a, b) => String(a.codigo).localeCompare(String(b.codigo), undefined, { numeric: true }))
 
   const save = async (v: Record<string, string>, id?: string) => {
     if (!v.codigo || !v.descricao) { setErro('Código e descrição são obrigatórios'); return }
     setErro(null)
-    const payload = { codigo: v.codigo.trim(), descricao: v.descricao.trim(), tipo_linha: v.tipo_linha || 'ANALITICA', natureza: v.natureza || 'NEUTRO', pai_id: v.pai_id || null }
+    const payload: any = { codigo: v.codigo.trim(), descricao: v.descricao.trim(), natureza: v.natureza || 'NEUTRO' }
     const { error } = id
-      ? await supabase.from('conta_orcamentaria').update(payload).eq('id', id)
-      : await supabase.from('conta_orcamentaria').insert({ tenant_id: TENANT_ID, ...payload })
+      ? await supabase.from('conta_orcamentaria').update(payload).eq('id', id)   // preserva tipo_linha/pai_id existentes
+      : await supabase.from('conta_orcamentaria').insert({ tenant_id: TENANT_ID, tipo_linha: 'ANALITICA', ...payload })
     if (error) { setErro(error.message); return }
     setAdding(false); setEditId(null); load()
   }
@@ -1363,35 +1326,19 @@ function EstruturaTab() {
       const base = rows.map(r => ({
         codigo: col(r, 'codigo', 'Código', 'CODIGO'),
         descricao: col(r, 'descricao', 'Descrição', 'DESCRICAO'),
-        tipoExpl: col(r, 'tipo', 'Tipo', 'TIPO'),
         natureza: (col(r, 'natureza', 'Natureza', 'NATUREZA') || '').toUpperCase(),
-        paiExpl: col(r, 'pai_codigo', 'pai', 'PAI'),
       })).filter(r => r.codigo && r.descricao)
       const unicos = dedupe(base, r => r.codigo)
-      const { parentOf, ehPai } = calcularHierarquia(unicos.map(r => r.codigo))
-      const normTipo = (ex: string, cod: string) => {
-        const e = ex.trim().toUpperCase()
-        if (['ANALITICA', 'SOMAR_FILHOS', 'FORMULA', 'INDICADOR', 'ESPACO'].includes(e)) return e
-        if (e.startsWith('SINT')) return 'SOMAR_FILHOS'
-        if (e.startsWith('ANAL')) return 'ANALITICA'
-        return ehPai.has(cod) ? 'SOMAR_FILHOS' : 'ANALITICA'
-      }
       const normNat = (n: string) => (['RECEITA', 'DESPESA', 'NEUTRO'].includes(n) ? n : 'NEUTRO')
-      const fase1 = unicos.map(r => ({ tenant_id: TENANT_ID, codigo: r.codigo, descricao: r.descricao, tipo_linha: normTipo(r.tipoExpl, r.codigo), natureza: normNat(r.natureza) }))
-      const { error: e1 } = await supabase.from('conta_orcamentaria').upsert(fase1, { onConflict: 'tenant_id,codigo', ignoreDuplicates: false })
+      const payload = unicos.map(r => ({ tenant_id: TENANT_ID, codigo: r.codigo, descricao: r.descricao, natureza: normNat(r.natureza) }))
+      const { error: e1 } = await supabase.from('conta_orcamentaria').upsert(payload, { onConflict: 'tenant_id,codigo', ignoreDuplicates: false })
       if (e1) { setErro(e1.message); setInfo(null); return }
-      const all = await fetchAll(() => supabase.from('conta_orcamentaria').select('id,codigo'))
-      const idByCod: Record<string, string> = {}; all.forEach((c: any) => { idByCod[String(c.codigo)] = c.id })
-      for (const r of unicos) {
-        const paiCod = r.paiExpl || parentOf[r.codigo]
-        if (paiCod && idByCod[r.codigo] && idByCod[paiCod]) await supabase.from('conta_orcamentaria').update({ pai_id: idByCod[paiCod] }).eq('id', idByCod[r.codigo])
-      }
-      setInfo(`${unicos.length} linhas da estrutura importadas (hierarquia resolvida).`)
+      setInfo(`${unicos.length} contas importadas.`)
       load()
     } catch (e: any) { setErro(String(e)); setInfo(null) }
   }
 
-  const exportar = () => exportarDados('estrutura_orcamentaria', HEADERS, data.map(c => [c.codigo, c.descricao, c.tipo_linha, c.natureza || '', codeById[c.pai_id] || '']))
+  const exportar = () => exportarDados('estrutura_orcamentaria', HEADERS, data.map(c => [c.codigo, c.descricao, c.natureza || '']))
 
   return (
     <div style={S.card}>
@@ -1399,32 +1346,24 @@ function EstruturaTab() {
         onAdd={() => { setAdding(true); setErro(null); setInfo(null) }} busca={busca} onBusca={setBusca} total={data.length} mostrando={filtered.length} />
       {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
       {info && <div style={S.info}>{info}</div>}
-      <div style={{ display: 'flex', gap: 6, padding: '6px 16px', borderBottom: '1px solid var(--panel)' }}>
-        <button style={S.treeBtn} onClick={() => setCollapsed(new Set())}><ChevronsUpDown size={13} /> Expandir tudo</button>
-        <button style={S.treeBtn} onClick={() => setCollapsed(new Set(data.filter(d => temFilhos(d.id)).map(d => d.id)))}>Recolher tudo</button>
-      </div>
       <table style={S.table}>
         <thead><tr>
-          <th style={S.th}>Código</th><th style={S.th}>Descrição (árvore)</th><th style={S.th}>Tipo</th><th style={S.th}>Natureza</th><th style={S.th}></th>
+          <th style={S.th}>Código</th><th style={S.th}>Descrição</th><th style={S.th}>Natureza</th><th style={S.th}></th>
         </tr></thead>
         <tbody>
           {adding && <AddRow cols={COLS} onSave={save} onCancel={() => setAdding(false)} />}
-          {data.length === 0 && !adding && <tr><td colSpan={5} style={S.empty}>Estrutura vazia.<br /><small>Importe as linhas (código + descrição) ou rode a migração F1.</small></td></tr>}
-          {data.length > 0 && visivel.length === 0 && <tr><td colSpan={5} style={S.empty}>Nenhum resultado para a busca.</td></tr>}
-          {visivel.map(({ node: c, depth }) => editId === c.id ? (
-            <AddRow key={c.id} cols={COLS} initial={{ codigo: c.codigo, descricao: c.descricao, tipo_linha: c.tipo_linha || 'ANALITICA', natureza: c.natureza || 'NEUTRO', pai_id: c.pai_id || '' }} onSave={v => save(v, c.id)} onCancel={() => setEditId(null)} />
+          {data.length === 0 && !adding && <tr><td colSpan={4} style={S.empty}>Estrutura vazia.<br /><small>Importe as contas (código + descrição) ou rode a migração F1.</small></td></tr>}
+          {data.length > 0 && filtered.length === 0 && <tr><td colSpan={4} style={S.empty}>Nenhum resultado para a busca.</td></tr>}
+          {filtered.map(c => editId === c.id ? (
+            <AddRow key={c.id} cols={COLS} initial={{ codigo: c.codigo, descricao: c.descricao, natureza: c.natureza || 'NEUTRO' }} onSave={v => save(v, c.id)} onCancel={() => setEditId(null)} />
           ) : (
             <tr key={c.id}>
               <td style={S.tdMono}>{c.codigo}</td>
               <td style={S.td}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingLeft: depth * 18 }}>
-                  {temFilhos(c.id)
-                    ? <span onClick={() => toggle(c.id)} style={{ cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}>{collapsed.has(c.id) ? <ChevronRight size={14} /> : <ChevronDown size={14} />}</span>
-                    : <span style={{ width: 14, display: 'inline-block' }} />}
-                  <span style={{ fontWeight: temFilhos(c.id) ? 600 : 400 }}>{c.descricao}</span>
+                <div style={{ paddingLeft: depthCod(c.codigo) * 18 }}>
+                  <span style={{ fontWeight: depthCod(c.codigo) === 0 ? 600 : 400 }}>{c.descricao}</span>
                 </div>
               </td>
-              <td style={{ ...S.td, fontSize: 12, color: 'var(--blue)' }}>{tipoLabel(c.tipo_linha)}</td>
               <td style={{ ...S.td, fontSize: 12, color: 'var(--muted)' }}>{c.natureza || '—'}</td>
               <td style={{ ...S.td, width: 100, whiteSpace: 'nowrap' }}>
                 <button style={{ ...S.btnDel, color: 'var(--blue)' }} title="Contas (DE-PARA do realizado)" onClick={() => setContaModal(c)}><Link2 size={14} /></button>
