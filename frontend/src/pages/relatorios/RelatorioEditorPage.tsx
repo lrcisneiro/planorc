@@ -302,10 +302,12 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
 
   // Dimensões obrigatórias e únicas para edição: 1 empresa, 1 versão, 1 ano, sem filtro de filial/CC
   const empresaUnica = empresaSel.length === 1 ? empresaSel[0] : null
+  // F2: só edita o orçado da empresa que o escopo ORÇAR permite (canEdit cai pra VER quando não há regra ORCAR)
+  const podeEditarEmpresa = !!empresaUnica && acesso.canEdit('empresa', empresaUnica)
   // filial/CC "todas" = nada marcado OU tudo marcado (ambos = sem filtro)
   const filialAll = filialSel.length === 0 || filialSel.length === filiais.length
   const ccAll = (ccSel.length === 0 || ccSel.length === ccs.length) && !areaSel.length && !divisaoSel.length && !buSel.length
-  const editavel = podeOrcar && !!empresaUnica && !!versaoId && filialAll && ccAll
+  const editavel = podeOrcar && podeEditarEmpresa && !!versaoId && filialAll && ccAll
   useEffect(() => { if (editavel) setAvisoLeituraOff(false) }, [editavel])   // reaparece num novo estado de leitura
 
   // ── Loads
@@ -752,8 +754,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const periodoLabel = period === 'TOTAL'
       ? `${MESES[displayedMeses[0]?.mes - 1] ?? ''}/${displayedMeses[0]?.ano ?? ''} – ${MESES[displayedMeses[displayedMeses.length - 1]?.mes - 1] ?? ''}/${displayedMeses[displayedMeses.length - 1]?.ano ?? ''}`
       : lbl0
-    // Editável: 1 mês, linha analítica, cenário = versão (orçado)
-    const editavelRazao = podeOrcar && cen !== REALIZADO && l.tipo_linha === 'ANALITICA' && meses.length === 1
+    // Editável: 1 mês, linha analítica, cenário = versão (orçado), e empresa no escopo ORÇAR
+    const editavelRazao = podeOrcar && podeEditarEmpresa && cen !== REALIZADO && l.tipo_linha === 'ANALITICA' && meses.length === 1
     // F2: orçado consulta por linha MESTRE (fat_orcado.linha_id agora é mestre)
     const linhaIdsRl = editavelRazao ? [l.id] : linhasAnaliticasDe(l.id)
     const linhaIds = linhaIdsRl.map(orcOf).filter(Boolean) as string[]
@@ -1816,7 +1818,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         <div style={{ position: 'fixed', bottom: 16, right: 16, display: 'flex', alignItems: 'flex-start', gap: 8, background: 'rgba(251,191,36,0.14)', border: '1px solid var(--orange)', borderRadius: 8, padding: '8px 10px 8px 14px', fontSize: 13, color: 'var(--orange)', maxWidth: 320, boxShadow: '0 6px 18px rgba(0,0,0,0.12)', zIndex: 1400 }}>
           <span>{versoes.length === 0
             ? 'Nenhuma versão cadastrada. Crie em Cadastros → Versões/Cenários (ex.: Orçado 2026).'
-            : 'Somente leitura. Abra Filtros e selecione 1 empresa e 1 versão (Filial/CC em "todas") para editar.'}</span>
+            : (podeOrcar && !!empresaUnica && !podeEditarEmpresa)
+              ? 'Sem permissão para orçar esta empresa. Selecione uma empresa dentro do seu escopo de edição.'
+              : 'Somente leitura. Abra Filtros e selecione 1 empresa e 1 versão (Filial/CC em "todas") para editar.'}</span>
           <X size={16} style={{ cursor: 'pointer', flexShrink: 0, color: '#b8902a' }} onClick={() => setAvisoLeituraOff(true)} />
         </div>
       )}

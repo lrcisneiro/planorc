@@ -180,7 +180,7 @@ export default function ComparativoAnualPage() {
           <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-mid)', display: 'block', marginBottom: 6 }}>Acumulado até o mês (base equivalente em todos os anos)</label>
           <select style={S.sel} value={ateMes} onChange={e => setAteMes(+e.target.value)}>{MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
         </PeriodoButton>
-        <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
+        <FiltrosButton empresas={acessoDash.filterList('empresa', empresas)} filiais={acessoDash.filterList('filial', filiais)} ccs={acessoDash.filterList('centro_custo', ccs)} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         <select style={S.sel} value={medida} onChange={e => setMedida(e.target.value as any)}><option>Realizado</option><option>Orçado</option></select>
         <div style={{ flex: 1 }} />
         <label style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={ocultarVazias} onChange={e => setOcultarVazias(e.target.checked)} /> ocultar vazias</label>

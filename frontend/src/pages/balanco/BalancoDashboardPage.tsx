@@ -267,8 +267,8 @@ export default function BalancoDashboardPage() {
                   <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={() => setFiltroOpen(false)} />
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>Marque para agrupar (consolida o que estiver marcado). Vazio = todas.</div>
-                <Checklist titulo="Empresa" items={empresas} sel={empresaSel} setSel={setEmpresaSel} />
-                <Checklist titulo="Filial" items={filiais} sel={filialSel} setSel={setFilialSel} />
+                <Checklist titulo="Empresa" items={acessoDash.filterList('empresa', empresas)} sel={empresaSel} setSel={setEmpresaSel} />
+                <Checklist titulo="Filial" items={acessoDash.filterList('filial', filiais)} sel={filialSel} setSel={setFilialSel} />
                 <button style={{ ...S.btn, width: '100%', justifyContent: 'center', marginTop: 14, background: '#3b5bdb', color: '#ffffff', borderColor: '#3b5bdb' }} onClick={() => setFiltroOpen(false)}>Aplicar e fechar</button>
               </div>
             </>
