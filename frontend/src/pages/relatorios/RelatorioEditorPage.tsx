@@ -34,6 +34,7 @@ type Linha = LinhaCalc & {
   linha_orc_id: string | null   // âncora do dado na estrutura compartilhada (F2)
   visivel_dashboard: boolean    // só exibição (não afeta cálculo)
   visivel_relatorio: boolean    // só exibição (não afeta cálculo)
+  redutora: boolean             // RECEITA que reduz a receita (imposto) → separa bruta/líquida
   filtro_escopo: EscopoCC | null   // filtro de CC próprio da linha (sobrepõe a tela); só com nao_soma
   _depth: number
 }
@@ -316,7 +317,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const { data: r } = await supabase.from('relatorio').select('id,codigo,nome, categoria_relatorio(codigo)').eq('id', id).single()
     setRelatorio(r ? { id: r.id, codigo: r.codigo, nome: r.nome, categoria: (r as any).categoria_relatorio?.codigo || null } : null)
     const { data: ls } = await supabase.from('relatorio_linha').select('*').eq('relatorio_id', id).order('ordem', { nullsFirst: false })
-    setLinhas((ls || []).map((l: any) => ({ ...l, visivel_dashboard: l.visivel_dashboard !== false, visivel_relatorio: l.visivel_relatorio !== false, nao_soma: !!l.nao_soma, filtro_escopo: l.filtro_escopo || null, _depth: 0 })))
+    setLinhas((ls || []).map((l: any) => ({ ...l, visivel_dashboard: l.visivel_dashboard !== false, visivel_relatorio: l.visivel_relatorio !== false, nao_soma: !!l.nao_soma, redutora: !!l.redutora, filtro_escopo: l.filtro_escopo || null, _depth: 0 })))
   }, [id])
 
   const loadViews = useCallback(async () => {
@@ -1079,9 +1080,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         const cc_id = ccCodRaw ? (ccMap[ccCodRaw] || null) : null
         const dims: any = {}
         if (ccCodRaw && !cc_id) dims.cc_orig = ccCodRaw   // CC não cadastrado → guarda o código p/ re-vincular depois
-        if (iArea >= 0 && row[iArea] !== '' && row[iArea] != null) dims.area = String(row[iArea]).trim()
-        if (iDiv >= 0 && row[iDiv] !== '' && row[iDiv] != null) dims.divisao = String(row[iDiv]).trim()
-        if (iBU >= 0 && row[iBU] !== '' && row[iBU] != null) dims.bu = String(row[iBU]).trim()
+        // Área/Divisão/BU NÃO vão para o dims: são atributos do CC (derivados do cc_id), igual ao realizado.
+        // As colunas continuam no modelo (informativas / ajudam a conferir), mas a dimensão real é o centro de custo.
         if (iHist >= 0 && row[iHist] !== '' && row[iHist] != null) dims.historico = String(row[iHist]).trim()
         const dk = dimsKeyOf(dims)
         empSet.add(empresa_id)
@@ -1255,6 +1255,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       natureza: l.natureza || null, negrito: l.negrito, italico: l.italico, desativada: !!l.desativada,
       visivel_dashboard: l.visivel_dashboard !== false, visivel_relatorio: l.visivel_relatorio !== false,
       nao_soma: !!l.nao_soma, filtro_escopo: ((l.tipo_linha === 'INDICADOR' || l.nao_soma) && l.filtro_escopo && Object.values(l.filtro_escopo).some(a => (a || []).length)) ? l.filtro_escopo : null,
+      redutora: !!l.redutora,
       formato: l.formato, casas_decimais: l.casas_decimais, cor_texto: l.cor_texto || null,
       expressao: (l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR') ? (toStored(l.expressao) || null) : null,
     }
@@ -2332,6 +2333,9 @@ function LinhaModal({ linha, refLinhas, ccs, onClose, onSave }: { linha: Linha; 
           <div style={{ display: 'flex', gap: 20 }}>
             <label style={S.chk}><input type="checkbox" checked={l.visivel_relatorio !== false} onChange={e => setL({ ...l, visivel_relatorio: e.target.checked })} /> Visível no relatório</label>
             <label style={S.chk}><input type="checkbox" checked={l.visivel_dashboard !== false} onChange={e => setL({ ...l, visivel_dashboard: e.target.checked })} /> Visível no dashboard</label>
+            <label style={{ ...S.chk, color: l.redutora ? 'var(--orange)' : undefined }} title="Receita que REDUZ a receita (ex.: impostos sobre vendas). Continua RECEITA, mas separa Bruta (sem) de Líquida (com).">
+              <input type="checkbox" checked={!!l.redutora} onChange={e => setL({ ...l, redutora: e.target.checked })} /> Redutora de receita (imposto)
+            </label>
           </div>
         </div>
         <div style={{ borderTop: '1px solid var(--panel)', paddingTop: 10, marginTop: 2 }}>

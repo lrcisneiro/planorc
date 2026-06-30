@@ -217,17 +217,17 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
                   valueFormat={(v: any) => fmt(Number(v))} axisBottom={{ format: (v: any) => fmt(Number(v)) }} labelSkipWidth={9999}
                   onClick={(d: any) => { const id = d.data.id; const med: Medida = d.id === 'Orçado' ? 'Orçado' : 'Realizado'; if (childrenVis(id).length) push(id); else abrirRazao(med, id) }}
                   legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]}
-                  tooltip={({ id, value, data }: any) => <div style={{ background: 'var(--panel)', padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12 }}>{data.filha} · {id}: <strong>{fmt(Number(value))}</strong></div>} />
+                  tooltip={({ data }: any) => { const o = Number(data['Orçado'] || 0), r = Number(data['Realizado'] || 0), dd = r - o; const bom = natOf(data.id) === 'DESPESA' ? dd <= 0 : dd >= 0; return <div style={{ background: 'var(--panel)', padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, lineHeight: 1.5 }}><strong>{data.filha}</strong><br />Orçado: {fmt(o)}<br />Realizado: <strong>{fmt(r)}</strong><br /><span style={{ color: bom ? '#2f9e44' : '#e03131', fontWeight: 600 }}>Δ (R−O): {(dd >= 0 ? '+' : '') + fmt(dd)}</span></div> }} />
               </div>
               <table style={S.table}>
                 <thead><tr><th style={S.thL}>Filha</th><th style={S.th}>Orçado</th><th style={S.th}>Realizado</th><th style={S.th}>Δ</th><th style={S.th}></th></tr></thead>
                 <tbody>
-                  {filhas.map(c => { const d = c.R - c.O; return (
+                  {filhas.map(c => { const d = c.R - c.O; const bom = natOf(c.id) === 'DESPESA' ? d <= 0 : d >= 0; return (
                     <tr key={c.id}>
                       <td style={{ ...S.tdL, ...S.rowBtn }} title={c.temFilhas ? 'Descer' : 'Folha'} onClick={() => c.temFilhas && push(c.id)}>{c.temFilhas && <ChevronRight size={12} color="var(--muted)" style={{ verticalAlign: 'middle' }} />} {c.desc}</td>
                       <td style={{ ...S.td, ...S.rowBtn, color: 'var(--muted)' }} title="Razão do orçado" onClick={() => abrirRazao('Orçado', c.id)}>{fmt(c.O)}</td>
                       <td style={{ ...S.td, ...S.rowBtn, fontWeight: 600, color: '#1971c2' }} title="Razão do realizado" onClick={() => abrirRazao('Realizado', c.id)}>{fmt(c.R)}</td>
-                      <td style={{ ...S.td, fontWeight: 600, color: d >= 0 ? '#2f9e44' : '#e03131' }} title="Realizado − Orçado">{(d >= 0 ? '+' : '') + fmt(d)}</td>
+                      <td style={{ ...S.td, fontWeight: 600, color: bom ? '#2f9e44' : '#e03131' }} title="Realizado − Orçado">{(d >= 0 ? '+' : '') + fmt(d)}</td>
                       <td style={{ ...S.td, ...S.rowBtn }} onClick={() => c.temFilhas ? push(c.id) : abrirRazao('Realizado', c.id)}><ChevronRight size={14} color="var(--muted)" /></td>
                     </tr>
                   )})}
@@ -243,7 +243,7 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
               <div style={{ display: 'flex', gap: 24, justifyContent: 'center', marginBottom: 18 }}>
                 <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Orçado</div><div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-mid)' }}>{fmt(nodeO(cur))}</div></div>
                 <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Realizado</div><div style={{ fontSize: 20, fontWeight: 700, color: '#1971c2' }}>{fmt(nodeR(cur))}</div></div>
-                {(() => { const d = nodeR(cur) - nodeO(cur); return <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Δ</div><div style={{ fontSize: 20, fontWeight: 700, color: d >= 0 ? '#2f9e44' : '#e03131' }}>{(d >= 0 ? '+' : '') + fmt(d)}</div></div> })()}
+                {(() => { const d = nodeR(cur) - nodeO(cur); const bom = natOf(cur) === 'DESPESA' ? d <= 0 : d >= 0; return <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Δ</div><div style={{ fontSize: 20, fontWeight: 700, color: bom ? '#2f9e44' : '#e03131' }}>{(d >= 0 ? '+' : '') + fmt(d)}</div></div> })()}
               </div>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                 <button style={S.btn} onClick={() => abrirRazao('Orçado', cur)}><FileDown size={14} /> Razão do orçado</button>

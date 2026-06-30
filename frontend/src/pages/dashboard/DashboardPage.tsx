@@ -17,7 +17,6 @@ import { ListChecks } from 'lucide-react'
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 const ANOS = [2024, 2025, 2026, 2027, 2028]
-const YCOLORS = ['#3b5bdb', '#f59f00', '#2f9e44', '#e8590c', '#7048e8', '#1098ad']
 const CAT = ['#3b5bdb', '#f59f00', '#2f9e44', '#e8590c', '#7048e8', '#1098ad', '#e64980', '#0ca678', '#f76707', '#4263eb']
 const fmt = (v: number) => (v || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })
 const fmtK = (v: number) => Math.abs(v) >= 1000 ? (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + 'k' : String(Math.round(v))
@@ -42,7 +41,7 @@ function TipOR({ titulo, data, hint }: { titulo: string; data: any; hint?: strin
 type Rel = { id: string; codigo: string; nome: string }
 type Versao = { id: string; codigo: string }
 type Item = { id: string; codigo: string; descricao: string }
-type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null; visivel_dashboard?: boolean; nao_soma?: boolean; filtro_escopo?: any; formato?: any; casas_decimais?: number }
+type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null; visivel_dashboard?: boolean; nao_soma?: boolean; filtro_escopo?: any; formato?: any; casas_decimais?: number; redutora?: boolean }
 
 const S: Record<string, CSSProperties> = {
   page:   { padding: 24, fontFamily: 'system-ui, sans-serif' },
@@ -189,8 +188,9 @@ export default function DashboardPage() {
   })
 
   const [escopoNome, setEscopoNome] = useState('Relatório inteiro')
-  const [kpi, setKpi] = useState({ resOrc: 0, resReal: 0, recOrc: 0, recReal: 0, despOrc: 0, despReal: 0 })
+  const [kpi, setKpi] = useState({ resOrc: 0, resReal: 0, recOrc: 0, recReal: 0, despOrc: 0, despReal: 0, resPrev: 0, recPrev: 0, despPrev: 0, recBrutaOrc: 0, recBrutaReal: 0, recBrutaPrev: 0 })
   const [orcRealMes, setOrcRealMes] = useState<any[]>([])
+  const [resMes, setResMes] = useState<{ mes: string; res: number }[]>([])
   const [accLines, setAccLines] = useState<any[]>([])
   const [composicao, setComposicao] = useState<any[]>([])
   const [compOcultas, setCompOcultas] = useState(0)
@@ -202,8 +202,15 @@ export default function DashboardPage() {
   const [porEmpresa, setPorEmpresa] = useState<any[]>([])
   const [ebitdaEmp, setEbitdaEmp] = useState<any[]>([])
   const [desvios, setDesvios] = useState<any[]>([])
+  // gráficos por Área / Centro de Custo (cruzam CC × natureza da linha)
+  const [recAreaLinhas, setRecAreaLinhas] = useState<any[]>([])   // receitas por área: realizado (cheia) + orçado (tracejada)
+  const [recDespLinhas, setRecDespLinhas] = useState<any[]>([])   // 3: evolução receitas × despesas (linhas)
+  const [recAreaBar, setRecAreaBar] = useState<any[]>([])         // 2: receitas por área O×R+Δ (barras)
+  const [despAreaBar, setDespAreaBar] = useState<any[]>([])       // 4: despesas por área O×R+Δ (barras)
+  const [despCcBar, setDespCcBar] = useState<any[]>([])           // 5: despesas por CC (nível 2) O×R+Δ
+  const [recCcBar, setRecCcBar] = useState<any[]>([])             // 6: receitas por CC (nível 2) O×R+Δ
   const [temDados, setTemDados] = useState(false)
-  const [drill, setDrill] = useState<{ nodeId: string; meses?: number[] } | null>(null)
+  const [drill, setDrill] = useState<{ nodeId: string; meses?: number[]; ccFilter?: string[] | null } | null>(null)
   const [qparams, setQparams] = useState<{ empIds: string[]; anos: number[]; meses: number[]; filFilter: string[] | null; ccFilter: string[] | null } | null>(null)
 
   useEffect(() => {
@@ -221,7 +228,7 @@ export default function DashboardPage() {
     const myseq = ++loadSeq.current   // descarta resultados de cargas antigas (ex.: preset aplica filtro e dispara 2ª carga)
     setLoading(true); setErro(null)
     try {
-      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,ordem,visivel_dashboard,nao_soma,filtro_escopo,formato,casas_decimais').eq('relatorio_id', relId)
+      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,ordem,visivel_dashboard,nao_soma,filtro_escopo,formato,casas_decimais,redutora').eq('relatorio_id', relId)
       const linhas = (linhasRaw || []) as RL[]
       const byId: Record<string, RL> = {}; linhas.forEach(l => { byId[l.id] = l })
       const childrenByPai: Record<string, RL[]> = {}
@@ -247,6 +254,9 @@ export default function DashboardPage() {
       }
       const natByMaster: Record<string, string> = {}
       masterIds.forEach(m => { const n = natOfLine(rlOfMaster[m]); if (n) natByMaster[m] = n })
+      // linha marcada como "redutora de receita" (imposto) → separa bruta/líquida
+      const redutoraByMaster: Record<string, boolean> = {}
+      masterIds.forEach(m => { redutoraByMaster[m] = !!byId[rlOfMaster[m]]?.redutora })
 
       // opções de linha agrupadora (apenas nós com filhas), indentadas
       const opts: { id: string; label: string }[] = []
@@ -302,14 +312,29 @@ export default function DashboardPage() {
       // orçado/realizado ESCOPADOS ao nó; lineEmp FULL (p/ EBITDA = fórmula do relatório inteiro)
       const ebNode = linhas.find(l => (l.descricao || '').toLowerCase().includes('ebitda'))
       const linhasCalc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada, nao_soma: l.nao_soma }))
-      const [orcR, realR, lineEmpR] = await Promise.all([
+      // dashboard_cc_agg retorna cc×linha×mês (muitas linhas) → PAGINAR pra não truncar no limite do Supabase
+      const fetchCcAggAll = async (): Promise<any[]> => {
+        const out: any[] = []; const size = 1000; let from = 0
+        for (;;) {
+          const { data, error } = await supabase.rpc('dashboard_cc_agg', { p_versao: versaoId, p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }).range(from, from + size - 1)
+          if (error || !data || !data.length) break   // não-fatal: se a RPC não existe, fica vazio
+          out.push(...data)
+          if (data.length < size) break
+          from += size
+        }
+        return out
+      }
+      const [orcR, realR, lineEmpR, realPrevR, ccAggRows] = await Promise.all([
         supabase.rpc('relatorio_orcado_agg', { p_versao: versaoId, p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
         supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
         supabase.rpc('relatorio_linha_empresa_agg', { p_versao: versaoId, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
+        supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: anos.map(a => a - 1), p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
+        fetchCcAggAll(),
       ])
       if (orcR.error) throw new Error(orcR.error.message)
       if (realR.error) throw new Error(realR.error.message)
       if (lineEmpR.error) throw new Error(lineEmpR.error.message)
+      if (realPrevR.error) throw new Error(realPrevR.error.message)
 
       // ── período como lista e avaliação via ENGINE (orçado avalia fórmula de célula, igual ao relatório) ──
       const periodos: Periodo[] = []
@@ -320,6 +345,13 @@ export default function DashboardPage() {
       for (const r of realR.data || []) { const rl = rlOfMaster[r.linha_id]; if (!rl || disabledMasters.has(r.linha_id)) continue; (rawReal[rl] = rawReal[rl] || {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0, expressao: null } }
       const cOrc = computeCenario(linhasCalc, rawOrc, periodos), cReal = computeCenario(linhasCalc, rawReal, periodos)
       const tOrc = computeTotais(linhasCalc, cOrc, periodos), tReal = computeTotais(linhasCalc, cReal, periodos)
+      // realizado do ano ANTERIOR (mesmos nós) p/ o comparativo YoY nos gauges
+      const periodosPrev: Periodo[] = []
+      for (const y of anos) for (const m of meses) periodosPrev.push({ ano: y - 1, mes: m })
+      periodosPrev.sort((a, b) => (a.ano - b.ano) || (a.mes - b.mes))
+      const rawRealPrev: RawValues = {}
+      for (const r of realPrevR.data || []) { const rl = rlOfMaster[r.linha_id]; if (!rl || disabledMasters.has(r.linha_id)) continue; (rawRealPrev[rl] = rawRealPrev[rl] || {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0, expressao: null } }
+      const tRealPrev = computeTotais(linhasCalc, computeCenario(linhasCalc, rawRealPrev, periodosPrev), periodosPrev)
       const leaves = linhas.filter(l => l.tipo_linha === 'ANALITICA' && !l.desativada && l.linha_orc_id && !l.nao_soma)
 
       // agregações ESCOPADAS (por mês/ano, por master, por filha) a partir da engine
@@ -348,7 +380,12 @@ export default function DashboardPage() {
       const childNat: Record<string, string> = {}; nodeChildren.forEach(c => { childNat[c.id] = natOfLine(c.id) || '' })
 
       const orMes = meses.map(m => ({ mes: MESES[m - 1], mesN: m, Orçado: Math.round(nodeFac * (omM[m] || 0)), Realizado: Math.round(nodeFac * (rmM[m] || 0)) }))
-      const acc = anos.map(y => { let a = 0; return { id: String(y), data: meses.map(m => { a += rmYM[y]?.[m] || 0; return { x: MESES[m - 1], y: Math.round(nodeFac * a) } }) } })
+      // acumulado dos anos selecionados agregados (a comparação ano a ano vive no dash Comparativo Anual)
+      let accR = 0, accO = 0
+      const acc = [
+        { id: 'Realizado', data: meses.map(m => { accR += rmM[m] || 0; return { x: MESES[m - 1], y: Math.round(nodeFac * accR) } }) },
+        { id: 'Orçado', data: meses.map(m => { accO += omM[m] || 0; return { x: MESES[m - 1], y: Math.round(nodeFac * accO) } }) },
+      ]
 
       const comps = nodeChildren.filter(c => (childOrc[c.id] || childReal[c.id])).map(c => { const f = natFac(childNat[c.id]); return { id: c.id, filha: cut(childDesc[c.id], 26), Orçado: Math.round(f * (childOrc[c.id] || 0)), Realizado: Math.round(f * (childReal[c.id] || 0)) } })
         // ordena por magnitude (Realizado, fallback Orçado): ascendente p/ o gráfico horizontal exibir o maior no topo
@@ -361,11 +398,99 @@ export default function DashboardPage() {
       const fMes = childByTotal.map(c => { const f = natFac(childNat[c.id]); return { id: cut(childDesc[c.id], 18), data: meses.map(m => ({ x: MESES[m - 1], y: Math.round(f * (childMonthReal[c.id]?.[m] || 0)) })) } })
 
       // KPIs do TOPO = relatório INTEIRO (todas as linhas), via engine
-      let recOF = 0, recRF = 0, despOF = 0, despRF = 0
-      for (const l of leaves) { const nat = natByMaster[l.linha_orc_id!]; if (nat === 'RECEITA') { recOF += tOrc[l.id] || 0; recRF += tReal[l.id] || 0 } else if (nat === 'DESPESA') { despOF += tOrc[l.id] || 0; despRF += tReal[l.id] || 0 } }
+      let recOF = 0, recRF = 0, despOF = 0, despRF = 0, recBrutaOF = 0, recBrutaRF = 0
+      for (const l of leaves) {
+        const nat = natByMaster[l.linha_orc_id!]
+        if (nat === 'RECEITA') {
+          recOF += tOrc[l.id] || 0; recRF += tReal[l.id] || 0                                  // líquida (com redutoras)
+          if (!redutoraByMaster[l.linha_orc_id!]) { recBrutaOF += tOrc[l.id] || 0; recBrutaRF += tReal[l.id] || 0 }  // bruta (sem redutoras)
+        } else if (nat === 'DESPESA') { despOF += tOrc[l.id] || 0; despRF += tReal[l.id] || 0 }
+      }
       const resNode = linhas.find(l => norm(l.descricao).includes('resultado liquido'))
       const resOrcKpi = resNode ? (tOrc[resNode.id] || 0) : leaves.reduce((s, l) => s + (tOrc[l.id] || 0), 0)
       const resRealKpi = resNode ? (tReal[resNode.id] || 0) : leaves.reduce((s, l) => s + (tReal[l.id] || 0), 0)
+      // ano anterior (mesma lógica de resultado/receita/despesa, sobre o realizado de anos-1)
+      let recPF = 0, despPF = 0, recBrutaPF = 0
+      for (const l of leaves) {
+        const nat = natByMaster[l.linha_orc_id!]
+        if (nat === 'RECEITA') { recPF += tRealPrev[l.id] || 0; if (!redutoraByMaster[l.linha_orc_id!]) recBrutaPF += tRealPrev[l.id] || 0 }
+        else if (nat === 'DESPESA') despPF += tRealPrev[l.id] || 0
+      }
+      const resPrevKpi = resNode ? (tRealPrev[resNode.id] || 0) : leaves.reduce((s, l) => s + (tRealPrev[l.id] || 0), 0)
+      // Resultado Líquido realizado por mês (linha sobreposta no gráfico Orçado × Realizado)
+      const resByMesN: Record<number, number> = {}
+      if (resNode) for (const p of periodos) resByMesN[p.mes] = (resByMesN[p.mes] || 0) + (cReal[resNode.id]?.[pkey(p)] || 0)
+      const resMesArr = meses.map(m => ({ mes: MESES[m - 1], res: Math.round(resByMesN[m] || 0) }))
+
+      // ── Gráficos por Área / Centro de Custo (dashboard_cc_agg → cc_id × linha × mês) ──
+      // mesmos masters que o card/engine contam (folhas analíticas válidas: exclui desativada/não-soma)
+      const leafMasters = new Set<string>(leaves.map(l => l.linha_orc_id as string))
+      const ccInfo: Record<string, { area: string; cc: string }> = {}
+      ;(ccs as any[]).forEach(c => {
+        const area = c.area_cod ? `${c.area_cod}-${c.area_nome || ''}`.trim() : (c.area_nome || 'Sem área')
+        ccInfo[c.id] = { area: area || 'Sem área', cc: `${c.codigo} · ${cut(c.descricao, 22)}` }
+      })
+      const areaDe = (cc: string | null) => (cc && ccInfo[cc]) ? ccInfo[cc].area : 'Sem área'
+      // nível do meio do CC = 2 primeiros dígitos do código (área + divisão); rótulo do CC-pai se existir
+      const ccById2: Record<string, any> = {}; (ccs as any[]).forEach(c => { ccById2[c.id] = c })
+      const ccByCode2: Record<string, any> = {}; (ccs as any[]).forEach(c => { ccByCode2[String(c.codigo)] = c })
+      const nivel2De = (ccid: string | null) => {
+        const c = ccid ? ccById2[ccid] : null
+        if (!c) return 'Sem CC'
+        const cod2 = String(c.codigo || '').slice(0, 2)
+        if (cod2.length < 2) return `${c.codigo} · ${cut(c.descricao, 20)}`
+        const nome = ccByCode2[cod2]?.descricao || `${c.area_nome || ''}${c.divisao_nome ? ' / ' + c.divisao_nome : ''}`.trim() || cod2
+        return `${cod2} · ${cut(nome, 20)}`
+      }
+      const recAreaMesA: Record<string, Record<number, number>> = {}        // 1 (realizado)
+      const recAreaMesAOrc: Record<string, Record<number, number>> = {}     // 1b (orçado, p/ investigar)
+      const recMesT: Record<number, number> = {}, despMesT: Record<number, number> = {}  // 3
+      const recAreaB: Record<string, { o: number; r: number }> = {}         // 2
+      const despAreaB: Record<string, { o: number; r: number }> = {}        // 4
+      const despCcB: Record<string, { o: number; r: number; ccs: Set<string> }> = {}   // 5 (despesa nível 2 do CC)
+      const recCcB: Record<string, { o: number; r: number; ccs: Set<string> }> = {}    // 6 (receita nível 2 do CC)
+      for (const row of ccAggRows) {
+        if (!leafMasters.has(row.linha_id)) continue   // só folhas válidas (igual ao card; exclui desativada/não-soma)
+        const nat = natByMaster[row.linha_id]
+        if (nat !== 'RECEITA' && nat !== 'DESPESA') continue
+        if (nat === 'RECEITA' && redutoraByMaster[row.linha_id]) continue   // receita por área = BRUTA (sem redutoras)
+        const fac = nat === 'DESPESA' ? -1 : 1
+        const od = fac * (Number(row.orcado) || 0), rd = fac * (Number(row.realizado) || 0)   // exibição (positivo)
+        const area = areaDe(row.cc_id)
+        if (nat === 'RECEITA') {
+          ;(recAreaMesA[area] = recAreaMesA[area] || {})[row.mes] = (recAreaMesA[area]?.[row.mes] || 0) + rd
+          ;(recAreaMesAOrc[area] = recAreaMesAOrc[area] || {})[row.mes] = (recAreaMesAOrc[area]?.[row.mes] || 0) + od
+          recMesT[row.mes] = (recMesT[row.mes] || 0) + rd
+          const b = (recAreaB[area] = recAreaB[area] || { o: 0, r: 0 }); b.o += od; b.r += rd
+          const cnr = nivel2De(row.cc_id); const bcr = (recCcB[cnr] = recCcB[cnr] || { o: 0, r: 0, ccs: new Set<string>() }); bcr.o += od; bcr.r += rd; if (row.cc_id) bcr.ccs.add(row.cc_id)
+        } else {
+          despMesT[row.mes] = (despMesT[row.mes] || 0) + rd
+          const b = (despAreaB[area] = despAreaB[area] || { o: 0, r: 0 }); b.o += od; b.r += rd
+          const cn = nivel2De(row.cc_id); const bc = (despCcB[cn] = despCcB[cn] || { o: 0, r: 0, ccs: new Set<string>() }); bc.o += od; bc.r += rd; if (row.cc_id) bc.ccs.add(row.cc_id)
+        }
+      }
+      const mesesOrd = [...meses].sort((a, b) => a - b)
+      const PALETA = ['#3b5bdb', '#e8590c', '#2f9e44', '#7048e8', '#1098ad', '#f59f00', '#e64980', '#15aabf']
+      // Receitas por área: realizado (cheia) + orçado (tracejada, id "… (orç)"), mesma cor por área
+      const areasRec = [...new Set([...Object.keys(recAreaMesA), ...Object.keys(recAreaMesAOrc)])].sort()
+      const corArea: Record<string, string> = {}; areasRec.forEach((a, i) => { corArea[a] = PALETA[i % PALETA.length] })
+      const recAreaLinhasD: any[] = []
+      for (const a of areasRec) {
+        recAreaLinhasD.push({ id: a, color: corArea[a], data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round((recAreaMesA[a]?.[m]) || 0) })) })
+        recAreaLinhasD.push({ id: `${a} (orç)`, color: corArea[a], data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round((recAreaMesAOrc[a]?.[m]) || 0) })) })
+      }
+      const recDespLinhasD = [
+        { id: 'Receitas', data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round(recMesT[m] || 0) })) },
+        { id: 'Despesas', data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round(despMesT[m] || 0) })) },
+      ]
+      const barDe = (acc: Record<string, { o: number; r: number }>, key: string) => Object.entries(acc).filter(([, v]) => v.o || v.r)
+        .map(([k, v]) => ({ [key]: k, 'Orçado': Math.round(v.o), 'Realizado': Math.round(v.r), 'Δ': Math.round(v.r - v.o) }))
+        .sort((a, b) => (b['Realizado'] as number) - (a['Realizado'] as number))
+      const recAreaBarD = barDe(recAreaB, 'area'), despAreaBarD = barDe(despAreaB, 'area')
+      const ccBar = (acc: Record<string, { o: number; r: number; ccs: Set<string> }>) => Object.entries(acc).filter(([, v]) => v.o || v.r)
+        .map(([k, v]) => ({ cc: k, 'Orçado': Math.round(v.o), 'Realizado': Math.round(v.r), 'Δ': Math.round(v.r - v.o), _ccs: [...v.ccs] }))
+        .sort((a, b) => String(a.cc).localeCompare(String(b.cc), 'pt-BR', { numeric: true }))   // ordena pelo rótulo do eixo X (nível 2)
+      const despCcBarD = ccBar(despCcB), recCcBarD = ccBar(recCcB)
 
       // por empresa (016) + EBITDA por empresa (engine por empresa)
       const empName: Record<string, string> = {}; empresas.forEach(e => { empName[e.id] = `${e.codigo} · ${cut(e.descricao, 22)}` })
@@ -396,8 +521,9 @@ export default function DashboardPage() {
         .filter(x => x.d).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 12).reverse().map(x => ({ conta: cut(x.conta, 26), Δ: Math.round(x.d), nodeId: rlOfMaster[x.m] }))
 
       if (myseq !== loadSeq.current) return   // carga mais nova já começou → descarta esta
-      setKpi({ resOrc: resOrcKpi, resReal: resRealKpi, recOrc: recOF, recReal: recRF, despOrc: despOF, despReal: despRF })
-      setOrcRealMes(orMes); setAccLines(acc); setComposicao(comps); setCompOcultas(childrenOcultas); setFilhasMes(fMes); setCascata(steps)
+      setKpi({ resOrc: resOrcKpi, resReal: resRealKpi, recOrc: recOF, recReal: recRF, despOrc: despOF, despReal: despRF, resPrev: resPrevKpi, recPrev: recPF, despPrev: despPF, recBrutaOrc: recBrutaOF, recBrutaReal: recBrutaRF, recBrutaPrev: recBrutaPF })
+      setOrcRealMes(orMes); setResMes(resMesArr); setAccLines(acc); setComposicao(comps); setCompOcultas(childrenOcultas); setFilhasMes(fMes); setCascata(steps)
+      setRecAreaLinhas(recAreaLinhasD); setRecDespLinhas(recDespLinhasD); setRecAreaBar(recAreaBarD); setDespAreaBar(despAreaBarD); setDespCcBar(despCcBarD); setRecCcBar(recCcBarD)
       setPorEmpresa(pe); setEbitdaEmp(eb); setDesvios(desv)
       setTemDados(Object.keys(omM).length > 0 || Object.keys(rmM).length > 0)
     } catch (e: any) { if (myseq === loadSeq.current) setErro(e?.message ?? String(e)) }
@@ -406,23 +532,87 @@ export default function DashboardPage() {
   useEffect(() => { load() }, [relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs, acessoDash.loading]) // eslint-disable-line
 
   const anosOrd = [...anosSel].sort((a, b) => a - b)
-  const yearKeys = anosOrd.map(String)
   const deltaMes = orcRealMes.map((m: any) => ({ mes: m.mes, 'Δ': Math.round((m.Realizado || 0) - (m.Orçado || 0)) }))
+  // mapas p/ o drill dos gráficos por área/CC (área/CC clicada → cc_ids, só os visíveis ao usuário)
+  const areaToCcs: Record<string, string[]> = {}
+  ;(ccs as any[]).forEach(c => {
+    if (!acessoDash.canSee('centro_custo', c.id)) return
+    const area = ((c.area_cod ? `${c.area_cod}-${c.area_nome || ''}`.trim() : (c.area_nome || 'Sem área')) || 'Sem área')
+    ;(areaToCcs[area] = areaToCcs[area] || []).push(c.id)
+  })
+  const drillPorCcs = (ids: string[], mes?: number) => {
+    if (!qparams || !ids.length) return
+    const f = qparams.ccFilter ? ids.filter(i => qparams.ccFilter!.includes(i)) : ids
+    if (f.length) setDrill({ nodeId: '__root', ccFilter: f, meses: mes ? [mes] : undefined })
+  }
+  // drill a partir de um ponto de linha (área × mês) → razão escopado àquela área e mês
+  const drillAreaMes = (area: string, mesLabel: string) => {
+    const a = String(area).replace(' (orç)', '')   // série de orçado compartilha os CCs da área
+    const m = MESES.indexOf(String(mesLabel)) + 1
+    drillPorCcs(areaToCcs[a] || [], m > 0 ? m : undefined)
+  }
   const chip = `${escopoNome} · ${anosOrd.join(', ') || '—'} · ${mesesSel.length === 12 ? 'todos os meses' : mesesSel.length + ' meses'}`
     + ` · ${empresaSel.length ? empresaSel.length + ' empresa(s)' : 'todas as empresas'}`
     + (filialSel.length && filialSel.length < filiais.length ? ` · ${filialSel.length} filial` : '')
     + (ccSel.length && ccSel.length < ccs.length ? ` · ${ccSel.length} CC` : '')
 
-  const KpiCard = ({ lbl, orc, real, desp }: { lbl: string; orc: number; real: number; desp?: boolean }) => {
+  const KpiCard = ({ lbl, orc, real, prev, anoPrev, desp, liq }: { lbl: string; orc: number; real: number; prev?: number; anoPrev?: number; desp?: boolean; liq?: number }) => {
     const p = pctOf(real, orc); const up = real >= orc
     const f = desp ? -1 : 1   // despesa exibida positiva (dado é negativo)
     const d = f * (real - orc)   // delta (Realizado − Orçado) na orientação exibida
+    // comparativo com o ano anterior (mesma lógica dos cards personalizados)
+    const temP = prev != null && anoPrev != null
+    const Rv = f * real, Pv = temP ? f * (prev as number) : 0
+    const yoy = temP && Pv !== 0 ? (Rv / Pv - 1) * 100 : null
+    const bomY = desp ? Rv <= Pv : Rv >= Pv
     return (
       <div style={S.kpi}>
         <div style={S.kpiLbl}>{lbl}</div>
         <div style={{ ...S.kpiVal, color: desp ? '#e03131' : 'var(--text)' }}>{fmt(f * real)}</div>
         <div style={S.kpiSub}>Orçado {fmt(f * orc)} <span style={{ color: up ? '#2f9e44' : '#e03131', fontWeight: 600 }}>({d >= 0 ? '+' : ''}{fmt(d)})</span> · {p == null ? '—' : <span style={{ color: up ? '#2f9e44' : '#e03131', fontWeight: 600 }}>{up ? <TrendingUp size={11} /> : <TrendingDown size={11} />} {p.toFixed(0)}%</span>}</div>
+        {temP && (Pv !== 0
+          ? <div style={{ ...S.kpiSub, marginTop: 2 }}>{anoPrev}: {fmt(Pv)} <span style={{ color: bomY ? '#2f9e44' : '#e03131', fontWeight: 600 }}>{yoy != null ? `(${yoy >= 0 ? '+' : ''}${yoy.toFixed(0)}%)` : ''}</span></div>
+          : <div style={{ ...S.kpiSub, marginTop: 2, color: 'var(--faint)' }}>sem dado {anoPrev}</div>)}
+        {liq != null && <div style={{ ...S.kpiSub, marginTop: 2 }}>Líquida: <strong style={{ color: 'var(--text-mid)' }}>{fmt(liq)}</strong></div>}
       </div>
+    )
+  }
+
+  // Layer custom do @nivo/line: orçado (id "… orç") sai tracejado; realizado, cheio
+  const AccLinhas = ({ series, lineGenerator }: any) => (
+    <g>
+      {series.map((s: any) => (
+        <path key={s.id} d={lineGenerator(s.data.map((d: any) => d.position))} fill="none" stroke={s.color} strokeWidth={2}
+          strokeDasharray={String(s.id).toLowerCase().includes('orç') ? '6 4' : undefined} />
+      ))}
+    </g>
+  )
+
+  // Tooltip dos comparativos por área/CC (Orçado/Realizado/Δ; cor do Δ por bom/ruim, despesa invertida)
+  const barTip = (titulo: string, data: any, desp: boolean) => {
+    const o = Number(data['Orçado'] || 0), r = Number(data['Realizado'] || 0), dd = Number(data['Δ'] || 0)
+    const bom = desp ? dd <= 0 : dd >= 0
+    return <div style={tipBox}><strong>{titulo}</strong><br />Orçado: {fmt(o)}<br />Realizado: <strong>{fmt(r)}</strong><br /><span style={{ color: bom ? '#2f9e44' : '#e03131', fontWeight: 600 }}>Δ (R−O): {(dd >= 0 ? '+' : '') + fmt(dd)}</span></div>
+  }
+
+  // Layer custom do @nivo/bar: sobrepõe a linha de Resultado Líquido (realizado) por mês, com rótulos
+  const LinhaResultado = ({ bars, yScale }: any) => {
+    if (!resMes.length || !bars?.length) return null
+    const centro: Record<string, { sx: number; n: number }> = {}
+    bars.forEach((b: any) => { const k = String(b.data.indexValue); const c = centro[k] || (centro[k] = { sx: 0, n: 0 }); c.sx += b.x + b.width / 2; c.n++ })
+    const pts = resMes.filter(r => centro[r.mes]).map(r => ({ x: centro[r.mes].sx / centro[r.mes].n, y: yScale(r.res), v: r.res }))
+    if (!pts.length) return null
+    const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+    return (
+      <g>
+        <path d={d} fill="none" stroke="#f59f00" strokeWidth={2} strokeLinejoin="round" />
+        {pts.map((p, i) => (
+          <g key={i}>
+            <circle cx={p.x} cy={p.y} r={3} fill="#f59f00" stroke="var(--panel)" strokeWidth={1} />
+            <text x={p.x} y={p.y - 7} textAnchor="middle" fontSize={9} fontWeight={700} fill="#f59f00">{fmtK(p.v)}</text>
+          </g>
+        ))}
+      </g>
     )
   }
 
@@ -475,9 +665,9 @@ export default function DashboardPage() {
         <>
           <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, marginBottom: 8 }}>Visão geral do relatório (não afetada pela linha agrupadora)</div>
           <div style={S.kpis}>
-            <KpiCard lbl="Resultado" orc={kpi.resOrc} real={kpi.resReal} />
-            <KpiCard lbl="Receita" orc={kpi.recOrc} real={kpi.recReal} />
-            <KpiCard lbl="Despesa" orc={kpi.despOrc} real={kpi.despReal} desp />
+            <KpiCard lbl="Resultado" orc={kpi.resOrc} real={kpi.resReal} prev={kpi.resPrev} anoPrev={(anosSel.length ? Math.min(...anosSel) : 0) - 1} />
+            <KpiCard lbl="Receita Bruta" orc={kpi.recBrutaOrc} real={kpi.recBrutaReal} prev={kpi.recBrutaPrev} anoPrev={(anosSel.length ? Math.min(...anosSel) : 0) - 1} liq={kpi.recReal} />
+            <KpiCard lbl="Despesa" orc={kpi.despOrc} real={kpi.despReal} prev={kpi.despPrev} anoPrev={(anosSel.length ? Math.min(...anosSel) : 0) - 1} desp />
           </div>
 
           <div style={{ ...S.card, display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap', gap: 16 }}>
@@ -528,11 +718,12 @@ export default function DashboardPage() {
 
           <div style={S.grid2}>
             <div style={S.card}>
-              <div style={S.cardT}>Orçado × Realizado por mês <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(clique no mês p/ detalhar)</span></div>
+              <div style={S.cardT}>Orçado × Realizado por mês <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(clique no mês p/ detalhar)</span> <span style={{ fontSize: 11, fontWeight: 600, color: '#f59f00' }}>— linha: Resultado Líquido</span></div>
               <div style={S.chart}>
                 <ResponsiveBar theme={nivoTheme()} data={orcRealMes} keys={['Orçado', 'Realizado']} indexBy="mes" groupMode="grouped"
-                  margin={{ top: 10, right: 10, bottom: 40, left: 56 }} padding={0.25} innerPadding={2}
+                  margin={{ top: 18, right: 10, bottom: 40, left: 56 }} padding={0.25} innerPadding={2}
                   colors={['#9aa0aa', '#3b5bdb']} borderRadius={3}
+                  layers={['grid', 'axes', 'bars', LinhaResultado, 'markers', 'legends']}
                   axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
                   onClick={(d: any) => { const m = d.data?.mesN || (MESES.indexOf(String(d.indexValue)) + 1); if (m > 0 && qparams) setDrill({ nodeId: agrupId || '__root', meses: [m] }) }}
                   tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} />}
@@ -552,13 +743,15 @@ export default function DashboardPage() {
           </div>
 
           <div style={S.card}>
-            <div style={S.cardT}>Acumulado (realizado) por ano</div>
+            <div style={S.cardT}>Acumulado por ano <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(linha cheia = realizado · tracejada = orçado)</span></div>
             <div style={S.chart}>
               <ResponsiveLine theme={nivoTheme()} data={accLines} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
                 xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
-                colors={yearKeys.map((_, i) => YCOLORS[i % YCOLORS.length])} pointSize={6} pointBorderWidth={1} useMesh curve="monotoneX"
-                axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableArea areaOpacity={0.05}
-                legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 56, itemHeight: 16, symbolSize: 12 }]} />
+                colors={(s: any) => s.id === 'Orçado' ? '#9aa0aa' : '#3b5bdb'}
+                pointSize={6} pointBorderWidth={1} useMesh curve="monotoneX"
+                axisLeft={{ format: (v: any) => fmtK(Number(v)) }}
+                layers={['grid', 'markers', 'axes', AccLinhas, 'points', 'slices', 'mesh', 'legends']}
+                legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
             </div>
           </div>
 
@@ -610,12 +803,92 @@ export default function DashboardPage() {
                 labelSkipWidth={9999} animate onClick={(d: any) => d.data.nodeId && qparams && setDrill({ nodeId: d.data.nodeId })} />
             </div>
           </div>
+
+          {/* ── Por Área / Centro de Custo (cruza CC × natureza da linha) ── */}
+          <div style={S.grid2}>
+          <div style={S.card}>
+            <div style={S.cardT}>Receitas por área <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(cheia = realizado · tracejada = orçado · clique p/ razão)</span></div>
+            <div style={S.chart}>
+              <ResponsiveLine theme={nivoTheme()} data={recAreaLinhas} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
+                xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
+                colors={(s: any) => s.color} pointSize={5} pointBorderWidth={1} useMesh curve="monotoneX"
+                onClick={(p: any) => drillAreaMes(String(p.serieId), String(p.data?.x))}
+                axisLeft={{ format: (v: any) => fmtK(Number(v)) }}
+                layers={['grid', 'markers', 'axes', AccLinhas, 'points', 'slices', 'mesh', 'legends']}
+                legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 110, itemHeight: 16, symbolSize: 12 }]} />
+            </div>
+          </div>
+
+          <div style={S.card}>
+            <div style={S.cardT}>Evolução Receitas × Despesas <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(realizado)</span></div>
+            <div style={S.chart}>
+              <ResponsiveLine theme={nivoTheme()} data={recDespLinhas} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
+                xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
+                colors={(s: any) => s.id === 'Receitas' ? '#2f9e44' : '#e03131'} pointSize={6} pointBorderWidth={1} useMesh curve="monotoneX"
+                axisLeft={{ format: (v: any) => fmtK(Number(v)) }}
+                legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
+            </div>
+          </div>
+          </div>
+
+          <div style={S.grid2}>
+            <div style={S.card}>
+              <div style={S.cardT}>Receitas por área <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · clique p/ detalhar)</span></div>
+              <div style={S.chart}>
+                <ResponsiveBar theme={nivoTheme()} data={recAreaBar} keys={['Orçado', 'Realizado', 'Δ']} indexBy="area" groupMode="grouped"
+                  onClick={(d: any) => drillPorCcs(areaToCcs[String(d.indexValue)] || [])}
+                  margin={{ top: 18, right: 10, bottom: 60, left: 56 }} padding={0.3} innerPadding={2}
+                  colors={(b: any) => b.id === 'Orçado' ? '#9aa0aa' : b.id === 'Realizado' ? '#3b5bdb' : '#1098ad'} borderRadius={3}
+                  axisLeft={{ format: (v: any) => fmtK(Number(v)) }} axisBottom={{ tickRotation: -20 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                  tooltip={({ indexValue, data }: any) => barTip(String(indexValue), data, false)}
+                  legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 76, itemHeight: 16, symbolSize: 12 }]} />
+              </div>
+            </div>
+            <div style={S.card}>
+              <div style={S.cardT}>Despesas por área <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · clique p/ detalhar)</span></div>
+              <div style={S.chart}>
+                <ResponsiveBar theme={nivoTheme()} data={despAreaBar} keys={['Orçado', 'Realizado', 'Δ']} indexBy="area" groupMode="grouped"
+                  onClick={(d: any) => drillPorCcs(areaToCcs[String(d.indexValue)] || [])}
+                  margin={{ top: 18, right: 10, bottom: 60, left: 56 }} padding={0.3} innerPadding={2}
+                  colors={(b: any) => b.id === 'Orçado' ? '#9aa0aa' : b.id === 'Realizado' ? '#3b5bdb' : '#1098ad'} borderRadius={3}
+                  axisLeft={{ format: (v: any) => fmtK(Number(v)) }} axisBottom={{ tickRotation: -20 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                  tooltip={({ indexValue, data }: any) => barTip(String(indexValue), data, true)}
+                  legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 76, itemHeight: 16, symbolSize: 12 }]} />
+              </div>
+            </div>
+          </div>
+
+          <div style={S.card}>
+            <div style={S.cardT}>Despesas por centro de custo (nível 2 — área/divisão) <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · acumulado · clique p/ detalhar)</span></div>
+            <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: 340 }}>
+              <ResponsiveBar theme={nivoTheme()} data={despCcBar} keys={['Orçado', 'Realizado', 'Δ']} indexBy="cc" groupMode="grouped"
+                onClick={(d: any) => { const ids = (d.data?._ccs || []) as string[]; if (ids.length) drillPorCcs(ids) }}
+                margin={{ top: 18, right: 10, bottom: 110, left: 56 }} padding={0.3} innerPadding={1}
+                colors={(b: any) => b.id === 'Orçado' ? '#9aa0aa' : b.id === 'Realizado' ? '#3b5bdb' : '#1098ad'} borderRadius={2}
+                axisLeft={{ format: (v: any) => fmtK(Number(v)) }} axisBottom={{ tickRotation: -45 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                tooltip={({ indexValue, data }: any) => barTip(String(indexValue), data, true)}
+                legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 76, itemHeight: 16, symbolSize: 12 }]} />
+            </div>
+          </div>
+
+          <div style={S.card}>
+            <div style={S.cardT}>Receitas por centro de custo (nível 2 — área/divisão) <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · bruta · clique p/ detalhar)</span></div>
+            <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: 340 }}>
+              <ResponsiveBar theme={nivoTheme()} data={recCcBar} keys={['Orçado', 'Realizado', 'Δ']} indexBy="cc" groupMode="grouped"
+                onClick={(d: any) => { const ids = (d.data?._ccs || []) as string[]; if (ids.length) drillPorCcs(ids) }}
+                margin={{ top: 18, right: 10, bottom: 110, left: 56 }} padding={0.3} innerPadding={1}
+                colors={(b: any) => b.id === 'Orçado' ? '#9aa0aa' : b.id === 'Realizado' ? '#3b5bdb' : '#1098ad'} borderRadius={2}
+                axisLeft={{ format: (v: any) => fmtK(Number(v)) }} axisBottom={{ tickRotation: -45 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                tooltip={({ indexValue, data }: any) => barTip(String(indexValue), data, false)}
+                legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 76, itemHeight: 16, symbolSize: 12 }]} />
+            </div>
+          </div>
         </>
       )}
 
       {drill && qparams && (
         <DrillModal relId={relId} versaoId={versaoId} empIds={qparams.empIds} anos={qparams.anos} meses={drill.meses || qparams.meses}
-          filFilter={qparams.filFilter} ccFilter={qparams.ccFilter} startNodeId={drill.nodeId} onClose={() => setDrill(null)} />
+          filFilter={qparams.filFilter} ccFilter={drill.ccFilter !== undefined ? drill.ccFilter : qparams.ccFilter} startNodeId={drill.nodeId} onClose={() => setDrill(null)} />
       )}
     </div>
   )
