@@ -45,6 +45,7 @@ export default function OrcarGradePage() {
   const [ccId, setCcId] = useState('')            // '' = consolidado
 
   const [cells, setCells] = useState<Record<string, Record<number, Cell>>>({})  // master → mes → célula (valor com sinal OU fórmula)
+  const [hist, setHist] = useState<Record<string, string>>({})                  // master → histórico/comentário (nota por linha)
   const wrapRef = useRef<HTMLDivElement>(null)
   const [active, setActive] = useState<{ r: number; c: number } | null>(null)   // célula ativa (linha em `ordered` × mês 0..11)
   const [editing, setEditing] = useState(false)
@@ -106,17 +107,33 @@ export default function OrcarGradePage() {
   const ano = versao?.ano || 0
   const bloqueada = !!versao?.bloqueada
   const pronto = !!versaoId && !!empresaId
+  // escopo ORÇAR: usuário restrito numa dimensão NÃO pode lançar consolidado (nulo) nela
+  const filialRestrito = filiais.length > 0 && acesso.filterEdit('filial', filiais).length < filiais.length
+  const ccRestrito = ccs.length > 0 && ccsEd.length < ccs.length
+  const escopoOk = pronto && acesso.canEdit('empresa', empresaId)
+    && (filialId ? acesso.canEdit('filial', filialId) : !filialRestrito)
+    && (ccId ? acesso.canEdit('centro_custo', ccId) : !ccRestrito)
+  const readOnly = bloqueada || !escopoOk
+  // usuário restrito não tem "consolidado": força uma seleção válida da dimensão
+  useEffect(() => { if (filialRestrito && !filialId && filiaisEd.length) setFilialId(filiaisEd[0].id) }, [filialRestrito, filialId, filiaisEd])
+  useEffect(() => { if (ccRestrito && !ccId && ccsEd.length) setCcId(ccsEd[0].id) }, [ccRestrito, ccId, ccsEd])
 
   useEffect(() => {
-    if (!pronto) { setCells({}); return }
+    if (!pronto) { setCells({}); setHist({}); return }
     (async () => {
-      let q = supabase.from('fat_orcado').select('linha_id,mes,valor,expressao').eq('versao_id', versaoId).eq('empresa_id', empresaId).eq('ano', ano)
+      let q = supabase.from('fat_orcado').select('linha_id,mes,valor,expressao,dims').eq('versao_id', versaoId).eq('empresa_id', empresaId).eq('ano', ano)
       q = filialId ? q.eq('filial_id', filialId) : q.is('filial_id', null)
       q = ccId ? q.eq('cc_id', ccId) : q.is('cc_id', null)
       const { data } = await q
       const v: Record<string, Record<number, Cell>> = {}
-      for (const r of (data || []) as any[]) (v[r.linha_id] = v[r.linha_id] || {})[r.mes] = { valor: Number(r.valor) || 0, expressao: r.expressao || null }
-      setCells(v)
+      const h: Record<string, string> = {}
+      for (const r of (data || []) as any[]) {
+        const hasVal = r.valor != null || r.expressao != null
+        if (hasVal) (v[r.linha_id] = v[r.linha_id] || {})[r.mes] = { valor: Number(r.valor) || 0, expressao: r.expressao || null }
+        const hh = r.dims?.historico
+        if (hh && !h[r.linha_id]) h[r.linha_id] = String(hh)   // nota por linha: pega a 1ª não vazia
+      }
+      setCells(v); setHist(h)
     })()
   }, [versaoId, empresaId, filialId, ccId, ano, pronto])
 
@@ -140,13 +157,40 @@ export default function OrcarGradePage() {
     if (ex) await supabase.from('fat_orcado').update({ valor, expressao, origem: 'MANUAL' }).eq('id', (ex as any).id)
     else await supabase.from('fat_orcado').insert({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, valor, expressao, origem: 'MANUAL', dims: {} })
   }
+  // grava o HISTÓRICO/comentário da linha (nota por linha, replicada nos 12 meses via dims.historico)
+  const saveHistLinha = async (master: string, texto: string) => {
+    if (!pronto || readOnly) return
+    const t = texto.trim()
+    setSaving(true)
+    const base = () => {
+      let s = supabase.from('fat_orcado').select('id,valor,expressao,dims').eq('versao_id', versaoId).eq('linha_id', master).eq('empresa_id', empresaId).eq('ano', ano)
+      s = filialId ? s.eq('filial_id', filialId) : s.is('filial_id', null)
+      s = ccId ? s.eq('cc_id', ccId) : s.is('cc_id', null)
+      return s
+    }
+    await Promise.all(Array.from({ length: 12 }, (_, i) => i + 1).map(async mes => {
+      const { data: ex } = await base().eq('mes', mes).maybeSingle()
+      if (ex) {
+        const row = ex as any
+        const dims = { ...(row.dims || {}) }
+        if (t) dims.historico = t; else delete dims.historico
+        const phantom = row.valor == null && row.expressao == null && Object.keys(dims).length === 0
+        if (phantom) await supabase.from('fat_orcado').delete().eq('id', row.id)
+        else await supabase.from('fat_orcado').update({ dims }).eq('id', row.id)
+      } else if (t) {
+        await supabase.from('fat_orcado').insert({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, valor: null, expressao: null, origem: 'MANUAL', dims: { historico: t } })
+      }
+    }))
+    setHist(prev => { const n = { ...prev }; if (t) n[master] = t; else delete n[master]; return n })
+    setSaving(false)
+  }
   const parseCell = (l: Linha, t: string): { valor: number | null; expressao: string | null } => {
     const s = t.trim(); const isF = s.startsWith('=')
     return { valor: isF ? null : facOf(l) * parseNum(s), expressao: isF ? toStored(s) : null }
   }
   const salvar = async (l: Linha, mes: number) => {
     const master = l.linha_orc_id!
-    if (!pronto || bloqueada || !editavel(l)) { setEditing(false); return }
+    if (!pronto || readOnly || !editavel(l)) { setEditing(false); return }
     setSaving(true)
     const { valor, expressao } = parseCell(l, editVal)
     await saveOne(master, mes, valor, expressao)
@@ -156,7 +200,7 @@ export default function OrcarGradePage() {
 
   // ── Navegação tipo planilha (célula ativa + teclado) ──
   const startEdit = (init: string | null) => {
-    if (!active || bloqueada) return
+    if (!active || readOnly) return
     const l = ordered[active.r]; if (!l || !editavel(l)) return
     const c = cells[l.linha_orc_id!]?.[active.c + 1]
     const cur = c?.expressao ? toDisplay(c.expressao) : (c?.valor ? String(facOf(l) * c.valor) : '')
@@ -178,12 +222,12 @@ export default function OrcarGradePage() {
     else if (e.key === 'ArrowRight') mv(0, 1)
     else if (e.key === 'Tab') mv(0, e.shiftKey ? -1 : 1)
     else if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); startEdit(null) }
-    else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); const l = ordered[active.r]; if (editavel(l)) { setEditVal(''); setEditing(true) } }
+    else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); const l = ordered[active.r]; if (!readOnly && editavel(l)) { setEditVal(''); setEditing(true) } }
     else if (e.key.length === 1 && /[0-9=.,\-+]/.test(e.key)) { e.preventDefault(); startEdit(e.key) }
   }
   // Preencher à direita: replica o valor/fórmula em edição da célula atual até dezembro (Ctrl+Enter ou botão →|)
   const fillRight = async () => {
-    if (!active || bloqueada) return
+    if (!active || readOnly) return
     const l = ordered[active.r]; const master = l.linha_orc_id!; if (!editavel(l)) return
     const { valor, expressao } = parseCell(l, editVal)
     setSaving(true)
@@ -194,7 +238,7 @@ export default function OrcarGradePage() {
   }
   // Colar do Excel: bloco TSV → preenche as analíticas a partir da célula ativa (pula sintéticas)
   const onPaste = async (e: React.ClipboardEvent) => {
-    if (!active || editing || bloqueada) return
+    if (!active || editing || readOnly) return
     const text = e.clipboardData.getData('text'); if (!text) return
     e.preventDefault()
     const rows = text.replace(/\r/g, '').replace(/\n$/, '').split('\n')
@@ -246,16 +290,22 @@ export default function OrcarGradePage() {
           </select></div>
         <div><div style={S.lbl}>Filial</div>
           <select style={S.sel} value={filialId} onChange={e => setFilialId(e.target.value)}>
-            <option value="">— consolidado —</option>
+            {!filialRestrito && <option value="">— consolidado —</option>}
             {filiaisEd.map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.descricao}</option>)}
           </select></div>
         <div><div style={S.lbl}>Centro de custo</div>
           <select style={S.sel} value={ccId} onChange={e => setCcId(e.target.value)}>
-            <option value="">— consolidado —</option>
+            {!ccRestrito && <option value="">— consolidado —</option>}
             {ccsEd.map(c => <option key={c.id} value={c.id}>{c.codigo} · {c.descricao}</option>)}
           </select></div>
         {pronto && <div style={{ alignSelf: 'flex-end', fontSize: 12, color: 'var(--muted)' }}>{preenchidas} de {totalCelulas} células preenchidas</div>}
       </div>
+
+      {pronto && !bloqueada && !escopoOk && (
+        <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--orange)', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 8, padding: '8px 12px' }}>
+          Você não tem permissão de <strong>orçar</strong> a combinação de empresa/filial/CC selecionada. Escolha uma filial/centro de custo dentro do seu escopo — a grade fica em leitura.
+        </div>
+      )}
 
       {!pronto ? (
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontSize: 14, background: 'var(--panel)', borderRadius: 12, border: '1px solid var(--border)' }}>
@@ -269,6 +319,7 @@ export default function OrcarGradePage() {
                 <th style={{ ...S.th, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--bg)', zIndex: 2, width: 300, minWidth: 300, maxWidth: 300 }}>Linha</th>
                 {MESES.map((m, i) => <th key={i} style={S.th}>{m}</th>)}
                 <th style={{ ...S.th, color: 'var(--text-mid)' }}>Total</th>
+                <th style={{ ...S.th, textAlign: 'left' }}>Histórico</th>
               </tr>
             </thead>
             <tbody>
@@ -290,9 +341,9 @@ export default function OrcarGradePage() {
                       if (espaco) return <td key={i} style={{ borderBottom: '1px solid var(--panel)' }} />
                       return (
                         <td key={i} title={isFx ? toDisplay(cells[master]?.[mes]?.expressao || null) : undefined}
-                          style={{ padding: '4px 10px', borderBottom: '1px solid var(--panel)', textAlign: 'right', fontSize: 13, whiteSpace: 'nowrap', cursor: ed && !bloqueada ? 'cell' : 'default', color: disp < 0 ? 'var(--red)' : (isAgg ? 'var(--text-mid)' : 'var(--text)'), fontWeight: isAgg ? 600 : 400, fontStyle: isFx ? 'italic' : undefined, background: (isActive && !isEditingCell) ? 'rgba(59,130,246,0.16)' : (ed ? undefined : 'var(--bg-soft)'), outline: (isActive && !isEditingCell) ? '2px solid var(--blue)' : undefined, outlineOffset: -2 }}
+                          style={{ padding: '4px 10px', borderBottom: '1px solid var(--panel)', textAlign: 'right', fontSize: 13, whiteSpace: 'nowrap', cursor: ed && !readOnly ? 'cell' : 'default', color: disp < 0 ? 'var(--red)' : (isAgg ? 'var(--text-mid)' : 'var(--text)'), fontWeight: isAgg ? 600 : 400, fontStyle: isFx ? 'italic' : undefined, background: (isActive && !isEditingCell) ? 'rgba(59,130,246,0.16)' : (ed ? undefined : 'var(--bg-soft)'), outline: (isActive && !isEditingCell) ? '2px solid var(--blue)' : undefined, outlineOffset: -2 }}
                           onClick={() => { setActive({ r: ri, c: i }); wrapRef.current?.focus() }}
-                          onDoubleClick={() => { if (!ed || bloqueada) return; setActive({ r: ri, c: i }); const c = cells[master]?.[mes]; setEditVal(c?.expressao ? toDisplay(c.expressao) : (disp ? String(disp) : '')); setEditing(true) }}>
+                          onDoubleClick={() => { if (!ed || readOnly) return; setActive({ r: ri, c: i }); const c = cells[master]?.[mes]; setEditVal(c?.expressao ? toDisplay(c.expressao) : (disp ? String(disp) : '')); setEditing(true) }}>
                           {isEditingCell ? (
                             <FormulaCellInput value={editVal} onChange={setEditVal}
                               onCommit={commitMove} onCancel={() => { setEditing(false); setTimeout(() => wrapRef.current?.focus(), 0) }} onFill={mes < 12 ? fillRight : undefined} linhas={refLinhas}
@@ -302,10 +353,25 @@ export default function OrcarGradePage() {
                       )
                     })}
                     <td style={{ padding: '4px 10px', borderBottom: '1px solid var(--panel)', textAlign: 'right', fontSize: 13, fontWeight: 600, color: 'var(--text-mid)' }}>{espaco ? '' : formatValor(f * totalLinha(l), 'NUMERO', 0)}</td>
+                    <td style={{ padding: '3px 8px', borderBottom: '1px solid var(--panel)' }}>
+                      {ed && !espaco ? (
+                        <input
+                          key={`${master}-${versaoId}-${empresaId}-${filialId}-${ccId}-${ano}`}
+                          defaultValue={hist[master] || ''}
+                          onBlur={e => { if ((hist[master] || '') !== e.target.value.trim()) saveHistLinha(master, e.target.value) }}
+                          onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                          onPaste={e => e.stopPropagation()}
+                          disabled={readOnly}
+                          placeholder="—"
+                          title="Histórico / comentário da linha (replicado nos 12 meses)"
+                          style={{ width: 220, fontSize: 12, padding: '3px 6px', border: '1px solid var(--border)', borderRadius: 4, background: readOnly ? 'var(--bg-soft)' : 'var(--bg)', color: 'var(--text)' }}
+                        />
+                      ) : null}
+                    </td>
                   </tr>
                 )
               })}
-              {linhas.length === 0 && <tr><td colSpan={14} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>Relatório sem linhas.</td></tr>}
+              {linhas.length === 0 && <tr><td colSpan={15} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>Relatório sem linhas.</td></tr>}
             </tbody>
           </table>
         </div>
