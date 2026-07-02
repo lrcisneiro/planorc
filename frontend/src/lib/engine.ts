@@ -190,6 +190,13 @@ export function parseNum(s: string): number {
   return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0
 }
 
+// Número → string de EDIÇÃO no padrão pt-BR (vírgula decimal, sem separador de milhar),
+// para round-trip com parseNum. Ex.: 1.5 → "1,5". Inverso prático de parseNum.
+export function numToInput(n: number): string {
+  if (!isFinite(n)) return ''
+  return String(n).replace('.', ',')
+}
+
 // Gera os 12 meses de um ano como lista de períodos.
 export function mesesDoAno(ano: number): Periodo[] {
   return Array.from({ length: 12 }, (_, i) => ({ ano, mes: i + 1 }))

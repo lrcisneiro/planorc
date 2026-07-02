@@ -11,6 +11,8 @@ import CadastrosPage from './pages/cadastros/CadastrosPage'
 import RelatorioPage from './pages/relatorios/RelatorioPage'
 import RelatorioEditorPage from './pages/relatorios/RelatorioEditorPage'
 import OrcarGradePage from './pages/orcar/OrcarGradePage'
+import FormulariosPage from './pages/formularios/FormulariosPage'
+import FormularioEditorPage from './pages/formularios/FormularioEditorPage'
 import OrcadoDadosPage from './pages/orcamento/OrcadoDadosPage'
 import RealizadoDadosPage from './pages/realizado/RealizadoDadosPage'
 import DashboardPage from './pages/dashboard/DashboardPage'
@@ -36,7 +38,7 @@ const NAV_GROUPS: NavGroup[] = [
     { to: '/orcamento',   label: 'Orçamento',                icon: FileText, cap: 'menu.orcamento' },
     { to: '/orcar-grade', label: 'Orçar (grade)',            icon: Grid3x3,  cap: 'menu.orcamento' },
     { to: '/estruturas',  label: 'Estruturas de relatórios', icon: ListTree, cap: 'menu.estruturas' },
-    { label: 'Formulário de drivers',  icon: SlidersHorizontal, soon: true },
+    { to: '/formularios', label: 'Formulário de drivers', icon: SlidersHorizontal, cap: 'menu.orcamento' },
     { label: 'Posto de trabalho',      icon: Users,             soon: true },
     { label: 'Versões & cenários',     icon: Layers,            soon: true },
     { label: 'Governança & aprovação', icon: ShieldCheck,       soon: true },
@@ -230,6 +232,8 @@ function Shell({ session }: { session: Session }) {
             <Route path="/estruturas"      element={<RelatorioPage linkBase="/estrutura" titulo="Estruturas de Relatórios" subtitulo="Edite a árvore, fórmulas e amarração de cada relatório" />} />
             <Route path="/orcar-grade"     element={<RelatorioPage linkBase="/orcar-grade" titulo="Orçar (grade)" subtitulo="Escolha o relatório para orçar por empresa × filial × centro de custo" />} />
             <Route path="/orcar-grade/:id" element={<OrcarGradePage />} />
+            <Route path="/formularios"     element={<FormulariosPage />} />
+            <Route path="/formularios/:id" element={<FormularioEditorPage />} />
             <Route path="/dre"             element={<DrePage />} />
             <Route path="/orcamento"       element={<OrcadoDadosPage />} />
             <Route path="/realizado"       element={<RealizadoDadosPage />} />

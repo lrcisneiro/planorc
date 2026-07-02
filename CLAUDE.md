@@ -113,7 +113,13 @@ O que era proposta já está **no código** (branch `feat/v2-dark`, ainda não m
 
 Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho dessa direção e podem ser tratados como histórico.
 
-**Fases seguintes planejadas:** F3 (grade de Orçar dedicada), F4 (workflow/governança/aprovação), F5 (métodos avançados de orçamentação — drivers, posto de trabalho/folha, presets), F6 (presets "Meus Relatórios" com `owner_id`). Pendências da F2: escopo de edição ORÇAR nas células, esconder opções fora de escopo nos dropdowns, e hardening de RLS/RPC no banco.
+**Roadmap — fases:**
+- **F3** — grade de Orçar dedicada (empresa×filial×CC, escopo ORÇAR) + Importar Baseline. ✅ **concluída**.
+- **F4** — workflow / governança / aprovação (submeter, aprovar/rejeitar versão, travar). ⬜
+- **F5** — métodos avançados de orçamentação: formulário de **drivers** (qtd×preço, `=ANTERIOR()`), posto de trabalho/folha, presets. ⬜ *(em foco — jul/2026)*
+- **F6** — presets "Meus Relatórios" com `owner_id`. ⬜
+
+**Dívidas técnicas:** hardening de RLS/RPC no banco (F2 hoje é só frontend — segurança mais sensível); grão filial×empresa (`filial_id` nullable, dupla contagem, sem FK composta — empresa é agrupadora, não matriz); legado `fat_lancamento`/`plano_orcamentario` (~10 pontos); colunas vestigiais `tipo_linha`/`pai_id` em `conta_orcamentaria`; artefatos residuais (`frontend/frontend/`, `planorc-v2-*.html`). Pendências da F2: esconder opções fora de escopo nos dropdowns.
 
 ## Convenções de código
 

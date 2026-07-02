@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
-import { parseNum, formatValor, computeCenario, pkey } from '../../lib/engine'
+import { parseNum, numToInput, formatValor, computeCenario, pkey } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Periodo } from '../../lib/engine'
 import { ChevronLeft, Lock, Upload, Download } from 'lucide-react'
 import FormulaCellInput from '../relatorios/FormulaCellInput'
@@ -233,7 +233,7 @@ export default function OrcarGradePage() {
     if (!active || readOnly) return
     const l = ordered[active.r]; if (!l || !editavel(l)) return
     const c = cells[l.linha_orc_id!]?.[active.c + 1]
-    const cur = c?.expressao ? toDisplay(c.expressao) : (c?.valor ? String(facOf(l) * c.valor) : '')
+    const cur = c?.expressao ? toDisplay(c.expressao) : (c?.valor ? numToInput(facOf(l) * c.valor) : '')
     setEditVal(init != null ? init : cur); setEditing(true)
   }
   const commitMove = async () => {
@@ -400,7 +400,7 @@ export default function OrcarGradePage() {
                         <td key={i} title={isFx ? toDisplay(cells[master]?.[mes]?.expressao || null) : undefined}
                           style={{ padding: '4px 10px', borderBottom: '1px solid var(--panel)', textAlign: 'right', fontSize: 13, whiteSpace: 'nowrap', cursor: ed && !readOnly ? 'cell' : 'default', color: disp < 0 ? 'var(--red)' : (isAgg ? 'var(--text-mid)' : 'var(--text)'), fontWeight: isAgg ? 600 : 400, fontStyle: isFx ? 'italic' : undefined, background: (isActive && !isEditingCell) ? 'rgba(59,130,246,0.16)' : (ed ? undefined : 'var(--bg-soft)'), outline: (isActive && !isEditingCell) ? '2px solid var(--blue)' : undefined, outlineOffset: -2 }}
                           onClick={() => { setActive({ r: ri, c: i }); wrapRef.current?.focus() }}
-                          onDoubleClick={() => { if (!ed || readOnly) return; setActive({ r: ri, c: i }); const c = cells[master]?.[mes]; setEditVal(c?.expressao ? toDisplay(c.expressao) : (disp ? String(disp) : '')); setEditing(true) }}>
+                          onDoubleClick={() => { if (!ed || readOnly) return; setActive({ r: ri, c: i }); const c = cells[master]?.[mes]; setEditVal(c?.expressao ? toDisplay(c.expressao) : (disp ? numToInput(disp) : '')); setEditing(true) }}>
                           {isEditingCell ? (
                             <FormulaCellInput value={editVal} onChange={setEditVal}
                               onCommit={commitMove} onCancel={() => { setEditing(false); setTimeout(() => wrapRef.current?.focus(), 0) }} onFill={mes < 12 ? fillRight : undefined} linhas={refLinhas}
