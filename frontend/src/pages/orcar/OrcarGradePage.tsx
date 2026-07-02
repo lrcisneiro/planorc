@@ -5,8 +5,9 @@ import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { parseNum, formatValor, computeCenario, pkey } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Periodo } from '../../lib/engine'
-import { ChevronLeft, Lock } from 'lucide-react'
+import { ChevronLeft, Lock, Upload, Download } from 'lucide-react'
 import FormulaCellInput from '../relatorios/FormulaCellInput'
+import { importBaseline, modeloBaseline, type ImportModo } from '../../lib/importOrcado'
 
 // Grade de Orçar dedicada (F3.1): escrita do orçado por empresa × filial × CC, escopada pelos
 // direitos ORÇAR. Mostra a ESTRUTURA INTEIRA na ordem (DFS) do relatório; sintéticas/fórmulas e
@@ -51,6 +52,10 @@ export default function OrcarGradePage() {
   const [editing, setEditing] = useState(false)
   const [editVal, setEditVal] = useState('')
   const [saving, setSaving] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [impMenu, setImpMenu] = useState(false)
+  const [impMode, setImpMode] = useState<ImportModo>('full')
+  const [refresh, setRefresh] = useState(0)   // bump para recarregar a grade após importar
 
   useEffect(() => {
     (async () => {
@@ -100,7 +105,7 @@ export default function OrcarGradePage() {
   }, [linhas])
 
   const empresasEd = useMemo(() => acesso.filterEdit('empresa', empresas), [empresas, acesso.loading]) // eslint-disable-line
-  const filiaisEd = useMemo(() => acesso.filterEdit('filial', filiais).filter(f => !empresaId || f.empresa_id === empresaId), [filiais, empresaId, acesso.loading]) // eslint-disable-line
+  const filiaisEd = useMemo(() => acesso.filterEdit('filial', filiais), [filiais, acesso.loading]) // eslint-disable-line — filiais pelos direitos do usuário, não pela empresa selecionada
   const ccsEd = useMemo(() => acesso.filterEdit('centro_custo', ccs), [ccs, acesso.loading]) // eslint-disable-line
 
   const versao = versoes.find(v => v.id === versaoId)
@@ -135,7 +140,7 @@ export default function OrcarGradePage() {
       }
       setCells(v); setHist(h)
     })()
-  }, [versaoId, empresaId, filialId, ccId, ano, pronto])
+  }, [versaoId, empresaId, filialId, ccId, ano, pronto, refresh])
 
   // ── ENGINE: estrutura inteira a partir das células (valor OU fórmula) ──
   const periodos = useMemo<Periodo[]>(() => ano ? MESES.map((_, i) => ({ ano, mes: i + 1 })) : [], [ano])
@@ -195,6 +200,31 @@ export default function OrcarGradePage() {
     const { valor, expressao } = parseCell(l, editVal)
     await saveOne(master, mes, valor, expressao)
     setCells(prev => ({ ...prev, [master]: { ...(prev[master] || {}), [mes]: { valor: valor || 0, expressao } } }))
+    setSaving(false)
+  }
+
+  // ── Importar Baseline (planilha larga por empresa/filial/CC) — mesma lógica do relatório,
+  // porém com trava por permissão: só grava o que o usuário pode orçar (escopo ORÇAR).
+  const canWriteScope = (eId: string, fId: string | null, cId: string | null) =>
+    acesso.canEdit('empresa', eId)
+    && (fId ? acesso.canEdit('filial', fId) : !filialRestrito)
+    && (cId ? acesso.canEdit('centro_custo', cId) : !ccRestrito)
+  const doImport = async (file: File, modo: ImportModo) => {
+    if (!versaoId) { alert('Selecione a versão de destino.'); return }
+    if (bloqueada) { alert('Versão bloqueada — não é possível importar.'); return }
+    const verCod = versao?.codigo || ''
+    const msgModo = modo === 'full'
+      ? `SUBSTITUIR (full load): apaga o orçado manual (dentro do seu escopo) da versão "${verCod}" das empresas presentes no arquivo e importa de novo.`
+      : `ADICIONAR: soma os valores ao orçado já existente da versão "${verCod}" (não apaga nada).`
+    if (!confirm(`${msgModo}\n\nConfirmar importação?`)) return
+    setSaving(true)
+    try {
+      const res = await importBaseline({ file, modo, versaoId, canWrite: canWriteScope })
+      alert(res.message)
+      if (res.ok) setRefresh(x => x + 1)
+    } catch (e: any) {
+      alert('Erro ao importar: ' + (e?.message ?? JSON.stringify(e)))
+    }
     setSaving(false)
   }
 
@@ -284,7 +314,7 @@ export default function OrcarGradePage() {
             {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo} · {v.ano}{v.bloqueada ? ' 🔒' : ''}</option>)}
           </select></div>
         <div><div style={S.lbl}>Empresa</div>
-          <select style={S.sel} value={empresaId} onChange={e => { setEmpresaId(e.target.value); setFilialId('') }}>
+          <select style={S.sel} value={empresaId} onChange={e => setEmpresaId(e.target.value)}>
             <option value="">— selecione —</option>
             {empresasEd.map(e => <option key={e.id} value={e.id}>{e.codigo} · {e.descricao}</option>)}
           </select></div>
@@ -299,6 +329,33 @@ export default function OrcarGradePage() {
             {ccsEd.map(c => <option key={c.id} value={c.id}>{c.codigo} · {c.descricao}</option>)}
           </select></div>
         {pronto && <div style={{ alignSelf: 'flex-end', fontSize: 12, color: 'var(--muted)' }}>{preenchidas} de {totalCelulas} células preenchidas</div>}
+        <div style={{ marginLeft: 'auto', alignSelf: 'flex-end', position: 'relative' }}>
+          <button
+            style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, cursor: versaoId && !bloqueada ? 'pointer' : 'not-allowed', opacity: versaoId && !bloqueada ? 1 : 0.5 }}
+            disabled={!versaoId || bloqueada}
+            onClick={() => setImpMenu(o => !o)}
+            title={!versaoId ? 'Selecione a versão de destino' : (bloqueada ? 'Versão bloqueada' : 'Importar orçado de planilha (por empresa/filial/CC)')}>
+            <Upload size={13} /> Importar Baseline ▾
+          </button>
+          {impMenu && (
+            <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', zIndex: 1000, minWidth: 260 }}>
+              {[
+                { m: 'full' as ImportModo, label: 'Orçado Baseline — substituir (full)' },
+                { m: 'add' as ImportModo, label: 'Orçado Baseline — adicionar' },
+              ].map(o => (
+                <div key={o.m} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 12px', fontSize: 13, color: 'var(--text)' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,0.14)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'var(--panel)')}>
+                  <span style={{ cursor: 'pointer', flex: 1 }} onClick={() => { setImpMode(o.m); setImpMenu(false); fileRef.current?.click() }}>{o.label}</span>
+                  <span style={{ cursor: 'pointer', color: 'var(--violet)', fontSize: 11, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                    onClick={e => { e.stopPropagation(); modeloBaseline(ano || new Date().getFullYear()) }} title="Baixar planilha modelo"><Download size={11} /> modelo</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" style={{ display: 'none' }}
+            onChange={e => { const f = e.target.files?.[0]; if (f) { doImport(f, impMode); e.target.value = '' } }} />
+        </div>
       </div>
 
       {pronto && !bloqueada && !escopoOk && (
