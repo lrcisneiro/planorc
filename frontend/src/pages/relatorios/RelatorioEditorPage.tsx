@@ -42,7 +42,7 @@ type Linha = LinhaCalc & {
 type EscopoCC = { cc?: string[]; area?: string[]; divisao?: string[]; bu?: string[] }
 type Relatorio = { id: string; codigo: string; nome: string; categoria?: string | null }
 type Empresa   = { id: string; codigo: string; descricao: string }
-type Versao    = { id: string; codigo: string }
+type Versao    = { id: string; codigo: string; ano: number }
 type ViewConfig = { id: string; nome: string; ordem: number | null; funcao: Funcao; cenarios: string[]; filtros: any; _synthetic?: boolean }
 
 type ValMap = Record<string, RawValues>        // [cenario][linhaId][pkey] = {valor,expressao}
@@ -159,46 +159,43 @@ const S: Record<string, CSSProperties> = {
   help:      { fontSize: 11, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 },
 }
 
-// Grade visual de período (anos × meses). Clique no início e depois no fim para marcar o intervalo (pode cruzar anos).
-function PeriodPicker({ anos, ini, fim, onChange }: {
-  anos: number[]; ini: Periodo; fim: Periodo; onChange: (ini: Periodo, fim: Periodo) => void
+// Grade visual de período (anos × meses) — seleção MÚLTIPLA/avulsa (não precisa ser contígua).
+// Clique liga/desliga um mês; clique no ano liga/desliga o ano inteiro.
+function PeriodPicker({ anos, sel, onChange }: {
+  anos: number[]; sel: Periodo[]; onChange: (sel: Periodo[]) => void
 }) {
-  const [anchor, setAnchor] = useState<Periodo | null>(null)
-  const [hover, setHover]   = useState<Periodo | null>(null)
-  const click = (y: number, m: number) => {
-    const p = { ano: y, mes: m }
-    if (anchor == null) { setAnchor(p); onChange(p, p) }
-    else { const [a, b] = ordPer(anchor, p); onChange(a, b); setAnchor(null); setHover(null) }
+  const has = (y: number, m: number) => sel.some(p => p.ano === y && p.mes === m)
+  const toggle = (y: number, m: number) =>
+    onChange(has(y, m) ? sel.filter(p => !(p.ano === y && p.mes === m)) : [...sel, { ano: y, mes: m }])
+  const toggleYear = (y: number) => {
+    const full = MESES.every((_, i) => has(y, i + 1))
+    const rest = sel.filter(p => p.ano !== y)
+    onChange(full ? rest : [...rest, ...MESES.map((_, i) => ({ ano: y, mes: i + 1 }))])
   }
-  const [lo, hi] = anchor ? ordPer(anchor, hover ?? anchor) : [ini, fim]
-  const loI = perIdx(lo), hiI = perIdx(hi)
   const hb: CSSProperties = { fontSize: 10, color: 'var(--muted)', textAlign: 'center', padding: '2px 0' }
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 8, overflowX: 'auto' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: `44px repeat(12, minmax(20px, 1fr))`, gap: 2, minWidth: 360 }}
-        onMouseLeave={() => setHover(null)}>
+      <div style={{ display: 'grid', gridTemplateColumns: `44px repeat(12, minmax(20px, 1fr))`, gap: 2, minWidth: 360 }}>
         <div />
         {MESES.map((m, i) => <div key={i} style={hb}>{m}</div>)}
         {anos.map(y => (
           <Fragment key={y}>
-            <div onClick={() => { onChange({ ano: y, mes: 1 }, { ano: y, mes: 12 }); setAnchor(null); setHover(null) }} title="Selecionar o ano inteiro"
+            <div onClick={() => toggleYear(y)} title="Marcar/desmarcar o ano inteiro"
               style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-mid)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>{y}</div>
             {MESES.map((_, i) => {
-              const mes = i + 1, idx = y * 12 + (mes - 1)
-              const on = idx >= loI && idx <= hiI
-              const isEnd = idx === loI || idx === hiI
+              const mes = i + 1, on = has(y, mes)
               return (
-                <div key={i} onClick={() => click(y, mes)} onMouseEnter={() => setHover({ ano: y, mes })} title={`${MESES[i]}/${y}`}
+                <div key={i} onClick={() => toggle(y, mes)} title={`${MESES[i]}/${y}`}
                   style={{ height: 24, borderRadius: 4, cursor: 'pointer',
-                    background: isEnd ? 'var(--violet)' : on ? 'rgba(59,130,246,0.30)' : 'var(--bg)',
-                    border: '1px solid ' + (isEnd ? 'var(--violet)' : on ? 'var(--blue)' : 'var(--panel-2)') }} />
+                    background: on ? 'var(--violet)' : 'var(--bg)',
+                    border: '1px solid ' + (on ? 'var(--violet)' : 'var(--panel-2)') }} />
               )
             })}
           </Fragment>
         ))}
       </div>
       <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-        {anchor ? 'Clique no mês final…' : 'Clique no mês inicial e depois no final. (Clique no ano = ano inteiro.)'}
+        Clique nos meses para marcar/desmarcar — pode ser avulso, não precisa ser contínuo. (Clique no ano = ano inteiro.)
       </div>
     </div>
   )
@@ -242,8 +239,16 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const [divisaoSel, setDivisaoSel] = useState<string[]>(Array.isArray(saved0.divisaoSel) ? saved0.divisaoSel : [])
   const [buSel,      setBuSel]      = useState<string[]>(Array.isArray(saved0.buSel) ? saved0.buSel : [])
   const [versaoId,  setVersaoId]  = useState<string>(saved0.versaoId || '')
-  const [pIni, setPIni] = useState<Periodo>(saved0.pIni && saved0.pIni.ano ? saved0.pIni : { ano: 2026, mes: 1 })
-  const [pFim, setPFim] = useState<Periodo>(saved0.pFim && saved0.pFim.ano ? saved0.pFim : { ano: 2026, mes: 12 })
+  // Períodos selecionados = CONJUNTO arbitrário (não precisa ser contíguo). Fonte da verdade.
+  const [periodosSel, setPeriodosSel] = useState<Periodo[]>(
+    Array.isArray(saved0.periodosSel) && saved0.periodosSel.length ? saved0.periodosSel
+      : (saved0.pIni?.ano && saved0.pFim?.ano ? mesesNoRange(saved0.pIni, saved0.pFim)   // migra o formato antigo (faixa)
+        : MESES.map((_, i) => ({ ano: 2026, mes: i + 1 }))))
+  // pIni/pFim = caixa (min/máx) do conjunto — usados em resumos, baseline e ano de referência.
+  const pIni = useMemo<Periodo>(() => periodosSel.reduce((a, p) => perIdx(p) < perIdx(a) ? p : a, periodosSel[0] ?? { ano: 2026, mes: 1 }), [periodosSel])
+  const pFim = useMemo<Periodo>(() => periodosSel.reduce((a, p) => perIdx(p) > perIdx(a) ? p : a, periodosSel[0] ?? { ano: 2026, mes: 12 }), [periodosSel])
+  // rascunho editado no modal — só vira seleção real (e recarrega) ao "Aplicar e fechar"
+  const [periodosDraft, setPeriodosDraft] = useState<Periodo[]>(periodosSel)
   const [hideEmpty, setHideEmpty] = useState<boolean>(!!saved0.hideEmpty)
   const [hideOff, setHideOff] = useState<boolean>(!!saved0.hideOff)
   const [dupContas, setDupContas] = useState<string[]>([])
@@ -288,8 +293,34 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const [rawScoped, setRawScoped] = useState<Record<string, RawValues>>({})   // `${cen}::${sig}` → cenário escopado completo (linhas de apoio)
   const [escSig, setEscSig] = useState<Record<string, string>>({})            // linhaId → assinatura do escopo
 
-  const anos = useMemo(() => { const out: number[] = []; for (let y = pIni.ano; y <= pFim.ano; y++) out.push(y); return out }, [pIni.ano, pFim.ano])
-  const periodos: Periodo[] = useMemo(() => mesesNoRange(pIni, pFim), [pIni.ano, pIni.mes, pFim.ano, pFim.mes]) // eslint-disable-line
+  // Cenários ativos (versões da view + versão do topo) e MODO CICLO: comparar versões de anos
+  // diferentes sobrepondo por mês. Cada versão busca o SEU ano e é re-chaveada a um ano de
+  // referência (refAno) p/ alinhar no eixo do ciclo. Definido aqui (antes do período) porque
+  // `periodos` depende dele.
+  const cenariosAtivos = useMemo(() => {
+    const f = views.find(v => v.id === activeView)
+    const set = new Set<string>(f ? f.cenarios : [])
+    if (versaoId) set.add(versaoId)
+    return Array.from(set)
+  }, [views, activeView, versaoId])
+  const anoDoCenario = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const c of cenariosAtivos) { if (c === REALIZADO) continue; const v = versoes.find(x => x.id === c); if (v) m[c] = v.ano }
+    return m
+  }, [cenariosAtivos, versoes])
+  const cicloMode = useMemo(() => {
+    if (cenariosAtivos.includes(REALIZADO)) return false
+    return new Set(Object.values(anoDoCenario)).size > 1
+  }, [cenariosAtivos, anoDoCenario])
+  const refAno = pIni.ano
+
+  const anos = useMemo(() => [...new Set(periodosSel.map(p => p.ano))].sort((a, b) => a - b), [periodosSel])
+  const periodos: Periodo[] = useMemo(() => {
+    const sorted = [...periodosSel].sort((a, b) => perIdx(a) - perIdx(b))
+    // modo ciclo: colapsa por MÊS (o ano vem de cada versão) e usa o ano de referência p/ sobrepor
+    if (cicloMode) { const meses = [...new Set(sorted.map(p => p.mes))].sort((a, b) => a - b); return meses.map(m => ({ ano: refAno, mes: m })) }
+    return sorted
+  }, [periodosSel, cicloMode, refAno])
 
   // F2: âncora do dado é a linha mestre (conta_orcamentaria). Mapas linha do relatório <-> mestre.
   // master→linha p/ o carregamento GLOBAL; ignora linhas de apoio escopadas (essas carregam por filtro próprio)
@@ -332,7 +363,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const loadDim = useCallback(async () => {
     const [{ data: emps }, { data: vers }, { data: fis }, { data: cc }] = await Promise.all([
       supabase.from('empresa').select('id,codigo,descricao').order('codigo'),
-      supabase.from('versao_orcamento').select('id,codigo').order('codigo'),
+      supabase.from('versao_orcamento').select('id,codigo,ano').order('codigo'),
       supabase.from('filial').select('id,codigo,descricao').order('codigo'),
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo'),
     ])
@@ -391,8 +422,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // Salva o filtro do usuário quando muda (restaurado via lazy-init de useState)
   useEffect(() => {
     if (!id) return
-    localStorage.setItem('planorc_filtro_' + id, JSON.stringify({ empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, pIni, pFim, hideEmpty, hideOff }))
-  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, pIni, pFim, hideEmpty, hideOff, id])
+    localStorage.setItem('planorc_filtro_' + id, JSON.stringify({ empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, hideEmpty, hideOff }))
+  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, hideEmpty, hideOff, id])
 
   const view: ViewConfig = useMemo(() => {
     const f = views.find(v => v.id === activeView)
@@ -400,11 +431,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     return { id: '__default', nome: 'Mensal', ordem: 0, funcao: 'MENSAL', cenarios: versaoId ? [versaoId] : [], filtros: {}, _synthetic: true }
   }, [views, activeView, versaoId])
 
-  const cenariosAtivos = useMemo(() => {
-    const set = new Set<string>(view.cenarios)
-    if (versaoId) set.add(versaoId)
-    return Array.from(set)
-  }, [view, versaoId])
+  // (cenariosAtivos / anoDoCenario / cicloMode definidos acima, antes do período)
 
   // ── Agrupar colunas por EMPRESA (visão "Por empresa"; só leitura; não em comparativo)
   const colEmpresa = !!(view.filtros?.colEmpresa) && view.funcao !== 'COMPARATIVO'
@@ -461,12 +488,13 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0 } }
         }
       } else {
+        const anosCen = cicloMode ? [anoDoCenario[cen] ?? refAno] : anos   // ciclo: só o ano DESTA versão
         const { data, error } = await supabase.rpc('relatorio_orcado_agg',
-          { p_versao: cen, p_empresas: empresaSel, p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter })
+          { p_versao: cen, p_empresas: empresaSel, p_anos: anosCen, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter })
         if (error) throw new Error(error.message)
         for (const r of data || []) {
           const rl = rlOfOrc[r.linha_id]; if (!rl) continue
-          const k = `${r.ano}-${r.mes}`
+          const k = `${cicloMode ? refAno : r.ano}-${r.mes}`   // ciclo: re-chaveia p/ o ano de referência (sobrepõe)
           ;(map[rl] ||= {})[k] = (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 }
           if (r.det) { (det[cen] ||= new Set()).add(`${rl}-${k}`) }
         }
@@ -541,9 +569,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
               for (const r of data || []) setMaster(r.linha_id, `${r.ano}-${r.mes}`, { valor: Number(r.valor) || 0 })
             }
           } else {
-            const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: empresaSel, p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccList })
+            const anosCen = cicloMode ? [anoDoCenario[cen] ?? refAno] : anos
+            const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: empresaSel, p_anos: anosCen, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccList })
             if (error) throw new Error(error.message)
-            for (const r of data || []) setMaster(r.linha_id, `${r.ano}-${r.mes}`, (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 })
+            for (const r of data || []) setMaster(r.linha_id, `${cicloMode ? refAno : r.ano}-${r.mes}`, (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 })
           }
           rawScopedNext[`${cen}::${sig}`] = rawSc
         }
@@ -556,7 +585,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       console.error('loadValores erro:', e)
       setValErro(e?.message ?? String(e))
     }
-  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, pIni.ano, pFim.ano, pIni.mes, pFim.mes, cenariosAtivos, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEmpresa, empsCols, linhas, acesso.loading]) // eslint-disable-line
+  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, periodosSel, cenariosAtivos, cicloMode, anoDoCenario, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEmpresa, empsCols, linhas, acesso.loading]) // eslint-disable-line
 
   useEffect(() => { loadValores() }, [loadValores])
 
@@ -618,7 +647,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // ── Período: granularidade vem da VIEW; o intervalo (de–até, multi-ano) vem do filtro
   const gran = (view.filtros?.granularidade as string) || 'MENSAL'
   const mpb = MPB[gran] || 1
-  const showYear = pIni.ano !== pFim.ano
+  const showYear = !cicloMode && new Set(periodosSel.map(p => p.ano)).size > 1   // vários anos → ano no rótulo (fora do ciclo)
   const buckets = useMemo(() => {
     const arr: { label: string; meses: Periodo[] }[] = []
     for (let i = 0; i < periodos.length; i += mpb) {
@@ -752,6 +781,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const filialFilter = aplicaEscopo(filialFilter0, filiais, 'filial')
     const ccFilter = aplicaEscopo(ccFilter0, ccs as any, 'centro_custo')
     const meses: Periodo[] = period === 'TOTAL' ? displayedMeses : (buckets[period as number]?.meses ?? [])
+    // modo ciclo: o eixo usa o ano de referência, mas o razão/edição consulta o ANO REAL da versão
+    const anoCen = anoDoCenario[cen]
+    const mesesCen: Periodo[] = (cicloMode && cen !== REALIZADO && anoCen) ? meses.map(m => ({ ano: anoCen, mes: m.mes })) : meses
     const lbl0 = period === 'TOTAL' ? 'Período' : (buckets[period as number]?.label ?? '')
     const periodoLabel = period === 'TOTAL'
       ? `${MESES[displayedMeses[0]?.mes - 1] ?? ''}/${displayedMeses[0]?.ano ?? ''} – ${MESES[displayedMeses[displayedMeses.length - 1]?.mes - 1] ?? ''}/${displayedMeses[displayedMeses.length - 1]?.ano ?? ''}`
@@ -770,7 +802,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       // ainda abre o modal (mostra a mensagem de "sem contas amarradas")
     }
     setRazao({
-      titulo: l.descricao, cen, cenLabel: cenarioLabel(cen), periodoLabel, meses, perAdd: meses.length === 1 ? meses[0] : null,
+      titulo: l.descricao, cen, cenLabel: cenarioLabel(cen), periodoLabel, meses: mesesCen, perAdd: mesesCen.length === 1 ? mesesCen[0] : null,
       linhaIds, contaIds, contaSinal, empresaSel, filialFilter, ccFilter,
       ccById: Object.fromEntries(ccs.map(c => [c.id, c])),
       contaById: Object.fromEntries(contas.map(c => [c.id, c])),
@@ -1343,9 +1375,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         <select style={{ ...S.sel, borderColor: editavel ? 'var(--border-strong)' : 'var(--orange)' }} value={versaoId} onChange={e => setVersaoId(e.target.value)} title="Versão / cenário">
           <option value="">— Versão —</option>{versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}
         </select>
-        <PeriodoButton resumo={`${pIni.ano === pFim.ano ? pIni.ano : pIni.ano + '–' + pFim.ano} · ${MESES[pIni.mes - 1]}–${MESES[pFim.mes - 1]}`}>
+        <PeriodoButton resumo={`${pIni.ano === pFim.ano ? pIni.ano : pIni.ano + '–' + pFim.ano} · ${MESES[pIni.mes - 1]}–${MESES[pFim.mes - 1]}`}
+          onOpen={() => setPeriodosDraft(periodosSel)} onApply={() => setPeriodosSel(periodosDraft)}>
           <label style={S.label}>Período</label>
-          <PeriodPicker anos={ANOS} ini={pIni} fim={pFim} onChange={(a, b) => { setPIni(a); setPFim(b) }} />
+          <PeriodPicker anos={ANOS} sel={periodosDraft} onChange={setPeriodosDraft} />
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
             {MESES[pIni.mes - 1]}/{pIni.ano} – {MESES[pFim.mes - 1]}/{pFim.ano} · {GRAN_LABEL[gran] || 'Mensal'} · {buckets.length} {buckets.length === 1 ? 'período' : 'períodos'}
             <span style={{ marginLeft: 6, color: 'var(--muted)' }}>(granularidade na Visão)</span>

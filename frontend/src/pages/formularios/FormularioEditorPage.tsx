@@ -46,12 +46,14 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   const [versoes, setVersoes] = useState<Versao[]>([])
   const [empresas, setEmpresas] = useState<Opt[]>([])
   const [filiais, setFiliais] = useState<Fil[]>([])
+  const [ccs, setCcs] = useState<Opt[]>([])
   const [contasOrc, setContasOrc] = useState<Opt[]>([])
   const [loading, setLoading] = useState(true)
 
   const [versaoId, setVersaoId] = useState('')
   const [empresaId, setEmpresaId] = useState('')   // GLOBAL = premissas globais (todas as empresas)
   const [filialId, setFilialId] = useState('')     // '' = consolidado
+  const [ccId, setCcId] = useState('')             // '' = consolidado
 
   const [cells, setCells] = useState<CellMap>({})   // escopo atual (empresa selecionada, ou global se GLOBAL)
   const [gcells, setGcells] = useState<CellMap>({}) // premissas globais (herança na grade da empresa)
@@ -62,6 +64,8 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   const [saving, setSaving] = useState(false)
   const [aplicando, setAplicando] = useState(false)
   const [fxEdit, setFxEdit] = useState<Record<string, string>>({})   // fórmula em edição (forma exibida) por linha da estrutura
+  const [scopeRows, setScopeRows] = useState<{ empresa_id: string | null; filial_id: string | null; cc_id: string | null }[]>([])   // escopos com dados (marca ●)
+  const [scopesRefresh, setScopesRefresh] = useState(0)
 
   const loadLinhas = async () => {
     const { data } = await supabase.from('formulario_linha')
@@ -78,14 +82,16 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       setNome(f.data?.nome || '')
       setContasOrc((co.data || []) as Opt[])
       if (!isEstrutura) {
-        const [vs, emp, fil] = await Promise.all([
+        const [vs, emp, fil, cc] = await Promise.all([
           supabase.from('versao_orcamento').select('id,codigo,descricao,ano,bloqueada').eq('ativa', true).order('ano', { ascending: false }).order('codigo'),
           supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
           supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
+          supabase.from('centro_custo').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
         ])
         setVersoes((vs.data || []) as Versao[])
         setEmpresas((emp.data || []) as Opt[])
         setFiliais((fil.data || []) as Fil[])
+        setCcs((cc.data || []) as Opt[])
       }
       await loadLinhas()
       setLoading(false)
@@ -120,7 +126,11 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   const ano = versao?.ano || 0
   const bloqueada = !!versao?.bloqueada
   const pronto = !!versaoId && !!empresaId
-  const readOnly = bloqueada
+  // Lançar/Aplicar exige grão completo (empresa+filial+CC); global 🌐 é a camada de premissas.
+  // Consolidado (empresa real sem filial/CC) fica só-leitura — a soma de conferência virá depois.
+  const escopoCompleto = isGlobal || (!!empresaId && !isGlobal && !!filialId && !!ccId)
+  const consolidado = pronto && !isGlobal && (!filialId || !ccId)
+  const readOnly = bloqueada || !escopoCompleto
   const filiaisDaEmp = useMemo(() => filiais.filter(f => !empresaId || f.empresa_id === empresaId), [filiais, empresaId])
 
   const toMap = (rows: any[] | null): CellMap => {
@@ -141,10 +151,24 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       if (isGlobal) { setCells(gm); return }
       let q = base().eq('empresa_id', empresaId)
       q = filialId ? q.eq('filial_id', filialId) : q.is('filial_id', null)
+      q = ccId ? q.eq('cc_id', ccId) : q.is('cc_id', null)
       const { data } = await q
       setCells(toMap(data))
     })()
-  }, [versaoId, empresaId, filialId, ano, pronto, isGlobal, isEstrutura, linhas.length])
+  }, [versaoId, empresaId, filialId, ccId, ano, pronto, isGlobal, isEstrutura, linhas.length])
+
+  // marca ● no seletor: quais empresa/filial/CC já têm dados nesta versão (distintos em formulario_valor)
+  useEffect(() => {
+    if (isEstrutura || !versaoId || !ano) { setScopeRows([]); return }
+    (async () => {
+      const { data } = await supabase.from('formulario_valor').select('empresa_id,filial_id,cc_id').eq('formulario_id', formId).eq('versao_id', versaoId).eq('ano', ano)
+      setScopeRows((data || []) as any[])
+    })()
+  }, [formId, versaoId, ano, isEstrutura, scopesRefresh])
+  const empresasComDados = useMemo(() => new Set(scopeRows.filter(r => r.empresa_id).map(r => r.empresa_id)), [scopeRows])
+  const globalTemDados = useMemo(() => scopeRows.some(r => !r.empresa_id), [scopeRows])
+  const filiaisComDados = useMemo(() => new Set(scopeRows.filter(r => r.empresa_id === empresaId && r.filial_id).map(r => r.filial_id)), [scopeRows, empresaId])
+  const ccsComDados = useMemo(() => new Set(scopeRows.filter(r => r.empresa_id === empresaId && (!filialId || r.filial_id === filialId) && r.cc_id).map(r => r.cc_id)), [scopeRows, empresaId, filialId])
 
   // célula EFETIVA: valor do escopo atual, senão herda a premissa global
   const cellOf = (lid: string, mes: number): { cell: Cell | null; herdado: boolean } => {
@@ -173,12 +197,13 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
     let sel = q.eq('formulario_id', formId).eq('versao_id', versaoId).eq('linha_id', lid).eq('ano', ano).eq('mes', mes)
     sel = isGlobal ? sel.is('empresa_id', null) : sel.eq('empresa_id', empresaId)
     sel = (!isGlobal && filialId) ? sel.eq('filial_id', filialId) : sel.is('filial_id', null)
+    sel = (!isGlobal && ccId) ? sel.eq('cc_id', ccId) : sel.is('cc_id', null)
     return sel
   }
   const saveOne = async (lid: string, mes: number, valor: number | null, expressao: string | null) => {
     const { data: ex } = await scopeSel(supabase.from('formulario_valor').select('id'), lid, mes).maybeSingle()
     if (ex) await supabase.from('formulario_valor').update({ valor, expressao }).eq('id', (ex as any).id)
-    else await supabase.from('formulario_valor').insert({ tenant_id: TENANT_ID, formulario_id: formId, versao_id: versaoId, linha_id: lid, empresa_id: isGlobal ? null : empresaId, filial_id: isGlobal ? null : (filialId || null), ano, mes, valor, expressao, dims: {} })
+    else await supabase.from('formulario_valor').insert({ tenant_id: TENANT_ID, formulario_id: formId, versao_id: versaoId, linha_id: lid, empresa_id: isGlobal ? null : empresaId, filial_id: isGlobal ? null : (filialId || null), cc_id: isGlobal ? null : (ccId || null), ano, mes, valor, expressao, dims: {} })
   }
   const deleteOne = async (lid: string, mes: number) => {
     await scopeSel(supabase.from('formulario_valor').delete(), lid, mes)
@@ -191,6 +216,7 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
     }
     setCells(upd)
     if (isGlobal) setGcells(upd)
+    setScopesRefresh(x => x + 1)
   }
   const parseCell = (l: FLinha, t: string): { valor: number | null; expressao: string | null } => {
     const s = t.trim(); const isF = s.startsWith('=')
@@ -248,10 +274,10 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
     meses.forEach(m => setCellState(l.id, m, { valor: valor || 0, expressao }))
     setEditing(false); setSaving(false); setTimeout(() => wrapRef.current?.focus(), 0)
   }
-  const onPaste = async (e: React.ClipboardEvent) => {
-    if (!active || editing || readOnly) return
-    const text = e.clipboardData.getData('text'); if (!text) return
-    e.preventDefault()
+  // Colar bloco (TSV do Excel) a partir da célula ativa — pula sintéticas/fórmula. Reusado tanto
+  // fora da edição (onPaste da grade) quanto DENTRO da edição (delegado pelo input via onPasteBlock).
+  const pasteBlock = async (text: string) => {
+    if (!active || readOnly) return
     const rows = text.replace(/\r/g, '').replace(/\n$/, '').split('\n')
     const editRows: number[] = []
     for (let r = active.r; r < ordered.length && editRows.length < rows.length; r++) if (editavel(ordered[r])) editRows.push(r)
@@ -270,6 +296,12 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
     await Promise.all(ups.map(u => saveOne(u.lid, u.mes, u.valor, u.expressao)))
     ups.forEach(u => setCellState(u.lid, u.mes, { valor: u.valor || 0, expressao: u.expressao }))
     setSaving(false)
+    setTimeout(() => wrapRef.current?.focus(), 0)
+  }
+  const onPaste = (e: React.ClipboardEvent) => {
+    if (!active || editing || readOnly) return
+    const text = e.clipboardData.getData('text'); if (!text) return
+    e.preventDefault(); pasteBlock(text)
   }
 
   // ── ESTRUTURA (CRUD de linhas — só no mode="estrutura") ──
@@ -313,21 +345,21 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
     if (!pronto || readOnly || isGlobal) return
     const destinos = linhas.filter(l => l.conta_destino_id)
     if (!destinos.length) { alert('Nenhuma linha tem conta de destino. Defina o destino nas linhas-resultado (Estrutura) antes de aplicar.'); return }
-    const escopo = filialId ? `filial selecionada` : 'consolidado (sem filial)'
-    if (!confirm(`Aplicar ${destinos.length} linha(s)-resultado no orçado da versão "${versao?.codigo}", empresa selecionada, ${escopo}?\n\nIsto substitui o que este formulário já havia aplicado nesse escopo.`)) return
+    if (!confirm(`Aplicar ${destinos.length} linha(s)-resultado no orçado da versão "${versao?.codigo}", na empresa/filial/centro de custo selecionados?\n\nIsto substitui o que este formulário já havia aplicado nesse escopo.`)) return
     setAplicando(true)
     try {
       const lineIds = linhas.map(l => l.id)
-      // limpa o que este formulário já aplicou nesse escopo (versão × empresa × filial)
+      // limpa o que este formulário já aplicou nesse escopo (versão × empresa × filial × CC)
       let del = supabase.from('fat_orcado').delete().eq('versao_id', versaoId).eq('empresa_id', empresaId).eq('origem', 'FORMULARIO').in('origem_formulario_linha_id', lineIds)
       del = filialId ? del.eq('filial_id', filialId) : del.is('filial_id', null)
+      del = ccId ? del.eq('cc_id', ccId) : del.is('cc_id', null)
       const { error: eDel } = await del; if (eDel) throw eDel
       // monta os registros calculados (só meses com valor ≠ 0)
       const recs: any[] = []
       for (const l of destinos) for (let mes = 1; mes <= 12; mes++) {
         const v = computed[l.id]?.[`${ano}-${mes}`] || 0
         if (!v) continue
-        recs.push({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: l.conta_destino_id, empresa_id: empresaId, filial_id: filialId || null, cc_id: null, ano, mes, valor: v, expressao: null, origem: 'FORMULARIO', origem_formulario_linha_id: l.id, dims: {} })
+        recs.push({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: l.conta_destino_id, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, valor: v, expressao: null, origem: 'FORMULARIO', origem_formulario_linha_id: l.id, dims: {} })
       }
       for (let i = 0; i < recs.length; i += 500) { const { error } = await supabase.from('fat_orcado').insert(recs.slice(i, i + 500)); if (error) throw error }
       alert(`Aplicado: ${recs.length} célula(s) de ${destinos.length} linha(s)-resultado no orçado.`)
@@ -354,7 +386,7 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 16px' }}>
         {isEstrutura
           ? <>Desenho genérico do formulário: drivers (entrada), fórmulas e conta de destino. O formulário <strong>não</strong> é amarrado a empresa/filial — o preenchimento e a aplicação por unidade acontecem em <strong>Preencher</strong>.</>
-          : <>Selecione versão e empresa e preencha os drivers. <strong>Premissas globais</strong> (opção 🌐 no seletor de empresa) valem para todas as unidades; na grade da empresa aparecem <em>em itálico</em> e podem ser sobrescritas por célula (vazio volta a herdar). {saving && <span style={{ color: 'var(--blue)' }}>· salvando…</span>}</>}
+          : <>Selecione versão e empresa e preencha os drivers. <strong>Premissas globais</strong> (opção 🌐 no seletor de empresa) valem para todas as unidades; na grade da empresa aparecem <em>em itálico</em> e podem ser sobrescritas por célula (vazio volta a herdar). <strong>●</strong> no seletor = escopo já com dados. {saving && <span style={{ color: 'var(--blue)' }}>· salvando…</span>}</>}
       </p>
 
       {!isEstrutura && (
@@ -365,15 +397,20 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
               {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo} · {v.ano}{v.bloqueada ? ' 🔒' : ''}</option>)}
             </select></div>
           <div><div style={S.lbl}>Empresa</div>
-            <select style={S.sel} value={empresaId} onChange={e => { setEmpresaId(e.target.value); setFilialId('') }}>
+            <select style={S.sel} value={empresaId} onChange={e => { setEmpresaId(e.target.value); setFilialId(''); setCcId('') }}>
               <option value="">— selecione —</option>
-              <option value={GLOBAL}>🌐 Premissas globais (todas)</option>
-              {empresas.map(e => <option key={e.id} value={e.id}>{e.codigo} · {e.descricao}</option>)}
+              <option value={GLOBAL}>{globalTemDados ? '● ' : ''}🌐 Premissas globais (todas)</option>
+              {empresas.map(e => <option key={e.id} value={e.id}>{empresasComDados.has(e.id) ? '● ' : ''}{e.codigo} · {e.descricao}</option>)}
             </select></div>
           <div><div style={S.lbl}>Filial</div>
             <select style={S.sel} value={filialId} onChange={e => setFilialId(e.target.value)} disabled={isGlobal}>
               <option value="">— consolidado —</option>
-              {!isGlobal && filiaisDaEmp.map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.descricao}</option>)}
+              {!isGlobal && filiaisDaEmp.map(f => <option key={f.id} value={f.id}>{filiaisComDados.has(f.id) ? '● ' : ''}{f.codigo} · {f.descricao}</option>)}
+            </select></div>
+          <div><div style={S.lbl}>Centro de custo</div>
+            <select style={S.sel} value={ccId} onChange={e => setCcId(e.target.value)} disabled={isGlobal}>
+              <option value="">— consolidado —</option>
+              {!isGlobal && ccs.map(c => <option key={c.id} value={c.id}>{ccsComDados.has(c.id) ? '● ' : ''}{c.codigo} · {c.descricao}</option>)}
             </select></div>
           <button
             style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, background: 'var(--violet)', color: '#fff', border: 'none', cursor: pronto && !readOnly && !isGlobal ? 'pointer' : 'not-allowed', opacity: pronto && !readOnly && !isGlobal ? 1 : 0.5 }}
@@ -450,6 +487,10 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontSize: 14, background: 'var(--panel)', borderRadius: 12, border: '1px solid var(--border)' }}>
           Selecione <strong>versão</strong> e <strong>empresa</strong> (ou 🌐 premissas globais) para preencher os valores.
         </div>
+      ) : consolidado ? (
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontSize: 14, background: 'var(--panel)', borderRadius: 12, border: '1px solid var(--border)' }}>
+          Selecione <strong>filial</strong> e <strong>centro de custo</strong> para lançar. Não é possível lançar no consolidado — a visão consolidada de conferência virá depois.
+        </div>
       ) : (
         <div ref={wrapRef} tabIndex={0} onKeyDown={onGridKey} onPaste={onPaste} style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 12, outline: 'none' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
@@ -488,7 +529,8 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
                           onDoubleClick={() => { if (!ed || readOnly) return; setActive({ r: ri, c: i }); const c = eff.cell; setEditVal(c?.expressao ? toDisplay(c.expressao) : (disp ? numToInput(disp) : '')); setEditing(true) }}>
                           {isEditingCell ? (
                             <FormulaCellInput value={editVal} onChange={setEditVal}
-                              onCommit={commitMove} onCancel={() => { setEditing(false); setTimeout(() => wrapRef.current?.focus(), 0) }} onFill={mes < 12 ? fillRight : undefined} linhas={refLinhas}
+                              onCommit={commitMove} onCancel={() => { setEditing(false); setTimeout(() => wrapRef.current?.focus(), 0) }} onFill={mes < 12 ? fillRight : undefined}
+                              onPasteBlock={t => { setEditing(false); pasteBlock(t) }} linhas={refLinhas}
                               inputStyle={{ width: 100, textAlign: 'right', padding: '2px 4px', border: '1px solid var(--blue)', borderRadius: 4, background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }} />
                           ) : (disp !== 0 ? formatValor(disp, (l.formato as any) || 'NUMERO', l.casas_decimais ?? 0) : <span style={{ color: 'var(--faint)' }}>{ed ? '—' : ''}</span>)}
                         </td>

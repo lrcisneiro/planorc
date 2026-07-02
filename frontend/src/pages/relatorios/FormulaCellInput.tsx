@@ -38,13 +38,14 @@ const itemStyle = (hi: boolean): CSSProperties => ({
 })
 const tagStyle = (c: string): CSSProperties => ({ fontSize: 9, fontWeight: 700, color: c, width: 26, flexShrink: 0 })
 
-export default function FormulaCellInput({ value, onChange, onCommit, onCancel, onFill, onDetail, linhas, inputStyle, fullWidth }: {
+export default function FormulaCellInput({ value, onChange, onCommit, onCancel, onFill, onDetail, onPasteBlock, linhas, inputStyle, fullWidth }: {
   value: string
   onChange: (v: string) => void
   onCommit?: () => void
   onCancel?: () => void
   onFill?: () => void
   onDetail?: () => void
+  onPasteBlock?: (text: string) => void   // colar bloco (TSV multi-célula) mesmo estando em edição → delega p/ a grade
   linhas: RefLinha[]
   inputStyle: CSSProperties
   fullWidth?: boolean
@@ -115,6 +116,7 @@ export default function FormulaCellInput({ value, onChange, onCommit, onCancel, 
         autoFocus={!fullWidth}
         value={value}
         onChange={e => { onChange(e.target.value); setClosed(false); setHi(0) }}
+        onPaste={e => { if (onPasteBlock) { const t = e.clipboardData.getData('text'); if (/[\t\n]/.test(t)) { e.preventDefault(); onPasteBlock(t) } } }}
         onBlur={() => { if (!open) onCommit?.() }}
         onKeyDown={e => {
           // Ctrl/Cmd+Enter → replicar até dezembro (mesmo com menu aberto)

@@ -267,10 +267,9 @@ export default function OrcarGradePage() {
     setEditing(false); setSaving(false); setTimeout(() => wrapRef.current?.focus(), 0)
   }
   // Colar do Excel: bloco TSV → preenche as analíticas a partir da célula ativa (pula sintéticas)
-  const onPaste = async (e: React.ClipboardEvent) => {
-    if (!active || editing || readOnly) return
-    const text = e.clipboardData.getData('text'); if (!text) return
-    e.preventDefault()
+  // Colar bloco (TSV do Excel) a partir da célula ativa — reusado fora e DENTRO da edição (via onPasteBlock).
+  const pasteBlock = async (text: string) => {
+    if (!active || readOnly) return
     const rows = text.replace(/\r/g, '').replace(/\n$/, '').split('\n')
     const editRows: number[] = []
     for (let r = active.r; r < ordered.length && editRows.length < rows.length; r++) if (editavel(ordered[r])) editRows.push(r)
@@ -289,6 +288,12 @@ export default function OrcarGradePage() {
     await Promise.all(ups.map(u => saveOne(u.master, u.mes, u.valor, u.expressao)))
     setCells(prev => { const next = { ...prev }; for (const u of ups) next[u.master] = { ...(next[u.master] || {}), [u.mes]: { valor: u.valor || 0, expressao: u.expressao } }; return next })
     setSaving(false)
+    setTimeout(() => wrapRef.current?.focus(), 0)
+  }
+  const onPaste = (e: React.ClipboardEvent) => {
+    if (!active || editing || readOnly) return
+    const text = e.clipboardData.getData('text'); if (!text) return
+    e.preventDefault(); pasteBlock(text)
   }
 
   if (loading || acesso.loading) return <div style={{ padding: 24, color: 'var(--muted)' }}>Carregando…</div>
@@ -403,7 +408,8 @@ export default function OrcarGradePage() {
                           onDoubleClick={() => { if (!ed || readOnly) return; setActive({ r: ri, c: i }); const c = cells[master]?.[mes]; setEditVal(c?.expressao ? toDisplay(c.expressao) : (disp ? numToInput(disp) : '')); setEditing(true) }}>
                           {isEditingCell ? (
                             <FormulaCellInput value={editVal} onChange={setEditVal}
-                              onCommit={commitMove} onCancel={() => { setEditing(false); setTimeout(() => wrapRef.current?.focus(), 0) }} onFill={mes < 12 ? fillRight : undefined} linhas={refLinhas}
+                              onCommit={commitMove} onCancel={() => { setEditing(false); setTimeout(() => wrapRef.current?.focus(), 0) }} onFill={mes < 12 ? fillRight : undefined}
+                              onPasteBlock={t => { setEditing(false); pasteBlock(t) }} linhas={refLinhas}
                               inputStyle={{ width: 100, textAlign: 'right', padding: '2px 4px', border: '1px solid var(--blue)', borderRadius: 4, background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }} />
                           ) : (disp !== 0 ? formatValor(disp, 'NUMERO', 0) : <span style={{ color: 'var(--faint)' }}>{ed ? '—' : ''}</span>)}
                         </td>

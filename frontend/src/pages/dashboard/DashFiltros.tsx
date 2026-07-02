@@ -33,12 +33,12 @@ export function ModalPanel({ titulo, onClose, children, width }: { titulo: strin
 }
 
 // Botão "Períodos" — invólucro padrão; o conteúdo (seletor de tempo) é injetado por cada dashboard.
-export function PeriodoButton({ children, resumo, width }: { children: ReactNode; resumo?: string; width?: string }) {
+export function PeriodoButton({ children, resumo, width, onOpen, onApply }: { children: ReactNode; resumo?: string; width?: string; onOpen?: () => void; onApply?: () => void }) {
   const [open, setOpen] = useState(false)
   return (
     <div style={{ position: 'relative' }}>
-      <button style={btn} onClick={() => setOpen(true)}><CalendarRange size={13} /> Períodos{resumo ? ` · ${resumo}` : ''}</button>
-      {open && <ModalPanel titulo="Períodos" onClose={() => setOpen(false)} width={width}>{children}</ModalPanel>}
+      <button style={btn} onClick={() => { setOpen(true); onOpen?.() }}><CalendarRange size={13} /> Períodos{resumo ? ` · ${resumo}` : ''}</button>
+      {open && <ModalPanel titulo="Períodos" onClose={() => { setOpen(false); onApply?.() }} width={width}>{children}</ModalPanel>}
     </div>
   )
 }
