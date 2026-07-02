@@ -4,21 +4,28 @@ import { supabase, TENANT_ID } from '../../lib/supabase'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { parseNum, numToInput, formatValor, computeCenario, pkey } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Periodo } from '../../lib/engine'
-import { ChevronLeft, Lock, Plus, Trash2, ArrowUp, ArrowDown, Settings2, Play } from 'lucide-react'
+import { ChevronLeft, Lock, Plus, Trash2, ArrowUp, ArrowDown, Settings2, Play, Globe, Table } from 'lucide-react'
 import FormulaCellInput from '../relatorios/FormulaCellInput'
 
-// Editor de Formulário de drivers (F5). Duas partes:
-//  1) ESTRUTURA (formulario_linha) — CRUD leve das linhas (drivers ANALITICA + resultados FORMULA),
-//     cada linha-resultado pode ter uma conta orçamentária de destino (para o "Aplicar").
-//  2) GRADE (formulario_valor) — escrita de valores/fórmulas por versão × empresa × filial × 12 meses,
-//     com a MESMA engine (computeCenario). O "Aplicar" materializa o resultado em fat_orcado.
+// Editor de Formulário de drivers (F5) — SPLIT por modo (mesmo padrão da F1 do relatório):
+//  · mode="estrutura"  → desenho GENÉRICO do formulário (formulario_linha): drivers,
+//    fórmulas e conta de destino. Sem versão/empresa/filial — o formulário não é
+//    amarrado a nenhuma unidade. Gate: capacidade «estrutura».
+//  · mode="preencher"  → aplicação dos dados (formulario_valor) por versão × empresa ×
+//    filial, com a MESMA engine (computeCenario). O "Aplicar" materializa as linhas com
+//    conta de destino em fat_orcado. Gate: capacidade «orcar».
+// Premissas GLOBAIS (v3_050): empresa_id NULL em formulario_valor = valor que vale para
+// todas as empresas; a grade da empresa HERDA (itálico) e pode sobrescrever por célula.
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+const GLOBAL = '__global'
 
+type Mode = 'estrutura' | 'preencher'
 type FLinha = { id: string; pai_id: string | null; codigo: string; descricao: string; tipo_linha: any; expressao: string | null; natureza: string | null; conta_destino_id: string | null; ordem: number | null; casas_decimais: number; formato: string }
 type Opt = { id: string; codigo: string; descricao: string }
 type Fil = Opt & { empresa_id: string | null }
 type Versao = { id: string; codigo: string; descricao: string; ano: number; bloqueada: boolean }
 type Cell = { valor: number; expressao: string | null }
+type CellMap = Record<string, Record<number, Cell>>
 
 const S = {
   sel: { padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text)', fontSize: 13 } as React.CSSProperties,
@@ -28,10 +35,11 @@ const S = {
   iconBtn: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 3, display: 'inline-flex', alignItems: 'center' } as React.CSSProperties,
 }
 
-export default function FormularioEditorPage() {
+export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mode }) {
   const { id: formId } = useParams()
   const navigate = useNavigate()
   const cap = useCapacidades()
+  const isEstrutura = mode === 'estrutura'
 
   const [nome, setNome] = useState('')
   const [linhas, setLinhas] = useState<FLinha[]>([])
@@ -42,11 +50,11 @@ export default function FormularioEditorPage() {
   const [loading, setLoading] = useState(true)
 
   const [versaoId, setVersaoId] = useState('')
-  const [empresaId, setEmpresaId] = useState('')
-  const [filialId, setFilialId] = useState('')   // '' = consolidado
-  const [showEstrutura, setShowEstrutura] = useState(false)
+  const [empresaId, setEmpresaId] = useState('')   // GLOBAL = premissas globais (todas as empresas)
+  const [filialId, setFilialId] = useState('')     // '' = consolidado
 
-  const [cells, setCells] = useState<Record<string, Record<number, Cell>>>({})   // linha_id → mes → célula
+  const [cells, setCells] = useState<CellMap>({})   // escopo atual (empresa selecionada, ou global se GLOBAL)
+  const [gcells, setGcells] = useState<CellMap>({}) // premissas globais (herança na grade da empresa)
   const wrapRef = useRef<HTMLDivElement>(null)
   const [active, setActive] = useState<{ r: number; c: number } | null>(null)
   const [editing, setEditing] = useState(false)
@@ -63,22 +71,26 @@ export default function FormularioEditorPage() {
   }
   useEffect(() => {
     (async () => {
-      const [f, vs, emp, fil, co] = await Promise.all([
+      const [f, co] = await Promise.all([
         supabase.from('formulario').select('nome').eq('id', formId).maybeSingle(),
-        supabase.from('versao_orcamento').select('id,codigo,descricao,ano,bloqueada').eq('ativa', true).order('ano', { ascending: false }).order('codigo'),
-        supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
-        supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
         supabase.from('conta_orcamentaria').select('id,codigo,descricao').order('codigo'),
       ])
       setNome(f.data?.nome || '')
-      setVersoes((vs.data || []) as Versao[])
-      setEmpresas((emp.data || []) as Opt[])
-      setFiliais((fil.data || []) as Fil[])
       setContasOrc((co.data || []) as Opt[])
+      if (!isEstrutura) {
+        const [vs, emp, fil] = await Promise.all([
+          supabase.from('versao_orcamento').select('id,codigo,descricao,ano,bloqueada').eq('ativa', true).order('ano', { ascending: false }).order('codigo'),
+          supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
+          supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
+        ])
+        setVersoes((vs.data || []) as Versao[])
+        setEmpresas((emp.data || []) as Opt[])
+        setFiliais((fil.data || []) as Fil[])
+      }
       await loadLinhas()
       setLoading(false)
     })()
-  }, [formId])
+  }, [formId, isEstrutura])
 
   const byId = useMemo(() => { const m: Record<string, FLinha> = {}; linhas.forEach(l => { m[l.id] = l }); return m }, [linhas])
   const { codeToDesc, descToCode } = useMemo(() => {
@@ -103,6 +115,7 @@ export default function FormularioEditorPage() {
     return out
   }, [linhas])
 
+  const isGlobal = empresaId === GLOBAL
   const versao = versoes.find(v => v.id === versaoId)
   const ano = versao?.ano || 0
   const bloqueada = !!versao?.bloqueada
@@ -110,38 +123,74 @@ export default function FormularioEditorPage() {
   const readOnly = bloqueada
   const filiaisDaEmp = useMemo(() => filiais.filter(f => !empresaId || f.empresa_id === empresaId), [filiais, empresaId])
 
+  const toMap = (rows: any[] | null): CellMap => {
+    const v: CellMap = {}
+    for (const r of (rows || []) as any[]) {
+      if (r.valor != null || r.expressao != null) (v[r.linha_id] = v[r.linha_id] || {})[r.mes] = { valor: Number(r.valor) || 0, expressao: r.expressao || null }
+    }
+    return v
+  }
   useEffect(() => {
-    if (!pronto) { setCells({}); return }
+    if (isEstrutura) return
+    if (!pronto) { setCells({}); setGcells({}); return }
     (async () => {
-      let q = supabase.from('formulario_valor').select('linha_id,mes,valor,expressao').eq('formulario_id', formId).eq('versao_id', versaoId).eq('empresa_id', empresaId).eq('ano', ano)
+      const base = () => supabase.from('formulario_valor').select('linha_id,mes,valor,expressao').eq('formulario_id', formId).eq('versao_id', versaoId).eq('ano', ano)
+      const { data: gd } = await base().is('empresa_id', null)
+      const gm = toMap(gd)
+      setGcells(gm)
+      if (isGlobal) { setCells(gm); return }
+      let q = base().eq('empresa_id', empresaId)
       q = filialId ? q.eq('filial_id', filialId) : q.is('filial_id', null)
       const { data } = await q
-      const v: Record<string, Record<number, Cell>> = {}
-      for (const r of (data || []) as any[]) {
-        if (r.valor != null || r.expressao != null) (v[r.linha_id] = v[r.linha_id] || {})[r.mes] = { valor: Number(r.valor) || 0, expressao: r.expressao || null }
-      }
-      setCells(v)
+      setCells(toMap(data))
     })()
-  }, [versaoId, empresaId, filialId, ano, pronto, linhas.length])
+  }, [versaoId, empresaId, filialId, ano, pronto, isGlobal, isEstrutura, linhas.length])
+
+  // célula EFETIVA: valor do escopo atual, senão herda a premissa global
+  const cellOf = (lid: string, mes: number): { cell: Cell | null; herdado: boolean } => {
+    const own = cells[lid]?.[mes]
+    if (own) return { cell: own, herdado: false }
+    if (!isGlobal) { const g = gcells[lid]?.[mes]; if (g) return { cell: g, herdado: true } }
+    return { cell: null, herdado: false }
+  }
 
   // ── ENGINE ──
   const periodos = useMemo<Periodo[]>(() => ano ? MESES.map((_, i) => ({ ano, mes: i + 1 })) : [], [ano])
   const linhasCalc = useMemo<LinhaCalc[]>(() => linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: false, nao_soma: false })), [linhas])
   const computed = useMemo(() => {
     const raw: RawValues = {}
-    for (const [lid, mm] of Object.entries(cells)) for (const [mes, c] of Object.entries(mm)) (raw[lid] = raw[lid] || {})[`${ano}-${mes}`] = c.expressao ? { expressao: c.expressao } : { valor: c.valor }
+    for (const l of linhas) for (let mes = 1; mes <= 12; mes++) {
+      const { cell } = cellOf(l.id, mes)
+      if (cell) (raw[l.id] = raw[l.id] || {})[`${ano}-${mes}`] = cell.expressao ? { expressao: cell.expressao } : { valor: cell.valor }
+    }
     return computeCenario(linhasCalc, raw, periodos)
-  }, [cells, linhasCalc, periodos, ano])
+  }, [cells, gcells, isGlobal, linhasCalc, periodos, ano])
   const valDe = (l: FLinha, mes: number) => computed[l.id]?.[`${ano}-${mes}`] || 0
   const totalLinha = (l: FLinha) => periodos.reduce((s, p) => s + (computed[l.id]?.[pkey(p)] || 0), 0)
 
-  // ── grava UMA célula em formulario_valor ──
+  // ── grava/remove UMA célula em formulario_valor (escopo atual: empresa ou GLOBAL) ──
+  const scopeSel = (q: any, lid: string, mes: number) => {
+    let sel = q.eq('formulario_id', formId).eq('versao_id', versaoId).eq('linha_id', lid).eq('ano', ano).eq('mes', mes)
+    sel = isGlobal ? sel.is('empresa_id', null) : sel.eq('empresa_id', empresaId)
+    sel = (!isGlobal && filialId) ? sel.eq('filial_id', filialId) : sel.is('filial_id', null)
+    return sel
+  }
   const saveOne = async (lid: string, mes: number, valor: number | null, expressao: string | null) => {
-    let sel = supabase.from('formulario_valor').select('id').eq('formulario_id', formId).eq('versao_id', versaoId).eq('linha_id', lid).eq('empresa_id', empresaId).eq('ano', ano).eq('mes', mes)
-    sel = filialId ? sel.eq('filial_id', filialId) : sel.is('filial_id', null)
-    const { data: ex } = await sel.maybeSingle()
+    const { data: ex } = await scopeSel(supabase.from('formulario_valor').select('id'), lid, mes).maybeSingle()
     if (ex) await supabase.from('formulario_valor').update({ valor, expressao }).eq('id', (ex as any).id)
-    else await supabase.from('formulario_valor').insert({ tenant_id: TENANT_ID, formulario_id: formId, versao_id: versaoId, linha_id: lid, empresa_id: empresaId, filial_id: filialId || null, ano, mes, valor, expressao, dims: {} })
+    else await supabase.from('formulario_valor').insert({ tenant_id: TENANT_ID, formulario_id: formId, versao_id: versaoId, linha_id: lid, empresa_id: isGlobal ? null : empresaId, filial_id: isGlobal ? null : (filialId || null), ano, mes, valor, expressao, dims: {} })
+  }
+  const deleteOne = async (lid: string, mes: number) => {
+    await scopeSel(supabase.from('formulario_valor').delete(), lid, mes)
+  }
+  const setCellState = (lid: string, mes: number, cell: Cell | null) => {
+    const upd = (prev: CellMap): CellMap => {
+      const cur = { ...(prev[lid] || {}) }
+      if (cell) cur[mes] = cell; else delete cur[mes]
+      return { ...prev, [lid]: cur }
+    }
+    setCells(upd)
+    if (isGlobal) setGcells(upd)
   }
   const parseCell = (l: FLinha, t: string): { valor: number | null; expressao: string | null } => {
     const s = t.trim(); const isF = s.startsWith('=')
@@ -150,9 +199,15 @@ export default function FormularioEditorPage() {
   const salvar = async (l: FLinha, mes: number) => {
     if (!pronto || readOnly || !editavel(l)) { setEditing(false); return }
     setSaving(true)
-    const { valor, expressao } = parseCell(l, editVal)
-    await saveOne(l.id, mes, valor, expressao)
-    setCells(prev => ({ ...prev, [l.id]: { ...(prev[l.id] || {}), [mes]: { valor: valor || 0, expressao } } }))
+    if (editVal.trim() === '') {
+      // vazio = remove do escopo atual (na empresa, volta a herdar a premissa global)
+      await deleteOne(l.id, mes)
+      setCellState(l.id, mes, null)
+    } else {
+      const { valor, expressao } = parseCell(l, editVal)
+      await saveOne(l.id, mes, valor, expressao)
+      setCellState(l.id, mes, { valor: valor || 0, expressao })
+    }
     setSaving(false)
   }
 
@@ -160,8 +215,8 @@ export default function FormularioEditorPage() {
   const startEdit = (init: string | null) => {
     if (!active || readOnly) return
     const l = ordered[active.r]; if (!l || !editavel(l)) return
-    const c = cells[l.id]?.[active.c + 1]
-    const cur = c?.expressao ? toDisplay(c.expressao) : (c?.valor ? numToInput(facOf(l) * c.valor) : '')
+    const { cell } = cellOf(l.id, active.c + 1)
+    const cur = cell?.expressao ? toDisplay(cell.expressao) : (cell?.valor ? numToInput(facOf(l) * cell.valor) : '')
     setEditVal(init != null ? init : cur); setEditing(true)
   }
   const commitMove = async () => {
@@ -190,7 +245,7 @@ export default function FormularioEditorPage() {
     setSaving(true)
     const meses: number[] = []; for (let m = active.c + 1; m <= 12; m++) meses.push(m)
     await Promise.all(meses.map(m => saveOne(l.id, m, valor, expressao)))
-    setCells(prev => { const cur = { ...(prev[l.id] || {}) }; meses.forEach(m => { cur[m] = { valor: valor || 0, expressao } }); return { ...prev, [l.id]: cur } })
+    meses.forEach(m => setCellState(l.id, m, { valor: valor || 0, expressao }))
     setEditing(false); setSaving(false); setTimeout(() => wrapRef.current?.focus(), 0)
   }
   const onPaste = async (e: React.ClipboardEvent) => {
@@ -213,11 +268,11 @@ export default function FormularioEditorPage() {
     if (!ups.length) return
     setSaving(true)
     await Promise.all(ups.map(u => saveOne(u.lid, u.mes, u.valor, u.expressao)))
-    setCells(prev => { const next = { ...prev }; for (const u of ups) next[u.lid] = { ...(next[u.lid] || {}), [u.mes]: { valor: u.valor || 0, expressao: u.expressao } }; return next })
+    ups.forEach(u => setCellState(u.lid, u.mes, { valor: u.valor || 0, expressao: u.expressao }))
     setSaving(false)
   }
 
-  // ── ESTRUTURA (CRUD de linhas) ──
+  // ── ESTRUTURA (CRUD de linhas — só no mode="estrutura") ──
   const addLinha = async () => {
     const maxOrd = linhas.reduce((m, l) => Math.max(m, l.ordem ?? 0), 0)
     const n = linhas.length + 1
@@ -255,7 +310,7 @@ export default function FormularioEditorPage() {
 
   // ── APLICAR: materializa o resultado calculado em fat_orcado (origem FORMULARIO) ──
   const aplicar = async () => {
-    if (!pronto || readOnly) return
+    if (!pronto || readOnly || isGlobal) return
     const destinos = linhas.filter(l => l.conta_destino_id)
     if (!destinos.length) { alert('Nenhuma linha tem conta de destino. Defina o destino nas linhas-resultado (Estrutura) antes de aplicar.'); return }
     const escopo = filialId ? `filial selecionada` : 'consolidado (sem filial)'
@@ -281,46 +336,56 @@ export default function FormularioEditorPage() {
   }
 
   if (loading) return <div style={{ padding: 24, color: 'var(--muted)' }}>Carregando…</div>
-  if (!cap.can('orcar')) return <div style={{ padding: 24, color: 'var(--red)' }}>Você não tem permissão para orçar (capacidade «orcar»).</div>
+  if (isEstrutura && !cap.can('estrutura')) return <div style={{ padding: 24, color: 'var(--red)' }}>Você não tem permissão para editar estruturas (capacidade «estrutura»).</div>
+  if (!isEstrutura && !cap.can('orcar')) return <div style={{ padding: 24, color: 'var(--red)' }}>Você não tem permissão para orçar (capacidade «orcar»).</div>
 
   return (
     <div style={{ padding: 24, fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
         <button onClick={() => navigate('/formularios')} style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}><ChevronLeft size={15} /> Voltar</button>
-        <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text)', margin: 0 }}>Formulário — {nome}</h1>
-        {bloqueada && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--orange)', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 99, padding: '2px 8px' }}><Lock size={12} /> versão bloqueada</span>}
+        <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text)', margin: 0 }}>{isEstrutura ? 'Estrutura' : 'Formulário'} — {nome}</h1>
+        {!isEstrutura && bloqueada && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--orange)', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 99, padding: '2px 8px' }}><Lock size={12} /> versão bloqueada</span>}
+        {!isEstrutura && isGlobal && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--blue)', background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 99, padding: '2px 8px' }}><Globe size={12} /> premissas globais</span>}
+        <span style={{ flex: 1 }} />
+        {isEstrutura
+          ? <button onClick={() => navigate(`/formularios/${formId}`)} style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}><Table size={14} /> Preencher</button>
+          : (cap.can('estrutura') && <button onClick={() => navigate(`/formularios/${formId}/estrutura`)} style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}><Settings2 size={14} /> Estrutura</button>)}
       </div>
-      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 16px' }}>Monte os drivers na <strong>Estrutura</strong> e preencha os valores/fórmulas na grade. As linhas-resultado com <strong>conta de destino</strong> vão para o orçado ao clicar <strong>Aplicar</strong>. {saving && <span style={{ color: 'var(--blue)' }}>· salvando…</span>}</p>
+      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 16px' }}>
+        {isEstrutura
+          ? <>Desenho genérico do formulário: drivers (entrada), fórmulas e conta de destino. O formulário <strong>não</strong> é amarrado a empresa/filial — o preenchimento e a aplicação por unidade acontecem em <strong>Preencher</strong>.</>
+          : <>Selecione versão e empresa e preencha os drivers. <strong>Premissas globais</strong> (opção 🌐 no seletor de empresa) valem para todas as unidades; na grade da empresa aparecem <em>em itálico</em> e podem ser sobrescritas por célula (vazio volta a herdar). {saving && <span style={{ color: 'var(--blue)' }}>· salvando…</span>}</>}
+      </p>
 
-      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 16, alignItems: 'flex-end' }}>
-        <div><div style={S.lbl}>Versão</div>
-          <select style={S.sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>
-            <option value="">— selecione —</option>
-            {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo} · {v.ano}{v.bloqueada ? ' 🔒' : ''}</option>)}
-          </select></div>
-        <div><div style={S.lbl}>Empresa</div>
-          <select style={S.sel} value={empresaId} onChange={e => { setEmpresaId(e.target.value); setFilialId('') }}>
-            <option value="">— selecione —</option>
-            {empresas.map(e => <option key={e.id} value={e.id}>{e.codigo} · {e.descricao}</option>)}
-          </select></div>
-        <div><div style={S.lbl}>Filial</div>
-          <select style={S.sel} value={filialId} onChange={e => setFilialId(e.target.value)}>
-            <option value="">— consolidado —</option>
-            {filiaisDaEmp.map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.descricao}</option>)}
-          </select></div>
-        <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }} onClick={() => setShowEstrutura(s => !s)}>
-          <Settings2 size={14} /> Estrutura {showEstrutura ? '▲' : '▼'}
-        </button>
-        <button
-          style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, background: 'var(--violet)', color: '#fff', border: 'none', cursor: pronto && !readOnly ? 'pointer' : 'not-allowed', opacity: pronto && !readOnly ? 1 : 0.5 }}
-          disabled={!pronto || readOnly || aplicando} onClick={aplicar}
-          title={!pronto ? 'Selecione versão e empresa' : (readOnly ? 'Versão bloqueada' : 'Materializar o resultado no orçado (fat_orcado)')}>
-          <Play size={14} /> {aplicando ? 'Aplicando…' : 'Aplicar no orçado'}
-        </button>
-      </div>
+      {!isEstrutura && (
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 16, alignItems: 'flex-end' }}>
+          <div><div style={S.lbl}>Versão</div>
+            <select style={S.sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>
+              <option value="">— selecione —</option>
+              {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo} · {v.ano}{v.bloqueada ? ' 🔒' : ''}</option>)}
+            </select></div>
+          <div><div style={S.lbl}>Empresa</div>
+            <select style={S.sel} value={empresaId} onChange={e => { setEmpresaId(e.target.value); setFilialId('') }}>
+              <option value="">— selecione —</option>
+              <option value={GLOBAL}>🌐 Premissas globais (todas)</option>
+              {empresas.map(e => <option key={e.id} value={e.id}>{e.codigo} · {e.descricao}</option>)}
+            </select></div>
+          <div><div style={S.lbl}>Filial</div>
+            <select style={S.sel} value={filialId} onChange={e => setFilialId(e.target.value)} disabled={isGlobal}>
+              <option value="">— consolidado —</option>
+              {!isGlobal && filiaisDaEmp.map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.descricao}</option>)}
+            </select></div>
+          <button
+            style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, background: 'var(--violet)', color: '#fff', border: 'none', cursor: pronto && !readOnly && !isGlobal ? 'pointer' : 'not-allowed', opacity: pronto && !readOnly && !isGlobal ? 1 : 0.5 }}
+            disabled={!pronto || readOnly || aplicando || isGlobal} onClick={aplicar}
+            title={!pronto ? 'Selecione versão e empresa' : (isGlobal ? 'Premissas globais não vão ao orçado — selecione uma empresa para aplicar' : (readOnly ? 'Versão bloqueada' : 'Materializar o resultado no orçado (fat_orcado)'))}>
+            <Play size={14} /> {aplicando ? 'Aplicando…' : 'Aplicar no orçado'}
+          </button>
+        </div>
+      )}
 
-      {showEstrutura && (
-        <div style={{ marginBottom: 16, border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+      {isEstrutura ? (
+        <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--bg-soft)', borderBottom: '1px solid var(--border)' }}>
             <strong style={{ fontSize: 13, color: 'var(--text)' }}>Estrutura do formulário</strong>
             <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }} onClick={addLinha}><Plus size={13} /> Linha</button>
@@ -381,11 +446,9 @@ export default function FormularioEditorPage() {
             </tbody>
           </table>
         </div>
-      )}
-
-      {!pronto ? (
+      ) : !pronto ? (
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontSize: 14, background: 'var(--panel)', borderRadius: 12, border: '1px solid var(--border)' }}>
-          Selecione <strong>versão</strong> e <strong>empresa</strong> para preencher os valores.
+          Selecione <strong>versão</strong> e <strong>empresa</strong> (ou 🌐 premissas globais) para preencher os valores.
         </div>
       ) : (
         <div ref={wrapRef} tabIndex={0} onKeyDown={onGridKey} onPaste={onPaste} style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 12, outline: 'none' }}>
@@ -412,15 +475,17 @@ export default function FormularioEditorPage() {
                     </td>
                     {MESES.map((_, i) => {
                       const mes = i + 1; const disp = f * valDe(l, mes)
-                      const isFx = ed && !!cells[l.id]?.[mes]?.expressao
+                      const eff = ed ? cellOf(l.id, mes) : { cell: null, herdado: false }
+                      const isFx = ed && !!eff.cell?.expressao
+                      const herdado = ed && eff.herdado
                       const isActive = active?.r === ri && active?.c === i
                       const isEditingCell = editing && isActive
                       if (espaco) return <td key={i} style={{ borderBottom: '1px solid var(--panel)' }} />
                       return (
-                        <td key={i} title={isFx ? toDisplay(cells[l.id]?.[mes]?.expressao || null) : undefined}
-                          style={{ padding: '4px 10px', borderBottom: '1px solid var(--panel)', textAlign: 'right', fontSize: 13, whiteSpace: 'nowrap', cursor: ed && !readOnly ? 'cell' : 'default', color: disp < 0 ? 'var(--red)' : (isAgg ? 'var(--text-mid)' : 'var(--text)'), fontWeight: isAgg ? 600 : 400, fontStyle: isFx ? 'italic' : undefined, background: (isActive && !isEditingCell) ? 'rgba(59,130,246,0.16)' : (ed ? undefined : 'var(--bg-soft)'), outline: (isActive && !isEditingCell) ? '2px solid var(--blue)' : undefined, outlineOffset: -2 }}
+                        <td key={i} title={isFx ? `${herdado ? '🌐 global · ' : ''}${toDisplay(eff.cell?.expressao || null)}` : (herdado ? '🌐 premissa global (herdada) — edite para sobrescrever, vazio volta a herdar' : undefined)}
+                          style={{ padding: '4px 10px', borderBottom: '1px solid var(--panel)', textAlign: 'right', fontSize: 13, whiteSpace: 'nowrap', cursor: ed && !readOnly ? 'cell' : 'default', color: disp < 0 ? 'var(--red)' : (herdado ? 'var(--muted)' : (isAgg ? 'var(--text-mid)' : 'var(--text)')), fontWeight: isAgg ? 600 : 400, fontStyle: (isFx || herdado) ? 'italic' : undefined, background: (isActive && !isEditingCell) ? 'rgba(59,130,246,0.16)' : (ed ? undefined : 'var(--bg-soft)'), outline: (isActive && !isEditingCell) ? '2px solid var(--blue)' : undefined, outlineOffset: -2 }}
                           onClick={() => { setActive({ r: ri, c: i }); wrapRef.current?.focus() }}
-                          onDoubleClick={() => { if (!ed || readOnly) return; setActive({ r: ri, c: i }); const c = cells[l.id]?.[mes]; setEditVal(c?.expressao ? toDisplay(c.expressao) : (disp ? numToInput(disp) : '')); setEditing(true) }}>
+                          onDoubleClick={() => { if (!ed || readOnly) return; setActive({ r: ri, c: i }); const c = eff.cell; setEditVal(c?.expressao ? toDisplay(c.expressao) : (disp ? numToInput(disp) : '')); setEditing(true) }}>
                           {isEditingCell ? (
                             <FormulaCellInput value={editVal} onChange={setEditVal}
                               onCommit={commitMove} onCancel={() => { setEditing(false); setTimeout(() => wrapRef.current?.focus(), 0) }} onFill={mes < 12 ? fillRight : undefined} linhas={refLinhas}
@@ -433,7 +498,7 @@ export default function FormularioEditorPage() {
                   </tr>
                 )
               })}
-              {linhas.length === 0 && <tr><td colSpan={14} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>Sem linhas — abra a Estrutura e adicione drivers.</td></tr>}
+              {linhas.length === 0 && <tr><td colSpan={14} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>Sem linhas — {cap.can('estrutura') ? 'abra a Estrutura e adicione drivers.' : 'peça a um administrador para montar a estrutura.'}</td></tr>}
             </tbody>
           </table>
         </div>

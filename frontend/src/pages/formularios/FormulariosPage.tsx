@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { useCapacidades } from '../../hooks/useCapacidades'
 import { T } from '../../lib/theme'
-import { Plus, Pencil, Trash2, ChevronRight, SlidersHorizontal } from 'lucide-react'
+import { Plus, Pencil, Trash2, ChevronRight, SlidersHorizontal, Settings2 } from 'lucide-react'
 
 // Hub de Formulários de drivers (F5). Lista/cria formulários; cada um abre no editor.
 type Formulario = { id: string; codigo: string; nome: string; descricao: string | null; _nlinhas?: number }
@@ -43,6 +44,7 @@ export default function FormulariosPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [modal, setModal] = useState<ModalState>({ open: false })
   const navigate = useNavigate()
+  const cap = useCapacidades()
 
   const load = async () => {
     setLoading(true); setErro(null)
@@ -115,9 +117,10 @@ export default function FormulariosPage() {
               <div style={S.footer}>
                 <span style={{ fontSize: 12, color: T.muted }}>{f._nlinhas} linha{f._nlinhas !== 1 ? 's' : ''}</span>
                 <div style={S.actions}>
-                  <button style={S.btnIcon} title="Editar" onClick={e => openEdit(f, e)}><Pencil size={14} /></button>
+                  {cap.can('estrutura') && <button style={S.btnIcon} title="Estrutura (desenho do formulário)" onClick={e => { e.stopPropagation(); navigate(`/formularios/${f.id}/estrutura`) }}><Settings2 size={14} /></button>}
+                  <button style={S.btnIcon} title="Renomear" onClick={e => openEdit(f, e)}><Pencil size={14} /></button>
                   <button style={S.btnIcon} title="Excluir" onClick={e => del(f.id, e)}><Trash2 size={14} /></button>
-                  <button style={{ ...S.btnIcon, color: T.violet }} title="Abrir"><ChevronRight size={16} /></button>
+                  <button style={{ ...S.btnIcon, color: T.violet }} title="Preencher"><ChevronRight size={16} /></button>
                 </div>
               </div>
             </div>

@@ -233,7 +233,8 @@ function Shell({ session }: { session: Session }) {
             <Route path="/orcar-grade"     element={<RelatorioPage linkBase="/orcar-grade" titulo="Orçar (grade)" subtitulo="Escolha o relatório para orçar por empresa × filial × centro de custo" />} />
             <Route path="/orcar-grade/:id" element={<OrcarGradePage />} />
             <Route path="/formularios"     element={<FormulariosPage />} />
-            <Route path="/formularios/:id" element={<FormularioEditorPage />} />
+            <Route path="/formularios/:id" element={<FormularioEditorPage mode="preencher" />} />
+            <Route path="/formularios/:id/estrutura" element={<FormularioEditorPage mode="estrutura" />} />
             <Route path="/dre"             element={<DrePage />} />
             <Route path="/orcamento"       element={<OrcadoDadosPage />} />
             <Route path="/realizado"       element={<RealizadoDadosPage />} />
