@@ -24,6 +24,7 @@ type Relatorio = {
   descricao: string | null
   _nlinhas?: number
 }
+type Preset = { id: string; nome: string; base: string; cor: string | null; owner_id: string | null }
 
 const S: Record<string, CSSProperties> = {
   page:    { padding: 24 },
@@ -78,6 +79,56 @@ export default function RelatorioPage({ linkBase = '/relatorios', titulo = 'Rela
     setLoading(false)
   }
   useEffect(() => { load() }, [])
+
+  // ── Presets "Meus Relatórios" (dashboard_card, base '/relatorios/<id>') — só na lista principal
+  const [presets, setPresets] = useState<Preset[]>([])
+  const [uid, setUid] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const loadPresets = () => { supabase.from('dashboard_card').select('id,nome,base,cor,owner_id').like('base', '/relatorios/%').order('created_at', { ascending: false }).then(r => setPresets((r.data || []) as Preset[])) }
+  useEffect(() => {
+    if (linkBase !== '/relatorios') return
+    loadPresets()
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      const u = user?.id ?? null; setUid(u)
+      const { data: ut } = await supabase.from('user_tenant').select('role').eq('user_id', u).limit(1)
+      setIsAdmin(((ut?.[0]?.role as string) ?? '') === 'admin')
+    })
+  }, [linkBase])
+  const relNomeDeBase = (base: string) => rels.find(r => r.id === base.replace('/relatorios/', ''))?.nome || 'Relatório'
+  const podeEditarPreset = (p: Preset) => (!!p.owner_id && p.owner_id === uid) || (!p.owner_id && isAdmin)
+  const excluirPreset = async (pid: string, nome: string, e: ReactMouseEvent) => { e.stopPropagation(); if (!window.confirm(`Excluir o preset "${nome}"?`)) return; const { error } = await supabase.from('dashboard_card').delete().eq('id', pid); if (error) { alert('Erro: ' + error.message); return } loadPresets() }
+  const renomearPreset = async (pid: string, atual: string, e: ReactMouseEvent) => { e.stopPropagation(); const novo = window.prompt('Novo nome do preset:', atual)?.trim(); if (!novo || novo === atual) return; const { error } = await supabase.from('dashboard_card').update({ nome: novo }).eq('id', pid); if (error) { alert('Erro: ' + error.message); return } loadPresets() }
+  const pbadge: CSSProperties = { marginLeft: 8, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--blue)', background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 99, padding: '1px 6px' }
+  const presetSection = (tit: string, list: Preset[]) => list.length === 0 ? null : (
+    <div style={{ marginTop: 28 }}>
+      <div style={{ fontSize: 12, color: T.faint, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, marginBottom: 10 }}>{tit}</div>
+      <div style={S.grid}>
+        {list.map(p => (
+          <div key={p.id} style={S.card} onClick={() => navigate(`${p.base}?card=${p.id}`)}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 8px 30px rgba(0,0,0,0.45)'; e.currentTarget.style.borderColor = T.borderS }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = T.border }}>
+            <div style={S.cardTop}>
+              <div>
+                <div style={S.nome}>{p.nome}{!p.owner_id && <span style={pbadge}>compartilhado</span>}</div>
+                <div style={S.codigo}>{relNomeDeBase(p.base)}</div>
+              </div>
+              <ChevronRight size={16} style={{ color: T.violet }} />
+            </div>
+            <div style={S.desc}>Abre o relatório já com filtros, período e visão.</div>
+            <div style={S.footer}>
+              <span style={{ fontSize: 12, color: T.muted }}>preset salvo</span>
+              {podeEditarPreset(p) && (
+                <div style={S.actions}>
+                  <button style={S.btnIcon} title="Renomear" onClick={e => renomearPreset(p.id, p.nome, e)}><Pencil size={14} /></button>
+                  <button style={S.btnIcon} title="Excluir" onClick={e => excluirPreset(p.id, p.nome, e)}><Trash2 size={14} /></button>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 
   const openCreate = () => setModal({ open: true, codigo: '', nome: '', categoria_id: cats[0]?.id ?? '', descricao: '' })
   const openEdit = (r: Relatorio, e: ReactMouseEvent) => {
@@ -204,6 +255,13 @@ export default function RelatorioPage({ linkBase = '/relatorios', titulo = 'Rela
             </div>
           ))}
         </div>
+      )}
+
+      {linkBase === '/relatorios' && (
+        <>
+          {presetSection('Meus Relatórios', presets.filter(p => !!p.owner_id && p.owner_id === uid))}
+          {presetSection('Compartilhados', presets.filter(p => !p.owner_id))}
+        </>
       )}
 
       {modal.open && (

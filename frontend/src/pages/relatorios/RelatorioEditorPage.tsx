@@ -10,11 +10,11 @@ import {
 import type { LinhaCalc, RawValues, Computed, Periodo, TipoLinha, Formato } from '../../lib/engine'
 import FormulaCellInput from './FormulaCellInput'
 import { importBaseline as importBaselineLib, modeloBaseline as modeloBaselineLib } from '../../lib/importOrcado'
-import { effectiveCcFilter, FiltrosButton, PeriodoButton, Checklist, opcoesAttr } from '../dashboard/DashFiltros'
+import { effectiveCcFilter, FiltrosButton, PeriodoButton, Checklist, opcoesAttr, SalvarCardButton, useCardPreset } from '../dashboard/DashFiltros'
 import type { CC as CCItem } from '../dashboard/DashFiltros'
 import {
   ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Settings2, X,
-  Sigma, FunctionSquare, Percent, Minus, Type, Download, Upload, Link2, ChevronsUpDown, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Pencil, Eye, EyeOff, Strikethrough, ListTree, History, RotateCcw, Save,
+  Sigma, FunctionSquare, Percent, Minus, Type, Download, Upload, Link2, ChevronsUpDown, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Pencil, Eye, EyeOff, Strikethrough, ListTree, History, RotateCcw, RefreshCw, Save,
 } from 'lucide-react'
 
 declare const XLSX: any
@@ -440,11 +440,31 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     loadDim(); loadViews(); loadContas(); loadContaLinks()
   }, [id]) // eslint-disable-line
 
-  // Salva o filtro do usuário quando muda (restaurado via lazy-init de useState)
+  // Preset "Meus Relatórios" (dashboard_card, base '/relatorios/<id>'): captura/restaura os parâmetros do usuário.
+  const getFiltros = () => ({ empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, activeView, hideEmpty, hideOff })
+  const aplicarPreset = (f: any) => {
+    if (!f) return
+    if (Array.isArray(f.empresaSel)) setEmpresaSel(f.empresaSel)
+    if (Array.isArray(f.filialSel)) setFilialSel(f.filialSel)
+    if (Array.isArray(f.ccSel)) setCcSel(f.ccSel)
+    if (Array.isArray(f.areaSel)) setAreaSel(f.areaSel)
+    if (Array.isArray(f.divisaoSel)) setDivisaoSel(f.divisaoSel)
+    if (Array.isArray(f.buSel)) setBuSel(f.buSel)
+    if (typeof f.versaoId === 'string') setVersaoId(f.versaoId)
+    if (Array.isArray(f.periodosSel) && f.periodosSel.length) setPeriodosSel(f.periodosSel)
+    if (typeof f.activeView === 'string') setActiveView(f.activeView)
+    if (typeof f.hideEmpty === 'boolean') setHideEmpty(f.hideEmpty)
+    if (typeof f.hideOff === 'boolean') setHideOff(f.hideOff)
+  }
+  const presetBase = id ? '/relatorios/' + id : ''
+  const { cardId: presetCardId } = useCardPreset(presetBase, aplicarPreset)
+
+  // Salva o filtro do usuário quando muda (restaurado via lazy-init de useState).
+  // Em modo preset (?card=), NÃO persiste no localStorage p/ o preset não "vazar" nos filtros próprios.
   useEffect(() => {
-    if (!id) return
+    if (!id || presetCardId) return
     localStorage.setItem('planorc_filtro_' + id, JSON.stringify({ empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, hideEmpty, hideOff }))
-  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, hideEmpty, hideOff, id])
+  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, hideEmpty, hideOff, id, presetCardId])
 
   const view: ViewConfig = useMemo(() => {
     const f = views.find(v => v.id === activeView)
@@ -1427,6 +1447,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         </span>
         {!editavel && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--orange)', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.30)', borderRadius: 99, padding: '2px 8px' }}>somente leitura</span>}
 
+        <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => loadValores()} title="Atualizar os dados (após aplicar um formulário ou orçar em outra aba)">
+          <RefreshCw size={13} /> Atualizar
+        </button>
         <div style={{ position: 'relative' }}>
           <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => { setSnapOpen(o => !o); loadSnaps() }} title="Pontos de restauração (desfazer alterações)">
             <History size={13} /> Pontos {snapBusy && '…'}
@@ -1464,6 +1487,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }} onClick={exportMatrix} title="Exportar para Excel (modelo preenchível)">
           <Download size={13} /> Excel
         </button>
+        {presetBase && <SalvarCardButton base={presetBase} getFiltros={getFiltros} cardId={presetCardId} />}
         <div style={{ position: 'relative' }}>
           <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setImpMenu(o => !o)}>
             <Upload size={13} /> Importar ▾

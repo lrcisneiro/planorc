@@ -18,7 +18,7 @@ const BASE_NOME: Record<string, string> = {
   '/dashboards/executivo': 'Visão executiva', '/dashboards/cagr': 'CAGR', '/dashboards/indicadores': 'Indicadores',
 }
 
-type MeuCard = { id: string; nome: string; base: string; cor: string | null }
+type MeuCard = { id: string; nome: string; base: string; cor: string | null; owner_id: string | null }
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
@@ -30,12 +30,25 @@ const S: Record<string, CSSProperties> = {
   ico:   { width: 44, height: 44, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   ctit:  { fontSize: 15, fontWeight: 600, color: T.text, margin: 0 },
   cdesc: { fontSize: 12.5, color: T.muted, margin: '6px 0 0', lineHeight: 1.45 },
+  badge: { marginLeft: 8, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--blue)', background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 99, padding: '1px 6px', verticalAlign: 'middle' },
 }
 
 export default function DashboardsHubPage() {
   const [meus, setMeus] = useState<MeuCard[]>([])
-  const loadMeus = () => { supabase.from('dashboard_card').select('id,nome,base,cor').order('ordem', { nullsFirst: false }).order('created_at').then(r => setMeus((r.data || []) as MeuCard[])) }
-  useEffect(() => { loadMeus() }, [])
+  const [uid, setUid] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  // só presets de DASHBOARD; os de relatório (base '/relatorios/…') aparecem na lista de Relatórios, não aqui.
+  const loadMeus = () => { supabase.from('dashboard_card').select('id,nome,base,cor,owner_id').order('ordem', { nullsFirst: false }).order('created_at').then(r => setMeus(((r.data || []) as MeuCard[]).filter(m => !m.base.startsWith('/relatorios/')))) }
+  useEffect(() => {
+    loadMeus()
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      const u = user?.id ?? null; setUid(u)
+      const { data: ut } = await supabase.from('user_tenant').select('role').eq('user_id', u).limit(1)
+      setIsAdmin(((ut?.[0]?.role as string) ?? '') === 'admin')
+    })
+  }, [])
+  const pessoais = meus.filter(m => !!m.owner_id && m.owner_id === uid)
+  const compartilhados = meus.filter(m => !m.owner_id)
   const excluir = async (id: string, nome: string) => {
     if (!window.confirm(`Excluir o card "${nome}"?`)) return
     const { error } = await supabase.from('dashboard_card').delete().eq('id', id)
@@ -51,6 +64,37 @@ export default function DashboardsHubPage() {
   }
 
   const hover = (on: boolean) => (e: any) => { e.currentTarget.style.boxShadow = on ? '0 10px 30px rgba(0,0,0,0.4)' : 'none'; e.currentTarget.style.transform = on ? 'translateY(-2px)' : 'none'; e.currentTarget.style.borderColor = on ? 'var(--border-strong)' : 'var(--border)' }
+  // pode renomear/excluir: dono do card pessoal, ou admin nos compartilhados (a RLS também garante)
+  const podeEditar = (m: MeuCard) => (!!m.owner_id && m.owner_id === uid) || (!m.owner_id && isAdmin)
+  const cardSection = (titulo: string, list: MeuCard[]) => list.length === 0 ? null : (
+    <>
+      <div style={S.sechd}>{titulo}</div>
+      <div style={S.grid}>
+        {list.map(m => {
+          const cor = m.cor || '#3b5bdb'
+          return (
+            <Link key={m.id} to={`${m.base}?card=${m.id}`} style={S.card} onMouseEnter={hover(true)} onMouseLeave={hover(false)}>
+              <div style={{ ...S.ico, background: cor + '1a', color: cor }}><Bookmark size={20} /></div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={S.ctit}>{m.nome}{!m.owner_id && <span style={S.badge}>compartilhado</span>}</p>
+                <p style={S.cdesc}>{BASE_NOME[m.base] || m.base} · preset salvo</p>
+              </div>
+              {podeEditar(m) && (
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  <span title="Renomear" style={{ display: 'inline-flex' }} onClick={e => { e.preventDefault(); e.stopPropagation(); renomear(m.id, m.nome) }}>
+                    <Pencil size={15} style={{ color: 'var(--muted)', cursor: 'pointer' }} />
+                  </span>
+                  <span title="Excluir" style={{ display: 'inline-flex' }} onClick={e => { e.preventDefault(); e.stopPropagation(); excluir(m.id, m.nome) }}>
+                    <Trash2 size={15} style={{ color: 'var(--muted)', cursor: 'pointer' }} />
+                  </span>
+                </div>
+              )}
+            </Link>
+          )
+        })}
+      </div>
+    </>
+  )
 
   return (
     <div style={S.page}>
@@ -71,33 +115,8 @@ export default function DashboardsHubPage() {
         })}
       </div>
 
-      {meus.length > 0 && (
-        <>
-          <div style={S.sechd}>Meus cards</div>
-          <div style={S.grid}>
-            {meus.map(m => {
-              const cor = m.cor || '#3b5bdb'
-              return (
-                <Link key={m.id} to={`${m.base}?card=${m.id}`} style={S.card} onMouseEnter={hover(true)} onMouseLeave={hover(false)}>
-                  <div style={{ ...S.ico, background: cor + '1a', color: cor }}><Bookmark size={20} /></div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={S.ctit}>{m.nome}</p>
-                    <p style={S.cdesc}>{BASE_NOME[m.base] || m.base} · preset salvo</p>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                    <span title="Renomear" style={{ display: 'inline-flex' }} onClick={e => { e.preventDefault(); e.stopPropagation(); renomear(m.id, m.nome) }}>
-                      <Pencil size={15} style={{ color: 'var(--muted)', cursor: 'pointer' }} />
-                    </span>
-                    <span title="Excluir" style={{ display: 'inline-flex' }} onClick={e => { e.preventDefault(); e.stopPropagation(); excluir(m.id, m.nome) }}>
-                      <Trash2 size={15} style={{ color: 'var(--muted)', cursor: 'pointer' }} />
-                    </span>
-                  </div>
-                </Link>
-              )
-            })}
-          </div>
-        </>
-      )}
+      {cardSection('Meus dashboards', pessoais)}
+      {cardSection('Compartilhados', compartilhados)}
     </div>
   )
 }

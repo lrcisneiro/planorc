@@ -38,7 +38,7 @@ const itemStyle = (hi: boolean): CSSProperties => ({
 })
 const tagStyle = (c: string): CSSProperties => ({ fontSize: 9, fontWeight: 700, color: c, width: 26, flexShrink: 0 })
 
-export default function FormulaCellInput({ value, onChange, onCommit, onCancel, onFill, onDetail, onPasteBlock, linhas, inputStyle, fullWidth }: {
+export default function FormulaCellInput({ value, onChange, onCommit, onCancel, onFill, onDetail, onPasteBlock, linhas, inputStyle, fullWidth, refByCode, multiline }: {
   value: string
   onChange: (v: string) => void
   onCommit?: () => void
@@ -49,8 +49,10 @@ export default function FormulaCellInput({ value, onChange, onCommit, onCancel, 
   linhas: RefLinha[]
   inputStyle: CSSProperties
   fullWidth?: boolean
+  refByCode?: boolean   // referências por CÓDIGO da linha (ex.: [METANR]) em vez da descrição
+  multiline?: boolean   // editor em textarea (quebra linha) — p/ o modal de fórmula
 }) {
-  const ref = useRef<HTMLInputElement>(null)
+  const ref = useRef<any>(null)
   const [hi, setHi] = useState(0)
   const [closed, setClosed] = useState(false)
   const [pendingCaret, setPendingCaret] = useState<number | null>(null)
@@ -86,7 +88,7 @@ export default function FormulaCellInput({ value, onChange, onCommit, onCancel, 
     const refs: Sug[] = linhas
       .filter(l => !!l.descricao && (!T || l.codigo.toUpperCase().includes(T) || l.descricao.toUpperCase().includes(T)))
       .slice(0, 8)
-      .map(l => ({ kind: 'ref' as const, label: l.descricao, sub: l.codigo, codigo: l.descricao }))
+      .map(l => ({ kind: 'ref' as const, label: refByCode ? l.codigo : l.descricao, sub: refByCode ? l.descricao : l.codigo, codigo: refByCode ? l.codigo : l.descricao }))
     if (refMode) {
       sugs = refs
     } else {
@@ -108,30 +110,31 @@ export default function FormulaCellInput({ value, onChange, onCommit, onCancel, 
     setHi(0)
   }
 
+  const onCh = (e: any) => { onChange(e.target.value); setClosed(false); setHi(0) }
+  const onPst = (e: any) => { if (onPasteBlock && !multiline) { const t = e.clipboardData.getData('text'); if (/[\t\n]/.test(t)) { e.preventDefault(); onPasteBlock(t) } } }
+  const onBl = () => { if (!open) onCommit?.() }
+  const onKey = (e: any) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && onFill) { e.preventDefault(); onFill(); return }
+    if (open) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => (h + 1) % sugs.length); return }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); setHi(h => (h - 1 + sugs.length) % sugs.length); return }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); accept(sugs[hi]); return }
+      if (e.key === 'Escape')    { e.preventDefault(); setClosed(true); return }
+    } else {
+      if (e.key === 'Enter' && !multiline) { e.preventDefault(); onCommit?.(); return }   // multiline: Enter = nova linha
+      if (e.key === 'Escape') { onCancel?.(); return }
+    }
+  }
+
   return (
-    <span style={{ ...ST.wrap, ...(fullWidth ? { display: 'block', width: '100%' } : {}) }}>
-      <input
-        ref={ref}
-        style={{ ...inputStyle, width: fullWidth ? '100%' : (isFormula ? 180 : (inputStyle.width as number)), boxSizing: 'border-box' }}
-        autoFocus={!fullWidth}
-        value={value}
-        onChange={e => { onChange(e.target.value); setClosed(false); setHi(0) }}
-        onPaste={e => { if (onPasteBlock) { const t = e.clipboardData.getData('text'); if (/[\t\n]/.test(t)) { e.preventDefault(); onPasteBlock(t) } } }}
-        onBlur={() => { if (!open) onCommit?.() }}
-        onKeyDown={e => {
-          // Ctrl/Cmd+Enter → replicar até dezembro (mesmo com menu aberto)
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && onFill) { e.preventDefault(); onFill(); return }
-          if (open) {
-            if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => (h + 1) % sugs.length); return }
-            if (e.key === 'ArrowUp')   { e.preventDefault(); setHi(h => (h - 1 + sugs.length) % sugs.length); return }
-            if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); accept(sugs[hi]); return }
-            if (e.key === 'Escape')    { e.preventDefault(); setClosed(true); return }
-          } else {
-            if (e.key === 'Enter') { onCommit?.(); return }
-            if (e.key === 'Escape') { onCancel?.(); return }
-          }
-        }}
-      />
+    <span style={{ ...ST.wrap, ...((fullWidth || multiline) ? { display: 'block', width: '100%' } : {}) }}>
+      {multiline ? (
+        <textarea ref={ref} autoFocus value={value} onChange={onCh} onPaste={onPst} onBlur={onBl} onKeyDown={onKey}
+          style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', whiteSpace: 'pre-wrap', wordBreak: 'break-word', resize: 'vertical' }} />
+      ) : (
+        <input ref={ref} autoFocus={!fullWidth} value={value} onChange={onCh} onPaste={onPst} onBlur={onBl} onKeyDown={onKey}
+          style={{ ...inputStyle, width: fullWidth ? '100%' : (isFormula ? 180 : (inputStyle.width as number)), boxSizing: 'border-box' }} />
+      )}
       {onFill && (
         <button
           title="Replicar até dezembro (Ctrl+Enter)"

@@ -58,14 +58,29 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   const [cells, setCells] = useState<CellMap>({})   // escopo atual (empresa selecionada, ou global se GLOBAL)
   const [gcells, setGcells] = useState<CellMap>({}) // premissas globais (herança na grade da empresa)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const activeTdRef = useRef<HTMLTableCellElement>(null)
   const [active, setActive] = useState<{ r: number; c: number } | null>(null)
   const [editing, setEditing] = useState(false)
   const [editVal, setEditVal] = useState('')
+  const [fbVal, setFbVal] = useState('')   // barra de fórmula (estilo Excel) — conteúdo da célula ativa
   const [saving, setSaving] = useState(false)
   const [aplicando, setAplicando] = useState(false)
-  const [fxEdit, setFxEdit] = useState<Record<string, string>>({})   // fórmula em edição (forma exibida) por linha da estrutura
+  const [fxModal, setFxModal] = useState<{ lineId: string; val: string } | null>(null)   // modal de edição da fórmula da linha
   const [scopeRows, setScopeRows] = useState<{ empresa_id: string | null; filial_id: string | null; cc_id: string | null }[]>([])   // escopos com dados (marca ●)
   const [scopesRefresh, setScopesRefresh] = useState(0)
+
+  // Rola a célula ativa para dentro da tela ao navegar pelo teclado (horizontal = meses; vertical = linhas).
+  // block/inline 'nearest' = movimento mínimo; depois ajusta a horizontal por causa da coluna "Linha" sticky.
+  useEffect(() => {
+    const td = activeTdRef.current, wrap = wrapRef.current
+    if (!td) return
+    td.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    if (wrap) {
+      const tr = td.getBoundingClientRect(), wr = wrap.getBoundingClientRect()
+      const stickyW = 308   // largura da 1ª coluna (Linha) sticky + folga; ela cobre a célula à esquerda
+      if (tr.left < wr.left + stickyW) wrap.scrollLeft -= (wr.left + stickyW - tr.left)
+    }
+  }, [active])
 
   const loadLinhas = async () => {
     const { data } = await supabase.from('formulario_linha')
@@ -99,12 +114,10 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   }, [formId, isEstrutura])
 
   const byId = useMemo(() => { const m: Record<string, FLinha> = {}; linhas.forEach(l => { m[l.id] = l }); return m }, [linhas])
-  const { codeToDesc, descToCode } = useMemo(() => {
-    const c2d: Record<string, string> = {}, d2c: Record<string, string> = {}
-    linhas.forEach(l => { c2d[l.codigo] = l.descricao; d2c[l.descricao] = l.codigo }); return { codeToDesc: c2d, descToCode: d2c }
-  }, [linhas])
-  const toDisplay = (e: string | null) => e ? e.replace(/\[([^\]]+)\]/g, (_m, c) => `[${codeToDesc[c] ?? c}]`) : ''
-  const toStored = (e: string) => e ? e.replace(/\[([^\]]+)\]/g, (_m, c) => `[${descToCode[c] ?? c}]`) : ''
+  // Fórmulas do formulário referenciam por CÓDIGO da linha (ex.: [METANR]) — como o dado é armazenado.
+  // Não há conversão desc↔código (diferente do relatório): exibe e grava o código direto.
+  const toDisplay = (e: string | null) => e || ''
+  const toStored = (e: string) => e || ''
   const natEff = (id: string | null): string => { let c = id ? byId[id] : undefined, g = 0; while (c && g++ < 60) { if (c.natureza === 'RECEITA' || c.natureza === 'DESPESA') return c.natureza; c = c.pai_id ? byId[c.pai_id] : undefined } return '' }
   const facOf = (l: FLinha) => natEff(l.id) === 'DESPESA' ? -1 : 1
   const depthOf = (l: FLinha) => { let d = 0, c: FLinha | undefined = l; while (c?.pai_id && byId[c.pai_id] && d < 60) { d++; c = byId[c.pai_id] } return d }
@@ -304,6 +317,25 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
     e.preventDefault(); pasteBlock(text)
   }
 
+  // ── Barra de fórmula (Excel): sincroniza com a célula ativa e grava ao confirmar (analítica) ──
+  const syncFb = () => {
+    if (!active) { setFbVal(''); return }
+    const l = ordered[active.r]; const mes = active.c + 1
+    if (!l || !editavel(l)) { setFbVal(''); return }
+    const c = cellOf(l.id, mes).cell
+    setFbVal(c?.expressao ? toDisplay(c.expressao) : (c?.valor ? numToInput(facOf(l) * c.valor) : ''))
+  }
+  useEffect(() => { syncFb() }, [active, cells, gcells]) // eslint-disable-line
+  const commitBar = async () => {
+    if (!active) return
+    const l = ordered[active.r]; const mes = active.c + 1
+    if (!l || !editavel(l) || readOnly) return
+    setSaving(true)
+    if (fbVal.trim() === '') { await deleteOne(l.id, mes); setCellState(l.id, mes, null) }
+    else { const { valor, expressao } = parseCell(l, fbVal); await saveOne(l.id, mes, valor, expressao); setCellState(l.id, mes, { valor: valor || 0, expressao }) }
+    setSaving(false); setTimeout(() => wrapRef.current?.focus(), 0)
+  }
+
   // ── ESTRUTURA (CRUD de linhas — só no mode="estrutura") ──
   const addLinha = async () => {
     const maxOrd = linhas.reduce((m, l) => Math.max(m, l.ordem ?? 0), 0)
@@ -316,12 +348,6 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
     setLinhas(prev => prev.map(l => l.id === id ? { ...l, ...patch } : l))
     const { error } = await supabase.from('formulario_linha').update(patch).eq('id', id)
     if (error) alert('Erro: ' + error.message)
-  }
-  const commitFx = (l: FLinha) => {
-    const disp = fxEdit[l.id]
-    if (disp === undefined) return
-    updateLinha(l.id, { expressao: disp.trim() ? toStored(disp.trim()) : null })
-    setFxEdit(p => { const n = { ...p }; delete n[l.id]; return n })
   }
   const delLinha = async (id: string) => {
     if (!confirm('Excluir esta linha e seus valores?')) return
@@ -345,24 +371,33 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
     if (!pronto || readOnly || isGlobal) return
     const destinos = linhas.filter(l => l.conta_destino_id)
     if (!destinos.length) { alert('Nenhuma linha tem conta de destino. Defina o destino nas linhas-resultado (Estrutura) antes de aplicar.'); return }
-    if (!confirm(`Aplicar ${destinos.length} linha(s)-resultado no orçado da versão "${versao?.codigo}", na empresa/filial/centro de custo selecionados?\n\nIsto substitui o que este formulário já havia aplicado nesse escopo.`)) return
+    if (!confirm(`Aplicar ${destinos.length} linha(s)-resultado no orçado da versão "${versao?.codigo}", na empresa/filial/centro de custo selecionados?\n\nSubstitui apenas o que ESTE formulário já havia aplicado. Valores manuais e de outros formulários são preservados.`)) return
     setAplicando(true)
     try {
       const lineIds = linhas.map(l => l.id)
-      // limpa o que este formulário já aplicou nesse escopo (versão × empresa × filial × CC)
-      let del = supabase.from('fat_orcado').delete().eq('versao_id', versaoId).eq('empresa_id', empresaId).eq('origem', 'FORMULARIO').in('origem_formulario_linha_id', lineIds)
+      const contaIds = [...new Set(destinos.map(l => l.conta_destino_id))] as string[]
+      const trace = `Formulário: ${nome}`
+      // dims marca este formulário: histórico legível + id (separa da chave única quando OUTRO formulário
+      // ou lançamento manual grava na MESMA conta/célula — aí coexistem e somam no relatório).
+      const marca = { historico: trace, form: formId }
+      // apaga SÓ o que ESTE formulário já aplicou nesse escopo (não toca manual nem outros formulários)
+      let del = supabase.from('fat_orcado').delete().eq('versao_id', versaoId).eq('empresa_id', empresaId).eq('ano', ano).eq('origem', 'FORMULARIO').in('origem_formulario_linha_id', lineIds)
       del = filialId ? del.eq('filial_id', filialId) : del.is('filial_id', null)
       del = ccId ? del.eq('cc_id', ccId) : del.is('cc_id', null)
       const { error: eDel } = await del; if (eDel) throw eDel
-      // monta os registros calculados (só meses com valor ≠ 0)
-      const recs: any[] = []
+      // agrega por conta_destino × mês (soma linhas do MESMO formulário na mesma conta) — evita colisão de chave
+      const agg = new Map<string, any>()
       for (const l of destinos) for (let mes = 1; mes <= 12; mes++) {
         const v = computed[l.id]?.[`${ano}-${mes}`] || 0
         if (!v) continue
-        recs.push({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: l.conta_destino_id, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, valor: v, expressao: null, origem: 'FORMULARIO', origem_formulario_linha_id: l.id, dims: {} })
+        const key = `${l.conta_destino_id}|${mes}`
+        const cur = agg.get(key)
+        if (cur) cur.valor += v
+        else agg.set(key, { tenant_id: TENANT_ID, versao_id: versaoId, linha_id: l.conta_destino_id, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, valor: v, expressao: null, origem: 'FORMULARIO', origem_formulario_linha_id: l.id, dims: marca })
       }
+      const recs = Array.from(agg.values())
       for (let i = 0; i < recs.length; i += 500) { const { error } = await supabase.from('fat_orcado').insert(recs.slice(i, i + 500)); if (error) throw error }
-      alert(`Aplicado: ${recs.length} célula(s) de ${destinos.length} linha(s)-resultado no orçado.`)
+      alert(`Aplicado: ${recs.length} célula(s) em ${contaIds.length} conta(s), rastreável no histórico como "${trace}". Valores manuais e de outros formulários foram preservados.`)
     } catch (e: any) { alert('Erro ao aplicar: ' + (e?.message ?? JSON.stringify(e))) }
     setAplicando(false)
   }
@@ -422,14 +457,14 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       )}
 
       {isEstrutura ? (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflowX: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--bg-soft)', borderBottom: '1px solid var(--border)' }}>
             <strong style={{ fontSize: 13, color: 'var(--text)' }}>Estrutura do formulário</strong>
             <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }} onClick={addLinha}><Plus size={13} /> Linha</button>
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead><tr>
-              {['', 'Descrição', 'Tipo', 'Natureza', 'Casas', 'Fórmula (se cálculo)', 'Conta de destino (orçado)', ''].map((h, i) => <th key={i} style={{ ...S.th, textAlign: 'left' }}>{h}</th>)}
+              {['', 'Código', 'Descrição', 'Tipo', 'Natureza', 'Formato', 'Casas', 'Fórmula (se cálculo)', 'Conta de destino (orçado)', ''].map((h, i) => <th key={i} style={{ ...S.th, textAlign: 'left' }}>{h}</th>)}
             </tr></thead>
             <tbody>
               {ordered.map(l => (
@@ -438,6 +473,7 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
                     <button style={S.iconBtn} onClick={() => moveLinha(l, -1)} title="Subir"><ArrowUp size={13} /></button>
                     <button style={S.iconBtn} onClick={() => moveLinha(l, 1)} title="Descer"><ArrowDown size={13} /></button>
                   </td>
+                  <td style={{ padding: '4px 6px' }}><input style={{ ...S.input, width: 92, fontFamily: 'monospace' }} value={l.codigo} onChange={e => setLinhas(p => p.map(x => x.id === l.id ? { ...x, codigo: e.target.value } : x))} onBlur={e => updateLinha(l.id, { codigo: e.target.value.trim() })} title="Código da linha — usado nas fórmulas: [código]" /></td>
                   <td style={{ padding: '4px 6px' }}><input style={{ ...S.input, width: 220 }} value={l.descricao} onChange={e => setLinhas(p => p.map(x => x.id === l.id ? { ...x, descricao: e.target.value } : x))} onBlur={e => updateLinha(l.id, { descricao: e.target.value })} /></td>
                   <td style={{ padding: '4px 6px' }}>
                     <select style={S.input} value={l.tipo_linha} onChange={e => updateLinha(l.id, { tipo_linha: e.target.value })}>
@@ -454,20 +490,23 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
                     </select>
                   </td>
                   <td style={{ padding: '4px 6px' }}>
+                    <select style={S.input} value={l.formato || 'NUMERO'} onChange={e => updateLinha(l.id, { formato: e.target.value })}>
+                      <option value="NUMERO">Número</option>
+                      <option value="PERCENTUAL">Percentual %</option>
+                      <option value="MOEDA">Moeda R$</option>
+                    </select>
+                  </td>
+                  <td style={{ padding: '4px 6px' }}>
                     <input type="number" min={0} max={4} style={{ ...S.input, width: 48, textAlign: 'center' }} value={l.casas_decimais ?? 0}
                       onChange={e => setLinhas(p => p.map(x => x.id === l.id ? { ...x, casas_decimais: Number(e.target.value) } : x))}
                       onBlur={e => updateLinha(l.id, { casas_decimais: Math.max(0, Math.min(4, Number(e.target.value) || 0)) })} />
                   </td>
                   <td style={{ padding: '4px 6px', minWidth: 210 }}>
                     {l.tipo_linha === 'FORMULA' ? (
-                      <FormulaCellInput
-                        value={fxEdit[l.id] ?? toDisplay(l.expressao)}
-                        onChange={v => setFxEdit(p => ({ ...p, [l.id]: v }))}
-                        onCommit={() => commitFx(l)}
-                        onCancel={() => setFxEdit(p => { const n = { ...p }; delete n[l.id]; return n })}
-                        linhas={refLinhas}
-                        inputStyle={{ ...S.input, fontFamily: 'monospace' }}
-                        fullWidth />
+                      <div onClick={() => setFxModal({ lineId: l.id, val: l.expressao || '' })} title="Clique para editar a fórmula"
+                        style={{ ...S.input, fontFamily: 'monospace', cursor: 'pointer', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: l.expressao ? 'var(--text)' : 'var(--faint)' }}>
+                        {l.expressao || '= (clique para definir)'}
+                      </div>
                     ) : <span style={{ color: 'var(--faint)', fontSize: 12 }}>—</span>}
                   </td>
                   <td style={{ padding: '4px 6px' }}>
@@ -479,7 +518,7 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
                   <td style={{ padding: '4px 6px' }}><button style={{ ...S.iconBtn, color: 'var(--red)' }} onClick={() => delLinha(l.id)} title="Excluir"><Trash2 size={13} /></button></td>
                 </tr>
               ))}
-              {linhas.length === 0 && <tr><td colSpan={8} style={{ padding: 20, textAlign: 'center', color: 'var(--muted)' }}>Sem linhas. Clique “+ Linha” para começar.</td></tr>}
+              {linhas.length === 0 && <tr><td colSpan={10} style={{ padding: 20, textAlign: 'center', color: 'var(--muted)' }}>Sem linhas. Clique “+ Linha” para começar.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -492,7 +531,35 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
           Selecione <strong>filial</strong> e <strong>centro de custo</strong> para lançar. Não é possível lançar no consolidado — a visão consolidada de conferência virá depois.
         </div>
       ) : (
-        <div ref={wrapRef} tabIndex={0} onKeyDown={onGridKey} onPaste={onPaste} style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 12, outline: 'none' }}>
+        <>
+          {/* Barra de fórmula (estilo Excel): mostra a célula ativa; edita na analítica */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, padding: '5px 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-soft)', minHeight: 34 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', fontFamily: 'monospace', fontStyle: 'italic', flexShrink: 0 }}>fx</span>
+            {!active ? (
+              <span style={{ fontSize: 12, color: 'var(--faint)' }}>Selecione uma célula para ver/editar a fórmula ou valor.</span>
+            ) : (() => {
+              const l = ordered[active.r]; const mes = active.c + 1
+              const edC = !!l && editavel(l) && !readOnly
+              const disp = l ? facOf(l) * valDe(l, mes) : 0
+              return (
+                <>
+                  <span title={l?.descricao} style={{ fontSize: 12, color: 'var(--text-mid)', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>{l?.descricao} · {MESES[active.c]}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {edC ? (
+                      <FormulaCellInput value={fbVal} onChange={setFbVal} onCommit={commitBar} onCancel={() => { syncFb(); wrapRef.current?.focus() }} linhas={refLinhas} refByCode
+                        inputStyle={{ ...S.input, fontFamily: 'monospace', width: '100%' }} fullWidth />
+                    ) : (
+                      <span style={{ display: 'block', fontFamily: 'monospace', fontSize: 13, color: 'var(--text-mid)', whiteSpace: 'nowrap', overflowX: 'auto', overflowY: 'hidden' }}>
+                        {l && (l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR') && l.expressao ? toDisplay(l.expressao) : (l && l.tipo_linha === 'SOMAR_FILHOS' ? 'soma dos filhos' : '—')}
+                      </span>
+                    )}
+                  </div>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', flexShrink: 0 }}>= {formatValor(disp, (l?.formato as any) || 'NUMERO', l?.casas_decimais ?? 0)}</span>
+                </>
+              )
+            })()}
+          </div>
+          <div ref={wrapRef} tabIndex={0} onKeyDown={onGridKey} onPaste={onPaste} style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 12, outline: 'none' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
             <thead>
               <tr>
@@ -508,7 +575,9 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
                 const espaco = l.tipo_linha === 'ESPACO'
                 return (
                   <tr key={l.id} style={{ background: isAgg ? 'rgba(139,92,246,0.05)' : undefined }}>
-                    <td style={{ padding: '5px 10px', borderBottom: '1px solid var(--panel)', position: 'sticky', left: 0, background: isAgg ? 'var(--bg-soft)' : 'var(--panel)', zIndex: 1, fontSize: 13, color: 'var(--text)', width: 300, minWidth: 300, fontWeight: isAgg ? 600 : 400 }}>
+                    <td onDoubleClick={() => { if (cap.can('estrutura')) navigate(`/formularios/${formId}/estrutura`) }}
+                      title={cap.can('estrutura') ? 'Duplo-clique: abrir a Estrutura para ver/editar a fórmula desta linha' : l.descricao}
+                      style={{ padding: '5px 10px', borderBottom: '1px solid var(--panel)', position: 'sticky', left: 0, background: isAgg ? 'var(--bg-soft)' : 'var(--panel)', zIndex: 1, fontSize: 13, color: 'var(--text)', width: 300, minWidth: 300, fontWeight: isAgg ? 600 : 400, cursor: cap.can('estrutura') ? 'pointer' : undefined }}>
                       <div title={l.descricao} style={{ paddingLeft: depth * 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {l.descricao}
                         {l.conta_destino_id && <span title="vai ao orçado" style={{ marginLeft: 6, fontSize: 10, color: 'var(--violet)' }}>▸ orçado</span>}
@@ -523,14 +592,14 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
                       const isEditingCell = editing && isActive
                       if (espaco) return <td key={i} style={{ borderBottom: '1px solid var(--panel)' }} />
                       return (
-                        <td key={i} title={isFx ? `${herdado ? '🌐 global · ' : ''}${toDisplay(eff.cell?.expressao || null)}` : (herdado ? '🌐 premissa global (herdada) — edite para sobrescrever, vazio volta a herdar' : undefined)}
+                        <td key={i} ref={isActive ? activeTdRef : undefined} title={isFx ? `${herdado ? '🌐 global · ' : ''}${toDisplay(eff.cell?.expressao || null)}` : (herdado ? '🌐 premissa global (herdada) — edite para sobrescrever, vazio volta a herdar' : undefined)}
                           style={{ padding: '4px 10px', borderBottom: '1px solid var(--panel)', textAlign: 'right', fontSize: 13, whiteSpace: 'nowrap', cursor: ed && !readOnly ? 'cell' : 'default', color: disp < 0 ? 'var(--red)' : (herdado ? 'var(--muted)' : (isAgg ? 'var(--text-mid)' : 'var(--text)')), fontWeight: isAgg ? 600 : 400, fontStyle: (isFx || herdado) ? 'italic' : undefined, background: (isActive && !isEditingCell) ? 'rgba(59,130,246,0.16)' : (ed ? undefined : 'var(--bg-soft)'), outline: (isActive && !isEditingCell) ? '2px solid var(--blue)' : undefined, outlineOffset: -2 }}
                           onClick={() => { setActive({ r: ri, c: i }); wrapRef.current?.focus() }}
                           onDoubleClick={() => { if (!ed || readOnly) return; setActive({ r: ri, c: i }); const c = eff.cell; setEditVal(c?.expressao ? toDisplay(c.expressao) : (disp ? numToInput(disp) : '')); setEditing(true) }}>
                           {isEditingCell ? (
                             <FormulaCellInput value={editVal} onChange={setEditVal}
                               onCommit={commitMove} onCancel={() => { setEditing(false); setTimeout(() => wrapRef.current?.focus(), 0) }} onFill={mes < 12 ? fillRight : undefined}
-                              onPasteBlock={t => { setEditing(false); pasteBlock(t) }} linhas={refLinhas}
+                              onPasteBlock={t => { setEditing(false); pasteBlock(t) }} linhas={refLinhas} refByCode
                               inputStyle={{ width: 100, textAlign: 'right', padding: '2px 4px', border: '1px solid var(--blue)', borderRadius: 4, background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }} />
                           ) : (disp !== 0 ? formatValor(disp, (l.formato as any) || 'NUMERO', l.casas_decimais ?? 0) : <span style={{ color: 'var(--faint)' }}>{ed ? '—' : ''}</span>)}
                         </td>
@@ -543,8 +612,30 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
               {linhas.length === 0 && <tr><td colSpan={14} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>Sem linhas — {cap.can('estrutura') ? 'abra a Estrutura e adicione drivers.' : 'peça a um administrador para montar a estrutura.'}</td></tr>}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
+
+      {fxModal && (() => {
+        const l = byId[fxModal.lineId]
+        // normaliza espaços/quebras de linha (o textarea permite quebrar; a fórmula é armazenada em uma linha limpa)
+        const salvar = () => { if (l) updateLinha(l.id, { expressao: fxModal.val.trim() ? toStored(fxModal.val.replace(/\s+/g, ' ').trim()) : null }); setFxModal(null) }
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setFxModal(null)}>
+            <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, padding: 22, width: 'min(900px, calc(100vw - 40px))', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>Fórmula — {l?.descricao}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>Código <code style={{ color: 'var(--violet)' }}>{l?.codigo}</code>. Referencie outras linhas por <strong>código</strong>: <code>[COD]</code>. Funções: <code>=ANTERIOR()</code>, <code>=SE()</code>, <code>=MEDIA()</code>… O texto quebra linha livremente; salve no botão abaixo.</div>
+              <FormulaCellInput multiline value={fxModal.val} onChange={v => setFxModal(m => m ? { ...m, val: v } : m)}
+                onCancel={() => setFxModal(null)} linhas={refLinhas} refByCode
+                inputStyle={{ ...S.input, fontFamily: 'monospace', width: '100%', fontSize: 14, padding: '10px 12px', minHeight: 200, lineHeight: 1.6 }} />
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
+                <button style={{ ...S.sel, cursor: 'pointer' }} onClick={() => setFxModal(null)}>Cancelar</button>
+                <button style={{ ...S.sel, background: 'var(--violet)', color: '#fff', border: 'none', cursor: 'pointer' }} onClick={salvar}>Salvar</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

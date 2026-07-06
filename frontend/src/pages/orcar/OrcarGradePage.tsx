@@ -45,7 +45,9 @@ export default function OrcarGradePage() {
   const [filialId, setFilialId] = useState('')   // '' = consolidado
   const [ccId, setCcId] = useState('')            // '' = consolidado
 
-  const [cells, setCells] = useState<Record<string, Record<number, Cell>>>({})  // master → mes → célula (valor com sinal OU fórmula)
+  const [cells, setCells] = useState<Record<string, Record<number, Cell>>>({})  // master → mes → célula (SOMA dos lançamentos, com sinal, OU fórmula única)
+  const [cellMeta, setCellMeta] = useState<Record<string, Record<number, { count: number; inline: boolean }>>>({})  // por célula: nº de lançamentos e se é editável inline
+  const [lancModal, setLancModal] = useState<{ master: string; mes: number; linha: Linha } | null>(null)   // modal de lançamentos da célula composta
   const [hist, setHist] = useState<Record<string, string>>({})                  // master → histórico/comentário (nota por linha)
   const wrapRef = useRef<HTMLDivElement>(null)
   const [active, setActive] = useState<{ r: number; c: number } | null>(null)   // célula ativa (linha em `ordered` × mês 0..11)
@@ -56,6 +58,8 @@ export default function OrcarGradePage() {
   const [impMenu, setImpMenu] = useState(false)
   const [impMode, setImpMode] = useState<ImportModo>('full')
   const [refresh, setRefresh] = useState(0)   // bump para recarregar a grade após importar
+  const [scopeRows, setScopeRows] = useState<{ empresa_id: string | null; filial_id: string | null; cc_id: string | null }[]>([])   // escopos com dados (marca ●)
+  const [scopesRefresh, setScopesRefresh] = useState(0)
 
   useEffect(() => {
     (async () => {
@@ -126,21 +130,42 @@ export default function OrcarGradePage() {
   useEffect(() => {
     if (!pronto) { setCells({}); setHist({}); return }
     (async () => {
-      let q = supabase.from('fat_orcado').select('linha_id,mes,valor,expressao,dims').eq('versao_id', versaoId).eq('empresa_id', empresaId).eq('ano', ano)
+      let q = supabase.from('fat_orcado').select('linha_id,mes,valor,expressao,dims,origem').eq('versao_id', versaoId).eq('empresa_id', empresaId).eq('ano', ano)
       q = filialId ? q.eq('filial_id', filialId) : q.is('filial_id', null)
       q = ccId ? q.eq('cc_id', ccId) : q.is('cc_id', null)
       const { data } = await q
       const v: Record<string, Record<number, Cell>> = {}
+      const meta: Record<string, Record<number, { count: number; inline: boolean }>> = {}
+      const byCell: Record<string, any[]> = {}   // `${linha}|${mes}` → lançamentos (exclui notas de linha)
       const h: Record<string, string> = {}
       for (const r of (data || []) as any[]) {
-        const hasVal = r.valor != null || r.expressao != null
-        if (hasVal) (v[r.linha_id] = v[r.linha_id] || {})[r.mes] = { valor: Number(r.valor) || 0, expressao: r.expressao || null }
-        const hh = r.dims?.historico
-        if (hh && !h[r.linha_id]) h[r.linha_id] = String(hh)   // nota por linha: pega a 1ª não vazia
+        const isNota = r.valor == null && r.expressao == null   // linha "fantasma" só com dims.historico = nota da linha
+        if (isNota) { const hh = r.dims?.historico; if (hh && !h[r.linha_id]) h[r.linha_id] = String(hh); continue }
+        ;(byCell[`${r.linha_id}|${r.mes}`] = byCell[`${r.linha_id}|${r.mes}`] || []).push(r)
       }
-      setCells(v); setHist(h)
+      for (const k in byCell) {
+        const rows = byCell[k]; const sep = k.indexOf('|'); const linha = k.slice(0, sep); const mes = Number(k.slice(sep + 1))
+        const soma = rows.reduce((s, r) => s + (Number(r.valor) || 0), 0)
+        const loneExpr = rows.length === 1 && rows[0].expressao ? rows[0].expressao : null   // fórmula manual única
+        ;(v[linha] = v[linha] || {})[mes] = { valor: soma, expressao: loneExpr }
+        ;(meta[linha] = meta[linha] || {})[mes] = { count: rows.length, inline: rows.length === 1 && rows[0].origem === 'MANUAL' }
+      }
+      setCells(v); setHist(h); setCellMeta(meta)
     })()
   }, [versaoId, empresaId, filialId, ccId, ano, pronto, refresh])
+
+  // marca ● nos seletores: quais empresa/filial/CC já têm orçado desta versão (contas deste relatório)
+  useEffect(() => {
+    const masterIds = linhas.map(l => l.linha_orc_id).filter(Boolean) as string[]
+    if (!versaoId || !ano || !masterIds.length) { setScopeRows([]); return }
+    (async () => {
+      const { data } = await supabase.from('fat_orcado').select('empresa_id,filial_id,cc_id').eq('versao_id', versaoId).eq('ano', ano).in('linha_id', masterIds)
+      setScopeRows((data || []) as any[])
+    })()
+  }, [versaoId, ano, linhas.length, scopesRefresh, refresh])
+  const empresasComDados = useMemo(() => new Set(scopeRows.filter(r => r.empresa_id).map(r => r.empresa_id)), [scopeRows])
+  const filiaisComDados = useMemo(() => new Set(scopeRows.filter(r => r.empresa_id === empresaId && r.filial_id).map(r => r.filial_id)), [scopeRows, empresaId])
+  const ccsComDados = useMemo(() => new Set(scopeRows.filter(r => r.empresa_id === empresaId && (!filialId || r.filial_id === filialId) && r.cc_id).map(r => r.cc_id)), [scopeRows, empresaId, filialId])
 
   // ── ENGINE: estrutura inteira a partir das células (valor OU fórmula) ──
   const periodos = useMemo<Periodo[]>(() => ano ? MESES.map((_, i) => ({ ano, mes: i + 1 })) : [], [ano])
@@ -200,6 +225,7 @@ export default function OrcarGradePage() {
     const { valor, expressao } = parseCell(l, editVal)
     await saveOne(master, mes, valor, expressao)
     setCells(prev => ({ ...prev, [master]: { ...(prev[master] || {}), [mes]: { valor: valor || 0, expressao } } }))
+    setScopesRefresh(x => x + 1)
     setSaving(false)
   }
 
@@ -229,10 +255,14 @@ export default function OrcarGradePage() {
   }
 
   // ── Navegação tipo planilha (célula ativa + teclado) ──
+  // célula "composta" = mais de um lançamento, ou um único que NÃO é manual (veio de formulário) → não edita inline
+  const ehComposta = (master: string, mes: number) => { const m = cellMeta[master]?.[mes]; return !!m && !m.inline }
   const startEdit = (init: string | null) => {
     if (!active || readOnly) return
     const l = ordered[active.r]; if (!l || !editavel(l)) return
-    const c = cells[l.linha_orc_id!]?.[active.c + 1]
+    const master = l.linha_orc_id!; const mes = active.c + 1
+    if (ehComposta(master, mes)) { setLancModal({ master, mes, linha: l }); return }   // vários lançamentos → abre o modal
+    const c = cells[master]?.[mes]
     const cur = c?.expressao ? toDisplay(c.expressao) : (c?.valor ? numToInput(facOf(l) * c.valor) : '')
     setEditVal(init != null ? init : cur); setEditing(true)
   }
@@ -252,7 +282,7 @@ export default function OrcarGradePage() {
     else if (e.key === 'ArrowRight') mv(0, 1)
     else if (e.key === 'Tab') mv(0, e.shiftKey ? -1 : 1)
     else if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); startEdit(null) }
-    else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); const l = ordered[active.r]; if (!readOnly && editavel(l)) { setEditVal(''); setEditing(true) } }
+    else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); const l = ordered[active.r]; if (!readOnly && editavel(l)) { const m = l.linha_orc_id!; if (ehComposta(m, active.c + 1)) setLancModal({ master: m, mes: active.c + 1, linha: l }); else { setEditVal(''); setEditing(true) } } }
     else if (e.key.length === 1 && /[0-9=.,\-+]/.test(e.key)) { e.preventDefault(); startEdit(e.key) }
   }
   // Preencher à direita: replica o valor/fórmula em edição da célula atual até dezembro (Ctrl+Enter ou botão →|)
@@ -261,9 +291,10 @@ export default function OrcarGradePage() {
     const l = ordered[active.r]; const master = l.linha_orc_id!; if (!editavel(l)) return
     const { valor, expressao } = parseCell(l, editVal)
     setSaving(true)
-    const meses: number[] = []; for (let m = active.c + 1; m <= 12; m++) meses.push(m)
+    const meses: number[] = []; for (let m = active.c + 1; m <= 12; m++) if (!ehComposta(master, m)) meses.push(m)   // pula compostas (edite pelo modal)
     await Promise.all(meses.map(m => saveOne(master, m, valor, expressao)))
     setCells(prev => { const cur = { ...(prev[master] || {}) }; meses.forEach(m => { cur[m] = { valor: valor || 0, expressao } }); return { ...prev, [master]: cur } })
+    setScopesRefresh(x => x + 1)
     setEditing(false); setSaving(false); setTimeout(() => wrapRef.current?.focus(), 0)
   }
   // Colar do Excel: bloco TSV → preenche as analíticas a partir da célula ativa (pula sintéticas)
@@ -278,7 +309,7 @@ export default function OrcarGradePage() {
       const tr = editRows[ri2]; if (tr == null) return
       const l = ordered[tr]; const master = l.linha_orc_id!
       row.split('\t').forEach((txt, ci2) => {
-        const mes = active.c + 1 + ci2; if (mes > 12 || txt.trim() === '') return
+        const mes = active.c + 1 + ci2; if (mes > 12 || txt.trim() === '' || ehComposta(master, mes)) return
         const { valor, expressao } = parseCell(l, txt)
         ups.push({ master, mes, valor, expressao })
       })
@@ -287,6 +318,7 @@ export default function OrcarGradePage() {
     setSaving(true)
     await Promise.all(ups.map(u => saveOne(u.master, u.mes, u.valor, u.expressao)))
     setCells(prev => { const next = { ...prev }; for (const u of ups) next[u.master] = { ...(next[u.master] || {}), [u.mes]: { valor: u.valor || 0, expressao: u.expressao } }; return next })
+    setScopesRefresh(x => x + 1)
     setSaving(false)
     setTimeout(() => wrapRef.current?.focus(), 0)
   }
@@ -321,17 +353,17 @@ export default function OrcarGradePage() {
         <div><div style={S.lbl}>Empresa</div>
           <select style={S.sel} value={empresaId} onChange={e => setEmpresaId(e.target.value)}>
             <option value="">— selecione —</option>
-            {empresasEd.map(e => <option key={e.id} value={e.id}>{e.codigo} · {e.descricao}</option>)}
+            {empresasEd.map(e => <option key={e.id} value={e.id}>{empresasComDados.has(e.id) ? '● ' : ''}{e.codigo} · {e.descricao}</option>)}
           </select></div>
         <div><div style={S.lbl}>Filial</div>
           <select style={S.sel} value={filialId} onChange={e => setFilialId(e.target.value)}>
             {!filialRestrito && <option value="">— consolidado —</option>}
-            {filiaisEd.map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.descricao}</option>)}
+            {filiaisEd.map(f => <option key={f.id} value={f.id}>{filiaisComDados.has(f.id) ? '● ' : ''}{f.codigo} · {f.descricao}</option>)}
           </select></div>
         <div><div style={S.lbl}>Centro de custo</div>
           <select style={S.sel} value={ccId} onChange={e => setCcId(e.target.value)}>
             {!ccRestrito && <option value="">— consolidado —</option>}
-            {ccsEd.map(c => <option key={c.id} value={c.id}>{c.codigo} · {c.descricao}</option>)}
+            {ccsEd.map(c => <option key={c.id} value={c.id}>{ccsComDados.has(c.id) ? '● ' : ''}{c.codigo} · {c.descricao}</option>)}
           </select></div>
         {pronto && <div style={{ alignSelf: 'flex-end', fontSize: 12, color: 'var(--muted)' }}>{preenchidas} de {totalCelulas} células preenchidas</div>}
         <div style={{ marginLeft: 'auto', alignSelf: 'flex-end', position: 'relative' }}>
@@ -398,20 +430,21 @@ export default function OrcarGradePage() {
                     {MESES.map((_, i) => {
                       const mes = i + 1; const disp = f * valDe(l, mes)
                       const isFx = ed && !!cells[master]?.[mes]?.expressao
+                      const composta = ed && ehComposta(master, mes)
                       const isActive = active?.r === ri && active?.c === i
                       const isEditingCell = editing && isActive
                       if (espaco) return <td key={i} style={{ borderBottom: '1px solid var(--panel)' }} />
                       return (
-                        <td key={i} title={isFx ? toDisplay(cells[master]?.[mes]?.expressao || null) : undefined}
+                        <td key={i} title={composta ? `Célula com ${cellMeta[master]?.[mes]?.count} lançamentos (formulário/manual) — clique para ver e editar` : (isFx ? toDisplay(cells[master]?.[mes]?.expressao || null) : undefined)}
                           style={{ padding: '4px 10px', borderBottom: '1px solid var(--panel)', textAlign: 'right', fontSize: 13, whiteSpace: 'nowrap', cursor: ed && !readOnly ? 'cell' : 'default', color: disp < 0 ? 'var(--red)' : (isAgg ? 'var(--text-mid)' : 'var(--text)'), fontWeight: isAgg ? 600 : 400, fontStyle: isFx ? 'italic' : undefined, background: (isActive && !isEditingCell) ? 'rgba(59,130,246,0.16)' : (ed ? undefined : 'var(--bg-soft)'), outline: (isActive && !isEditingCell) ? '2px solid var(--blue)' : undefined, outlineOffset: -2 }}
                           onClick={() => { setActive({ r: ri, c: i }); wrapRef.current?.focus() }}
-                          onDoubleClick={() => { if (!ed || readOnly) return; setActive({ r: ri, c: i }); const c = cells[master]?.[mes]; setEditVal(c?.expressao ? toDisplay(c.expressao) : (disp ? numToInput(disp) : '')); setEditing(true) }}>
+                          onDoubleClick={() => { if (!ed || readOnly) return; setActive({ r: ri, c: i }); if (ehComposta(master, mes)) { setLancModal({ master, mes, linha: l }); return } const c = cells[master]?.[mes]; setEditVal(c?.expressao ? toDisplay(c.expressao) : (disp ? numToInput(disp) : '')); setEditing(true) }}>
                           {isEditingCell ? (
                             <FormulaCellInput value={editVal} onChange={setEditVal}
                               onCommit={commitMove} onCancel={() => { setEditing(false); setTimeout(() => wrapRef.current?.focus(), 0) }} onFill={mes < 12 ? fillRight : undefined}
                               onPasteBlock={t => { setEditing(false); pasteBlock(t) }} linhas={refLinhas}
                               inputStyle={{ width: 100, textAlign: 'right', padding: '2px 4px', border: '1px solid var(--blue)', borderRadius: 4, background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }} />
-                          ) : (disp !== 0 ? formatValor(disp, 'NUMERO', 0) : <span style={{ color: 'var(--faint)' }}>{ed ? '—' : ''}</span>)}
+                          ) : (disp !== 0 || composta ? (<>{composta && <span title="célula composta" style={{ color: 'var(--violet)', marginRight: 4, fontSize: 9, verticalAlign: 'middle' }}>●</span>}{disp !== 0 ? formatValor(disp, 'NUMERO', 0) : ''}</>) : <span style={{ color: 'var(--faint)' }}>{ed ? '—' : ''}</span>)}
                         </td>
                       )
                     })}
@@ -439,6 +472,109 @@ export default function OrcarGradePage() {
           </table>
         </div>
       )}
+      {lancModal && (
+        <LancamentosModal master={lancModal.master} mes={lancModal.mes} linhaDesc={lancModal.linha.descricao} fac={facOf(lancModal.linha)}
+          versaoId={versaoId} empresaId={empresaId} filialId={filialId} ccId={ccId} ano={ano}
+          onClose={() => setLancModal(null)} onChanged={() => setRefresh(x => x + 1)} />
+      )}
+    </div>
+  )
+}
+
+// Modal enxuto: lançamentos de UMA célula (versão×linha×empresa×filial×CC×ano×mês). Manuais editáveis;
+// os de formulário são só-leitura (mudam no formulário). Fecha e pede refresh da grade ao alterar.
+function LancamentosModal({ master, mes, linhaDesc, fac, versaoId, empresaId, filialId, ccId, ano, onClose, onChanged }: {
+  master: string; mes: number; linhaDesc: string; fac: number
+  versaoId: string; empresaId: string; filialId: string; ccId: string; ano: number
+  onClose: () => void; onChanged: () => void
+}) {
+  const [rows, setRows] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [addVal, setAddVal] = useState('')
+  const [addHist, setAddHist] = useState('')
+  const [busy, setBusy] = useState(false)
+  const scope = (q: any) => {
+    let s = q.eq('versao_id', versaoId).eq('linha_id', master).eq('empresa_id', empresaId).eq('ano', ano).eq('mes', mes)
+    s = filialId ? s.eq('filial_id', filialId) : s.is('filial_id', null)
+    s = ccId ? s.eq('cc_id', ccId) : s.is('cc_id', null)
+    return s
+  }
+  const load = async () => {
+    setLoading(true)
+    const { data } = await scope(supabase.from('fat_orcado').select('id,valor,expressao,origem,dims'))
+    setRows(((data || []) as any[]).filter(r => r.valor != null || r.expressao != null))
+    setLoading(false)
+  }
+  useEffect(() => { load() }, [])   // eslint-disable-line
+  const total = rows.reduce((s, r) => s + (Number(r.valor) || 0), 0)
+  const editarManual = async (id: string, txt: string) => {
+    setBusy(true); await supabase.from('fat_orcado').update({ valor: fac * parseNum(txt), expressao: null, origem: 'MANUAL' }).eq('id', id)
+    await load(); onChanged(); setBusy(false)
+  }
+  const excluir = async (id: string) => {
+    if (!confirm('Excluir este lançamento manual?')) return
+    setBusy(true); await supabase.from('fat_orcado').delete().eq('id', id)
+    await load(); onChanged(); setBusy(false)
+  }
+  const adicionar = async () => {
+    if (!addVal.trim()) return
+    setBusy(true)
+    const dims: any = addHist.trim() ? { historico: addHist.trim() } : {}
+    const { error } = await supabase.from('fat_orcado').insert({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, valor: fac * parseNum(addVal), expressao: null, origem: 'MANUAL', dims })
+    setBusy(false)
+    if (error) { alert('Erro ao adicionar: ' + error.message + (String(error.message).includes('uq_fat_orcado') ? '\n\nJá existe um lançamento com esse histórico nesta célula — informe um histórico diferente.' : '')); return }
+    setAddVal(''); setAddHist(''); await load(); onChanged()
+  }
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={onClose}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, padding: 20, width: 'min(580px, calc(100vw - 40px))', maxHeight: '82vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', flex: 1 }}>Lançamentos — {linhaDesc}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18 }}>×</button>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>Mês {MESES[mes - 1]} · a célula soma todos abaixo. Edite/exclua os manuais; os de formulário são só-leitura (altere no formulário).</div>
+        {loading ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: 12 }}>Carregando…</div> : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr>{['Origem', 'Valor', ''].map((h, i) => <th key={i} style={{ textAlign: i === 1 ? 'right' : 'left', fontSize: 11, color: 'var(--muted)', fontWeight: 600, padding: '4px 6px', borderBottom: '1px solid var(--border)' }}>{h}</th>)}</tr></thead>
+            <tbody>
+              {rows.map(r => {
+                const manual = r.origem === 'MANUAL'
+                return (
+                  <tr key={r.id} style={{ borderBottom: '1px solid var(--panel)' }}>
+                    <td style={{ padding: '5px 6px', color: 'var(--text-mid)' }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, padding: '1px 6px', borderRadius: 99, marginRight: 6, color: manual ? 'var(--green)' : 'var(--violet)', background: manual ? 'rgba(52,211,153,0.14)' : 'rgba(139,92,246,0.14)' }}>{manual ? 'manual' : 'fórmula'}</span>
+                      {r.dims?.historico || (manual ? '—' : 'Formulário')}
+                    </td>
+                    <td style={{ padding: '5px 6px', textAlign: 'right' }}>
+                      {manual
+                        ? <input defaultValue={numToInput(fac * (Number(r.valor) || 0))} disabled={busy}
+                            onBlur={e => { const t = e.target.value.trim(); if (t && parseNum(t) !== (fac * (Number(r.valor) || 0))) editarManual(r.id, t) }}
+                            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                            style={{ width: 120, textAlign: 'right', fontFamily: 'monospace', padding: '3px 6px', border: '1px solid var(--border-strong)', borderRadius: 4, background: 'var(--bg)', color: 'var(--text)' }} />
+                        : <span style={{ fontFamily: 'monospace', color: 'var(--text-mid)' }}>{formatValor(fac * (Number(r.valor) || 0), 'NUMERO', 2)}</span>}
+                    </td>
+                    <td style={{ padding: '5px 6px', textAlign: 'center' }}>
+                      {manual && <button onClick={() => excluir(r.id)} disabled={busy} title="Excluir" style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer' }}>🗑</button>}
+                    </td>
+                  </tr>
+                )
+              })}
+              {rows.length === 0 && <tr><td colSpan={3} style={{ padding: 12, color: 'var(--muted)', textAlign: 'center' }}>Nenhum lançamento.</td></tr>}
+            </tbody>
+            <tfoot><tr><td style={{ padding: 6, fontWeight: 600, color: 'var(--text)' }}>Total</td><td style={{ padding: 6, textAlign: 'right', fontWeight: 700, fontFamily: 'monospace', color: 'var(--text)' }}>{formatValor(fac * total, 'NUMERO', 2)}</td><td /></tr></tfoot>
+          </table>
+        )}
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-mid)', marginBottom: 8 }}>Adicionar lançamento manual</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input value={addVal} onChange={e => setAddVal(e.target.value)} placeholder="Valor" disabled={busy}
+              style={{ width: 120, textAlign: 'right', fontFamily: 'monospace', padding: '6px 8px', border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--bg)', color: 'var(--text)' }} />
+            <input value={addHist} onChange={e => setAddHist(e.target.value)} placeholder="Histórico (p/ distinguir)" disabled={busy}
+              style={{ flex: 1, padding: '6px 8px', border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }} />
+            <button onClick={adicionar} disabled={busy || !addVal.trim()} style={{ padding: '6px 14px', background: 'var(--violet)', color: '#fff', border: 'none', borderRadius: 6, cursor: busy || !addVal.trim() ? 'not-allowed' : 'pointer', fontWeight: 600, opacity: busy || !addVal.trim() ? 0.6 : 1 }}>Adicionar</button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
