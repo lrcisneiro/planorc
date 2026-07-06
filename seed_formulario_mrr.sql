@@ -2,7 +2,12 @@
 -- SEED — Formulário "MRR — Receita recorrente" (F5)
 -- Cria o formulário + linhas (drivers e fórmulas) do modelo:
 --   MRR(m) = (MRR(m-1) + Baseline) × (1 + %Corr/100) × (1 − %Churn/100) + ReceitaNova(m)
---   ReceitaNova(m) = Meta(m-1) × %Repasse/100   (meta gera receita no mês SEGUINTE)
+--   ReceitaNova(m) = (Meta(m-1) + MetaDez(m)) × %Repasse/100
+--     · Meta gera receita no mês SEGUINTE.
+--     · MetaDez = meta de DEZEMBRO do ano anterior (R$), digitada UMA vez na
+--       célula de JANEIRO → gera a receita nova de janeiro (que entra no MRR
+--       e replica nos meses seguintes), como a meta de jan gera em fev.
+--       ATENÇÃO: o Baseline não deve incluir esse efeito (senão conta em dobro).
 -- Preenchimento sugerido: %Churn / %Correção / %Repasse no escopo 🌐 GLOBAL
 -- (requer v3_050); Baseline (só janeiro) e Meta por EMPRESA.
 -- Idempotente: pode rodar de novo (atualiza as linhas pelo código).
@@ -29,12 +34,13 @@ BEGIN
     -- ── drivers (entrada) ──
     (v_form, 'BASE',    'MRR Baseline (carteira) — só janeiro',      10, 1, 'ANALITICA', NULL, 'RECEITA', 'MOEDA',      2),
     (v_form, 'META',    'Meta de vendas (MRR novo no mês)',          20, 1, 'ANALITICA', NULL, 'RECEITA', 'MOEDA',      2),
+    (v_form, 'METADEZ', 'Meta de dezembro do ano anterior (R$ — digitar em JANEIRO)', 25, 1, 'ANALITICA', NULL, 'RECEITA', 'MOEDA', 2),
     (v_form, 'CHURN',   '% Churn mensal',                            30, 1, 'ANALITICA', NULL, 'NEUTRO',  'PERCENTUAL', 2),
     (v_form, 'CORR',    '% Correção (IGPM/IPCA)',                    40, 1, 'ANALITICA', NULL, 'NEUTRO',  'PERCENTUAL', 2),
     (v_form, 'REP',     '% Comissão de repasse',                     50, 1, 'ANALITICA', NULL, 'NEUTRO',  'PERCENTUAL', 2),
     -- ── fórmulas (cálculo) ──
     (v_form, 'RECNOVA', 'Receita nova (meta anterior × repasse)',    60, 1, 'FORMULA',
-       '=ANTERIOR([META]) * [REP] / 100',                                        'RECEITA', 'MOEDA', 2),
+       '=(ANTERIOR([META]) + [METADEZ]) * [REP] / 100',                          'RECEITA', 'MOEDA', 2),
     (v_form, 'MRR',     'MRR / Receita projetada',                   70, 1, 'FORMULA',
        '=(ANTERIOR() + [BASE]) * (1 + [CORR]/100) * (1 - [CHURN]/100) + [RECNOVA]', 'RECEITA', 'MOEDA', 2)
   ON CONFLICT (formulario_id, codigo) DO UPDATE SET
