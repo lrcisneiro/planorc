@@ -68,6 +68,11 @@ const mesesNoRange = (ini: Periodo, fim: Periodo): Periodo[] => {
   return Array.from({ length: Math.max(0, n) }, (_, i) => addMes(ini, i))
 }
 const REALIZADO = 'REALIZADO'
+// Sobreposição de realizado ano-a-ano: pseudo-cenário 'REALIZADO@2025' etc. (só em runtime; o
+// view_config.cenarios continua guardando 'REALIZADO'). O ano vive na chave.
+const ehRealAno = (k: string) => k.startsWith(REALIZADO + '@')
+const anoDeRealAno = (k: string) => Number(k.slice(REALIZADO.length + 1))
+const ehReal = (k: string) => k === REALIZADO || ehRealAno(k)
 const FUNCAO_LABEL: Record<Funcao, string> = { MENSAL: 'Períodos', ACM: 'Acumulado', MENSAL_ACM: 'Acum. + Períodos', COMPARATIVO: 'Comparativo' }
 const TIPO_INFO: Record<TipoLinha, { label: string; icon: any; cor: string }> = {
   SOMAR_FILHOS: { label: 'Subtotal — soma das filhas',                 icon: Sigma,          cor: 'var(--blue)' },
@@ -309,12 +314,28 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     return m
   }, [cenariosAtivos, versoes])
   const cicloMode = useMemo(() => {
-    if (cenariosAtivos.includes(REALIZADO)) return false
-    return new Set(Object.values(anoDoCenario)).size > 1
-  }, [cenariosAtivos, anoDoCenario])
+    // versões de anos diferentes (comportamento atual)
+    if (new Set(Object.values(anoDoCenario)).size > 1) return true
+    // realizado de vários anos numa comparação → sobrepõe por mês (fatia em REALIZADO@ano)
+    const funcao = views.find(v => v.id === activeView)?.funcao ?? 'MENSAL'
+    const multiAno = new Set(periodosSel.map(p => p.ano)).size > 1
+    return funcao === 'COMPARATIVO' && cenariosAtivos.includes(REALIZADO) && multiAno
+  }, [anoDoCenario, views, activeView, periodosSel, cenariosAtivos])
   const refAno = pIni.ano
 
   const anos = useMemo(() => [...new Set(periodosSel.map(p => p.ano))].sort((a, b) => a - b), [periodosSel])
+  // No modo overlay, expande 'REALIZADO' em um pseudo-cenário por ano (REALIZADO@2025, @2026…).
+  const expandirCens = (lista: string[]): string[] => {
+    const out: string[] = []
+    for (const c of lista) {
+      if (cicloMode && c === REALIZADO) { for (const a of anos) out.push(`${REALIZADO}@${a}`) }
+      else out.push(c)
+    }
+    // ordena: ORÇADO (versões) antes do REALIZADO; alfabético (versão) / por ano (realizado) dentro do grupo
+    const key = (c: string) => ehRealAno(c) ? `1_${anoDeRealAno(c)}` : c === REALIZADO ? '1_0' : `0_${versoes.find(v => v.id === c)?.codigo ?? c}`
+    return out.sort((a, b) => key(a).localeCompare(key(b)))
+  }
+  const cenariosExpandidos = useMemo(() => expandirCens(cenariosAtivos), [cenariosAtivos, cicloMode, anos, versoes]) // eslint-disable-line
   const periodos: Periodo[] = useMemo(() => {
     const sorted = [...periodosSel].sort((a, b) => perIdx(a) - perIdx(b))
     // modo ciclo: colapsa por MÊS (o ano vem de cada versão) e usa o ano de referência p/ sobrepor
@@ -502,6 +523,18 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       next[cen] = map
     }
 
+    // ── Overlay: fatia o REALIZADO (já multi-ano) em REALIZADO@ano, re-chaveado ao ano de referência
+    if (cicloMode && cenariosAtivos.includes(REALIZADO) && next[REALIZADO]) {
+      for (const a of anos) next[`${REALIZADO}@${a}`] = {}
+      for (const rl in next[REALIZADO]) {
+        for (const k in next[REALIZADO][rl]) {
+          const dash = k.indexOf('-'); const a = Number(k.slice(0, dash)); const mes = k.slice(dash + 1)
+          if (!anos.includes(a)) continue
+          ;(next[`${REALIZADO}@${a}`][rl] ||= {})[`${refAno}-${mes}`] = next[REALIZADO][rl][k]
+        }
+      }
+    }
+
     // ── Modo "Por empresa": carrega os valores POR empresa (uma RPC por empresa/cenário)
     const nextEmp: Record<string, ValMap> = {}
     if (colEmpresa && masterIds.length) {
@@ -638,12 +671,12 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const hasEsc = Object.keys(escSig).length > 0
   const computed = useMemo(() => {
     const out: Record<string, Computed> = {}
-    for (const cen of cenariosAtivos) {
+    for (const cen of cenariosExpandidos) {
       out[cen] = computeCenario(linhasCalc, raw[cen] || {}, periodos)
       if (hasEsc) for (const lid in escSig) { const sc = scopedComputed[`${cen}::${escSig[lid]}`]; if (sc?.[lid]) out[cen][lid] = sc[lid] }
     }
     return out
-  }, [linhas, raw, cenariosAtivos, periodos, scopedComputed, escSig, hasEsc])
+  }, [linhas, raw, cenariosExpandidos, periodos, scopedComputed, escSig, hasEsc])
   // ── Período: granularidade vem da VIEW; o intervalo (de–até, multi-ano) vem do filtro
   const gran = (view.filtros?.granularidade as string) || 'MENSAL'
   const mpb = MPB[gran] || 1
@@ -666,14 +699,14 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   }
   const bucketTotais = useMemo(() => {
     const out: Record<string, Record<string, number>[]> = {}
-    for (const cen of cenariosAtivos) out[cen] = buckets.map(b => { const t = computeTotais(linhasCalc, computed[cen] || {}, b.meses); if (hasEsc) Object.assign(t, totEsc(cen, b.meses)); return t })
+    for (const cen of cenariosExpandidos) out[cen] = buckets.map(b => { const t = computeTotais(linhasCalc, computed[cen] || {}, b.meses); if (hasEsc) Object.assign(t, totEsc(cen, b.meses)); return t })
     return out
-  }, [linhas, computed, cenariosAtivos, buckets, scopedComputed, escSig, hasEsc]) // eslint-disable-line
+  }, [linhas, computed, cenariosExpandidos, buckets, scopedComputed, escSig, hasEsc]) // eslint-disable-line
   const totalByCen = useMemo(() => {
     const out: Record<string, Record<string, number>> = {}
-    for (const cen of cenariosAtivos) { out[cen] = computeTotais(linhasCalc, computed[cen] || {}, displayedMeses); if (hasEsc) Object.assign(out[cen], totEsc(cen, displayedMeses)) }
+    for (const cen of cenariosExpandidos) { out[cen] = computeTotais(linhasCalc, computed[cen] || {}, displayedMeses); if (hasEsc) Object.assign(out[cen], totEsc(cen, displayedMeses)) }
     return out
-  }, [linhas, computed, cenariosAtivos, displayedMeses, scopedComputed, escSig, hasEsc]) // eslint-disable-line
+  }, [linhas, computed, cenariosExpandidos, displayedMeses, scopedComputed, escSig, hasEsc]) // eslint-disable-line
 
   const cellVal = (cen: string, linhaId: string, period: Period): number =>
     period === 'TOTAL' ? (totalByCen[cen]?.[linhaId] ?? 0) : (bucketTotais[cen]?.[period as number]?.[linhaId] ?? 0)
@@ -707,14 +740,14 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // "Ocultar vazias": mantém linhas com valor em alguma coluna do período + seus ancestrais
   const keepIds = useMemo(() => {
     if (!hideEmpty) return null
-    const hasVal = (lid: string) => cenariosAtivos.some(cen =>
+    const hasVal = (lid: string) => cenariosExpandidos.some(cen =>
       (totalByCen[cen]?.[lid] ?? 0) !== 0 || buckets.some((_, i) => (bucketTotais[cen]?.[i]?.[lid] ?? 0) !== 0))
     const keep = new Set<string>()
     for (const l of tree) {
       if (hasVal(l.id)) { let c: Linha | undefined = l; while (c) { keep.add(c.id); c = linhas.find(x => x.id === c!.pai_id) } }
     }
     return keep
-  }, [hideEmpty, tree, linhas, cenariosAtivos, buckets, bucketTotais, totalByCen])
+  }, [hideEmpty, tree, linhas, cenariosExpandidos, buckets, bucketTotais, totalByCen])
   const visivel = tree.filter(l => {
     if (!verOcultas && l.visivel_relatorio === false) return false
     if (hideOff && l.desativada) return false
@@ -782,14 +815,14 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const ccFilter = aplicaEscopo(ccFilter0, ccs as any, 'centro_custo')
     const meses: Periodo[] = period === 'TOTAL' ? displayedMeses : (buckets[period as number]?.meses ?? [])
     // modo ciclo: o eixo usa o ano de referência, mas o razão/edição consulta o ANO REAL da versão
-    const anoCen = anoDoCenario[cen]
-    const mesesCen: Periodo[] = (cicloMode && cen !== REALIZADO && anoCen) ? meses.map(m => ({ ano: anoCen, mes: m.mes })) : meses
+    const anoCen = ehRealAno(cen) ? anoDeRealAno(cen) : anoDoCenario[cen]
+    const mesesCen: Periodo[] = (cicloMode && anoCen) ? meses.map(m => ({ ano: anoCen, mes: m.mes })) : meses
     const lbl0 = period === 'TOTAL' ? 'Período' : (buckets[period as number]?.label ?? '')
     const periodoLabel = period === 'TOTAL'
       ? `${MESES[displayedMeses[0]?.mes - 1] ?? ''}/${displayedMeses[0]?.ano ?? ''} – ${MESES[displayedMeses[displayedMeses.length - 1]?.mes - 1] ?? ''}/${displayedMeses[displayedMeses.length - 1]?.ano ?? ''}`
       : lbl0
     // Editável: 1 mês, linha analítica, cenário = versão (orçado), e empresa no escopo ORÇAR
-    const editavelRazao = podeOrcar && podeEditarEmpresa && cen !== REALIZADO && l.tipo_linha === 'ANALITICA' && meses.length === 1
+    const editavelRazao = podeOrcar && podeEditarEmpresa && !ehReal(cen) && l.tipo_linha === 'ANALITICA' && meses.length === 1
     // F2: orçado consulta por linha MESTRE (fat_orcado.linha_id agora é mestre)
     const linhaIdsRl = editavelRazao ? [l.id] : linhasAnaliticasDe(l.id)
     const linhaIds = linhaIdsRl.map(orcOf).filter(Boolean) as string[]
@@ -798,7 +831,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const contaSinal: Record<string, number> = {}
     for (const lid of subtreeIds(l.id)) for (const m of (contaLinks[lid] || [])) contaSinal[m.conta_id] = m.sinal ?? 1
     const contaIds = Object.keys(contaSinal)
-    if ((cen === REALIZADO ? !contaIds.length : !linhaIds.length) || !meses.length) {
+    if ((ehReal(cen) ? !contaIds.length : !linhaIds.length) || !meses.length) {
       // ainda abre o modal (mostra a mensagem de "sem contas amarradas")
     }
     setRazao({
@@ -836,9 +869,11 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   )
 
   // ── Colunas conforme view
-  const cenarioLabel = (key: string) => key === REALIZADO ? 'Real.' : (versoes.find(v => v.id === key)?.codigo ?? '—')
+  const cenarioLabel = (key: string) => key === REALIZADO ? 'Real.' : ehRealAno(key) ? `Real. ${anoDeRealAno(key)}` : (versoes.find(v => v.id === key)?.codigo ?? '—')
+  // Lista de cenários EXIBIDOS (colunas): no overlay expande 'REALIZADO' por ano.
+  const censDisplay = useMemo(() => expandirCens(view.cenarios.length ? view.cenarios : (versaoId ? [versaoId] : [])), [view.cenarios, versaoId, cicloMode, anos, versoes]) // eslint-disable-line
   const { columns, groups, twoRow } = useMemo<{ columns: Column[]; groups: Group[]; twoRow: boolean }>(() => {
-    const cens = view.cenarios.length ? view.cenarios : (versaoId ? [versaoId] : [])
+    const cens = censDisplay
     const primary = cens[0] || versaoId
     // Por empresa: cada empresa é um grupo; embaixo repetem os períodos (+ Total) do cenário primário
     if (colEmpresa) {
@@ -866,7 +901,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         }
         let span = 0
         for (const cen of cens) { cols.push({ key: `${per}-${cen}`, label: cenarioLabel(cen), cenarioKey: cen, period: per, kind: 'value' }); span++ }
-        if (cens.length >= 2) {
+        if (cens.length === 2) {   // Δ só quando há exatamente 2 séries (3+ mostra só os valores)
           if (showDeltaVal) { cols.push({ key: `${per}-dv`, label: 'Δ', period: per, kind: 'deltav' }); span++ }
           cols.push({ key: `${per}-d`, label: 'Δ%', period: per, kind: 'delta' }); span++
         }
@@ -880,7 +915,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const total: Column = { key: 'total', label: 'Total', cenarioKey: primary, period: 'TOTAL', kind: 'value' }
     if (view.funcao === 'MENSAL_ACM') return { columns: [{ ...total, label: 'Acum.' }, ...cols], groups: [], twoRow: false }
     return { columns: [...cols, total], groups: [], twoRow: false }
-  }, [view, versaoId, versoes, buckets, colEmpresa, empsCols, empCodById, showDeltaVal, colapsados]) // eslint-disable-line
+  }, [view, versaoId, versoes, censDisplay, buckets, colEmpresa, empsCols, empCodById, showDeltaVal, colapsados]) // eslint-disable-line
 
   // ── Recolher/expandir meses no comparativo (só visual)
   const toggleColapso = (per: number) => setColapsados(s => { const n = new Set(s); n.has(per) ? n.delete(per) : n.add(per); return n })
@@ -1633,15 +1668,15 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                       return <td key={c.key} style={{ ...S.td, color: clr, fontWeight: fw, textDecoration: off ? 'line-through' : undefined, background: isSel ? 'rgba(59,130,246,0.30)' : (c.period === 'TOTAL' ? 'var(--bg-soft)' : undefined) }}>{disp}</td>
                     }
                     if (c.kind === 'deltav') {
-                      const base = cellVal(view.cenarios[0], l.id, c.period)
-                      const comp = cellVal(view.cenarios[1], l.id, c.period)
+                      const base = cellVal(censDisplay[0], l.id, c.period)
+                      const comp = cellVal(censDisplay[1], l.id, c.period)
                       const dv = comp - base   // impacto no resultado (mesmo sinal do Δ%)
                       const col = dv > 0 ? 'var(--green)' : dv < 0 ? 'var(--red)' : 'var(--border-strong)'
                       return <td key={c.key} style={{ ...S.td, color: col, fontSize: 12, fontWeight: 500, fontStyle: 'italic' }}>{isSpac || dv === 0 ? '' : `${dv > 0 ? '+' : ''}${formatValor(dv, l.formato, l.casas_decimais)}`}</td>
                     }
                     if (c.kind === 'delta') {
-                      const base = cellVal(view.cenarios[0], l.id, c.period)
-                      const comp = cellVal(view.cenarios[1], l.id, c.period)
+                      const base = cellVal(censDisplay[0], l.id, c.period)
+                      const comp = cellVal(censDisplay[1], l.id, c.period)
                       const d = base !== 0 ? (comp - base) / Math.abs(base) : NaN
                       const col = !isFinite(d) ? 'var(--border-strong)' : d >= 0 ? 'var(--green)' : 'var(--red)'
                       return <td key={c.key} style={{ ...S.td, color: col, fontSize: 12, fontWeight: 500 }}>{isSpac ? '' : (isFinite(d) ? `${d >= 0 ? '+' : ''}${(d * 100).toFixed(1)}%` : '—')}</td>
@@ -1783,7 +1818,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
   const emptyForm = { empresa_id: empresaSel.length === 1 ? empresaSel[0] : (empresaSel[0] || ''), filial_id: '', cc_id: '', area: '', divisao: '', bu: '', historico: '', valor: '' }
   const [form, setForm] = useState<any>(emptyForm)
 
-  const isReal = cen === REALIZADO
+  const isReal = ehReal(cen)
   const load = async () => {
     setLoading(true)
     if (isReal && !contaIds.length) { setRows([]); setLoading(false); return }
