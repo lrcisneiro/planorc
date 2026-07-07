@@ -27,3 +27,8 @@ outputs/
 __pycache__/
 *.pyc
 supabase/.temp/
+
+# wrangler / cloudflare
+.wrangler
+.dev.vars*
+!.dev.vars.example
