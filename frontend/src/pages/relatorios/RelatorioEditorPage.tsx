@@ -11,6 +11,7 @@ import type { LinhaCalc, RawValues, Computed, Periodo, TipoLinha, Formato } from
 import FormulaCellInput from './FormulaCellInput'
 import { importBaseline as importBaselineLib, modeloBaseline as modeloBaselineLib } from '../../lib/importOrcado'
 import { effectiveCcFilter, FiltrosButton, PeriodoButton, Checklist, opcoesAttr, SalvarCardButton, useCardPreset } from '../dashboard/DashFiltros'
+import { PeriodPicker } from '../dashboard/PeriodPicker'
 import type { CC as CCItem } from '../dashboard/DashFiltros'
 import {
   ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Settings2, X,
@@ -164,47 +165,6 @@ const S: Record<string, CSSProperties> = {
   help:      { fontSize: 11, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 },
 }
 
-// Grade visual de período (anos × meses) — seleção MÚLTIPLA/avulsa (não precisa ser contígua).
-// Clique liga/desliga um mês; clique no ano liga/desliga o ano inteiro.
-function PeriodPicker({ anos, sel, onChange }: {
-  anos: number[]; sel: Periodo[]; onChange: (sel: Periodo[]) => void
-}) {
-  const has = (y: number, m: number) => sel.some(p => p.ano === y && p.mes === m)
-  const toggle = (y: number, m: number) =>
-    onChange(has(y, m) ? sel.filter(p => !(p.ano === y && p.mes === m)) : [...sel, { ano: y, mes: m }])
-  const toggleYear = (y: number) => {
-    const full = MESES.every((_, i) => has(y, i + 1))
-    const rest = sel.filter(p => p.ano !== y)
-    onChange(full ? rest : [...rest, ...MESES.map((_, i) => ({ ano: y, mes: i + 1 }))])
-  }
-  const hb: CSSProperties = { fontSize: 10, color: 'var(--muted)', textAlign: 'center', padding: '2px 0' }
-  return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 8, overflowX: 'auto' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: `44px repeat(12, minmax(20px, 1fr))`, gap: 2, minWidth: 360 }}>
-        <div />
-        {MESES.map((m, i) => <div key={i} style={hb}>{m}</div>)}
-        {anos.map(y => (
-          <Fragment key={y}>
-            <div onClick={() => toggleYear(y)} title="Marcar/desmarcar o ano inteiro"
-              style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-mid)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>{y}</div>
-            {MESES.map((_, i) => {
-              const mes = i + 1, on = has(y, mes)
-              return (
-                <div key={i} onClick={() => toggle(y, mes)} title={`${MESES[i]}/${y}`}
-                  style={{ height: 24, borderRadius: 4, cursor: 'pointer',
-                    background: on ? 'var(--violet)' : 'var(--bg)',
-                    border: '1px solid ' + (on ? 'var(--violet)' : 'var(--panel-2)') }} />
-              )
-            })}
-          </Fragment>
-        ))}
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-        Clique nos meses para marcar/desmarcar — pode ser avulso, não precisa ser contínuo. (Clique no ano = ano inteiro.)
-      </div>
-    </div>
-  )
-}
 
 function viewTab(active: boolean): CSSProperties {
   return { display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', fontSize: 13, cursor: 'pointer',
@@ -628,6 +588,19 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             for (const r of data || []) setMaster(r.linha_id, `${cicloMode ? refAno : r.ano}-${r.mes}`, (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 })
           }
           rawScopedNext[`${cen}::${sig}`] = rawSc
+          // Overlay (ciclo): o REALIZADO vira pseudo-cenários REALIZADO@ano nas colunas.
+          // Fatia o raw ESCOPADO por ano e re-chaveia ao ano de referência, espelhando o
+          // que já é feito com o raw global — senão a linha escopada fica vazia no realizado.
+          if (cicloMode && cen === REALIZADO) {
+            for (const a of anos) {
+              const sc: RawValues = {}
+              for (const lid in rawSc) for (const k in rawSc[lid]) {
+                const dash = k.indexOf('-'); const y = Number(k.slice(0, dash))
+                if (y === a) (sc[lid] ||= {})[`${refAno}-${k.slice(dash + 1)}`] = rawSc[lid][k]
+              }
+              rawScopedNext[`${REALIZADO}@${a}::${sig}`] = sc
+            }
+          }
         }
       }
     }

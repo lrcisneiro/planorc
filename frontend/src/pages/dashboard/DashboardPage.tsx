@@ -1,8 +1,9 @@
-import { useEffect, useState, useRef, Fragment } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
 import { computeCenario, computeTotais, pkey, formatValor } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo, RawValues } from '../../lib/engine'
+import { PeriodPicker } from './PeriodPicker'
 import { totaisRelatorio } from '../../lib/relatorioTotais'
 import type { RLData } from '../../lib/relatorioTotais'
 import { ResponsiveBar } from '@nivo/bar'
@@ -24,15 +25,18 @@ const pctOf = (real: number, orc: number) => orc === 0 ? null : (real / orc) * 1
 const cut = (s: string, n: number) => s.length > n ? s.slice(0, n) + '…' : s
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 const tipBox: CSSProperties = { background: 'var(--panel)', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, boxShadow: '0 4px 14px rgba(0,0,0,0.08)' }
-// tooltip de Orçado × Realizado com Δ (R−O) e separador de milhar
-function TipOR({ titulo, data, hint }: { titulo: string; data: any; hint?: string }) {
+// cor do Δ (R−O), valores em EXIBIÇÃO (positivos): receita/resultado → +verde; despesa → +vermelho (gastou mais que o orçado)
+const corDelta = (d: number, desp?: boolean) => ((desp ? d <= 0 : d >= 0) ? '#2f9e44' : '#e03131')
+
+// tooltip de Orçado × Realizado com Δ (R−O) e separador de milhar. `desp` inverte o bom/ruim do Δ.
+function TipOR({ titulo, data, hint, desp }: { titulo: string; data: any; hint?: string; desp?: boolean }) {
   const o = Number(data['Orçado'] || 0), r = Number(data['Realizado'] || 0), d = r - o
   return (
     <div style={tipBox}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>{titulo}</div>
       <div><span style={{ color: 'var(--muted)' }}>Orçado:</span> {fmt(o)}</div>
       <div><span style={{ color: 'var(--muted)' }}>Realizado:</span> {fmt(r)}</div>
-      <div style={{ color: d >= 0 ? '#2f9e44' : '#e03131', fontWeight: 600 }}>Δ (R−O): {fmt(d)}</div>
+      <div style={{ color: corDelta(d, desp ?? !!data.desp), fontWeight: 600 }}>Δ (R−O): {fmt(d)}</div>
       {hint && <div style={{ color: 'var(--muted)', marginTop: 4 }}>{hint}</div>}
     </div>
   )
@@ -69,50 +73,34 @@ const S: Record<string, CSSProperties> = {
 const miniBtn: CSSProperties = { padding: '2px 8px', fontSize: 11, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', cursor: 'pointer', color: 'var(--text-mid)' }
 
 
-function AnoMesGrid({ anosSel, mesesSel, setAnosSel, setMesesSel }: {
-  anosSel: number[]; mesesSel: number[]; setAnosSel: (v: number[]) => void; setMesesSel: (v: number[]) => void
-}) {
-  const toggleAno = (y: number) => setAnosSel(anosSel.includes(y) ? anosSel.filter(x => x !== y) : [...anosSel, y].sort((a, b) => a - b))
-  const toggleMes = (m: number) => setMesesSel(mesesSel.includes(m) ? mesesSel.filter(x => x !== m) : [...mesesSel, m].sort((a, b) => a - b))
+const ALLM = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+// Cada quadrado é um período (ano, mês) — mesmo picker do relatório. anosSel/mesesSel saem daqui por derivação.
+const toPeriodos = (anos: number[], meses: number[]): Periodo[] => anos.flatMap(y => meses.map(m => ({ ano: y, mes: m })))
+
+function AnoMesGrid({ periodosSel, setPeriodosSel }: { periodosSel: Periodo[]; setPeriodosSel: (v: Periodo[]) => void }) {
+  const anoInteiro = (y: number) => ALLM.map(m => ({ ano: y, mes: m }))
   return (
     <div>
-      <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 8, overflowX: 'auto' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: `48px repeat(12, minmax(20px, 1fr))`, gap: 2, minWidth: 400 }}>
-          <div />
-          {MESES.map((m, i) => (
-            <div key={i} onClick={() => toggleMes(i + 1)} title={`marcar ${m}`}
-              style={{ fontSize: 10, textAlign: 'center', padding: '2px 0', cursor: 'pointer', fontWeight: mesesSel.includes(i + 1) ? 700 : 400, color: mesesSel.includes(i + 1) ? '#3b5bdb' : 'var(--muted)' }}>{m}</div>
-          ))}
-          {ANOS.map(y => (
-            <Fragment key={y}>
-              <div onClick={() => toggleAno(y)} title="marcar o ano"
-                style={{ fontSize: 12, fontWeight: anosSel.includes(y) ? 700 : 500, color: anosSel.includes(y) ? '#3b5bdb' : 'var(--muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>{y}</div>
-              {MESES.map((_, i) => {
-                const on = anosSel.includes(y) && mesesSel.includes(i + 1)
-                const half = anosSel.includes(y) !== mesesSel.includes(i + 1)
-                return <div key={i} onClick={() => { if (!anosSel.includes(y)) toggleAno(y); if (!mesesSel.includes(i + 1)) toggleMes(i + 1) }}
-                  style={{ height: 22, borderRadius: 4, cursor: 'pointer', background: on ? '#3b5bdb' : 'var(--bg)', border: '1px solid ' + (on ? '#3b5bdb' : 'var(--panel-2)'), opacity: half ? 0.45 : 1 }} />
-              })}
-            </Fragment>
-          ))}
-        </div>
-      </div>
+      <PeriodPicker anos={ANOS} sel={periodosSel} onChange={setPeriodosSel} />
       <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-        <button style={miniBtn} onClick={() => setMesesSel([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])}>Todos meses</button>
-        <button style={miniBtn} onClick={() => setAnosSel([...ANOS])}>Todos anos</button>
-        <button style={miniBtn} onClick={() => { setAnosSel([2026]); setMesesSel([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) }}>Reset</button>
+        <button style={miniBtn} onClick={() => setPeriodosSel(ANOS.flatMap(anoInteiro))}>Todos anos</button>
+        <button style={miniBtn} onClick={() => setPeriodosSel(anoInteiro(2026))}>Só 2026</button>
+        <button style={miniBtn} onClick={() => setPeriodosSel([])}>Limpar</button>
       </div>
     </div>
   )
 }
 
-function Gauge({ label, pct }: { label: string; pct: number | null }) {
+function Gauge({ label, pct, desp }: { label: string; pct: number | null; desp?: boolean }) {
   const cx = 90, cy = 92, r = 70
   const f = pct == null ? 0 : Math.max(0, Math.min(pct, 150)) / 150
   const pt = (deg: number) => [cx + r * Math.cos(deg * Math.PI / 180), cy - r * Math.sin(deg * Math.PI / 180)]
   const av = 180 - f * 180
   const [tx0, ty0] = pt(180), [tx1, ty1] = pt(0), [vx, vy] = pt(av)
-  const cor = pct == null ? 'var(--border-strong)' : pct >= 100 ? '#2f9e44' : pct >= 80 ? '#f59f00' : '#e03131'
+  // despesa: executar ACIMA de 100% é ruim (gastou mais que o orçado) → inverte o bom/ruim
+  const cor = pct == null ? 'var(--border-strong)'
+    : desp ? (pct <= 100 ? '#2f9e44' : pct <= 110 ? '#f59f00' : '#e03131')
+           : (pct >= 100 ? '#2f9e44' : pct >= 80 ? '#f59f00' : '#e03131')
   return (
     <div style={{ textAlign: 'center' }}>
       <svg viewBox="0 0 180 110" width="100%" style={{ maxWidth: 220 }}>
@@ -165,8 +153,13 @@ export default function DashboardPage() {
   const [versaoId, setVersaoId] = useState('')
   const [agrupId, setAgrupId] = useState<string>(sv.agrupId || '')
   const [agrupOpts, setAgrupOpts] = useState<{ id: string; label: string }[]>([])
-  const [anosSel, setAnosSel] = useState<number[]>(Array.isArray(sv.anosSel) && sv.anosSel.length ? sv.anosSel : [2026])
-  const [mesesSel, setMesesSel] = useState<number[]>(Array.isArray(sv.mesesSel) && sv.mesesSel.length ? sv.mesesSel : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+  const [periodosSel, setPeriodosSel] = useState<Periodo[]>(
+    Array.isArray(sv.periodosSel) && sv.periodosSel.length
+      ? sv.periodosSel  // formato novo (por célula)
+      : toPeriodos(Array.isArray(sv.anosSel) && sv.anosSel.length ? sv.anosSel : [2026], Array.isArray(sv.mesesSel) && sv.mesesSel.length ? sv.mesesSel : ALLM))  // migra o formato antigo (anos × meses)
+  // anosSel/mesesSel derivam das células marcadas → alimentam as RPCs (cross-product; over-seleção aceita p/ marcações não-retangulares)
+  const anosSel = useMemo(() => [...new Set(periodosSel.map(p => p.ano))].sort((a, b) => a - b), [periodosSel])
+  const mesesSel = useMemo(() => [...new Set(periodosSel.map(p => p.mes))].sort((a, b) => a - b), [periodosSel])
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
   const acessoDash = useUserAccess()
   const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
@@ -181,13 +174,15 @@ export default function DashboardPage() {
   // Meus Cards: aplica preset quando ?card=<id> bate com este dashboard
   const { cardId, nome: cardNome } = useCardPreset('/dashboard', (f) => {
     if (f.relId !== undefined) setRelId(f.relId); if (f.versaoId !== undefined) setVersaoId(f.versaoId); if (f.agrupId !== undefined) setAgrupId(f.agrupId)
-    if (Array.isArray(f.anosSel)) setAnosSel(f.anosSel); if (Array.isArray(f.mesesSel)) setMesesSel(f.mesesSel)
+    if (Array.isArray(f.periodosSel)) setPeriodosSel(f.periodosSel)
+    else if (Array.isArray(f.anosSel) && Array.isArray(f.mesesSel)) setPeriodosSel(toPeriodos(f.anosSel, f.mesesSel))
     if (Array.isArray(f.empresaSel)) setEmpresaSel(f.empresaSel); if (Array.isArray(f.filialSel)) setFilialSel(f.filialSel); if (Array.isArray(f.ccSel)) setCcSel(f.ccSel)
     if (Array.isArray(f.areaSel)) setAreaSel(f.areaSel); if (Array.isArray(f.divisaoSel)) setDivisaoSel(f.divisaoSel); if (Array.isArray(f.buSel)) setBuSel(f.buSel)
     if (Array.isArray(f.indicSel)) setIndicSel(f.indicSel)
   })
 
   const [escopoNome, setEscopoNome] = useState('Relatório inteiro')
+  const [escopoDesp, setEscopoDesp] = useState(false)   // natureza do escopo: despesa → inverte bom/ruim do Δ
   const [kpi, setKpi] = useState({ resOrc: 0, resReal: 0, recOrc: 0, recReal: 0, despOrc: 0, despReal: 0, resPrev: 0, recPrev: 0, despPrev: 0, recBrutaOrc: 0, recBrutaReal: 0, recBrutaPrev: 0 })
   const [orcRealMes, setOrcRealMes] = useState<any[]>([])
   const [resMes, setResMes] = useState<{ mes: string; res: number }[]>([])
@@ -221,7 +216,7 @@ export default function DashboardPage() {
     supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo').then(r => setCcs(r.data || []))
   }, []) // eslint-disable-line
 
-  useEffect(() => { if (cardId) return; localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel })) }, [cardId, relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel])
+  useEffect(() => { if (cardId) return; localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, agrupId, periodosSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel })) }, [cardId, relId, versaoId, agrupId, periodosSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel])
 
   const load = async () => {
     if (!relId || !versaoId || !anosSel.length || !mesesSel.length) return
@@ -270,6 +265,7 @@ export default function DashboardPage() {
       const agrup = agrupId && byId[agrupId] ? agrupId : ''
       if (agrupId && !byId[agrupId]) setAgrupId('')
       setEscopoNome(agrup ? byId[agrup].descricao : 'Relatório inteiro')
+      setEscopoDesp(agrup ? natOfLine(agrup) === 'DESPESA' : false)   // escopo = linha de despesa? inverte bom/ruim
 
       // subárvore de masters de um nó (inclui o próprio e descendentes)
       const subMasters = (nodeId: string): string[] => { const acc: string[] = [], st = [nodeId]; while (st.length) { const n = st.pop()!; if (byId[n]?.linha_orc_id) acc.push(byId[n].linha_orc_id!); (childrenByPai[n] || []).forEach(c => st.push(c.id)) } return acc }
@@ -387,7 +383,7 @@ export default function DashboardPage() {
         { id: 'Orçado', data: meses.map(m => { accO += omM[m] || 0; return { x: MESES[m - 1], y: Math.round(nodeFac * accO) } }) },
       ]
 
-      const comps = nodeChildren.filter(c => (childOrc[c.id] || childReal[c.id])).map(c => { const f = natFac(childNat[c.id]); return { id: c.id, filha: cut(childDesc[c.id], 26), Orçado: Math.round(f * (childOrc[c.id] || 0)), Realizado: Math.round(f * (childReal[c.id] || 0)) } })
+      const comps = nodeChildren.filter(c => (childOrc[c.id] || childReal[c.id])).map(c => { const f = natFac(childNat[c.id]); return { id: c.id, filha: cut(childDesc[c.id], 26), Orçado: Math.round(f * (childOrc[c.id] || 0)), Realizado: Math.round(f * (childReal[c.id] || 0)), desp: childNat[c.id] === 'DESPESA' } })
         // ordena por magnitude (Realizado, fallback Orçado): ascendente p/ o gráfico horizontal exibir o maior no topo
         .sort((a, b) => (Math.abs(a.Realizado || a.Orçado)) - (Math.abs(b.Realizado || b.Orçado)))
       let run = 0
@@ -638,14 +634,14 @@ export default function DashboardPage() {
           {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}
         </select>
         <PeriodoButton resumo={`${anosOrd.join(', ') || '—'} · ${mesesSel.length === 12 ? 'todos meses' : mesesSel.length + ' meses'}`}>
-          <label style={S.label}>Período — anos (vertical) × meses (horizontal)</label>
+          <label style={S.label}>Período — clique nas células (anos × meses)</label>
           <div style={{ overflowX: 'auto' }}>
-            <AnoMesGrid anosSel={anosSel} mesesSel={mesesSel} setAnosSel={setAnosSel} setMesesSel={setMesesSel} />
+            <AnoMesGrid periodosSel={periodosSel} setPeriodosSel={setPeriodosSel} />
           </div>
         </PeriodoButton>
         <FiltrosButton empresas={acessoDash.filterList('empresa', empresas)} filiais={acessoDash.filterList('filial', filiais)} ccs={acessoDash.filterList('centro_custo', ccs as any) as any} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
-        <SalvarCardButton base="/dashboard" cor="#3b5bdb" cardId={cardId} getFiltros={() => ({ relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel })} />
+        <SalvarCardButton base="/dashboard" cor="#3b5bdb" cardId={cardId} getFiltros={() => ({ relId, versaoId, agrupId, periodosSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel })} />
         {indicCards.length > 0 && <button style={S.btn} onClick={() => setPickIndic(true)} title="Escolher quais indicadores exibir"><ListChecks size={13} /> Indicadores{indicSel.length ? ` (${indicSel.length})` : ''}</button>}
         {loading && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Carregando…</span>}
       </div>
@@ -673,7 +669,7 @@ export default function DashboardPage() {
           <div style={{ ...S.card, display: 'flex', justifyContent: 'space-around', flexWrap: 'wrap', gap: 16 }}>
             <Gauge label="Execução Resultado" pct={pctOf(kpi.resReal, kpi.resOrc)} />
             <Gauge label="Execução Receita" pct={pctOf(kpi.recReal, kpi.recOrc)} />
-            <Gauge label="Execução Despesa" pct={pctOf(kpi.despReal, kpi.despOrc)} />
+            <Gauge label="Execução Despesa" pct={pctOf(kpi.despReal, kpi.despOrc)} desp />
           </div>
 
           {(() => { const vis = indicCards.filter(c => indicSel.includes(c.id)); return vis.length > 0 && (
@@ -726,7 +722,7 @@ export default function DashboardPage() {
                   layers={['grid', 'axes', 'bars', LinhaResultado, 'markers', 'legends']}
                   axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
                   onClick={(d: any) => { const m = d.data?.mesN || (MESES.indexOf(String(d.indexValue)) + 1); if (m > 0 && qparams) setDrill({ nodeId: agrupId || '__root', meses: [m] }) }}
-                  tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} />}
+                  tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} desp={escopoDesp} />}
                   legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
               </div>
             </div>
@@ -735,9 +731,9 @@ export default function DashboardPage() {
               <div style={S.chart}>
                 <ResponsiveBar theme={nivoTheme()} data={deltaMes} keys={['Δ']} indexBy="mes"
                   margin={{ top: 10, right: 10, bottom: 40, left: 56 }} padding={0.3} borderRadius={3}
-                  colors={(b: any) => (b.value >= 0 ? '#2f9e44' : '#e03131')}
+                  colors={(b: any) => corDelta(Number(b.value), escopoDesp)}
                   axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
-                  tooltip={({ indexValue, value }: any) => <div style={tipBox}><strong>{String(indexValue)}</strong><br /><span style={{ color: Number(value) >= 0 ? '#2f9e44' : '#e03131', fontWeight: 600 }}>Δ (R−O): {fmt(Number(value))}</span></div>} />
+                  tooltip={({ indexValue, value }: any) => <div style={tipBox}><strong>{String(indexValue)}</strong><br /><span style={{ color: corDelta(Number(value), escopoDesp), fontWeight: 600 }}>Δ (R−O): {fmt(Number(value))}</span></div>} />
               </div>
             </div>
           </div>
@@ -774,7 +770,7 @@ export default function DashboardPage() {
                   margin={{ top: 6, right: 24, bottom: 30, left: 150 }} padding={0.25} innerPadding={2}
                   colors={['#9aa0aa', '#3b5bdb']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
                   enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
-                  tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} />}
+                  tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} desp={escopoDesp} />}
                   legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
               </div>
             </div>
