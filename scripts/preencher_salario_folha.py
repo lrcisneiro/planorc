@@ -29,6 +29,23 @@ VERBA_BASE = {
     'PRESTADOR': ['222', '228'],    # horas faturáveis + prestação de serviços (agregada PREST)
 }
 
+# Benefícios (VALOR_FIXO) — valor por PESSOA. O código no catálogo = CD_VERBA da folha.
+# Lê os códigos VALOR_FIXO do verbas_folha_import.xlsx; senão usa o fallback conhecido.
+def carregar_benef():
+    for f in ('verbas_folha_import.xlsx', 'dados_rh/verbas_folha_import.xlsx'):
+        if os.path.exists(f):
+            try:
+                ws = openpyxl.load_workbook(f, data_only=True)['Dados']
+                rows = list(ws.iter_rows(values_only=True)); h = {c: i for i, c in enumerate(rows[0])}
+                cods = [str(r[h['codigo']]).strip() for r in rows[1:]
+                        if r[h['codigo']] and str(r[h['tipo_calculo']]).strip() == 'VALOR_FIXO']
+                if cods:
+                    return cods
+            except Exception:
+                pass
+    return ['D49', 'A76', 'D50', 'A15', 'A51']   # VA/VR, médica, multibenef, VT, seguro
+BENEF = carregar_benef()
+
 def norm_mat(x) -> str:
     return str(x).strip().split('.')[0].zfill(6)   # 2 -> '000002' ; '900000' -> '900000'
 
@@ -65,30 +82,42 @@ with open(POSTOS, encoding='utf-8-sig') as f:
 if not postos:
     print('ERRO: postos.csv vazio.'); sys.exit(1)
 
+campos = list(postos[0].keys())
 match = sem_folha = sem_verba = 0
 por_reg = Counter(); total = 0.0
+benef_cnt = Counter(); benef_tot = 0.0
 faltantes = []
 for p in postos:
     reg    = (p.get('regime') or '').strip().upper()
     codigos = VERBA_BASE.get(reg, [])
     key    = ((p.get('filial') or '').strip(), norm_mat(p.get('matricula')))
-    verbas = idx.get(key)
-    if not verbas:
-        sem_folha += 1; faltantes.append((p.get('posto_codigo'), reg, 'sem linha na folha')); continue
+    verbas = idx.get(key) or {}
+    # salário-base
     val = sum(verbas.get(cd, 0.0) for cd in codigos)
-    if val:
+    if not idx.get(key):
+        sem_folha += 1; faltantes.append((p.get('posto_codigo'), reg, 'sem linha na folha'))
+    elif val:
         p['salario'] = f'{val:.2f}'; match += 1; por_reg[reg] += 1; total += val
     else:
         sem_verba += 1; faltantes.append((p.get('posto_codigo'), reg, f'sem verba {"/".join(codigos)} na folha'))
+    # benefícios por pessoa (VALOR_FIXO)
+    for cd in BENEF:
+        v = verbas.get(cd, 0.0)
+        p[cd] = f'{v:.2f}' if v else ''
+        if v:
+            benef_cnt[cd] += 1; benef_tot += v
 
+fieldnames = campos + [c for c in BENEF if c not in campos]
 with open(SAIDA, 'w', newline='', encoding='utf-8-sig') as f:
-    w = csv.DictWriter(f, fieldnames=list(postos[0].keys()))
+    w = csv.DictWriter(f, fieldnames=fieldnames)
     w.writeheader(); w.writerows(postos)
 
 print(f'\nPostos: {len(postos)} | com salário: {match} | sem linha na folha: {sem_folha} | '
       f'linha existe mas sem a verba do regime: {sem_verba}')
 print('Salário preenchido por regime: ' + ', '.join(f'{k}={v}' for k, v in sorted(por_reg.items())))
 print(f'Massa salarial base (mês): R$ {total:,.2f}')
+print(f'Benefícios ({", ".join(BENEF)}): {sum(benef_cnt.values())} valores · R$ {benef_tot:,.2f}/mês · '
+      + ', '.join(f'{k}={v}' for k, v in sorted(benef_cnt.items())))
 if faltantes:
     print(f'\nAmostra de {min(15, len(faltantes))} sem salário (confira se são vagas/admissões novas):')
     for pc, reg, motivo in faltantes[:15]:
