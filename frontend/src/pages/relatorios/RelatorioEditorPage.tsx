@@ -139,7 +139,6 @@ const S: Record<string, CSSProperties> = {
   back:      { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, padding: '4px 8px', borderRadius: 6 },
   title:     { fontSize: 15, fontWeight: 600, color: 'var(--text)', flex: 1, whiteSpace: 'nowrap' },
   sel:       { padding: '5px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', color: 'var(--text-mid)', cursor: 'pointer' },
-  viewsBar:  { display: 'flex', alignItems: 'center', gap: 4, padding: '6px 16px', background: 'var(--panel)', borderBottom: '1px solid var(--border)', flexShrink: 0, flexWrap: 'wrap' },
   tableWrap: { flex: 1, overflow: 'auto' },
   table:     { borderCollapse: 'collapse', fontSize: 13 },
   th:        { padding: '7px 10px', background: 'var(--panel)', color: 'var(--muted)', fontWeight: 600, fontSize: 11, textAlign: 'right', borderBottom: '2px solid var(--border-strong)', borderRight: '1px solid var(--border)', whiteSpace: 'nowrap', position: 'sticky', top: 0, zIndex: 1 },
@@ -165,12 +164,6 @@ const S: Record<string, CSSProperties> = {
   help:      { fontSize: 11, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 },
 }
 
-
-function viewTab(active: boolean): CSSProperties {
-  return { display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', fontSize: 13, cursor: 'pointer',
-    borderRadius: 7, border: '1px solid', borderColor: active ? 'var(--violet)' : 'var(--border)',
-    background: active ? 'rgba(139,92,246,0.14)' : 'var(--panel)', color: active ? 'var(--violet)' : 'var(--muted)', fontWeight: active ? 600 : 500 }
-}
 
 type Period = number | 'TOTAL'
 type Column = { key: string; label: string; cenarioKey?: string; period: Period; kind: 'value' | 'delta' | 'deltav' | 'collapsed'; empresaId?: string }
@@ -241,6 +234,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const [addAfterId, setAddAfterId] = useState<string | null>(null)   // abre o "incluir linha" logo abaixo desta linha
   const [detalhado,  setDetalhado]  = useState<Record<string, Set<string>>>({})  // [cenario] -> Set(`linhaId-mes`) com detalhe (read-only)
   const [impMenu,    setImpMenu]    = useState(false)
+  const [viewMenu,   setViewMenu]   = useState(false)
   const [impMode,    setImpMode]    = useState<'linhas' | 'baseline_full' | 'baseline_add'>('baseline_full')
   const [colW,       setColW]       = useState<Record<string, number>>({})
   const [valErro,   setValErro]   = useState<string | null>(null)
@@ -1420,6 +1414,46 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         </span>
         {!editavel && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--orange)', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.30)', borderRadius: 99, padding: '2px 8px' }}>somente leitura</span>}
 
+        {/* Seletor de VISÃO (colapsa a antiga fileira de abas num único botão que mostra a visão ativa) */}
+        <div style={{ position: 'relative' }}>
+          <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, borderColor: 'var(--violet)', color: 'var(--violet)', fontWeight: 500 }}
+            onClick={() => setViewMenu(o => !o)} title="Visão ativa — layout das colunas (Períodos, Comparativo…). Clique para trocar ou criar.">
+            <ListTree size={13} /> <span style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{view.nome}</span>
+            <span style={{ fontSize: 10, opacity: 0.7, whiteSpace: 'nowrap' }}>· {FUNCAO_LABEL[view.funcao]}</span>
+            <ChevronDown size={12} />
+          </button>
+          {viewMenu && (
+            <>
+              <div onClick={() => setViewMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 1400 }} />
+              <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.18)', zIndex: 1500, minWidth: 300, maxHeight: 420, overflow: 'auto' }}>
+                {(views.length ? views : [view]).map(v => {
+                  const ativa = v.id === view.id
+                  return (
+                    <div key={v.id} onClick={() => { setActiveView(v.id); setViewMenu(false) }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', background: ativa ? 'rgba(139,92,246,0.14)' : 'var(--panel)', borderBottom: '1px solid var(--bg)' }}
+                      onMouseEnter={e => { if (!ativa) e.currentTarget.style.background = 'rgba(139,92,246,0.07)' }}
+                      onMouseLeave={e => { if (!ativa) e.currentTarget.style.background = 'var(--panel)' }}>
+                      <span style={{ width: 12, flexShrink: 0, color: 'var(--violet)' }}>{ativa ? '✓' : ''}</span>
+                      <span style={{ flex: 1, minWidth: 0, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.nome}</span>
+                      <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{FUNCAO_LABEL[v.funcao]}</span>
+                      <Settings2 size={13} style={{ cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 }} title="Editar visão"
+                        onClick={e => { e.stopPropagation(); setViewMenu(false); setViewModal(v) }} />
+                      {!v._synthetic && <Trash2 size={13} style={{ cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 }} title="Excluir visão"
+                        onClick={e => { e.stopPropagation(); deleteView(v.id) }} />}
+                    </div>
+                  )
+                })}
+                <div onClick={() => { setViewMenu(false); setViewModal({ id: '__default', nome: 'Nova visão', ordem: 0, funcao: 'MENSAL', cenarios: versaoId ? [versaoId] : [], filtros: {}, _synthetic: true }) }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 12px', fontSize: 13, cursor: 'pointer', color: 'var(--violet)', fontWeight: 500 }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,0.10)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'var(--panel)')}>
+                  <Plus size={14} /> Nova visão
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
         <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => loadValores()} title="Atualizar os dados (após aplicar um formulário ou orçar em outra aba)">
           <RefreshCw size={13} /> Atualizar
         </button>
@@ -1495,21 +1529,6 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         {saving && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Salvando...</span>}
       </div>
 
-      <div style={S.viewsBar}>
-        {(views.length ? views : [view]).map(v => (
-          <div key={v.id} style={viewTab(v.id === view.id)} onClick={() => setActiveView(v.id)}>
-            <span>{v.nome}</span>
-            <span style={{ fontSize: 10, opacity: 0.7 }}>· {FUNCAO_LABEL[v.funcao]}</span>
-            <Settings2 size={12} style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); setViewModal(v) }} />
-            {!v._synthetic && v.id === view.id && <X size={12} style={{ cursor: 'pointer' }} onClick={e => { e.stopPropagation(); deleteView(v.id) }} />}
-          </div>
-        ))}
-        <button style={{ ...viewTab(false), borderStyle: 'dashed', color: 'var(--muted)' }}
-          onClick={() => setViewModal({ id: '__default', nome: 'Nova visão', ordem: 0, funcao: 'MENSAL', cenarios: versaoId ? [versaoId] : [], filtros: {}, _synthetic: true })}>
-          <Plus size={13} /> Visão
-        </button>
-
-      </div>
 
       {(() => {
         const sel = selId ? (linhas.find(x => x.id === selId) ?? null) : null
