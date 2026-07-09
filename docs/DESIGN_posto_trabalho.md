@@ -52,6 +52,17 @@ verba (REESTRUTURADA)
                  incide_encargos bool,       -- entra na base de PCT_BASE?
                  ordem int, ativo bool
 
+-- AJUSTES 09/jul (dados reais da folha):
+--  · posto.regime: CLT | PRESTADOR | PROLABORE — o regime define QUAIS verbas
+--    o motor aplica ao posto. SEM regra por código de matrícula: cada modelo
+--    tem suas próprias verbas no ERP, e é a VERBA que direciona a conta
+--    orçamentária (CLT→20101/20201; prestador→20301 Terceiros, sem encargos).
+--  · verba.regime: a que regime a regra se aplica (encargos/provisões = CLT).
+--  · verba.aglutina_em: código ERP → verba orçamentária AGREGADA (ex.: bônus/
+--    comissões/prêmios → VAR "Remuneração variável"; horas faturáveis/prestação
+--    → PREST). Orçamento limpo nas agregadas; realizado abre por código e a
+--    conciliação usa o de-para. Verbas de conciliação = tipo INFORMATIVA.
+
 posto            id, tenant_id, codigo, cargo_id, empresa_id, filial_id, cc_id,
                  sindicato_id (null = herda empresa? v1: obrigatório informar),
                  funcionario_id (null = VAGA planejada),
