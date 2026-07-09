@@ -25,6 +25,7 @@ export const CAPACIDADES: Capacidade[] = [
   { key: 'menu.relatorios', label: 'Relatórios',              categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },
   { key: 'menu.orcamento',  label: 'Orçamento',               categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
   { key: 'menu.estruturas', label: 'Estruturas de relatórios', categoria: 'Menu', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'menu.postos',     label: 'Posto de trabalho (folha)', categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
   { key: 'menu.realizado',  label: 'Realizado',               categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
   { key: 'menu.saldos',     label: 'Saldos (BP)',             categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
   { key: 'menu.amarracao',  label: 'Amarração',               categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },

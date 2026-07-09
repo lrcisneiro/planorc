@@ -13,6 +13,8 @@ import RelatorioEditorPage from './pages/relatorios/RelatorioEditorPage'
 import OrcarGradePage from './pages/orcar/OrcarGradePage'
 import FormulariosPage from './pages/formularios/FormulariosPage'
 import FormularioEditorPage from './pages/formularios/FormularioEditorPage'
+import PostosRegrasPage from './pages/postos/PostosRegrasPage'
+import PostosGradePage from './pages/postos/PostosGradePage'
 import OrcadoDadosPage from './pages/orcamento/OrcadoDadosPage'
 import RealizadoDadosPage from './pages/realizado/RealizadoDadosPage'
 import DashboardPage from './pages/dashboard/DashboardPage'
@@ -39,7 +41,7 @@ const NAV_GROUPS: NavGroup[] = [
     { to: '/orcar-grade', label: 'Orçar (grade)',            icon: Grid3x3,  cap: 'menu.orcamento' },
     { to: '/estruturas',  label: 'Estruturas de relatórios', icon: ListTree, cap: 'menu.estruturas' },
     { to: '/formularios', label: 'Formulário de drivers', icon: SlidersHorizontal, cap: 'menu.orcamento' },
-    { label: 'Posto de trabalho',      icon: Users,             soon: true },
+    { to: '/postos', label: 'Posto de trabalho', icon: Users, cap: 'menu.postos' },
     { label: 'Versões & cenários',     icon: Layers,            soon: true },
     { label: 'Governança & aprovação', icon: ShieldCheck,       soon: true },
   ] },
@@ -235,6 +237,8 @@ function Shell({ session }: { session: Session }) {
             <Route path="/formularios"     element={<FormulariosPage />} />
             <Route path="/formularios/:id" element={<FormularioEditorPage mode="preencher" />} />
             <Route path="/formularios/:id/estrutura" element={<FormularioEditorPage mode="estrutura" />} />
+            <Route path="/postos"          element={<PostosGradePage />} />
+            <Route path="/postos/regras"   element={<PostosRegrasPage />} />
             <Route path="/dre"             element={<DrePage />} />
             <Route path="/orcamento"       element={<OrcadoDadosPage />} />
             <Route path="/realizado"       element={<RealizadoDadosPage />} />
