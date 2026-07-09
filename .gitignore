@@ -28,6 +28,11 @@ __pycache__/
 *.pyc
 supabase/.temp/
 
+# dados RH / folha (PII — nunca versionar)
+dados_rh/
+Funcionarios.csv
+funcionarios_convertido.csv
+
 # wrangler / cloudflare
 .wrangler
 .dev.vars*
