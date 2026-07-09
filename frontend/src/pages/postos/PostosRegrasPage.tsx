@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { Plus, Trash2, Pencil, Save, X, AlertCircle, Download, Upload, FileDown } from 'lucide-react'
+
+const pill = (a: boolean, off?: boolean): CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5, borderRadius: 99, textDecoration: 'none', cursor: off ? 'default' : 'pointer', fontWeight: 600, border: '1px solid ' + (a ? 'var(--violet)' : 'var(--border)'), background: a ? 'rgba(139,92,246,0.16)' : 'var(--panel)', color: a ? 'var(--violet)' : off ? 'var(--border-strong)' : 'var(--text-mid)', opacity: off ? 0.7 : 1 })
 
 // SheetJS via CDN (index.html)
 declare const XLSX: any
@@ -44,6 +47,12 @@ const REGIME_OPTS: { value: string; label: string }[] = [
   { value: 'CLT',       label: 'CLT' },
   { value: 'PRESTADOR', label: 'Prestador' },
   { value: 'PROLABORE', label: 'Pró-labore' },
+]
+const CATEGORIA_OPTS: { value: string; label: string }[] = [
+  { value: 'SALARIO', label: 'Salário' },
+  { value: 'ENCARGOS', label: 'Encargos' },
+  { value: 'PROVISOES', label: 'Provisões' },
+  { value: 'BENEFICIOS', label: 'Benefícios' },
 ]
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 const MESES_OPTS = MESES.map((m, i) => ({ value: String(i + 1), label: m }))
@@ -276,6 +285,7 @@ function VerbasTab() {
       { key: 'verba_ref_id',     label: 'Verba ref.',       kind: 'select', lookup: 'self', width: 170, importHeader: 'verba_ref', importSample: '' },
       { key: 'conta_destino_id', label: 'Conta destino',    kind: 'select', lookup: 'conta', width: 220, importHeader: 'conta_destino', importSample: '' },
       { key: 'incide_encargos',  label: 'Base p/ encargos', kind: 'check', width: 100, importSample: 'sim' },
+      { key: 'categoria',        label: 'Categoria',        kind: 'select', options: CATEGORIA_OPTS, width: 130, importSample: '' },
       { key: 'regime',           label: 'Regime',           kind: 'select', options: REGIME_OPTS, width: 120, importSample: 'CLT' },
       { key: 'aglutina_em',      label: 'Aglutina em',      kind: 'select', lookup: 'self_cod', width: 150, importSample: '' },
       { key: 'ativo',            label: 'Ativo',            kind: 'check', width: 60, importSample: 'sim' },
@@ -392,8 +402,17 @@ export default function PostosRegrasPage() {
 
   return (
     <div style={S.page}>
-      <h1 style={S.title}>Estrutura de Postos <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)' }}>· regras de cálculo da folha</span></h1>
-      <p style={S.subtitle}>Catálogos que o motor usa ao orçar por posto: rubricas (verbas), cargos, sindicatos e o dissídio por versão.</p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={S.title}>Estrutura de Postos <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)' }}>· regras de cálculo da folha</span></h1>
+          <p style={S.subtitle}>Catálogos que o motor usa ao orçar por posto: rubricas (verbas), cargos, sindicatos e o dissídio por versão.</p>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <Link to="/postos" style={pill(false)}>1 · Postos</Link>
+          <span style={pill(true)}>2 · Estrutura</span>
+          <span style={pill(false, true)} title="Disponível na grade de Postos (clique num custo)">3 · Memória de cálculo</span>
+        </div>
+      </div>
 
       <div style={S.tabs}>
         {TABS.map(t => <button key={t.id} style={S.tab(aba === t.id)} onClick={() => setAba(t.id)}>{t.label}</button>)}
