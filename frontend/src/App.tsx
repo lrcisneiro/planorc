@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, Link2, Wallet, LogOut, Menu, X, SlidersHorizontal, Users, Layers, ShieldCheck, ListChecks, Sun, Moon, ListTree, Grid3x3 } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, Link2, Wallet, LogOut, Menu, X, SlidersHorizontal, Users, Layers, ShieldCheck, ListChecks, Sun, Moon, ListTree, Grid3x3, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { setTheme, getTheme } from './lib/theme'
 import { useCapacidades } from './hooks/useCapacidades'
@@ -15,6 +15,7 @@ import FormulariosPage from './pages/formularios/FormulariosPage'
 import FormularioEditorPage from './pages/formularios/FormularioEditorPage'
 import PostosRegrasPage from './pages/postos/PostosRegrasPage'
 import PostosGradePage from './pages/postos/PostosGradePage'
+import PostosMemoriaPage from './pages/postos/PostosMemoriaPage'
 import OrcadoDadosPage from './pages/orcamento/OrcadoDadosPage'
 import RealizadoDadosPage from './pages/realizado/RealizadoDadosPage'
 import DashboardPage from './pages/dashboard/DashboardPage'
@@ -115,6 +116,7 @@ const S = {
   },
   topbar: { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'var(--bg-soft)', color: 'var(--text)', flexShrink: 0, borderBottom: '1px solid var(--border)' } as const,
   burger: { display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 6, background: 'transparent', border: 'none', color: 'var(--text)', cursor: 'pointer' } as const,
+  toggle: { display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 4, background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'pointer' } as const,
 }
 
 export default function App() {
@@ -139,6 +141,9 @@ function Shell({ session }: { session: Session }) {
   const trocarTema = () => { const n = tema === 'dark' ? 'light' : 'dark'; setTheme(n); setTema(n) }
   const { can } = useCapacidades()   // F2: capacidades (catálogo × papel) controlam menus/funções
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 820px)').matches)
+  const [recolhido, setRecolhido] = useState(() => typeof window !== 'undefined' && localStorage.getItem('po_sidebar') === 'off')
+  const toggleRecolher = () => setRecolhido(r => { const n = !r; localStorage.setItem('po_sidebar', n ? 'off' : 'on'); return n })
+  const recol = !isMobile && recolhido   // trilho de ícones (só no desktop; mobile usa o drawer)
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 820px)')
     const h = () => { setIsMobile(mq.matches); if (!mq.matches) setMenuOpen(false) }
@@ -148,15 +153,17 @@ function Shell({ session }: { session: Session }) {
 
   const sidebarStyle: CSSProperties = isMobile
     ? { ...S.sidebar, position: 'fixed', top: 0, left: 0, height: '100%', zIndex: 2000, transform: menuOpen ? 'none' : 'translateX(-100%)', transition: 'transform .2s ease', boxShadow: menuOpen ? '0 0 40px rgba(0,0,0,0.4)' : 'none' }
-    : S.sidebar
+    : { ...S.sidebar, width: recol ? 64 : 256, transition: 'width .18s ease' }
 
   return (
     <div style={S.layout}>
       {isMobile && menuOpen && <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1900 }} />}
       <aside style={sidebarStyle}>
-        <div style={{ ...S.logo, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          PlanOrc
-          {isMobile && <X size={20} style={{ cursor: 'pointer' }} onClick={() => setMenuOpen(false)} />}
+        <div style={{ ...S.logo, display: 'flex', alignItems: 'center', justifyContent: recol ? 'center' : 'space-between', gap: 8 }}>
+          {!recol && <span>PlanOrc</span>}
+          {isMobile
+            ? <X size={20} style={{ cursor: 'pointer' }} onClick={() => setMenuOpen(false)} />
+            : <button style={S.toggle} onClick={toggleRecolher} title={recol ? 'Expandir menu' : 'Recolher menu'} aria-label="Recolher/expandir menu">{recol ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button>}
         </div>
         <style>{`
           .po-navlink{ outline:none !important; }
@@ -169,19 +176,17 @@ function Shell({ session }: { session: Session }) {
             if (!itens.length) return null
             return (
             <div key={g.area} style={S.group}>
-              <div style={S.groupH}>
+              <div style={{ ...S.groupH, ...(recol ? { justifyContent: 'center', padding: '9px 0 5px' } : {}) }} title={recol ? g.area : undefined}>
                 <span style={{ ...S.groupDot, background: g.dot }} />
-                <span>{g.area}</span>
-                {g.mode && <span style={S.groupMode}>{g.mode}</span>}
+                {!recol && <><span>{g.area}</span>{g.mode && <span style={S.groupMode}>{g.mode}</span>}</>}
               </div>
               {itens.map((item) => {
                 const Icon = item.icon
                 if (item.soon || !item.to) {
                   return (
-                    <div key={item.label} style={S.linkSoon} title={item.label}>
-                      <Icon size={15} style={{ opacity: 0.5, flex: '0 0 auto' }} />
-                      <span style={S.linkLabel}>{item.label}</span>
-                      <span style={S.soonBadge}>em breve</span>
+                    <div key={item.label} style={{ ...S.linkSoon, ...(recol ? { justifyContent: 'center', padding: '9px 0' } : {}) }} title={item.label}>
+                      <Icon size={16} style={{ opacity: 0.5, flex: '0 0 auto' }} />
+                      {!recol && <><span style={S.linkLabel}>{item.label}</span><span style={S.soonBadge}>em breve</span></>}
                     </div>
                   )
                 }
@@ -191,10 +196,11 @@ function Shell({ session }: { session: Session }) {
                     to={item.to}
                     className="po-navlink"
                     onClick={() => setMenuOpen(false)}
-                    style={({ isActive }) => ({ ...S.link, ...(isActive ? S.linkActive : {}) })}
+                    title={recol ? item.label : undefined}
+                    style={({ isActive }) => ({ ...S.link, ...(recol ? { justifyContent: 'center', padding: '9px 0' } : {}), ...(isActive ? S.linkActive : {}) })}
                   >
-                    <Icon size={15} style={{ opacity: 0.85, flex: '0 0 auto' }} />
-                    <span style={S.linkLabel}>{item.label}</span>
+                    <Icon size={16} style={{ opacity: 0.85, flex: '0 0 auto' }} />
+                    {!recol && <span style={S.linkLabel}>{item.label}</span>}
                   </NavLink>
                 )
               })}
@@ -202,12 +208,12 @@ function Shell({ session }: { session: Session }) {
             )
           })}
         </nav>
-        <div style={S.footer}>
-          <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.user?.email}</div>
-          <button style={S.sair} onClick={trocarTema}>
-            {tema === 'dark' ? <Sun size={14} /> : <Moon size={14} />} Tema {tema === 'dark' ? 'claro' : 'escuro'}
+        <div style={{ ...S.footer, ...(recol ? { padding: '10px 8px' } : {}) }}>
+          {!recol && <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.user?.email}</div>}
+          <button style={{ ...S.sair, ...(recol ? { padding: '8px 0' } : {}) }} onClick={trocarTema} title={`Tema ${tema === 'dark' ? 'claro' : 'escuro'}`}>
+            {tema === 'dark' ? <Sun size={14} /> : <Moon size={14} />}{!recol && ` Tema ${tema === 'dark' ? 'claro' : 'escuro'}`}
           </button>
-          <button style={S.sair} onClick={() => supabase.auth.signOut()}><LogOut size={14} /> Sair</button>
+          <button style={{ ...S.sair, ...(recol ? { padding: '8px 0' } : {}) }} onClick={() => supabase.auth.signOut()} title="Sair"><LogOut size={14} />{!recol && ' Sair'}</button>
         </div>
       </aside>
       <main style={S.main}>
@@ -238,6 +244,7 @@ function Shell({ session }: { session: Session }) {
             <Route path="/formularios/:id" element={<FormularioEditorPage mode="preencher" />} />
             <Route path="/formularios/:id/estrutura" element={<FormularioEditorPage mode="estrutura" />} />
             <Route path="/postos"          element={<PostosGradePage />} />
+            <Route path="/postos/memoria"  element={<PostosMemoriaPage />} />
             <Route path="/postos/regras"   element={<PostosRegrasPage />} />
             <Route path="/dre"             element={<DrePage />} />
             <Route path="/orcamento"       element={<OrcadoDadosPage />} />
