@@ -84,7 +84,7 @@ const S = {
 type Col = {
   key: string
   label: string
-  kind?: 'text' | 'num' | 'select' | 'check'
+  kind?: 'text' | 'num' | 'select' | 'check' | 'regimes'
   options?: { value: string; label: string }[]
   lookup?: 'conta' | 'self' | 'self_cod'   // opções dinâmicas ('self_cod' guarda o CÓDIGO de outra linha)
   int?: boolean               // select que grava inteiro
@@ -123,6 +123,7 @@ function CrudTable({ table, orderBy, cols, defaults, lookups, hint }: {
     const v = row[c.key]
     if (c.kind === 'check') return v ? 'Sim' : '—'
     if (c.kind === 'select') { const o = optsFor(c).find(o => o.value === String(v)); return o ? o.label : (v ?? '—') }
+    if (c.kind === 'regimes') { const s = String(v || '').split(',').map(x => x.trim()).filter(Boolean); return s.length ? s.map(r => REGIME_OPTS.find(o => o.value === r)?.label || r).join(', ') : 'Todos' }
     if (v === null || v === undefined || v === '') return '—'
     return String(v)
   }
@@ -221,6 +222,15 @@ function CrudTable({ table, orderBy, cols, defaults, lookups, hint }: {
         {optsFor(c).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     )
+    if (c.kind === 'regimes') {
+      const selr = String(draft[c.key] || '').split(',').map(x => x.trim()).filter(Boolean)
+      const toggle = (r: string) => { const set = new Set(selr); set.has(r) ? set.delete(r) : set.add(r); setDraft(d => ({ ...d, [c.key]: [...set].join(',') || null })) }
+      return <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{REGIME_OPTS.map(o => (
+        <label key={o.value} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, cursor: 'pointer', color: 'var(--text-mid)' }}>
+          <input type="checkbox" checked={selr.includes(o.value)} onChange={() => toggle(o.value)} /> {o.label}
+        </label>
+      ))}</div>
+    }
     return <input style={S.input} value={draft[c.key] ?? ''} placeholder={c.placeholder} onChange={e => setDraft(d => ({ ...d, [c.key]: e.target.value }))} />
   }
   const acoes = (
@@ -286,7 +296,7 @@ function VerbasTab() {
       { key: 'conta_destino_id', label: 'Conta destino',    kind: 'select', lookup: 'conta', width: 220, importHeader: 'conta_destino', importSample: '' },
       { key: 'incide_encargos',  label: 'Base p/ encargos', kind: 'check', width: 100, importSample: 'sim' },
       { key: 'categoria',        label: 'Categoria',        kind: 'select', options: CATEGORIA_OPTS, width: 130, importSample: '' },
-      { key: 'regime',           label: 'Regime',           kind: 'select', options: REGIME_OPTS, width: 120, importSample: 'CLT' },
+      { key: 'regime',           label: 'Regime(s)',        kind: 'regimes', width: 210, importSample: 'CLT,PROLABORE' },
       { key: 'aglutina_em',      label: 'Aglutina em',      kind: 'select', lookup: 'self_cod', width: 150, importSample: '' },
       { key: 'ativo',            label: 'Ativo',            kind: 'check', width: 60, importSample: 'sim' },
     ]} />
@@ -410,7 +420,7 @@ export default function PostosRegrasPage() {
         <div style={{ display: 'flex', gap: 6 }}>
           <Link to="/postos" style={pill(false)}>1 · Postos</Link>
           <span style={pill(true)}>2 · Estrutura</span>
-          <span style={pill(false, true)} title="Disponível na grade de Postos (clique num custo)">3 · Memória de cálculo</span>
+          <Link to="/postos/memoria" style={pill(false)}>3 · Memória de cálculo</Link>
         </div>
       </div>
 

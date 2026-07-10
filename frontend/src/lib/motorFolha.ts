@@ -51,10 +51,16 @@ const CATEGORIA: Record<TipoCalculo, Categoria> = {
 const CAT_COD: Record<string, Categoria> = { SALARIO: 'Salário', ENCARGOS: 'Encargos', PROVISOES: 'Provisões', BENEFICIOS: 'Benefícios' }
 const categoriaDe = (v: VerbaRegra): Categoria => (v.categoria && CAT_COD[v.categoria]) || CATEGORIA[v.tipo_calculo]
 
+// `verba.regime` guarda uma LISTA separada por vírgula (ex.: 'CLT,PROLABORE'); vazio = todos os regimes.
+export const regimeAplica = (verbaRegime: string | null | undefined, postoRegime: string | null): boolean => {
+  const rs = (verbaRegime || '').split(',').map(s => s.trim()).filter(Boolean)
+  return !rs.length || (postoRegime != null && rs.includes(postoRegime))
+}
+
 // verbas que se aplicam ao regime do posto, na ordem de cálculo (INFORMATIVA fora)
 export function verbasDoRegime(verbas: VerbaRegra[], regime: string | null): VerbaRegra[] {
   return verbas
-    .filter(v => v.tipo_calculo !== 'INFORMATIVA' && (!v.regime || v.regime === regime))
+    .filter(v => v.tipo_calculo !== 'INFORMATIVA' && regimeAplica(v.regime, regime))
     .sort((a, b) => (a.ordem ?? 9999) - (b.ordem ?? 9999))
 }
 

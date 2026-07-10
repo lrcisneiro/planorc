@@ -5,9 +5,9 @@ import { supabase, TENANT_ID } from '../../lib/supabase'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
-import { calcularPosto } from '../../lib/motorFolha'
+import { calcularPosto, regimeAplica } from '../../lib/motorFolha'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
-import { Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X } from 'lucide-react'
+import { Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil } from 'lucide-react'
 
 // Grade de Postos (P1 step 3) — orçamento de folha por posto, agrupado por CC.
 // Custo c/ encargos, rateio, sindicato e "Aplicar" vêm dos steps 4-5 (placeholder por ora).
@@ -86,7 +86,11 @@ const S: Record<string, CSSProperties> = {
   modal:  { background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, padding: 20, width: 'min(680px, 96vw)', maxHeight: '88vh', overflow: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,0.4)' },
   mth:    { textAlign: 'left', padding: '6px 8px', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3, borderBottom: '1px solid var(--border)' },
   mtd:    { padding: '5px 8px', fontSize: 12.5, borderBottom: '1px solid var(--panel-2)', color: 'var(--text)' },
+  finp:   { padding: '7px 9px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg)', color: 'var(--text)', width: '100%', boxSizing: 'border-box' },
+  flbl:   { fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 3 },
+  btnPri2:{ padding: '8px 16px', fontSize: 13, background: 'var(--violet)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 },
 }
+const MESES_NUM = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 const catCor: Record<string, string> = { 'Salário': 'var(--green)', Encargos: 'var(--orange)', 'Provisões': 'var(--blue)', 'Benefícios': 'var(--violet)' }
 const tag = (bg: string, cor: string, brd: string): CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 6, background: bg, color: cor, border: `1px solid ${brd}` })
 const T = {
@@ -129,6 +133,7 @@ export default function PostosGradePage() {
   const [modo, setModo] = useState<'upsert' | 'substituir'>('upsert')
   const [agruparPor, setAgruparPor] = useState<'cc' | 'cargo'>('cc')
   const [regimeSel, setRegimeSel] = useState('')
+  const [busca, setBusca] = useState('')
   const [erro, setErro] = useState<string | null>(null)
   const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; cargosNovos: number } | null>(null)
   const [importando, setImportando] = useState(false)
@@ -140,7 +145,9 @@ export default function PostosGradePage() {
   const [verbas, setVerbas] = useState<VerbaRegra[]>([])
   const [sindMesBase, setSindMesBase] = useState<Record<string, number>>({})
   const [sindByCod, setSindByCod] = useState<Record<string, string>>({})   // codigo → sindicato_id
+  const [sindicatos, setSindicatos] = useState<any[]>([])
   const [dissidio, setDissidio] = useState<Record<string, number>>({})   // sindicato_id → pct (da versão)
+  const [form, setForm] = useState<any | null>(null)   // modal novo/editar posto
   const [postoVerbas, setPostoVerbas] = useState<Record<string, Record<string, number>>>({})  // posto_id → { verba_id: valor }
   const [drill, setDrill] = useState<Posto | null>(null)
 
@@ -158,6 +165,7 @@ export default function PostosGradePage() {
     setVersoes(vs.data || []); setVerbas((vb.data || []) as VerbaRegra[])
     setSindMesBase(Object.fromEntries((si.data || []).map((s: any) => [s.id, s.mes_database || 1])))
     setSindByCod(Object.fromEntries((si.data || []).map((s: any) => [String(s.codigo), s.id])))
+    setSindicatos(si.data || [])
     if (vs.data?.length) setVersaoSel(prev => prev || vs.data[0].id)
   }
   useEffect(() => {
@@ -266,6 +274,29 @@ export default function PostosGradePage() {
     if (error) { setErro(error.message); return }
     setPostos(ps => ps.filter(p => p.id !== id))
   }
+  // novo posto / vaga ou edição (código, ocupante, cargo, local, regime, salário, vigência)
+  const novoPosto = () => setForm({ codigo: '', nome: '', matricula: '', cargo_id: '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: '', sindicato_id: '', regime: 'CLT', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '' })
+  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', salario_base: p.salario_base != null ? String(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '' })
+  const salvarPosto = async () => {
+    if (!form) return
+    if (!(form.codigo || '').trim()) { setErro('Informe o código do posto.'); return }
+    if (!form.empresa_id) { setErro('Informe a empresa.'); return }
+    const empCod = empresas.find(e => e.id === form.empresa_id)?.codigo || ''
+    const payload: any = {
+      tenant_id: TENANT_ID, codigo: form.codigo.trim(),
+      nome: (form.nome || '').trim() || null, matricula: (form.matricula || '').trim() || null,
+      cargo_id: form.cargo_id || null, empresa_id: form.empresa_id, filial_id: form.filial_id || null, cc_id: form.cc_id || null,
+      sindicato_id: form.sindicato_id || sindByCod[sindCodPorEmp(empCod)] || null,
+      regime: form.regime || null, salario_base: parseNum(form.salario_base) || 0, fte: parseNum(form.fte) || 1,
+      ini_ano: form.ini_ano ? parseInt(form.ini_ano, 10) : null, ini_mes: form.ini_mes ? parseInt(form.ini_mes, 10) : null,
+      fim_ano: form.fim_ano ? parseInt(form.fim_ano, 10) : null, fim_mes: form.fim_mes ? parseInt(form.fim_mes, 10) : null,
+      ativo: true,
+    }
+    const { error } = form.id ? await supabase.from('posto').update(payload).eq('id', form.id) : await supabase.from('posto').insert(payload)
+    if (error) { setErro(error.message); return }
+    setForm(null); loadPostos()
+  }
+
   // edita o valor de uma verba (benefício) deste posto: >0 grava, 0/vazio remove
   const salvarBenef = async (postoId: string, verbaId: string, valor: number) => {
     if (valor > 0) {
@@ -285,13 +316,16 @@ export default function PostosGradePage() {
     const filF = escopoFiltro((filialSel.length && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSee)
     const ccF = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee)
     const sEmp = empF ? new Set(empF) : null, sFil = filF ? new Set(filF) : null, sCc = ccF ? new Set(ccF) : null
+    const q = busca.trim().toLowerCase()
+    const match = (p: Posto) => !q || [p.nome, p.matricula, p.cargo?.nome, p.codigo, p.centro_custo?.descricao, p.centro_custo?.codigo]
+      .some(x => (x || '').toString().toLowerCase().includes(q))
     return postos.filter(p =>
       (!sEmp || sEmp.has(p.empresa_id)) &&
       (!sFil || (p.filial_id != null && sFil.has(p.filial_id))) &&
       (!sCc || (p.cc_id != null && sCc.has(p.cc_id))) &&
-      (!regimeSel || p.regime === regimeSel)
+      (!regimeSel || p.regime === regimeSel) && match(p)
     )
-  }, [postos, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, regimeSel, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
+  }, [postos, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, regimeSel, busca, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
 
   // ── motor: custo por posto (com encargos/provisões/benefícios) ──
   const anoCalc = useMemo(() => {
@@ -341,10 +375,12 @@ export default function PostosGradePage() {
     return { head, vagas, fte, ano, cat, medioFte: fte ? (ano / 12) / fte : 0 }
   }, [filtrados, custos]) // eslint-disable-line
 
+  // janela de vigência DENTRO do ano da versão (bate com o motor)
   const vig = (p: Posto) => {
-    if (p.fim_mes && p.fim_ano) return { txt: `${MESES[(p.ini_mes || 1) - 1]}–${MESES[p.fim_mes - 1]}`, alerta: true }
-    if (!p.nome && p.ini_mes && p.ini_mes > 1) return { txt: `${MESES[p.ini_mes - 1]}–dez`, alerta: true }
-    return { txt: 'jan–dez', alerta: false }
+    const iniM = (p.ini_ano == null || p.ini_ano < anoCalc) ? 1 : (p.ini_ano === anoCalc ? (p.ini_mes || 1) : 13)
+    const fimM = (p.fim_ano == null || p.fim_ano > anoCalc) ? 12 : (p.fim_ano === anoCalc ? (p.fim_mes || 12) : 0)
+    if (iniM > 12 || fimM < 1 || iniM > fimM) return { txt: 'fora do ano', alerta: true }
+    return { txt: `${MESES[iniM - 1]}–${MESES[fimM - 1]}`, alerta: iniM > 1 || fimM < 12 }
   }
 
   const linhaPosto = (p: Posto) => {
@@ -376,7 +412,10 @@ export default function PostosGradePage() {
         <td style={S.td}><span style={{ color: 'var(--muted)' }} title="Rateio configurado no step 4">—</span></td>
         <td style={{ ...S.td, textAlign: 'right', cursor: 'pointer' }} title="Ver memória de cálculo" onClick={() => setDrill(p)}>{money(custoMes)}</td>
         <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, cursor: 'pointer' }} title="Ver memória de cálculo" onClick={() => setDrill(p)}>{money(custoAno)}</td>
-        <td style={S.td}>{editavel && <button style={S.del} title="Excluir" onClick={() => excluir(p.id, p.codigo)}><Trash2 size={15} /></button>}</td>
+        <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{editavel && <>
+          <button style={S.del} title="Editar posto" onClick={() => editarPosto(p)}><Pencil size={14} /></button>
+          <button style={S.del} title="Excluir" onClick={() => excluir(p.id, p.codigo)}><Trash2 size={15} /></button>
+        </>}</td>
       </tr>
     )
   }
@@ -391,7 +430,7 @@ export default function PostosGradePage() {
         <div style={S.pills}>
           <span style={S.pill(true)}>1 · Postos</span>
           <Link to="/postos/regras" style={S.pill(false)}>2 · Estrutura</Link>
-          <span style={S.pill(false, true)} title="Disponível no Aplicar (motor · step 5)">3 · Memória de cálculo</span>
+          <Link to="/postos/memoria" style={S.pill(false)}>3 · Memória de cálculo</Link>
         </div>
       </div>
 
@@ -401,6 +440,13 @@ export default function PostosGradePage() {
             {!versoes.length && <option value="">—</option>}
             {versoes.map((v: any) => <option key={v.id} value={v.id}>{v.codigo}</option>)}
           </select>
+        </div>
+        <div style={S.fld}><span style={S.lbl}>Buscar</span>
+          <div style={{ position: 'relative' }}>
+            <Search size={14} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--muted)' }} />
+            <input style={{ ...S.sel, paddingLeft: 28, width: 210 }} placeholder="nome, matrícula, cargo…" value={busca} onChange={e => setBusca(e.target.value)} />
+            {busca && <X size={14} style={{ position: 'absolute', right: 8, top: 9, color: 'var(--muted)', cursor: 'pointer' }} onClick={() => setBusca('')} />}
+          </div>
         </div>
         <div style={S.fld}><span style={S.lbl}>Filtros</span>
           <FiltrosButton
@@ -428,6 +474,7 @@ export default function PostosGradePage() {
           </select>
           <button style={S.btn} disabled={importando} onClick={() => fileRef.current?.click()}><Upload size={14} /> {importando ? 'Importando…' : 'Importar postos (RH)'}</button>
         </>}
+        {editavel && <button style={S.btn} onClick={novoPosto}><Plus size={14} /> Posto / vaga</button>}
         <button style={S.btnPri} disabled title="Disponível no motor (step 5)"><Play size={13} /> Aplicar no orçado</button>
         <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = '' }} />
       </div>
@@ -470,7 +517,7 @@ export default function PostosGradePage() {
             </tr></thead>
             <tbody>
               {grupos.map(g => {
-                const k1 = 'a:' + g.key, aberto = !fechados.has(k1)
+                const k1 = 'a:' + g.key, aberto = !!busca.trim() || !fechados.has(k1)
                 return (
                   <Fragment key={g.key}>
                     <tr onClick={() => toggle(k1)}>
@@ -529,7 +576,7 @@ export default function PostosGradePage() {
               </div>}
 
               {editavel && (() => {
-                const benefVerbas = verbas.filter(v => v.tipo_calculo === 'VALOR_FIXO' && (!v.regime || v.regime === drill.regime))
+                const benefVerbas = verbas.filter(v => v.tipo_calculo === 'VALOR_FIXO' && regimeAplica(v.regime, drill.regime))
                 if (!benefVerbas.length) return null
                 return (
                   <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
@@ -551,6 +598,47 @@ export default function PostosGradePage() {
           </div>
         )
       })()}
+
+      {form && (
+        <div style={S.overlay} onClick={() => setForm(null)}>
+          <div style={{ ...S.modal, width: 'min(580px, 96vw)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{form.id ? `Editar posto ${form.codigo}` : 'Novo posto / vaga'}</div>
+              <button onClick={() => setForm(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 14px' }}>
+              <div style={{ gridColumn: '1 / -1' }}><span style={S.flbl}>Ocupante <span style={{ color: 'var(--muted)' }}>(vazio = vaga planejada)</span></span>
+                <input style={S.finp} value={form.nome} placeholder="Nome do funcionário; deixe vazio p/ vaga" onChange={e => setForm((f: any) => ({ ...f, nome: e.target.value }))} /></div>
+              <div><span style={S.flbl}>Código *</span><input style={S.finp} value={form.codigo} onChange={e => setForm((f: any) => ({ ...f, codigo: e.target.value }))} /></div>
+              <div><span style={S.flbl}>Matrícula</span><input style={S.finp} value={form.matricula} onChange={e => setForm((f: any) => ({ ...f, matricula: e.target.value }))} /></div>
+              <div><span style={S.flbl}>Cargo</span><select style={S.finp} value={form.cargo_id} onChange={e => setForm((f: any) => ({ ...f, cargo_id: e.target.value }))}><option value="">—</option>{cargos.map((c: any) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></div>
+              <div><span style={S.flbl}>Regime</span><select style={S.finp} value={form.regime} onChange={e => setForm((f: any) => ({ ...f, regime: e.target.value }))}><option value="">—</option>{REGIMES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+              <div><span style={S.flbl}>Empresa *</span><select style={S.finp} value={form.empresa_id} onChange={e => setForm((f: any) => ({ ...f, empresa_id: e.target.value, filial_id: '' }))}><option value="">—</option>{acesso.filterList('empresa', empresas).map((e: any) => <option key={e.id} value={e.id}>{e.codigo} · {e.descricao}</option>)}</select></div>
+              <div><span style={S.flbl}>Filial</span><select style={S.finp} value={form.filial_id} onChange={e => setForm((f: any) => ({ ...f, filial_id: e.target.value }))}><option value="">—</option>{filiais.filter((f: any) => !form.empresa_id || f.empresa_id === form.empresa_id).map((f: any) => <option key={f.id} value={f.id}>{f.codigo}{f.descricao ? ' · ' + f.descricao : ''}</option>)}</select></div>
+              <div><span style={S.flbl}>Centro de custo</span><select style={S.finp} value={form.cc_id} onChange={e => setForm((f: any) => ({ ...f, cc_id: e.target.value }))}><option value="">—</option>{ccs.map((c: any) => <option key={c.id} value={c.id}>{c.codigo} · {c.descricao}</option>)}</select></div>
+              <div><span style={S.flbl}>Sindicato <span style={{ color: 'var(--muted)' }}>(vazio = pela empresa)</span></span><select style={S.finp} value={form.sindicato_id} onChange={e => setForm((f: any) => ({ ...f, sindicato_id: e.target.value }))}><option value="">— automático —</option>{sindicatos.map((s: any) => <option key={s.id} value={s.id}>{s.codigo}</option>)}</select></div>
+              <div><span style={S.flbl}>Salário base</span><input style={S.finp} value={form.salario_base} placeholder="0,00" onChange={e => setForm((f: any) => ({ ...f, salario_base: e.target.value }))} /></div>
+              <div><span style={S.flbl}>FTE</span><input style={S.finp} value={form.fte} placeholder="1" onChange={e => setForm((f: any) => ({ ...f, fte: e.target.value }))} /></div>
+              <div><span style={S.flbl}>Vigência início</span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <select style={{ ...S.finp, flex: 1 }} value={form.ini_mes} onChange={e => setForm((f: any) => ({ ...f, ini_mes: e.target.value }))}><option value="">mês</option>{MESES_NUM.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
+                  <input style={{ ...S.finp, width: 76 }} value={form.ini_ano} placeholder="ano" onChange={e => setForm((f: any) => ({ ...f, ini_ano: e.target.value }))} />
+                </div>
+              </div>
+              <div><span style={S.flbl}>Vigência fim <span style={{ color: 'var(--muted)' }}>(vazio = dez)</span></span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <select style={{ ...S.finp, flex: 1 }} value={form.fim_mes} onChange={e => setForm((f: any) => ({ ...f, fim_mes: e.target.value }))}><option value="">mês</option>{MESES_NUM.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
+                  <input style={{ ...S.finp, width: 76 }} value={form.fim_ano} placeholder="ano" onChange={e => setForm((f: any) => ({ ...f, fim_ano: e.target.value }))} />
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+              <button style={S.btn} onClick={() => setForm(null)}>Cancelar</button>
+              <button style={S.btnPri2} onClick={salvarPosto}>Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
