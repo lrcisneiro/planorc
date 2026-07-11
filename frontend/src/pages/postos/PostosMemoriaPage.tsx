@@ -78,7 +78,7 @@ export default function PostosMemoriaPage() {
         supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
         supabase.from('conta_orcamentaria').select('id,codigo,descricao'),
         supabase.from('versao_orcamento').select('id,codigo').order('codigo'),
-        supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref_id,conta_destino_id,incide_encargos,regime,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
+        supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,regime,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
         supabase.from('sindicato').select('id,mes_database'),
       ])
       setEmpresas(e.data || []); setFiliais(f.data || []); setCcs(c.data || []); setContas(ct.data || [])

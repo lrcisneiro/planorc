@@ -135,7 +135,7 @@ export default function PostosGradePage() {
   const [regimeSel, setRegimeSel] = useState('')
   const [busca, setBusca] = useState('')
   const [erro, setErro] = useState<string | null>(null)
-  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; cargosNovos: number } | null>(null)
+  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; cargosNovos: number; beneficios: number; benefColunas: number } | null>(null)
   const [importando, setImportando] = useState(false)
   const [fechados, setFechados] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
@@ -158,7 +158,7 @@ export default function PostosGradePage() {
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
       supabase.from('cargo').select('id,codigo,nome').order('nome'),
       supabase.from('versao_orcamento').select('id,codigo').order('codigo'),
-      supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref_id,conta_destino_id,incide_encargos,regime,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
+      supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,regime,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
       supabase.from('sindicato').select('id,codigo,mes_database'),
     ])
     setEmpresas(e.data || []); setFiliais(f.data || []); setCcs(c.data || []); setCargos(cg.data || [])
@@ -234,6 +234,7 @@ export default function PostosGradePage() {
       // benefícios por posto: colunas do arquivo que casam com códigos de verba (VALOR_FIXO) → posto_verba
       const verbaByCod = new Map(verbas.map(v => [String(v.codigo).trim().toUpperCase(), v.id]))
       const benefCols = Object.keys(rows[0] || {}).filter(c => verbaByCod.has(c.trim().toUpperCase()))
+      let benefCriados = 0
       if (benefCols.length) {
         const codigos = payload.map(p => p.codigo)
         const idByCod = new Map<string, string>()
@@ -253,9 +254,10 @@ export default function PostosGradePage() {
         const pids = [...idByCod.values()]
         if (pids.length) await supabase.from('posto_verba').delete().in('posto_id', pids)   // re-sincroniza os benefícios dos postos do arquivo
         if (pvRows.length) { const { error: pvErr } = await supabase.from('posto_verba').upsert(pvRows, { onConflict: 'posto_id,verba_id' }); if (pvErr) setErro('Aviso — benefícios: ' + pvErr.message) }
+        benefCriados = pvRows.length
       }
 
-      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], cargosNovos: nomesNovos.length })
+      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length })
       loadPostos()
     } finally { setImportando(false) }
   }
@@ -483,6 +485,9 @@ export default function PostosGradePage() {
       {importInfo && (
         <div style={S.info}><CheckCircle2 size={16} style={{ color: 'var(--green)', flexShrink: 0, marginTop: 1 }} />
           <div><b>{importInfo.gravados} postos</b> importados{importInfo.cargosNovos ? ` · ${importInfo.cargosNovos} cargos criados` : ''}{importInfo.modo === 'substituir' ? ` · ${importInfo.apagados} apagados (substituir escopo)` : ''}.
+            <div style={{ color: importInfo.benefColunas ? 'var(--text-mid)' : 'var(--orange)' }}>{importInfo.benefColunas
+              ? `${importInfo.beneficios} valores de benefício por posto (posto_verba) atualizados, em ${importInfo.benefColunas} verba(s) da folha.`
+              : '⚠ Nenhuma coluna do arquivo casou com verba do catálogo — benefícios NÃO atualizados. Cadastre as verbas (D49, A76, D50, A15, A51…) em Estrutura → Verbas e reimporte.'}</div>
             {importInfo.semEmp.length > 0 && <div style={{ color: 'var(--red)' }}>⚠ Empresas não encontradas (postos ignorados): {importInfo.semEmp.join(', ')}</div>}
             {importInfo.semFil.length > 0 && <div style={{ color: 'var(--orange)' }}>Filiais não encontradas (posto sem filial): {importInfo.semFil.join(', ')}</div>}
             {importInfo.semCc.length > 0 && <div style={{ color: 'var(--orange)' }}>CCs não encontrados (posto sem CC): {importInfo.semCc.slice(0, 20).join(', ')}{importInfo.semCc.length > 20 ? '…' : ''}</div>}

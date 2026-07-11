@@ -10,7 +10,7 @@ export type VerbaRegra = {
   descricao: string
   tipo_calculo: TipoCalculo
   parametro: number | null          // % / fator / valor
-  verba_ref_id: string | null       // p/ PCT_VERBA
+  verba_ref: string | null          // p/ PCT_VERBA: CÓDIGOS separados por vírgula (a base é a soma deles)
   conta_destino_id: string | null
   incide_encargos: boolean          // entra na base de PCT_BASE/PROVISAO?
   regime: string | null             // null = vale p/ todos os regimes
@@ -75,6 +75,9 @@ function vigencia(p: PostoCalc, ano: number): [number, number] {
 // `valoresFixos` = valores por posto das verbas VALOR_FIXO (benefícios); ausente = a pessoa não tem.
 function custoMes(regVerbas: VerbaRegra[], base: number, valoresFixos: Record<string, number>): Record<string, number> {
   const valores: Record<string, number> = {}
+  const idPorCod: Record<string, string> = Object.fromEntries(regVerbas.map(v => [v.codigo, v.id]))
+  const somaRefs = (ref: string | null) => (ref || '').split(',').map(s => s.trim()).filter(Boolean)
+    .reduce((s, cod) => s + (valores[idPorCod[cod]] ?? 0), 0)   // soma das verbas referenciadas (já calculadas antes, pela ordem)
   let baseEncargos = 0
   for (const v of regVerbas) {
     const p = Number(v.parametro || 0)
@@ -83,7 +86,7 @@ function custoMes(regVerbas: VerbaRegra[], base: number, valoresFixos: Record<st
       case 'BASE': val = base; break
       case 'PCT_BASE': val = baseEncargos * p / 100; break
       case 'PROVISAO_1_12': val = baseEncargos * p / 12; break
-      case 'PCT_VERBA': val = (valores[v.verba_ref_id || ''] || 0) * p / 100; break
+      case 'PCT_VERBA': val = somaRefs(v.verba_ref) * p / 100; break
       case 'VALOR_FIXO': val = valoresFixos[v.id] ?? 0; break   // por posto, não do catálogo
       default: val = 0
     }

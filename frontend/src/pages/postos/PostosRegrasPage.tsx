@@ -84,7 +84,7 @@ const S = {
 type Col = {
   key: string
   label: string
-  kind?: 'text' | 'num' | 'select' | 'check' | 'regimes'
+  kind?: 'text' | 'num' | 'select' | 'check' | 'regimes' | 'self_multi'
   options?: { value: string; label: string }[]
   lookup?: 'conta' | 'self' | 'self_cod'   // opções dinâmicas ('self_cod' guarda o CÓDIGO de outra linha)
   int?: boolean               // select que grava inteiro
@@ -124,6 +124,7 @@ function CrudTable({ table, orderBy, cols, defaults, lookups, hint }: {
     if (c.kind === 'check') return v ? 'Sim' : '—'
     if (c.kind === 'select') { const o = optsFor(c).find(o => o.value === String(v)); return o ? o.label : (v ?? '—') }
     if (c.kind === 'regimes') { const s = String(v || '').split(',').map(x => x.trim()).filter(Boolean); return s.length ? s.map(r => REGIME_OPTS.find(o => o.value === r)?.label || r).join(', ') : 'Todos' }
+    if (c.kind === 'self_multi') { const s = String(v || '').split(',').map(x => x.trim()).filter(Boolean); return s.length ? s.join(', ') : '—' }
     if (v === null || v === undefined || v === '') return '—'
     return String(v)
   }
@@ -231,6 +232,18 @@ function CrudTable({ table, orderBy, cols, defaults, lookups, hint }: {
         </label>
       ))}</div>
     }
+    if (c.kind === 'self_multi') {
+      const sel = String(draft[c.key] || '').split(',').map(x => x.trim()).filter(Boolean)
+      const toggle = (cod: string) => { const set = new Set(sel); set.has(cod) ? set.delete(cod) : set.add(cod); setDraft(d => ({ ...d, [c.key]: [...set].join(',') || null })) }
+      return <div style={{ maxHeight: 110, overflow: 'auto', border: '1px solid var(--border-strong)', borderRadius: 6, padding: 4, minWidth: 160, background: 'var(--panel)' }}>
+        {data.filter(d => d.id !== editId).map((d: any) => (
+          <label key={d.id} style={{ display: 'flex', gap: 4, fontSize: 11, cursor: 'pointer', padding: '1px 2px', whiteSpace: 'nowrap', color: 'var(--text-mid)' }}>
+            <input type="checkbox" checked={sel.includes(d.codigo)} onChange={() => toggle(d.codigo)} />
+            <span style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{d.codigo}</span> {String(d.descricao || '').slice(0, 22)}
+          </label>
+        ))}
+      </div>
+    }
     return <input style={S.input} value={draft[c.key] ?? ''} placeholder={c.placeholder} onChange={e => setDraft(d => ({ ...d, [c.key]: e.target.value }))} />
   }
   const acoes = (
@@ -292,7 +305,7 @@ function VerbasTab() {
       { key: 'descricao',        label: 'Descrição',        kind: 'text',  required: true, importSample: 'Salário base' },
       { key: 'tipo_calculo',     label: 'Tipo de cálculo',  kind: 'select', options: TIPO_CALCULO, width: 160, importSample: 'BASE' },
       { key: 'parametro',        label: '% / fator / valor', kind: 'num',  width: 120, importSample: '' },
-      { key: 'verba_ref_id',     label: 'Verba ref.',       kind: 'select', lookup: 'self', width: 170, importHeader: 'verba_ref', importSample: '' },
+      { key: 'verba_ref',        label: 'Verbas ref. (base do %)', kind: 'self_multi', width: 200, importHeader: 'verba_ref', importSample: '' },
       { key: 'conta_destino_id', label: 'Conta destino',    kind: 'select', lookup: 'conta', width: 220, importHeader: 'conta_destino', importSample: '' },
       { key: 'incide_encargos',  label: 'Base p/ encargos', kind: 'check', width: 100, importSample: 'sim' },
       { key: 'categoria',        label: 'Categoria',        kind: 'select', options: CATEGORIA_OPTS, width: 130, importSample: '' },
