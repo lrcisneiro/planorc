@@ -37,3 +37,6 @@ funcionarios_convertido.csv
 .wrangler
 .dev.vars*
 !.dev.vars.example
+
+# Claude Code (local)
+.claude/

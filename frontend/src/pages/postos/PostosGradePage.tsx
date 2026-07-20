@@ -8,6 +8,7 @@ import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/Das
 import { calcularPosto, regimeAplica } from '../../lib/motorFolha'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
 import { Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil } from 'lucide-react'
+import { RateioModal } from './RateioModal'
 
 // Grade de Postos (P1 step 3) — orçamento de folha por posto, agrupado por CC.
 // Custo c/ encargos, rateio, sindicato e "Aplicar" vêm dos steps 4-5 (placeholder por ora).
@@ -107,7 +108,7 @@ const tagRegime = (r: string | null): CSSProperties =>
 const REGIMES_LABEL: Record<string, string> = { CLT: 'CLT', PRESTADOR: 'Prestador', PROLABORE: 'Pró-labore' }
 
 type Posto = {
-  id: string; codigo: string; nome: string | null; matricula: string | null; regime: string | null
+  id: string; codigo: string; nome: string | null; matricula: string | null; regime: string | null; ativo?: boolean
   salario_base: number; fte: number; ini_ano: number | null; ini_mes: number | null; fim_ano: number | null; fim_mes: number | null
   empresa_id: string; filial_id: string | null; cc_id: string | null; cargo_id: string | null; sindicato_id: string | null
   cargo?: { nome: string } | null; empresa?: { codigo: string } | null; filial?: { codigo: string } | null
@@ -134,8 +135,9 @@ export default function PostosGradePage() {
   const [agruparPor, setAgruparPor] = useState<'cc' | 'cargo'>('cc')
   const [regimeSel, setRegimeSel] = useState('')
   const [busca, setBusca] = useState('')
+  const [mostrarInativos, setMostrarInativos] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; cargosNovos: number; beneficios: number; benefColunas: number } | null>(null)
+  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[] } | null>(null)
   const [importando, setImportando] = useState(false)
   const [fechados, setFechados] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
@@ -149,10 +151,14 @@ export default function PostosGradePage() {
   const [dissidio, setDissidio] = useState<Record<string, number>>({})   // sindicato_id → pct (da versão)
   const [form, setForm] = useState<any | null>(null)   // modal novo/editar posto
   const [postoVerbas, setPostoVerbas] = useState<Record<string, Record<string, number>>>({})  // posto_id → { verba_id: valor }
+  const [rateioCods, setRateioCods] = useState<any[]>([])   // catálogo de códigos de rateio
+  const [destByRegra, setDestByRegra] = useState<Record<string, any[]>>({})   // regra_id → destinos
+  const [postoRateios, setPostoRateios] = useState<Record<string, { regra_id: string; ordem: number }[]>>({})  // posto_id → códigos anexados
+  const [rateModal, setRateModal] = useState<Posto | null>(null)
   const [drill, setDrill] = useState<Posto | null>(null)
 
   const loadLookups = async () => {
-    const [e, f, c, cg, vs, vb, si] = await Promise.all([
+    const [e, f, c, cg, vs, vb, si, rr, rd] = await Promise.all([
       supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
       supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
@@ -160,8 +166,14 @@ export default function PostosGradePage() {
       supabase.from('versao_orcamento').select('id,codigo').order('codigo'),
       supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,regime,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
       supabase.from('sindicato').select('id,codigo,mes_database'),
+      supabase.from('rateio_regra').select('id,nome,dimensao').eq('ativo', true).order('nome'),
+      supabase.from('rateio_destino').select('regra_id,empresa_id,cc_id,pct'),
     ])
     setEmpresas(e.data || []); setFiliais(f.data || []); setCcs(c.data || []); setCargos(cg.data || [])
+    setRateioCods(rr.data || [])
+    const dbr: Record<string, any[]> = {}
+    for (const d of rd.data || []) (dbr[d.regra_id] ||= []).push({ empresa_id: d.empresa_id, cc_id: d.cc_id, pct: Number(d.pct) || 0 })
+    setDestByRegra(dbr)
     setVersoes(vs.data || []); setVerbas((vb.data || []) as VerbaRegra[])
     setSindMesBase(Object.fromEntries((si.data || []).map((s: any) => [s.id, s.mes_database || 1])))
     setSindByCod(Object.fromEntries((si.data || []).map((s: any) => [String(s.codigo), s.id])))
@@ -182,6 +194,11 @@ export default function PostosGradePage() {
     const m: Record<string, Record<string, number>> = {}
     for (const r of pv || []) (m[r.posto_id] ||= {})[r.verba_id] = Number(r.valor) || 0
     setPostoVerbas(m)
+    const { data: pr } = await supabase.from('posto_rateio').select('posto_id,regra_id,ordem')
+    const rm: Record<string, { regra_id: string; ordem: number }[]> = {}
+    for (const r of pr || []) (rm[r.posto_id] ||= []).push({ regra_id: r.regra_id, ordem: Number(r.ordem) || 1 })
+    for (const k in rm) rm[k].sort((a, b) => a.ordem - b.ordem)
+    setPostoRateios(rm)
   }
   useEffect(() => { loadLookups(); loadPostos() }, [])
 
@@ -231,17 +248,19 @@ export default function PostosGradePage() {
       const { error } = await supabase.from('posto').upsert(payload, { onConflict: 'tenant_id,codigo' })
       if (error) { setErro('Erro no import: ' + error.message); return }
 
+      // ids dos postos gravados (reusado por benefícios e rateio)
+      const codigos = payload.map(p => p.codigo)
+      const idByCod = new Map<string, string>()
+      for (let i = 0; i < codigos.length; i += 150) {
+        const { data } = await supabase.from('posto').select('id,codigo').in('codigo', codigos.slice(i, i + 150))
+        for (const x of data || []) idByCod.set(x.codigo, x.id)
+      }
+
       // benefícios por posto: colunas do arquivo que casam com códigos de verba (VALOR_FIXO) → posto_verba
       const verbaByCod = new Map(verbas.map(v => [String(v.codigo).trim().toUpperCase(), v.id]))
       const benefCols = Object.keys(rows[0] || {}).filter(c => verbaByCod.has(c.trim().toUpperCase()))
       let benefCriados = 0
       if (benefCols.length) {
-        const codigos = payload.map(p => p.codigo)
-        const idByCod = new Map<string, string>()
-        for (let i = 0; i < codigos.length; i += 150) {
-          const { data } = await supabase.from('posto').select('id,codigo').in('codigo', codigos.slice(i, i + 150))
-          for (const x of data || []) idByCod.set(x.codigo, x.id)
-        }
         const pvRows: any[] = []
         for (const r of rows) {
           const pid = idByCod.get(r.posto_codigo); if (!pid) continue
@@ -257,7 +276,30 @@ export default function PostosGradePage() {
         benefCriados = pvRows.length
       }
 
-      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length })
+      // rateio por posto: coluna RATEIO com códigos (nome) separados por ; em ordem de cascata → posto_rateio
+      const rateioCol = Object.keys(rows[0] || {}).find(c => c.trim().toUpperCase() === 'RATEIO')
+      let rateioPostos = 0; const rateioNaoAchados = new Set<string>()
+      if (rateioCol) {
+        const regraByNome = new Map(rateioCods.map(c => [String(c.nome).trim().toUpperCase(), c.id]))
+        const prRows: any[] = []
+        for (const r of rows) {
+          const pid = idByCod.get(r.posto_codigo); if (!pid) continue
+          const toks = String(r[rateioCol] || '').split(/[;,]/).map(t => t.trim()).filter(Boolean)
+          if (!toks.length) continue
+          let ordem = 0; let anexou = false
+          for (const t of toks) {
+            const rid = regraByNome.get(t.toUpperCase())
+            if (!rid) { rateioNaoAchados.add(t); continue }
+            ordem++; prRows.push({ tenant_id: TENANT_ID, posto_id: pid, regra_id: rid, ordem }); anexou = true
+          }
+          if (anexou) rateioPostos++
+        }
+        const pids2 = [...idByCod.values()]
+        if (pids2.length) await supabase.from('posto_rateio').delete().in('posto_id', pids2)   // re-sincroniza o rateio dos postos do arquivo
+        if (prRows.length) { const { error: prErr } = await supabase.from('posto_rateio').upsert(prRows, { onConflict: 'tenant_id,posto_id,regra_id' }); if (prErr) setErro('Aviso — rateio: ' + prErr.message) }
+      }
+
+      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length, rateioPostos, rateioCol: !!rateioCol, rateioNaoAchados: [...rateioNaoAchados] })
       loadPostos()
     } finally { setImportando(false) }
   }
@@ -277,8 +319,8 @@ export default function PostosGradePage() {
     setPostos(ps => ps.filter(p => p.id !== id))
   }
   // novo posto / vaga ou edição (código, ocupante, cargo, local, regime, salário, vigência)
-  const novoPosto = () => setForm({ codigo: '', nome: '', matricula: '', cargo_id: '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: '', sindicato_id: '', regime: 'CLT', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '' })
-  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', salario_base: p.salario_base != null ? String(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '' })
+  const novoPosto = () => setForm({ codigo: '', nome: '', matricula: '', cargo_id: '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: '', sindicato_id: '', regime: 'CLT', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', rateios: [] })
+  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', salario_base: p.salario_base != null ? String(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
   const salvarPosto = async () => {
     if (!form) return
     if (!(form.codigo || '').trim()) { setErro('Informe o código do posto.'); return }
@@ -294,8 +336,19 @@ export default function PostosGradePage() {
       fim_ano: form.fim_ano ? parseInt(form.fim_ano, 10) : null, fim_mes: form.fim_mes ? parseInt(form.fim_mes, 10) : null,
       ativo: true,
     }
-    const { error } = form.id ? await supabase.from('posto').update(payload).eq('id', form.id) : await supabase.from('posto').insert(payload)
-    if (error) { setErro(error.message); return }
+    const saved = form.id
+      ? await supabase.from('posto').update(payload).eq('id', form.id).select('id').single()
+      : await supabase.from('posto').insert(payload).select('id').single()
+    if (saved.error) { setErro(saved.error.message); return }
+    const postoId = saved.data?.id || form.id
+    // sincroniza rateios anexados (posto_rateio)
+    if (postoId) {
+      await supabase.from('posto_rateio').delete().eq('posto_id', postoId)
+      const vistos = new Set<string>()
+      const rrows = (form.rateios || []).filter((r: any) => r.regra_id && !vistos.has(r.regra_id) && vistos.add(r.regra_id))
+        .map((r: any) => ({ tenant_id: TENANT_ID, posto_id: postoId, regra_id: r.regra_id, ordem: r.ordem || 1 }))
+      if (rrows.length) { const { error: rErr } = await supabase.from('posto_rateio').insert(rrows); if (rErr) { setErro('Aviso — rateio: ' + rErr.message) } }
+    }
     setForm(null); loadPostos()
   }
 
@@ -322,12 +375,14 @@ export default function PostosGradePage() {
     const match = (p: Posto) => !q || [p.nome, p.matricula, p.cargo?.nome, p.codigo, p.centro_custo?.descricao, p.centro_custo?.codigo]
       .some(x => (x || '').toString().toLowerCase().includes(q))
     return postos.filter(p =>
+      (mostrarInativos || p.ativo !== false) &&
       (!sEmp || sEmp.has(p.empresa_id)) &&
       (!sFil || (p.filial_id != null && sFil.has(p.filial_id))) &&
       (!sCc || (p.cc_id != null && sCc.has(p.cc_id))) &&
       (!regimeSel || p.regime === regimeSel) && match(p)
     )
-  }, [postos, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, regimeSel, busca, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
+  }, [postos, mostrarInativos, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, regimeSel, busca, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
+  const nInativos = useMemo(() => postos.filter(p => p.ativo === false).length, [postos])
 
   // ── motor: custo por posto (com encargos/provisões/benefícios) ──
   const anoCalc = useMemo(() => {
@@ -348,6 +403,8 @@ export default function PostosGradePage() {
   }, [postos, verbas, dissidio, sindMesBase, anoCalc, temMotor, postoVerbas])
   const custoAnoP = (p: Posto) => custos.get(p.id)?.totalAno ?? (Number(p.salario_base) || 0) * (Number(p.fte) || 1) * 12
   const custoMesP = (p: Posto) => custos.get(p.id)?.totalMes ?? (Number(p.salario_base) || 0) * (Number(p.fte) || 1)
+  const empById = useMemo(() => new Map(empresas.map((e: any) => [e.id, e])), [empresas])
+  const ccById = useMemo(() => new Map(ccs.map((c: any) => [c.id, c])), [ccs])
 
   // agrupa por centro de custo OU cargo (seletor)
   const grupos = useMemo(() => {
@@ -389,8 +446,9 @@ export default function PostosGradePage() {
     const custoMes = custoMesP(p), custoAno = custoAnoP(p)
     const v = vig(p)
     return (
-      <tr key={p.id}>
-        <td style={{ ...S.td, fontFamily: 'monospace', color: 'var(--muted)' }}>{p.codigo}</td>
+      <tr key={p.id} style={p.ativo === false ? { opacity: 0.55 } : undefined}>
+        <td style={{ ...S.td, fontFamily: 'monospace', color: 'var(--muted)' }}>{p.codigo}
+          {p.ativo === false && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 5, color: 'var(--red)', border: '1px solid var(--red)55', background: 'rgba(248,113,113,0.12)' }}>DEMITIDO</span>}</td>
         <td style={{ ...S.td, fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)' }}
           title={`${p.empresa?.codigo || '?'} · ${p.filial?.codigo || '?'} · ${p.centro_custo?.codigo || '?'} ${p.centro_custo?.descricao || ''}`}>
           {p.empresa?.codigo || '—'}·{p.filial?.codigo || '—'}·{p.centro_custo?.codigo || '—'}</td>
@@ -411,7 +469,12 @@ export default function PostosGradePage() {
             : (Number(p.fte) || 1).toLocaleString('pt-BR', { minimumFractionDigits: 1 })}
         </td>
         <td style={{ ...S.td, color: v.alerta ? 'var(--orange)' : 'var(--muted)' }}>{v.txt}</td>
-        <td style={S.td}><span style={{ color: 'var(--muted)' }} title="Rateio configurado no step 4">—</span></td>
+        <td style={S.td}>{(() => {
+          const rr = postoRateios[p.id] || []
+          if (!rr.length) return <span style={{ color: 'var(--muted)' }}>—</span>
+          const nomes = rr.map(x => rateioCods.find(c => c.id === x.regra_id)?.nome || '?').join(' → ')
+          return <button title={`${nomes} — clique para ver a memória`} onClick={() => setRateModal(p)} style={{ display: 'inline-block', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 6, cursor: 'pointer', color: 'var(--violet)', border: '1px solid var(--violet)55', background: 'rgba(139,92,246,0.14)' }}>{rr.length} cód.</button>
+        })()}</td>
         <td style={{ ...S.td, textAlign: 'right', cursor: 'pointer' }} title="Ver memória de cálculo" onClick={() => setDrill(p)}>{money(custoMes)}</td>
         <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, cursor: 'pointer' }} title="Ver memória de cálculo" onClick={() => setDrill(p)}>{money(custoAno)}</td>
         <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{editavel && <>
@@ -433,6 +496,7 @@ export default function PostosGradePage() {
           <span style={S.pill(true)}>1 · Postos</span>
           <Link to="/postos/regras" style={S.pill(false)}>2 · Estrutura</Link>
           <Link to="/postos/memoria" style={S.pill(false)}>3 · Memória de cálculo</Link>
+          <Link to="/postos/rateio" style={S.pill(false)}>4 · Rateio</Link>
         </div>
       </div>
 
@@ -468,6 +532,11 @@ export default function PostosGradePage() {
             <option value="CLT">CLT</option><option value="PRESTADOR">Prestador</option><option value="PROLABORE">Pró-labore</option>
           </select>
         </div>
+        {nInativos > 0 && <div style={S.fld}><span style={S.lbl}>Demitidos</span>
+          <button style={{ ...S.sel, cursor: 'pointer', color: mostrarInativos ? 'var(--orange)' : 'var(--muted)', borderColor: mostrarInativos ? 'var(--orange)' : 'var(--border-strong)' }}
+            title="Demitidos (posto inativo) ficam fora do headcount, FTE e custo. Ative para revê-los." onClick={() => setMostrarInativos(v => !v)}>
+            {mostrarInativos ? `Mostrando ${nInativos}` : `Ocultos (${nInativos})`}</button>
+        </div>}
         <div style={{ flex: 1 }} />
         {editavel && <>
           <select style={S.sel} value={modo} onChange={e => setModo(e.target.value as any)} title="Adicionar/atualizar: upsert (não apaga). Substituir escopo: apaga os postos das empresas do arquivo e recarrega.">
@@ -488,6 +557,8 @@ export default function PostosGradePage() {
             <div style={{ color: importInfo.benefColunas ? 'var(--text-mid)' : 'var(--orange)' }}>{importInfo.benefColunas
               ? `${importInfo.beneficios} valores de benefício por posto (posto_verba) atualizados, em ${importInfo.benefColunas} verba(s) da folha.`
               : '⚠ Nenhuma coluna do arquivo casou com verba do catálogo — benefícios NÃO atualizados. Cadastre as verbas (D49, A76, D50, A15, A51…) em Estrutura → Verbas e reimporte.'}</div>
+            {importInfo.rateioCol && <div style={{ color: 'var(--text-mid)' }}>{importInfo.rateioPostos} posto(s) com rateio anexado (posto_rateio) pela coluna RATEIO.</div>}
+            {importInfo.rateioNaoAchados.length > 0 && <div style={{ color: 'var(--orange)' }}>Códigos de rateio não encontrados (ignorados): {importInfo.rateioNaoAchados.join(', ')} — confira os nomes em 4 · Rateio.</div>}
             {importInfo.semEmp.length > 0 && <div style={{ color: 'var(--red)' }}>⚠ Empresas não encontradas (postos ignorados): {importInfo.semEmp.join(', ')}</div>}
             {importInfo.semFil.length > 0 && <div style={{ color: 'var(--orange)' }}>Filiais não encontradas (posto sem filial): {importInfo.semFil.join(', ')}</div>}
             {importInfo.semCc.length > 0 && <div style={{ color: 'var(--orange)' }}>CCs não encontrados (posto sem CC): {importInfo.semCc.slice(0, 20).join(', ')}{importInfo.semCc.length > 20 ? '…' : ''}</div>}
@@ -637,12 +708,38 @@ export default function PostosGradePage() {
                 </div>
               </div>
             </div>
+
+            {/* Rateio: códigos anexados ao posto, em cascata (ordem). Origem = empresa/CC deste posto. */}
+            <div style={{ marginTop: 18, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>Rateio <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(distribui o custo deste posto; aplicado na ordem)</span></span>
+                <button style={{ ...S.btn, padding: '5px 9px', fontSize: 12 }} onClick={() => setForm((f: any) => ({ ...f, rateios: [...(f.rateios || []), { regra_id: '', ordem: (f.rateios?.length || 0) + 1 }] }))}><Plus size={13} /> Código</button>
+              </div>
+              {(!form.rateios || !form.rateios.length) && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Sem rateio — 100% na empresa/CC do posto.</div>}
+              {(form.rateios || []).map((r: any, i: number) => (
+                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                  <select style={{ ...S.finp, flex: 1 }} value={r.regra_id} onChange={e => setForm((f: any) => ({ ...f, rateios: f.rateios.map((x: any, j: number) => j === i ? { ...x, regra_id: e.target.value } : x) }))}>
+                    <option value="">— código —</option>
+                    {rateioCods.map((c: any) => <option key={c.id} value={c.id}>{c.nome} ({c.dimensao === 'CC' ? 'CC' : 'Empresa'})</option>)}
+                  </select>
+                  <input style={{ ...S.finp, width: 64 }} title="Ordem da cascata" value={r.ordem} onChange={e => setForm((f: any) => ({ ...f, rateios: f.rateios.map((x: any, j: number) => j === i ? { ...x, ordem: parseInt(e.target.value, 10) || 1 } : x) }))} />
+                  <button style={S.del} onClick={() => setForm((f: any) => ({ ...f, rateios: f.rateios.filter((_: any, j: number) => j !== i) }))}><Trash2 size={14} /></button>
+                </div>
+              ))}
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
               <button style={S.btn} onClick={() => setForm(null)}>Cancelar</button>
               <button style={S.btnPri2} onClick={salvarPosto}>Salvar</button>
             </div>
           </div>
         </div>
+      )}
+
+      {rateModal && (
+        <RateioModal posto={rateModal} totMes={custoMesP(rateModal)} totAno={custoAnoP(rateModal)}
+          anexos={postoRateios[rateModal.id] || []} rateioCods={rateioCods} destByRegra={destByRegra}
+          empById={empById} ccById={ccById} onClose={() => setRateModal(null)} />
       )}
     </div>
   )

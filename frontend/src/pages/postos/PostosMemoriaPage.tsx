@@ -6,7 +6,8 @@ import { useUserAccess } from '../../hooks/useUserAccess'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
 import { calcularPosto } from '../../lib/motorFolha'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
-import { ChevronDown, ChevronRight, Printer } from 'lucide-react'
+import { ChevronDown, ChevronRight, Printer, Split } from 'lucide-react'
+import { RateioModal } from './RateioModal'
 
 // Memória de cálculo (P1, pill 3) — read-only. Cascata por posto + totais por conta de destino.
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -14,7 +15,7 @@ const milAno = (v: number) => v >= 1e6 ? `R$ ${(v / 1e6).toLocaleString('pt-BR',
 const catCor: Record<string, string> = { 'Salário': 'var(--green)', Encargos: 'var(--orange)', 'Provisões': 'var(--blue)', 'Benefícios': 'var(--violet)' }
 
 type Posto = {
-  id: string; codigo: string; nome: string | null; regime: string | null; salario_base: number; fte: number
+  id: string; codigo: string; nome: string | null; regime: string | null; salario_base: number; fte: number; ativo?: boolean
   ini_ano: number | null; ini_mes: number | null; fim_ano: number | null; fim_mes: number | null
   empresa_id: string; filial_id: string | null; cc_id: string | null; sindicato_id: string | null
   cargo?: { nome: string } | null; empresa?: { codigo: string } | null; filial?: { codigo: string } | null
@@ -69,6 +70,10 @@ export default function PostosMemoriaPage() {
   const [divisaoSel, setDivisaoSel] = useState<string[]>([])
   const [buSel, setBuSel] = useState<string[]>([])
   const [aberto, setAberto] = useState<Set<string>>(new Set())
+  const [rateioCods, setRateioCods] = useState<any[]>([])                          // {id,nome,dimensao}
+  const [destByRegra, setDestByRegra] = useState<Record<string, any[]>>({})        // regra_id → [{empresa_id,cc_id,pct}]
+  const [postoRateios, setPostoRateios] = useState<Record<string, { regra_id: string; ordem: number }[]>>({})
+  const [rateModal, setRateModal] = useState<Posto | null>(null)
 
   useEffect(() => {
     (async () => {
@@ -91,6 +96,20 @@ export default function PostosMemoriaPage() {
       const m: Record<string, Record<string, number>> = {}
       for (const r of pv || []) (m[r.posto_id] ||= {})[r.verba_id] = Number(r.valor) || 0
       setPostoVerbas(m)
+      // rateio: códigos, destinos e anexos por posto
+      const [rr, rd, pr] = await Promise.all([
+        supabase.from('rateio_regra').select('id,nome,dimensao').eq('ativo', true),
+        supabase.from('rateio_destino').select('regra_id,empresa_id,cc_id,pct'),
+        supabase.from('posto_rateio').select('posto_id,regra_id,ordem'),
+      ])
+      setRateioCods(rr.data || [])
+      const dbr: Record<string, any[]> = {}
+      for (const d of rd.data || []) (dbr[d.regra_id] ||= []).push({ empresa_id: d.empresa_id, cc_id: d.cc_id, pct: Number(d.pct) || 0 })
+      setDestByRegra(dbr)
+      const rm: Record<string, { regra_id: string; ordem: number }[]> = {}
+      for (const r of pr.data || []) (rm[r.posto_id] ||= []).push({ regra_id: r.regra_id, ordem: Number(r.ordem) || 1 })
+      for (const k in rm) rm[k].sort((a, b) => a.ordem - b.ordem)
+      setPostoRateios(rm)
     })()
   }, [])
   useEffect(() => {
@@ -116,7 +135,7 @@ export default function PostosMemoriaPage() {
     const filF = escopoFiltro((filialSel.length && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSee)
     const ccF = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee)
     const sEmp = empF ? new Set(empF) : null, sFil = filF ? new Set(filF) : null, sCc = ccF ? new Set(ccF) : null
-    return postos.filter(p => (!sEmp || sEmp.has(p.empresa_id)) && (!sFil || (p.filial_id != null && sFil.has(p.filial_id))) && (!sCc || (p.cc_id != null && sCc.has(p.cc_id))))
+    return postos.filter(p => p.ativo !== false && (!sEmp || sEmp.has(p.empresa_id)) && (!sFil || (p.filial_id != null && sFil.has(p.filial_id))) && (!sCc || (p.cc_id != null && sCc.has(p.cc_id))))
   }, [postos, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
 
   // agregados do escopo
@@ -138,6 +157,9 @@ export default function PostosMemoriaPage() {
   const compTot = agg.cat['Salário'] + agg.cat.Encargos + agg.cat['Provisões'] + agg.cat['Benefícios']
   const pct = (v: number) => compTot ? Math.round(v / compTot * 100) : 0
 
+  const empById = useMemo(() => new Map(empresas.map((e: any) => [e.id, e])), [empresas])
+  const ccById = useMemo(() => new Map(ccs.map((c: any) => [c.id, c])), [ccs])
+
   return (
     <div style={S.page}>
       <div style={S.top}>
@@ -149,6 +171,7 @@ export default function PostosMemoriaPage() {
           <Link to="/postos" style={pill(false)}>1 · Postos</Link>
           <Link to="/postos/regras" style={pill(false)}>2 · Estrutura</Link>
           <span style={pill(true)}>3 · Memória de cálculo</span>
+          <Link to="/postos/rateio" style={pill(false)}>4 · Rateio</Link>
         </div>
       </div>
 
@@ -205,7 +228,10 @@ export default function PostosMemoriaPage() {
                     <Fragment key={p.id}>
                       <tr style={{ cursor: 'pointer' }} onClick={() => setAberto(s => { const n = new Set(s); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n })}>
                         <td style={{ ...S.td, fontFamily: 'monospace', color: 'var(--muted)' }}>{open ? <ChevronDown size={12} style={{ verticalAlign: -2 }} /> : <ChevronRight size={12} style={{ verticalAlign: -2 }} />} {p.codigo}</td>
-                        <td style={S.td}>{p.nome || 'Vaga'}</td>
+                        <td style={S.td}>{p.nome || 'Vaga'}
+                          {(postoRateios[p.id]?.length || 0) > 0 && <button title="Ver rateio deste posto" onClick={ev => { ev.stopPropagation(); setRateModal(p) }}
+                            style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 6px', fontSize: 10.5, fontWeight: 700, borderRadius: 6, cursor: 'pointer', color: 'var(--violet)', border: '1px solid var(--violet)55', background: 'rgba(139,92,246,0.14)' }}>
+                            <Split size={11} /> {postoRateios[p.id].length}</button>}</td>
                         <td style={S.td}>{p.cargo?.nome || '—'}</td>
                         <td style={{ ...S.td, textAlign: 'right' }}>{money(r?.totalMes || 0)}</td>
                         <td style={{ ...S.td, textAlign: 'right', fontWeight: 600 }}>{money(r?.totalAno || 0)}</td>
@@ -227,6 +253,12 @@ export default function PostosMemoriaPage() {
           </div>
         </div>
       </div>
+
+      {rateModal && (() => { const r = custos.get(rateModal.id); return (
+        <RateioModal posto={rateModal} totMes={r?.totalMes || 0} totAno={r?.totalAno || 0}
+          anexos={postoRateios[rateModal.id] || []} rateioCods={rateioCods} destByRegra={destByRegra}
+          empById={empById} ccById={ccById} onClose={() => setRateModal(null)} />
+      ) })()}
     </div>
   )
 }

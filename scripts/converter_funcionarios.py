@@ -89,8 +89,18 @@ def data_iso(v: str) -> str:
         return f'{s[0:4]}-{s[4:6]}-{s[6:8]}'
     return ''
 
+# Rateio por centro de custo (regra Ricardo, 12/jul): CC -> código de rateio (nome já
+# cadastrado em 4·Rateio). A coluna 'rateio' vira posto_rateio no import (casa por nome).
+RATEIO_POR_CC = {}
+for _cc in ('111', '141', '411', '210', '310'): RATEIO_POR_CC[_cc] = 'RATEMP01'
+for _cc in ('121', '122', '123', '131', '132', '133'): RATEIO_POR_CC[_cc] = 'RATEMP02'
+RATEIO_POR_CC['317'] = 'RATEMP03'
+
+def rateio_por_cc(cc: str) -> str:
+    return RATEIO_POR_CC.get((cc or '').strip(), '')
+
 COLS_SAIDA = ['posto_codigo', 'empresa', 'filial', 'cc', 'matricula',
-              'nome', 'cargo', 'regime', 'salario', 'admissao', 'demissao', 'situacao', 'ativo']
+              'nome', 'cargo', 'regime', 'salario', 'admissao', 'demissao', 'situacao', 'ativo', 'rateio']
 
 def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=None):
     depara = depara or {}
@@ -135,7 +145,8 @@ def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=Non
         row = {'posto_codigo': posto_codigo, 'empresa': empresa, 'filial': filial,
                'cc': cc, 'matricula': matricula, 'nome': nome, 'cargo': cargo,
                'regime': regime_por(matricula, cargo), 'salario': '',
-               'admissao': admissao, 'demissao': demissao, 'situacao': situacao, 'ativo': ativo}
+               'admissao': admissao, 'demissao': demissao, 'situacao': situacao, 'ativo': ativo,
+               'rateio': rateio_por_cc(cc)}
 
         if posto_codigo in vistos:   # colisão: mantém a admissão mais recente
             colisoes += 1
@@ -157,6 +168,8 @@ def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=Non
           f'inativos (demitidos): {sum(1 for r in saida_rows if r["ativo"]=="nao")}')
     reg = Counter(r['regime'] or '(vazio)' for r in saida_rows)
     print('Regime: ' + ', '.join(f'{k}={v}' for k, v in sorted(reg.items())))
+    rat = Counter(r['rateio'] or '(sem rateio)' for r in saida_rows)
+    print('Rateio: ' + ', '.join(f'{k}={v}' for k, v in sorted(rat.items())))
     print(f'\nEmpresas ({len(empresas)}): ' + ', '.join(f'{k}={v}' for k, v in sorted(empresas.items())))
     print(f'Filiais ({len(filiais)}): ' + ', '.join(f'{k}={v}' for k, v in sorted(filiais.items())))
     print(f'CCs distintos: {len(ccs)}  |  Cargos distintos: {len(cargos)}')

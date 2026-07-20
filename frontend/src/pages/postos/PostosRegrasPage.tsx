@@ -434,6 +434,7 @@ export default function PostosRegrasPage() {
           <Link to="/postos" style={pill(false)}>1 · Postos</Link>
           <span style={pill(true)}>2 · Estrutura</span>
           <Link to="/postos/memoria" style={pill(false)}>3 · Memória de cálculo</Link>
+          <Link to="/postos/rateio" style={pill(false)}>4 · Rateio</Link>
         </div>
       </div>
 
