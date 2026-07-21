@@ -9,6 +9,7 @@ import { calcularPosto, regimeAplica } from '../../lib/motorFolha'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
 import { Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil } from 'lucide-react'
 import { RateioModal } from './RateioModal'
+import { cascataRateio } from '../../lib/rateioFolha'
 
 // Grade de Postos (P1 step 3) — orçamento de folha por posto, agrupado por CC.
 // Custo c/ encargos, rateio, sindicato e "Aplicar" vêm dos steps 4-5 (placeholder por ora).
@@ -307,6 +308,59 @@ export default function PostosGradePage() {
     try { await importar(file.name.toLowerCase().endsWith('.csv') ? parseCsv(await file.text()) : await parseXlsxRows(file)) }
     catch (e: any) { setErro('Erro ao ler o arquivo: ' + (e?.message || e)) }
   }
+
+  // ── Aplicar no orçado (step 5): grava fat_orcado (origem POSTO) do quadro ativo da versão ──
+  const [aplicando, setAplicando] = useState(false)
+  const [aplicarInfo, setAplicarInfo] = useState<{ linhas: number; postos: number; contas: number; ano: number; fundidas: number } | null>(null)
+  const aplicarNoOrcado = async () => {
+    setErro(null); setAplicarInfo(null)
+    if (!versaoSel) { setErro('Selecione a versão do orçamento.'); return }
+    if (!temMotor) { setErro('Sem verbas cadastradas — cadastre a Estrutura antes de aplicar.'); return }
+    const ativos = postos.filter(p => p.ativo !== false)
+    const versaoCod = versoes.find(v => v.id === versaoSel)?.codigo || String(anoCalc)
+    if (!confirm(`Aplicar ${ativos.length} postos ativos no orçado da versão ${versaoCod} (ano ${anoCalc})?\n\nIsto SUBSTITUI todo o orçado de origem POSTO desta versão. Lançamentos manuais e de formulário não são afetados.`)) return
+    setAplicando(true)
+    try {
+      const round2 = (n: number) => Math.round(n * 100) / 100
+      const byKey = new Map<string, any>()   // dedup pela chave da uq_fat_orcado (soma colisões)
+      const contasTocadas = new Set<string>(); let postosAplicados = 0; let gerados = 0
+      for (const p of ativos) {
+        const r = custos.get(p.id); if (!r) continue
+        const { cells } = cascataRateio({ empresa_id: p.empresa_id, cc_id: p.cc_id || null }, postoRateios[p.id] || [], rateioCods, destByRegra)
+        let algo = false
+        for (const conta in r.porContaMes) {
+          const mensal = r.porContaMes[conta]
+          for (let mi = 0; mi < 12; mi++) {
+            const base = mensal[mi]; if (!base) continue
+            for (const cell of cells) {
+              const valor = round2(base * cell.pct); if (!valor) continue
+              const mudouEmpresa = cell.empresa_id !== p.empresa_id
+              const filial_id = mudouEmpresa ? null : (p.filial_id || null)
+              const cc_id = cell.cc_id || null
+              const dims: any = { posto: p.codigo, posto_id: p.id, nome: p.nome || null, matricula: p.matricula || null, cc_origem: p.cc_id || null, ...(cell.pct < 0.999999 ? { rateio_pct: round2(cell.pct * 100) } : {}) }
+              const dk = JSON.stringify(Object.keys(dims).sort().reduce((o: any, k) => (o[k] = dims[k], o), {}))
+              const key = `${conta}|${cell.empresa_id}|${filial_id || '-'}|${cc_id || '-'}|${mi + 1}|${dk}`
+              gerados++
+              const ex = byKey.get(key)
+              if (ex) ex.valor = round2(ex.valor + valor)
+              else byKey.set(key, { tenant_id: TENANT_ID, versao_id: versaoSel, linha_id: conta, empresa_id: cell.empresa_id, filial_id, cc_id, ano: anoCalc, mes: mi + 1, valor, expressao: null, origem: 'POSTO', dims })
+              contasTocadas.add(conta); algo = true
+            }
+          }
+        }
+        if (algo) postosAplicados++
+      }
+      const rows = [...byKey.values()]
+      // substitui o orçado origem POSTO da versão e reinsere
+      const { error: delErr } = await supabase.from('fat_orcado').delete().eq('versao_id', versaoSel).eq('origem', 'POSTO')
+      if (delErr) { setErro('Erro ao limpar o orçado POSTO: ' + delErr.message); return }
+      for (let i = 0; i < rows.length; i += 500) {
+        const { error } = await supabase.from('fat_orcado').insert(rows.slice(i, i + 500))
+        if (error) { setErro('Erro ao gravar o orçado (parcial): ' + error.message); return }
+      }
+      setAplicarInfo({ linhas: rows.length, postos: postosAplicados, contas: contasTocadas.size, ano: anoCalc, fundidas: gerados - rows.length })
+    } finally { setAplicando(false) }
+  }
   const salvar = async (id: string, patch: Partial<Posto>) => {
     const { error } = await supabase.from('posto').update(patch).eq('id', id)
     if (error) { setErro(error.message); return }
@@ -319,15 +373,17 @@ export default function PostosGradePage() {
     setPostos(ps => ps.filter(p => p.id !== id))
   }
   // novo posto / vaga ou edição (código, ocupante, cargo, local, regime, salário, vigência)
-  const novoPosto = () => setForm({ codigo: '', nome: '', matricula: '', cargo_id: '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: '', sindicato_id: '', regime: 'CLT', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', rateios: [] })
-  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', salario_base: p.salario_base != null ? String(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
+  const novoPosto = (pre?: { cc_id?: string; cargo_id?: string }) => setForm({ codigo: '', codigoAuto: true, nome: '', matricula: '', cargo_id: pre?.cargo_id || '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: pre?.cc_id || '', sindicato_id: '', regime: 'CLT', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', rateios: [] })
+  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, codigoAuto: false, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', salario_base: p.salario_base != null ? String(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
   const salvarPosto = async () => {
     if (!form) return
-    if (!(form.codigo || '').trim()) { setErro('Informe o código do posto.'); return }
     if (!form.empresa_id) { setErro('Informe a empresa.'); return }
+    if (!form.filial_id) { setErro('Informe a filial.'); return }
+    const codigo = ((form.codigoAuto ? gerarCodigoPosto(form.filial_id, form.matricula) : form.codigo) || '').trim()
+    if (!codigo) { setErro('Código não gerado — confira a filial.'); return }
     const empCod = empresas.find(e => e.id === form.empresa_id)?.codigo || ''
     const payload: any = {
-      tenant_id: TENANT_ID, codigo: form.codigo.trim(),
+      tenant_id: TENANT_ID, codigo,
       nome: (form.nome || '').trim() || null, matricula: (form.matricula || '').trim() || null,
       cargo_id: form.cargo_id || null, empresa_id: form.empresa_id, filial_id: form.filial_id || null, cc_id: form.cc_id || null,
       sindicato_id: form.sindicato_id || sindByCod[sindCodPorEmp(empCod)] || null,
@@ -405,6 +461,20 @@ export default function PostosGradePage() {
   const custoMesP = (p: Posto) => custos.get(p.id)?.totalMes ?? (Number(p.salario_base) || 0) * (Number(p.fte) || 1)
   const empById = useMemo(() => new Map(empresas.map((e: any) => [e.id, e])), [empresas])
   const ccById = useMemo(() => new Map(ccs.map((c: any) => [c.id, c])), [ccs])
+  // código automático do posto: {filial}-{matrícula} ou, sem matrícula (vaga), {filial}-VG{seq}
+  const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const proxVagaSeq = (filialCod: string) => {
+    const re = new RegExp(`^${escapeRe(filialCod)}-VG(\\d+)$`, 'i')
+    let max = 0
+    for (const p of postos) { const m = (p.codigo || '').match(re); if (m) max = Math.max(max, parseInt(m[1], 10)) }
+    return max + 1
+  }
+  const gerarCodigoPosto = (filial_id: string, matricula: string) => {
+    const fc = filiais.find((f: any) => f.id === filial_id)?.codigo
+    if (!fc) return ''
+    const mat = (matricula || '').trim()
+    return mat ? `${fc}-${mat}` : `${fc}-VG${String(proxVagaSeq(fc)).padStart(2, '0')}`
+  }
 
   // agrupa por centro de custo OU cargo (seletor)
   const grupos = useMemo(() => {
@@ -424,6 +494,9 @@ export default function PostosGradePage() {
       .sort((a, b) => (a.cod || a.desc || 'zzz').localeCompare(b.cod || b.desc || 'zzz'))
   }, [filtrados, agruparPor, custos]) // eslint-disable-line
   const toggle = (k: string) => setFechados(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
+  const gruposKeys = useMemo(() => grupos.map(g => 'a:' + g.key), [grupos])
+  const algumAberto = gruposKeys.some(k => !fechados.has(k))
+  const toggleTodos = () => setFechados(algumAberto ? new Set(gruposKeys) : new Set())
 
   const tot = useMemo(() => {
     const head = filtrados.length, vagas = filtrados.filter(p => !p.nome).length
@@ -521,10 +594,16 @@ export default function PostosGradePage() {
             areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         </div>
         <div style={S.fld}><span style={S.lbl}>Agrupar por</span>
-          <select style={S.sel} value={agruparPor} onChange={e => setAgruparPor(e.target.value as 'cc' | 'cargo')}>
-            <option value="cc">Centro de custo</option>
-            <option value="cargo">Cargo</option>
-          </select>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <select style={S.sel} value={agruparPor} onChange={e => setAgruparPor(e.target.value as 'cc' | 'cargo')}>
+              <option value="cc">Centro de custo</option>
+              <option value="cargo">Cargo</option>
+            </select>
+            <button style={{ ...S.sel, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text-mid)' }} onClick={toggleTodos}
+              title={algumAberto ? 'Recolher todos os grupos' : 'Expandir todos os grupos'}>
+              {algumAberto ? <ChevronRight size={14} /> : <ChevronDown size={14} />}{algumAberto ? 'Recolher' : 'Expandir'}
+            </button>
+          </div>
         </div>
         <div style={S.fld}><span style={S.lbl}>Modelo</span>
           <select style={S.sel} value={regimeSel} onChange={e => setRegimeSel(e.target.value)}>
@@ -538,19 +617,36 @@ export default function PostosGradePage() {
             {mostrarInativos ? `Mostrando ${nInativos}` : `Ocultos (${nInativos})`}</button>
         </div>}
         <div style={{ flex: 1 }} />
-        {editavel && <>
-          <select style={S.sel} value={modo} onChange={e => setModo(e.target.value as any)} title="Adicionar/atualizar: upsert (não apaga). Substituir escopo: apaga os postos das empresas do arquivo e recarrega.">
-            <option value="upsert">Import: adicionar/atualizar</option>
-            <option value="substituir">Import: substituir escopo</option>
-          </select>
-          <button style={S.btn} disabled={importando} onClick={() => fileRef.current?.click()}><Upload size={14} /> {importando ? 'Importando…' : 'Importar postos (RH)'}</button>
-        </>}
-        {editavel && <button style={S.btn} onClick={novoPosto}><Plus size={14} /> Posto / vaga</button>}
-        <button style={S.btnPri} disabled title="Disponível no motor (step 5)"><Play size={13} /> Aplicar no orçado</button>
-        <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = '' }} />
+        {editavel && <button style={S.btn} onClick={() => novoPosto()}><Plus size={14} /> Posto / vaga</button>}
+        {editavel && <button style={S.btnPri} disabled={aplicando || !versaoSel || !temMotor} onClick={aplicarNoOrcado}
+          title="Grava o custo do quadro ativo desta versão no orçado (origem POSTO), aplicando o rateio.">
+          <Play size={13} /> {aplicando ? 'Aplicando…' : 'Aplicar no orçado'}</button>}
       </div>
 
+      {editavel && (
+        <div style={{ ...S.bar, margin: '0 0 16px' }}>
+          <div style={S.fld}><span style={S.lbl}>Importar do RH</span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <select style={S.sel} value={modo} onChange={e => setModo(e.target.value as any)} title="Adicionar/atualizar: upsert (não apaga). Substituir escopo: apaga os postos das empresas do arquivo e recarrega.">
+                <option value="upsert">Adicionar/atualizar</option>
+                <option value="substituir">Substituir escopo</option>
+              </select>
+              <button style={S.btn} disabled={importando} onClick={() => fileRef.current?.click()}><Upload size={14} /> {importando ? 'Importando…' : 'Importar postos (RH)'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = '' }} />
+
       {erro && <div style={S.erro}><AlertCircle size={14} /> {erro}</div>}
+      {aplicarInfo && (
+        <div style={S.info}><CheckCircle2 size={16} style={{ color: 'var(--green)', flexShrink: 0, marginTop: 1 }} />
+          <div>Orçado aplicado na versão (ano {aplicarInfo.ano}): <b>{aplicarInfo.linhas.toLocaleString('pt-BR')} linhas</b> gravadas em <b>{aplicarInfo.postos} postos</b> e {aplicarInfo.contas} conta(s), origem POSTO.
+            <div style={{ color: 'var(--muted)' }}>Substituiu o orçado POSTO anterior desta versão. Veja em Orçar / DRE (some com o manual/formulário na mesma célula).</div>
+            {aplicarInfo.fundidas > 0 && <div style={{ color: 'var(--orange)' }}>⚠ {aplicarInfo.fundidas} lançamento(s) caíram na mesma célula e foram somados — pode indicar posto duplicado nos dados. Confira se há códigos de posto repetidos.</div>}
+          </div>
+        </div>
+      )}
       {importInfo && (
         <div style={S.info}><CheckCircle2 size={16} style={{ color: 'var(--green)', flexShrink: 0, marginTop: 1 }} />
           <div><b>{importInfo.gravados} postos</b> importados{importInfo.cargosNovos ? ` · ${importInfo.cargosNovos} cargos criados` : ''}{importInfo.modo === 'substituir' ? ` · ${importInfo.apagados} apagados (substituir escopo)` : ''}.
@@ -598,9 +694,17 @@ export default function PostosGradePage() {
                   <Fragment key={g.key}>
                     <tr onClick={() => toggle(k1)}>
                       <td colSpan={13} style={S.gh}>
-                        {aberto ? <ChevronDown size={14} style={{ verticalAlign: -2 }} /> : <ChevronRight size={14} style={{ verticalAlign: -2 }} />}{' '}
-                        {g.cod && <span style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{g.cod} · </span>}{g.desc}
-                        <span style={{ color: 'var(--muted)', fontWeight: 400 }}> — {g.postos.length} posto{g.postos.length === 1 ? '' : 's'} · {milAno(g.custoAno)}/ano</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ flex: 1 }}>
+                            {aberto ? <ChevronDown size={14} style={{ verticalAlign: -2 }} /> : <ChevronRight size={14} style={{ verticalAlign: -2 }} />}{' '}
+                            {g.cod && <span style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{g.cod} · </span>}{g.desc}
+                            <span style={{ color: 'var(--muted)', fontWeight: 400 }}> — {g.postos.length} posto{g.postos.length === 1 ? '' : 's'} · {milAno(g.custoAno)}/ano</span>
+                          </span>
+                          {editavel && g.key !== '__sem' && <button title={`Novo posto ${agruparPor === 'cc' ? 'neste centro de custo' : 'neste cargo'}`}
+                            onClick={ev => { ev.stopPropagation(); novoPosto(agruparPor === 'cc' ? { cc_id: g.key } : { cargo_id: g.key }) }}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', fontSize: 11.5, fontWeight: 600, borderRadius: 6, cursor: 'pointer', color: 'var(--violet)', border: '1px solid var(--violet)55', background: 'rgba(139,92,246,0.12)' }}>
+                            <Plus size={12} /> Posto</button>}
+                        </div>
                       </td>
                     </tr>
                     {aberto && g.postos.map(linhaPosto)}
@@ -685,13 +789,20 @@ export default function PostosGradePage() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 14px' }}>
               <div style={{ gridColumn: '1 / -1' }}><span style={S.flbl}>Ocupante <span style={{ color: 'var(--muted)' }}>(vazio = vaga planejada)</span></span>
                 <input style={S.finp} value={form.nome} placeholder="Nome do funcionário; deixe vazio p/ vaga" onChange={e => setForm((f: any) => ({ ...f, nome: e.target.value }))} /></div>
-              <div><span style={S.flbl}>Código *</span><input style={S.finp} value={form.codigo} onChange={e => setForm((f: any) => ({ ...f, codigo: e.target.value }))} /></div>
-              <div><span style={S.flbl}>Matrícula</span><input style={S.finp} value={form.matricula} onChange={e => setForm((f: any) => ({ ...f, matricula: e.target.value }))} /></div>
+              <div><span style={S.flbl}>Empresa *</span><select style={S.finp} value={form.empresa_id} onChange={e => setForm((f: any) => ({ ...f, empresa_id: e.target.value, filial_id: '', codigo: f.codigoAuto ? '' : f.codigo }))}><option value="">—</option>{acesso.filterList('empresa', empresas).map((e: any) => <option key={e.id} value={e.id}>{e.codigo} · {e.descricao}</option>)}</select></div>
+              <div><span style={S.flbl}>Filial *</span><select style={S.finp} value={form.filial_id} onChange={e => setForm((f: any) => ({ ...f, filial_id: e.target.value, codigo: f.codigoAuto ? gerarCodigoPosto(e.target.value, f.matricula) : f.codigo }))}><option value="">—</option>{filiais.filter((f: any) => !form.empresa_id || f.empresa_id === form.empresa_id).map((f: any) => <option key={f.id} value={f.id}>{f.codigo}{f.descricao ? ' · ' + f.descricao : ''}</option>)}</select></div>
+              <div><span style={S.flbl}>Centro de custo</span><select style={S.finp} value={form.cc_id} onChange={e => setForm((f: any) => ({ ...f, cc_id: e.target.value }))}><option value="">—</option>{ccs.map((c: any) => <option key={c.id} value={c.id}>{c.codigo} · {c.descricao}</option>)}</select></div>
+              <div><span style={S.flbl}>Matrícula</span><input style={S.finp} value={form.matricula} onChange={e => setForm((f: any) => ({ ...f, matricula: e.target.value, codigo: f.codigoAuto ? gerarCodigoPosto(f.filial_id, e.target.value) : f.codigo }))} /></div>
+              <div><span style={S.flbl}>Código * <span style={{ color: 'var(--muted)' }}>{form.codigoAuto ? '(automático)' : '(manual)'}</span></span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input style={{ ...S.finp, flex: 1, ...(form.codigoAuto ? { background: 'var(--bg-soft)', color: 'var(--text-mid)' } : {}) }} value={form.codigo} readOnly={form.codigoAuto}
+                    placeholder={form.codigoAuto ? (form.filial_id ? '' : 'escolha a filial') : ''} onChange={e => setForm((f: any) => ({ ...f, codigo: e.target.value }))} />
+                  {form.codigoAuto
+                    ? <button type="button" title="Editar código manualmente" style={{ padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--panel)', color: 'var(--text-mid)', cursor: 'pointer', display: 'flex', alignItems: 'center' }} onClick={() => setForm((f: any) => ({ ...f, codigoAuto: false }))}><Pencil size={14} /></button>
+                    : <button type="button" title="Voltar ao código automático" style={{ padding: '0 10px', fontSize: 11, fontWeight: 600, border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--panel)', color: 'var(--text-mid)', cursor: 'pointer' }} onClick={() => setForm((f: any) => ({ ...f, codigoAuto: true, codigo: gerarCodigoPosto(f.filial_id, f.matricula) }))}>auto</button>}
+                </div></div>
               <div><span style={S.flbl}>Cargo</span><select style={S.finp} value={form.cargo_id} onChange={e => setForm((f: any) => ({ ...f, cargo_id: e.target.value }))}><option value="">—</option>{cargos.map((c: any) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></div>
               <div><span style={S.flbl}>Regime</span><select style={S.finp} value={form.regime} onChange={e => setForm((f: any) => ({ ...f, regime: e.target.value }))}><option value="">—</option>{REGIMES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
-              <div><span style={S.flbl}>Empresa *</span><select style={S.finp} value={form.empresa_id} onChange={e => setForm((f: any) => ({ ...f, empresa_id: e.target.value, filial_id: '' }))}><option value="">—</option>{acesso.filterList('empresa', empresas).map((e: any) => <option key={e.id} value={e.id}>{e.codigo} · {e.descricao}</option>)}</select></div>
-              <div><span style={S.flbl}>Filial</span><select style={S.finp} value={form.filial_id} onChange={e => setForm((f: any) => ({ ...f, filial_id: e.target.value }))}><option value="">—</option>{filiais.filter((f: any) => !form.empresa_id || f.empresa_id === form.empresa_id).map((f: any) => <option key={f.id} value={f.id}>{f.codigo}{f.descricao ? ' · ' + f.descricao : ''}</option>)}</select></div>
-              <div><span style={S.flbl}>Centro de custo</span><select style={S.finp} value={form.cc_id} onChange={e => setForm((f: any) => ({ ...f, cc_id: e.target.value }))}><option value="">—</option>{ccs.map((c: any) => <option key={c.id} value={c.id}>{c.codigo} · {c.descricao}</option>)}</select></div>
               <div><span style={S.flbl}>Sindicato <span style={{ color: 'var(--muted)' }}>(vazio = pela empresa)</span></span><select style={S.finp} value={form.sindicato_id} onChange={e => setForm((f: any) => ({ ...f, sindicato_id: e.target.value }))}><option value="">— automático —</option>{sindicatos.map((s: any) => <option key={s.id} value={s.id}>{s.codigo}</option>)}</select></div>
               <div><span style={S.flbl}>Salário base</span><input style={S.finp} value={form.salario_base} placeholder="0,00" onChange={e => setForm((f: any) => ({ ...f, salario_base: e.target.value }))} /></div>
               <div><span style={S.flbl}>FTE</span><input style={S.finp} value={form.fte} placeholder="1" onChange={e => setForm((f: any) => ({ ...f, fte: e.target.value }))} /></div>
