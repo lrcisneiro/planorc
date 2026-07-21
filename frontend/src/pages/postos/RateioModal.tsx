@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
 import { X, AlertTriangle } from 'lucide-react'
+import { cascataRateio } from '../../lib/rateioFolha'
 
 // Modal de rateio por posto — cascata dos códigos anexados + resultado no grão final.
 // Compartilhado pela grade (/postos) e pela memória (/postos/memoria).
@@ -23,23 +24,7 @@ export function RateioModal({ posto, totMes, totAno, anexos, rateioCods, destByR
   ccById: Map<string, any>
   onClose: () => void
 }) {
-  const steps = anexos.map(a => ({ cod: rateioCods.find(c => c.id === a.regra_id), ordem: a.ordem, dests: destByRegra[a.regra_id] || [] })).filter(s => s.cod)
-  let cells: { empresa_id: string | null; cc_id: string | null; pct: number }[] = [{ empresa_id: posto.empresa_id, cc_id: posto.cc_id || null, pct: 1 }]
-  for (const s of steps) {
-    const dim = s.cod.dimensao
-    if (!s.dests.length) continue
-    const next: typeof cells = []
-    for (const c of cells) for (const d of s.dests) next.push({
-      empresa_id: dim === 'EMPRESA' ? d.empresa_id : c.empresa_id,
-      cc_id: dim === 'CC' ? d.cc_id : c.cc_id,
-      pct: c.pct * ((Number(d.pct) || 0) / 100),
-    })
-    cells = next
-  }
-  // consolida células iguais (mesma empresa+cc)
-  const map = new Map<string, { empresa_id: string | null; cc_id: string | null; pct: number }>()
-  for (const c of cells) { const k = `${c.empresa_id}|${c.cc_id}`; const e = map.get(k); if (e) e.pct += c.pct; else map.set(k, { ...c }) }
-  const finais = [...map.values()].sort((a, b) => b.pct - a.pct)
+  const { steps, cells: finais } = cascataRateio({ empresa_id: posto.empresa_id, cc_id: posto.cc_id || null }, anexos, rateioCods, destByRegra)
   const somaPct = finais.reduce((s, c) => s + c.pct, 0)
   const ok = Math.abs(somaPct - 1) < 0.0001
   const nomeEmp = (id: string | null) => { const e = id ? empById.get(id) : null; return e ? `${e.codigo} · ${e.descricao}` : '—' }

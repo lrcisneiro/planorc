@@ -42,6 +42,7 @@ export type ResultadoPosto = {
   mesesVigentes: number
   porCategoria: Record<Categoria, number>   // anual
   porConta: Record<string, number>          // conta_destino_id -> anual
+  porContaMes: Record<string, number[]>     // conta_destino_id -> [12] valor por mês (Jan=0), respeita vigência/dissídio
 }
 
 const CATEGORIA: Record<TipoCalculo, Categoria> = {
@@ -107,7 +108,9 @@ export function calcularPosto(
   const salBase = Number(posto.salario_base || 0)
   const [ini, fim] = vigencia(posto, opts.ano)
 
+  const contaPorVerba: Record<string, string | null> = Object.fromEntries(regVerbas.map(v => [v.id, v.conta_destino_id]))
   const anoMap = new Map<string, number>()   // verba.id -> soma anual
+  const porContaMes: Record<string, number[]> = {}   // conta -> [12] por mês
   let ultimo: Record<string, number> = {}    // valores do último mês vigente (mês representativo)
   let baseMes = 0, mesesVigentes = 0
 
@@ -117,7 +120,11 @@ export function calcularPosto(
     const comDissidio = opts.dissidioPct > 0 && mes >= opts.mesBase
     const base = salBase * fte * (comDissidio ? 1 + opts.dissidioPct / 100 : 1)
     const valores = custoMes(regVerbas, base, valoresFixos)
-    for (const id in valores) anoMap.set(id, (anoMap.get(id) || 0) + valores[id])
+    for (const id in valores) {
+      anoMap.set(id, (anoMap.get(id) || 0) + valores[id])
+      const conta = contaPorVerba[id]
+      if (conta) { (porContaMes[conta] ||= new Array(12).fill(0))[mes - 1] += valores[id] }
+    }
     ultimo = valores; baseMes = base
   }
 
@@ -134,5 +141,5 @@ export function calcularPosto(
   }
   const totalMes = Object.values(ultimo).reduce((s, x) => s + x, 0)
   const totalAno = [...anoMap.values()].reduce((s, x) => s + x, 0)
-  return { linhas, baseMes, totalMes, totalAno, mesesVigentes, porCategoria, porConta }
+  return { linhas, baseMes, totalMes, totalAno, mesesVigentes, porCategoria, porConta, porContaMes }
 }
