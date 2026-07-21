@@ -1909,12 +1909,12 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
 
   const soma = rows.reduce((s, r) => s + (Number(r.valor) || 0), 0)
   const exportar = () => downloadSheet('razao.xlsx', [
-    [...(isReal ? ['Conta', 'Descrição Conta', 'Data', 'Documento', 'Lote', 'Sublote'] : []), 'Empresa', 'Filial', 'Linha', 'CC', 'Descrição CC', 'Área', 'Divisão', 'BU', 'Histórico', 'Valor'],
+    [...(isReal ? ['Conta', 'Descrição Conta', 'Data', 'Documento', 'Lote', 'Sublote'] : []), 'Empresa', 'Filial', 'Linha', 'CC', 'Descrição CC', 'Área', 'Divisão', 'BU', ...(temPosto ? ['Posto', 'Ocupante', 'Matrícula', 'Rateio %'] : []), 'Histórico', 'Valor'],
     ...rows.map(r => [
       ...(isReal ? [contaById[r.conta_id]?.codigo || '', contaById[r.conta_id]?.descricao || '', r.data || '', r.documento || '', r.lote || '', r.sublote || ''] : []),
       empById[r.empresa_id]?.codigo || '', filById[r.filial_id]?.codigo || '',
       linhaById[r.linha_id ?? linhaId] || titulo, ccById[r.cc_id]?.codigo || '', ccById[r.cc_id]?.descricao || '',
-      r.dims.area || '', r.dims.divisao || '', r.dims.bu || '', r.dims.historico || '', r.valor,
+      r.dims.area || '', r.dims.divisao || '', r.dims.bu || '', ...(temPosto ? [r.dims.posto || '', r.dims.nome || '', r.dims.matricula || '', r.dims.rateio_pct ?? ''] : []), r.dims.historico || '', r.valor,
     ]),
   ])
 
@@ -1958,7 +1958,8 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
   const th: CSSProperties = { textAlign: 'left', padding: '7px 10px', fontSize: 11, color: 'var(--muted)', fontWeight: 600, borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, background: 'var(--bg)' }
   const td: CSSProperties = { padding: '6px 10px', fontSize: 12, borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }
   const inp: CSSProperties = { padding: '4px 6px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 5, outline: 'none', width: '100%', boxSizing: 'border-box' }
-  const colSpan = (editavel ? 11 : 10) + (isReal ? 4 : 0)
+  const temPosto = !isReal && rows.some((r: any) => r.dims?.posto)   // orçado com origem POSTO (Aplicar)
+  const colSpan = (editavel ? 11 : 10) + (isReal ? 4 : 0) + (temPosto ? 3 : 0)
   const keyOf = (r: any, col: string): string | number => {
     switch (col) {
       case 'conta': return contaById[r.conta_id]?.codigo || ''
@@ -1972,6 +1973,9 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
       case 'area': return r.dims?.area || ''
       case 'divisao': return r.dims?.divisao || ''
       case 'bu': return r.dims?.bu || ''
+      case 'posto': return r.dims?.posto || ''
+      case 'ocupante': return r.dims?.nome || ''
+      case 'rateio': return Number(r.dims?.rateio_pct) || 0
       case 'historico': return r.dims?.historico || ''
       case 'valor': return Number(r.valor) || 0
       default: return ''
@@ -2027,6 +2031,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('cc')}>CC{seta('cc')}</th>
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('ccdesc')}>Descrição CC{seta('ccdesc')}</th>
               {!isReal && <><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('area')}>Área{seta('area')}</th><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('divisao')}>Divisão{seta('divisao')}</th><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('bu')}>BU{seta('bu')}</th></>}
+              {temPosto && <><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('posto')}>Posto{seta('posto')}</th><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('ocupante')}>Ocupante{seta('ocupante')}</th><th style={{ ...th, textAlign: 'right', cursor: 'pointer' }} onClick={() => sortClick('rateio')}>Rateio{seta('rateio')}</th></>}
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('historico')}>Histórico{seta('historico')}</th>
               <th style={{ ...th, textAlign: 'right', cursor: 'pointer' }} onClick={() => sortClick('valor')}>Valor{seta('valor')}</th>
               {editavel && <th style={th}>Origem</th>}
@@ -2050,6 +2055,9 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
                     {!isReal && <><td style={td}>{r.dims.area || ''}</td>
                     <td style={td}>{r.dims.divisao || ''}</td>
                     <td style={td}>{r.dims.bu || ''}</td></>}
+                    {temPosto && <><td style={{ ...td, fontFamily: 'monospace', color: 'var(--muted)' }}>{r.dims.posto || ''}</td>
+                    <td style={td} title={r.dims.matricula ? `matrícula ${r.dims.matricula}` : ''}>{r.dims.nome || (r.dims.posto ? 'Vaga' : '')}</td>
+                    <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }}>{r.dims.rateio_pct != null ? `${r.dims.rateio_pct}%` : ''}</td></>}
                     <td style={td}>
                       {editavel && !prot
                         ? <input key={`h${r.id}`} style={inp} defaultValue={r.dims.historico || ''} onBlur={e => saveHist(r, e.target.value)} />
