@@ -44,6 +44,24 @@ regime, salario, admissao, demissao, situacao, ativo, rateio, D49, A76, D50, A15
 - **Benefícios** (`BENEF`): lidos de `verbas_folha_import.xlsx` (tipo VALOR_FIXO) ou
   fallback `D49, A76, D50, A15, A51`.
 
+## Folha realizada (conciliação — fat_folha)
+
+Paralelo ao pipeline de postos, para o REALIZADO da folha (não vem do razão, e sim
+da folha analítica). Alimenta `fat_folha` e a conciliação Orçado × Realizado por posto.
+
+```bash
+# prgper02_emp*.xlsx (Conferência Contabilização Folha) → folha_realizada.csv
+python3 scripts/converter_folha_realizada.py dados_rh dados_rh/folha_realizada.csv \
+  --depara=dados_rh/Depara_filial_empresa.csv
+# depois: importar folha_realizada.csv na tela de Folha realizada → fat_folha
+```
+
+- Uma linha por **matrícula × verba × contabilização** do mês. Traz `conta_deb`
+  (débito contábil), que casa o realizado na MESMA linha da DRE, e `posto_codigo`
+  = `filial-matrícula` (casa no posto).
+- Exclui verbas **"Base ..."** (bases de cálculo informativas — evitam dupla contagem);
+  mantém Provento/Desconto.
+
 ## Notas
 - "sem linha na folha" no passo 2 = pessoa sem lançamento nos `prgper02` do mês
   (prestador/admissão nova) — esperado; entra com salário 0.

@@ -172,6 +172,7 @@ export default function PostosMemoriaPage() {
           <Link to="/postos/regras" style={pill(false)}>2 · Estrutura</Link>
           <span style={pill(true)}>3 · Memória de cálculo</span>
           <Link to="/postos/rateio" style={pill(false)}>4 · Rateio</Link>
+          <Link to="/postos/folha" style={pill(false)}>5 · Folha</Link>
         </div>
       </div>
 

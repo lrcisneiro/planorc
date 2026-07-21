@@ -570,6 +570,7 @@ export default function PostosGradePage() {
           <Link to="/postos/regras" style={S.pill(false)}>2 · Estrutura</Link>
           <Link to="/postos/memoria" style={S.pill(false)}>3 · Memória de cálculo</Link>
           <Link to="/postos/rateio" style={S.pill(false)}>4 · Rateio</Link>
+          <Link to="/postos/folha" style={S.pill(false)}>5 · Folha</Link>
         </div>
       </div>
 

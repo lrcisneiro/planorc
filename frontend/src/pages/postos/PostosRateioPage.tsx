@@ -127,6 +127,7 @@ export default function PostosRateioPage() {
           <Link to="/postos/regras" style={pill(false)}>2 · Estrutura</Link>
           <Link to="/postos/memoria" style={pill(false)}>3 · Memória</Link>
           <span style={pill(true)}>4 · Rateio</span>
+          <Link to="/postos/folha" style={pill(false)}>5 · Folha</Link>
         </div>
       </div>
 
