@@ -86,7 +86,7 @@ export default function FolhaRealizadaPage() {
   const [aberto, setAberto] = useState<Set<string>>(new Set())
   const [importando, setImportando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [info, setInfo] = useState<{ gravados: number; postos: number; semPosto: number; semConta: number; semItem: number; semItemDrop: number; comp: string } | null>(null)
+  const [info, setInfo] = useState<{ gravados: number; postos: number; semPosto: number; semConta: number; semItem: number; semItemDrop: number; semEmpresa: string[]; comp: string } | null>(null)
 
   const loadComps = async () => {
     const { data } = await supabase.from('fat_folha').select('ano,mes').eq('tipo', 'REALIZADO').order('ano', { ascending: false }).order('mes', { ascending: false })
@@ -156,6 +156,7 @@ export default function FolhaRealizadaPage() {
       const usaItem = data.some(r => (r.item_orc || '').trim())
       const comps = new Set<string>()
       let semPosto = 0, semConta = 0, semItem = 0, semItemDrop = 0
+      const semEmpresa = new Set<string>()   // códigos de empresa (ex.: redirect PY→XX) não cadastrados
       const payload: any[] = []
       for (const r of data) {
         const ano = parseInt(r.ano, 10), mes = parseInt(r.mes, 10)
@@ -165,7 +166,12 @@ export default function FolhaRealizadaPage() {
         comps.add(`${ano}|${mes}`)
         const filial = (r.filial || '').trim()
         const fil = filByCod.get(filial)
-        const empresa_id = empByCod.get((r.empresa || '').trim()) || (fil ? fil.empresa_id : null)
+        // empresa: se o CSV traz o código (sempre traz — de-para filial ou redirect ITEM_CONTABIL),
+        // usa esse; NÃO cai de volta pra empresa da filial quando o código não resolve — isso
+        // desfaria o redirect (ex.: PY→XX) silenciosamente. Só usa a filial se o código vier vazio.
+        const empCod = (r.empresa || '').trim()
+        const empresa_id = empCod ? (empByCod.get(empCod) || null) : (fil ? fil.empresa_id : null)
+        if (empCod && !empresa_id) semEmpresa.add(empCod)
         const posto_id = postoByCod.get(`${filial}-${(r.matricula || '').trim()}`) || null
         if (!posto_id) semPosto++
         const conta_id = contaByCod.get((r.conta_deb || '').trim()) || null
@@ -187,7 +193,7 @@ export default function FolhaRealizadaPage() {
       for (let i = 0; i < payload.length; i += 500) { const { error } = await supabase.from('fat_folha').insert(payload.slice(i, i + 500)); if (error) { setErro('Erro ao gravar (parcial): ' + error.message); return } }
       const compLabel = [...comps].map(c => { const [a, m] = c.split('|'); return `${MESES[+m - 1]}/${a}` }).join(', ')
       const postosDistintos = new Set(payload.filter(p => p.posto_id).map(p => p.posto_id)).size
-      setInfo({ gravados: payload.length, postos: postosDistintos, semPosto, semConta, semItem, semItemDrop, comp: compLabel })
+      setInfo({ gravados: payload.length, postos: postosDistintos, semPosto, semConta, semItem, semItemDrop, semEmpresa: [...semEmpresa], comp: compLabel })
       loadComps()
     } catch (e: any) { setErro('Erro ao ler o arquivo: ' + (e?.message || e)) }
     finally { setImportando(false) }
@@ -235,6 +241,7 @@ export default function FolhaRealizadaPage() {
             {info.semConta > 0 && <div style={{ color: 'var(--muted)' }}>{info.semConta} sem conta contábil resolvida (débito fora do plano) — não amarram à DRE.</div>}
             {info.semItemDrop > 0 && <div style={{ color: 'var(--muted)' }}>{info.semItemDrop} linha(s) sem item orçamentário (ativo/passivo) ignoradas — não entram na conciliação.</div>}
             {info.semItem > 0 && <div style={{ color: 'var(--orange)' }}>{info.semItem} com item orçamentário (IT_CONTAB_DB) que não existe em conta_orcamentaria — cadastre o código pra conciliar.</div>}
+            {info.semEmpresa.length > 0 && <div style={{ color: 'var(--orange)' }}>Empresa não cadastrada (código do de-para/redirect): <b>{info.semEmpresa.join(', ')}</b> — essas linhas ficaram sem empresa. Cadastre a empresa com esse código pra que o redirect (ITEM_CONTABIL) valha.</div>}
           </div>
         </div>
       )}

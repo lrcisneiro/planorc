@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
+import { cascataRateio } from '../../lib/rateioFolha'
 import { AlertCircle, ChevronDown, ChevronRight, Search, X } from 'lucide-react'
 
 // Corpo reutilizável da conciliação de folha (Orçado motor × Realizado folha, por posto).
@@ -72,6 +73,8 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
   const [busca, setBusca] = useState('')
   const [agrupar, setAgrupar] = useState<'nenhum' | 'cc' | 'cargo'>('nenhum')
   const [fechados, setFechados] = useState<Set<string>>(new Set())
+  // 'posto' = por posto (headcount, filtra pela ORIGEM); 'rateado' = gerencial (orçado rateado, filtra pelo DESTINO)
+  const [modo, setModo] = useState<'posto' | 'rateado'>('posto')
 
   useEffect(() => {
     (async () => {
@@ -83,42 +86,77 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
         const sEmp = p.empresaSel?.length ? new Set(p.empresaSel) : null
         const sFil = p.filialFilter ? new Set(p.filialFilter) : null
         const sCc = p.ccFilter ? new Set(p.ccFilter) : null
-        const escopo = (r: any) => (!sEmp || sEmp.has(r.empresa_id)) && (!sFil || (r.filial_id && sFil.has(r.filial_id))) && (!sCc || (r.cc_id && sCc.has(r.cc_id))) && anosMeses.has(`${r.ano}-${r.mes}`)
+        const passa = (emp: any, fil: any, cc: any) => (!sEmp || sEmp.has(emp)) && (!sFil || (fil && sFil.has(fil))) && (!sCc || (cc && sCc.has(cc)))
+        const inPer = (r: any) => anosMeses.has(`${r.ano}-${r.mes}`)
 
-        // ORÇADO por posto (fat_folha tipo ORCADO — por verba, não rateado) + detalhe por verba
-        const orcById: Record<string, number> = {}, orcTmp: Record<string, Record<string, VerbaReal>> = {}
+        // busca as linhas (escopo aplicado depois, por MODO)
         const orcRows = await pageAll(() => {
-          let q = supabase.from('fat_folha').select('posto_id,empresa_id,filial_id,cc_id,ano,mes,valor,verba_cod,verba_desc,item_orc_id').eq('tipo', 'ORCADO').eq('versao_id', p.versaoId).in('ano', anos).in('mes', mesesNums)
+          let q = supabase.from('fat_folha').select('posto_id,ano,mes,valor,verba_cod,verba_desc,item_orc_id').eq('tipo', 'ORCADO').eq('versao_id', p.versaoId).in('ano', anos).in('mes', mesesNums)
           if (p.masterIds) q = q.in('item_orc_id', p.masterIds)
           return q
         })
+        const realRows = await pageAll(() => {
+          let q = supabase.from('fat_folha').select('posto_id,empresa_id,filial_id,cc_id,ano,mes,valor,verba_cod,verba_desc,conta_id,item_orc_id').eq('tipo', 'REALIZADO').in('ano', anos).in('mes', mesesNums)
+          if (p.contaIds) q = q.in('conta_id', p.contaIds)
+          return q
+        })
+        // postos referenciados (origem empresa/filial/CC + display)
+        const pids = [...new Set([...orcRows.map((r: any) => r.posto_id), ...realRows.map((r: any) => r.posto_id)].filter(Boolean))] as string[]
+        const postoById: Record<string, any> = {}
+        for (let i = 0; i < pids.length; i += 300) {
+          const { data } = await supabase.from('posto').select('id,codigo,nome,matricula,empresa_id,filial_id,cc_id,cargo(nome),centro_custo(codigo,descricao)').in('id', pids.slice(i, i + 300))
+          for (const x of data || []) postoById[x.id] = x
+        }
+        // rateio dos postos (só p/ modo rateado)
+        const cellsCache: Record<string, any[]> = {}
+        if (modo === 'rateado' && pids.length) {
+          const [{ data: pr }, { data: rr }, { data: rd }] = await Promise.all([
+            supabase.from('posto_rateio').select('posto_id,regra_id,ordem').in('posto_id', pids),
+            supabase.from('rateio_regra').select('id,nome,dimensao').eq('ativo', true),
+            supabase.from('rateio_destino').select('regra_id,empresa_id,cc_id,pct'),
+          ])
+          const anexos: Record<string, { regra_id: string; ordem: number }[]> = {}
+          for (const r of pr || []) (anexos[r.posto_id] ||= []).push({ regra_id: r.regra_id, ordem: Number(r.ordem) || 1 })
+          const destByRegra: Record<string, any[]> = {}
+          for (const d of rd || []) (destByRegra[d.regra_id] ||= []).push({ empresa_id: d.empresa_id, cc_id: d.cc_id, pct: Number(d.pct) || 0 })
+          for (const pid of pids) {
+            const po = postoById[pid]
+            cellsCache[pid] = cascataRateio({ empresa_id: po?.empresa_id || null, cc_id: po?.cc_id || null }, anexos[pid] || [], rr || [], destByRegra).cells
+          }
+        }
+        // fração do orçado (rateio) que passa no escopo do DESTINO
+        const pctEscopo = (pid: string): number => {
+          const po = postoById[pid]
+          const cells = cellsCache[pid] || [{ empresa_id: po?.empresa_id || null, cc_id: po?.cc_id || null, pct: 1 }]
+          let s = 0
+          for (const c of cells) if (passa(c.empresa_id, c.empresa_id === po?.empresa_id ? po?.filial_id : null, c.cc_id)) s += c.pct
+          return s
+        }
+
+        // ORÇADO por posto + detalhe por verba
+        const orcById: Record<string, number> = {}, orcTmp: Record<string, Record<string, VerbaReal>> = {}
         for (const r of orcRows) {
-          if (!escopo(r)) continue
+          if (!inPer(r)) continue
           const pid = r.posto_id || '(sem posto)'
-          const v = Number(r.valor) || 0
+          const po = postoById[r.posto_id]
+          let fator = 1
+          if (modo === 'posto') { if (!passa(po?.empresa_id, po?.filial_id, po?.cc_id)) continue }
+          else { fator = pctEscopo(r.posto_id); if (!fator) continue }
+          const v = (Number(r.valor) || 0) * fator
           orcById[pid] = (orcById[pid] || 0) + v
           const t = (orcTmp[pid] ||= {}); const k = `${r.verba_cod}|${r.item_orc_id}`
           if (t[k]) t[k].valor += v; else t[k] = { verba_cod: r.verba_cod || '', verba_desc: r.verba_desc || '', conta_id: null, item_orc_id: r.item_orc_id || null, valor: v }
         }
         const orcDetail: Record<string, VerbaReal[]> = {}
         for (const pid in orcTmp) orcDetail[pid] = Object.values(orcTmp[pid]).sort((a, b) => b.valor - a.valor)
-        // REALIZADO por posto (fat_folha) + detalhe por verba. Item orçamentário:
-        // 1º) AUTORITATIVO da folha (fat_folha.item_orc_id = IT_CONTAB_DB, mesma codificação
-        //     do orçado) — sem ambiguidade; 2º) FALLBACK por conta_linha (conta→conta_orcamentaria)
-        //     quando a folha não traz o item — preferindo o master do orçado se houver várias.
+
+        // REALIZADO por posto + detalhe por verba (item autoritativo; fallback conta_linha)
         const realById: Record<string, number> = {}, realTmp: Record<string, Record<string, VerbaReal>> = {}
-        const realRows = await pageAll(() => {
-          let q = supabase.from('fat_folha').select('posto_id,empresa_id,filial_id,cc_id,ano,mes,valor,verba_cod,verba_desc,conta_id,item_orc_id').eq('tipo', 'REALIZADO').in('ano', anos).in('mes', mesesNums)
-          if (p.contaIds) q = q.in('conta_id', p.contaIds)
-          return q
-        })
-        // fallback só para as contas cujas linhas NÃO têm item_orc_id na folha
         const fallbackItem: Record<string, string> = { ...(p.contaToItem || {}) }
         if (!p.contaToItem) {
           const semItem = [...new Set(realRows.filter((r: any) => !r.item_orc_id && r.conta_id).map((r: any) => r.conta_id))] as string[]
           if (semItem.length) {
-            const orcMasters = new Set<string>()
-            for (const pid in orcDetail) for (const x of orcDetail[pid]) if (x.item_orc_id) orcMasters.add(x.item_orc_id)
+            const orcMasters = new Set<string>(orcRows.map((r: any) => r.item_orc_id).filter(Boolean))
             const clByConta: Record<string, string[]> = {}
             for (let i = 0; i < semItem.length; i += 300) {
               const { data, error } = await supabase.from('conta_linha').select('conta_id,linha_id').in('conta_id', semItem.slice(i, i + 300))
@@ -129,8 +167,12 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
           }
         }
         for (const r of realRows) {
-          if (!escopo(r)) continue
+          if (!inPer(r)) continue
           const pid = r.posto_id || '(sem posto)'
+          const po = postoById[r.posto_id]
+          // realizado vem JÁ distribuído do ERP: modo posto filtra pela ORIGEM; rateado pelo DESTINO (linha da folha)
+          if (modo === 'posto') { if (!passa(po?.empresa_id, po?.filial_id, po?.cc_id)) continue }
+          else { if (!passa(r.empresa_id, r.filial_id, r.cc_id)) continue }
           const v = Number(r.valor) || 0
           realById[pid] = (realById[pid] || 0) + v
           const t = (realTmp[pid] ||= {}); const k = `${r.verba_cod}|${r.conta_id}`
@@ -138,14 +180,6 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
         }
         const realDetail: Record<string, VerbaReal[]> = {}
         for (const pid in realTmp) realDetail[pid] = Object.values(realTmp[pid]).sort((a, b) => b.valor - a.valor)
-
-        // lookups: postos + nomes das contas efetivamente usadas
-        const ids = [...new Set([...Object.keys(orcById), ...Object.keys(realById)].filter(k => k !== '(sem posto)'))]
-        const postoById: Record<string, any> = {}
-        for (let i = 0; i < ids.length; i += 300) {
-          const { data } = await supabase.from('posto').select('id,codigo,nome,matricula,cargo(nome),centro_custo(codigo,descricao)').in('id', ids.slice(i, i + 300))
-          for (const x of data || []) postoById[x.id] = x
-        }
         const itemsUsed = [...new Set([
           ...Object.values(orcDetail).flatMap(l => l.map(x => x.item_orc_id).filter(Boolean)),
           ...Object.values(realDetail).flatMap(l => l.map(x => x.item_orc_id).filter(Boolean)),
@@ -167,7 +201,7 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
       } catch (e: any) { setErro(e?.message || String(e)) }
       finally { setLoading(false) }
     })()
-  }, [p.versaoId, JSON.stringify(p.meses), JSON.stringify(p.masterIds), JSON.stringify(p.contaIds), JSON.stringify(p.empresaSel), JSON.stringify(p.filialFilter), JSON.stringify(p.ccFilter), JSON.stringify(p.contaToItem)]) // eslint-disable-line
+  }, [modo, p.versaoId, JSON.stringify(p.meses), JSON.stringify(p.masterIds), JSON.stringify(p.contaIds), JSON.stringify(p.empresaSel), JSON.stringify(p.filialFilter), JSON.stringify(p.ccFilter), JSON.stringify(p.contaToItem)]) // eslint-disable-line
 
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
@@ -265,6 +299,12 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
       </div>
 
       <div style={S.bar}>
+        <div style={S.fld}><span style={S.lbl}>Modo</span>
+          <select style={S.sel} value={modo} onChange={e => setModo(e.target.value as any)} title="Por posto: headcount, filtra pela origem. Rateado: gerencial, orçado rateado, filtra pelo destino (empresa/filial/CC).">
+            <option value="posto">Por posto (headcount)</option>
+            <option value="rateado">Rateado (gerencial)</option>
+          </select>
+        </div>
         <div style={S.fld}><span style={S.lbl}>Buscar</span>
           <div style={{ position: 'relative' }}>
             <Search size={14} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--muted)' }} />
@@ -291,7 +331,7 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
       </div>
 
       <div style={S.card}>
-        <div style={S.cardT}>Por posto <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— {filtrados.length} de {linhas.length} posto(s) · clique p/ ver verbas · Δ negativo (vermelho) = realizado acima do orçado</span></div>
+        <div style={S.cardT}>Por posto <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— {filtrados.length} de {linhas.length} · {modo === 'rateado' ? 'orçado rateado, filtros pelo destino (empresa/filial/CC)' : 'headcount, filtros pela origem do posto'} · clique p/ ver verbas · Δ vermelho = realizado &gt; orçado</span></div>
         <div style={{ maxHeight: 620, overflow: 'auto' }}>
           <table style={S.table}>
             <thead><tr>
