@@ -324,6 +324,8 @@ export default function PostosGradePage() {
       const round2 = (n: number) => Math.round(n * 100) / 100
       const byKey = new Map<string, any>()   // dedup pela chave da uq_fat_orcado (soma colisões)
       const contasTocadas = new Set<string>(); let postosAplicados = 0; let gerados = 0
+      const verbaById = new Map(verbas.map(v => [v.id, v]))   // p/ orçado por verba (fat_folha ORCADO)
+      const folhaRows: any[] = []            // orçado por posto × verba × mês (NÃO rateado)
       for (const p of ativos) {
         const r = custos.get(p.id); if (!r) continue
         const { cells } = cascataRateio({ empresa_id: p.empresa_id, cc_id: p.cc_id || null }, postoRateios[p.id] || [], rateioCods, destByRegra)
@@ -349,6 +351,20 @@ export default function PostosGradePage() {
           }
         }
         if (algo) postosAplicados++
+        // orçado POR VERBA (paralelo, não rateado) — na empresa/CC do próprio posto
+        for (const vid in r.porVerbaMes) {
+          const mensal = r.porVerbaMes[vid]; const vinfo = verbaById.get(vid)
+          for (let mi = 0; mi < 12; mi++) {
+            const valor = round2(mensal[mi]); if (!valor) continue
+            folhaRows.push({
+              tenant_id: TENANT_ID, versao_id: versaoSel, ano: anoCalc, mes: mi + 1, tipo: 'ORCADO', origem: 'POSTO',
+              empresa_id: p.empresa_id, filial_id: p.filial_id || null, cc_id: p.cc_id || null,
+              matricula: p.matricula || null, nome: p.nome || null, posto_id: p.id,
+              verba_cod: vinfo?.codigo || null, verba_desc: vinfo?.descricao || null,
+              item_orc_id: vinfo?.conta_destino_id || null, valor,
+            })
+          }
+        }
       }
       const rows = [...byKey.values()]
       // substitui o orçado origem POSTO da versão e reinsere
@@ -357,6 +373,13 @@ export default function PostosGradePage() {
       for (let i = 0; i < rows.length; i += 500) {
         const { error } = await supabase.from('fat_orcado').insert(rows.slice(i, i + 500))
         if (error) { setErro('Erro ao gravar o orçado (parcial): ' + error.message); return }
+      }
+      // paralelo: orçado por verba na fat_folha (tipo ORCADO) — p/ conciliação por verba
+      const delF = await supabase.from('fat_folha').delete().eq('tipo', 'ORCADO').eq('versao_id', versaoSel)
+      if (delF.error) { setErro('Aviso — orçado por verba (limpeza): ' + delF.error.message) }
+      else for (let i = 0; i < folhaRows.length; i += 500) {
+        const { error } = await supabase.from('fat_folha').insert(folhaRows.slice(i, i + 500))
+        if (error) { setErro('Aviso — orçado por verba (gravação): ' + error.message); break }
       }
       setAplicarInfo({ linhas: rows.length, postos: postosAplicados, contas: contasTocadas.size, ano: anoCalc, fundidas: gerados - rows.length })
     } finally { setAplicando(false) }
@@ -571,6 +594,7 @@ export default function PostosGradePage() {
           <Link to="/postos/memoria" style={S.pill(false)}>3 · Memória de cálculo</Link>
           <Link to="/postos/rateio" style={S.pill(false)}>4 · Rateio</Link>
           <Link to="/postos/folha" style={S.pill(false)}>5 · Folha</Link>
+          <Link to="/postos/conciliacao" style={S.pill(false)}>6 · Conciliação</Link>
         </div>
       </div>
 

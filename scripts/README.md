@@ -59,8 +59,16 @@ python3 scripts/converter_folha_realizada.py dados_rh dados_rh/folha_realizada.c
 - Uma linha por **matrícula × verba × contabilização** do mês. Traz `conta_deb`
   (débito contábil), que casa o realizado na MESMA linha da DRE, e `posto_codigo`
   = `filial-matrícula` (casa no posto).
-- Exclui verbas **"Base ..."** (bases de cálculo informativas — evitam dupla contagem);
-  mantém Provento/Desconto.
+- Critério **contábil** (não o rótulo provento/desconto/base): mantém a linha que
+  tem **débito contábil**; descarta as sem contabilização (bases informativas puras).
+  Importante: encargos patronais vêm como "Base" **com** débito — por isso o filtro
+  é por débito, não por tipo.
+- **Item orçamentário autoritativo:** a folha já traz a conta orçamentária do débito
+  na coluna **IT_CONTAB_DB** (ex.: `20101 Salarios e Ordenados`) — a MESMA codificação
+  de `verba.conta_destino`/`fat_orcado`. O converter a exporta em `item_orc`, o import
+  resolve para `fat_folha.item_orc_id`, e a **conciliação agrupa por ele** (não pelo
+  reverse-lookup `conta_linha`, que é ambíguo: a mesma conta contábil pode estar em
+  conta_orcamentaria diferentes por relatório).
 
 ## Notas
 - "sem linha na folha" no passo 2 = pessoa sem lançamento nos `prgper02` do mês

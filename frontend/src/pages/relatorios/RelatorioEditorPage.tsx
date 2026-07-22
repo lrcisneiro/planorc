@@ -13,9 +13,11 @@ import { importBaseline as importBaselineLib, modeloBaseline as modeloBaselineLi
 import { effectiveCcFilter, FiltrosButton, PeriodoButton, Checklist, opcoesAttr, SalvarCardButton, useCardPreset } from '../dashboard/DashFiltros'
 import { PeriodPicker } from '../dashboard/PeriodPicker'
 import type { CC as CCItem } from '../dashboard/DashFiltros'
+import { ConciliacaoFolhaModal } from '../postos/ConciliacaoFolhaModal'
+import type { ConcilParams } from '../postos/ConciliacaoFolha'
 import {
   ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Settings2, X,
-  Sigma, FunctionSquare, Percent, Minus, Type, Download, Upload, Link2, ChevronsUpDown, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Pencil, Eye, EyeOff, Strikethrough, ListTree, History, RotateCcw, RefreshCw, Save,
+  Sigma, FunctionSquare, Percent, Minus, Type, Download, Upload, Link2, ChevronsUpDown, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Pencil, Eye, EyeOff, Strikethrough, ListTree, History, RotateCcw, RefreshCw, Save, GitCompareArrows,
 } from 'lucide-react'
 
 declare const XLSX: any
@@ -225,6 +227,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const [viewModal,  setViewModal]  = useState<ViewConfig | null>(null)
   const [contaModal, setContaModal] = useState<Linha | null>(null)
   const [razao, setRazao] = useState<any | null>(null)
+  const [concil, setConcil] = useState<ConcilParams | null>(null)
   const [selId, setSelId] = useState<string | null>(null)
   const [contas,     setContas]     = useState<{ id: string; codigo: string; descricao: string; plano_id?: string; plano?: string }[]>([])
   const [contaLinks, setContaLinks] = useState<Record<string, any[]>>({})
@@ -816,14 +819,19 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     // Realizado: resolve as contas amarradas (conta_linha) à linha e sua subárvore + sinal
     const subtreeIds = (rootId: string): string[] => { const out = [rootId]; const rec = (pid: string) => { for (const c of linhas.filter(x => x.pai_id === pid)) { out.push(c.id); rec(c.id) } }; rec(rootId); return out }
     const contaSinal: Record<string, number> = {}
-    for (const lid of subtreeIds(l.id)) for (const m of (contaLinks[lid] || [])) contaSinal[m.conta_id] = m.sinal ?? 1
+    // mapa conta contábil → item orçamentário (master da linha onde a conta está amarrada) — p/ conciliação de folha
+    const contaItemMap: Record<string, string> = {}
+    for (const lid of subtreeIds(l.id)) {
+      const master = orcOf(lid)
+      for (const m of (contaLinks[lid] || [])) { contaSinal[m.conta_id] = m.sinal ?? 1; if (master) contaItemMap[m.conta_id] = master }
+    }
     const contaIds = Object.keys(contaSinal)
     if ((ehReal(cen) ? !contaIds.length : !linhaIds.length) || !meses.length) {
       // ainda abre o modal (mostra a mensagem de "sem contas amarradas")
     }
     setRazao({
       titulo: l.descricao, cen, cenLabel: cenarioLabel(cen), periodoLabel, meses: mesesCen, perAdd: mesesCen.length === 1 ? mesesCen[0] : null,
-      linhaIds, contaIds, contaSinal, empresaSel, filialFilter, ccFilter,
+      linhaIds, contaIds, contaSinal, contaItemMap, empresaSel, filialFilter, ccFilter,
       ccById: Object.fromEntries(ccs.map(c => [c.id, c])),
       contaById: Object.fromEntries(contas.map(c => [c.id, c])),
       linhaById: Object.fromEntries(linhas.map(x => [x.linha_orc_id, x.descricao])),
@@ -1801,7 +1809,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
 
       {linhaModal && <LinhaModal linha={{ ...linhaModal, expressao: toDisplay(linhaModal.expressao) }} refLinhas={linhas.map(x => ({ codigo: x.codigo, descricao: x.descricao }))} ccs={ccs as any} onClose={() => setLinhaModal(null)} onSave={saveLinha} />}
       {viewModal && <ViewModal view={viewModal} versoes={versoes} onClose={() => setViewModal(null)} onSave={saveView} />}
-      {razao && <RazaoModal {...razao} onClose={() => setRazao(null)} />}
+      {razao && <RazaoModal {...razao} onConciliar={setConcil} onClose={() => setRazao(null)} />}
+      {concil && <ConciliacaoFolhaModal params={concil} onClose={() => setConcil(null)} />}
       {pickerOpen && <EstruturaPicker masters={masters} jaNoRelatorio={new Set(linhas.map(l => l.codigo))} alvo={selId ? linhas.find(l => l.id === selId)?.descricao ?? null : null} onAdd={addDaEstrutura} onClose={() => setPickerOpen(false)} />}
       {contaModal && (
         <ContaLinkModal
@@ -1815,15 +1824,16 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
 }
 
 // ─── Modal: Razão (detalhe + edição dos lançamentos de uma célula) ────
-function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaIds, contaIds, contaSinal, empresaSel, filialFilter, ccFilter, ccById, contaById, linhaById, empById, filById, editavel, linhaId, isBalanco, empresasList, filiaisList, ccsList, onChanged, onBeforeChange, onClose }: {
+function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaIds, contaIds, contaSinal, contaItemMap, empresaSel, filialFilter, ccFilter, ccById, contaById, linhaById, empById, filById, editavel, linhaId, isBalanco, empresasList, filiaisList, ccsList, onChanged, onBeforeChange, onClose, onConciliar }: {
   titulo: string; cen: string; cenLabel: string; periodoLabel: string; meses: Periodo[]; perAdd: Periodo | null
-  linhaIds: string[]; contaIds: string[]; contaSinal: Record<string, number>; empresaSel: string[]; filialFilter: string[] | null; ccFilter: string[] | null
+  linhaIds: string[]; contaIds: string[]; contaSinal: Record<string, number>; contaItemMap?: Record<string, string>; empresaSel: string[]; filialFilter: string[] | null; ccFilter: string[] | null
   ccById: Record<string, any>; contaById: Record<string, any>; linhaById: Record<string, string>; empById: Record<string, any>; filById: Record<string, any>
   editavel: boolean; linhaId: string; isBalanco?: boolean
   empresasList: { id: string; codigo: string; descricao: string }[]
   filiaisList: { id: string; codigo: string; descricao: string }[]
   ccsList: { id: string; codigo: string; descricao: string }[]
   onChanged: () => void; onBeforeChange?: () => Promise<void>; onClose: () => void
+  onConciliar?: (params: ConcilParams) => void
 }) {
   const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -1909,12 +1919,12 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
 
   const soma = rows.reduce((s, r) => s + (Number(r.valor) || 0), 0)
   const exportar = () => downloadSheet('razao.xlsx', [
-    [...(isReal ? ['Conta', 'Descrição Conta', 'Data', 'Documento', 'Lote', 'Sublote'] : []), 'Empresa', 'Filial', 'Linha', 'CC', 'Descrição CC', 'Área', 'Divisão', 'BU', ...(temPosto ? ['Posto', 'Ocupante', 'Matrícula', 'Rateio %'] : []), 'Histórico', 'Valor'],
+    [...(isReal ? ['Conta', 'Descrição Conta', 'Data', 'Documento', 'Lote', 'Sublote'] : []), 'Empresa', 'Filial', 'Linha', 'CC', 'Descrição CC', 'Área', 'Divisão', 'BU', 'Histórico', 'Valor'],
     ...rows.map(r => [
       ...(isReal ? [contaById[r.conta_id]?.codigo || '', contaById[r.conta_id]?.descricao || '', r.data || '', r.documento || '', r.lote || '', r.sublote || ''] : []),
       empById[r.empresa_id]?.codigo || '', filById[r.filial_id]?.codigo || '',
       linhaById[r.linha_id ?? linhaId] || titulo, ccById[r.cc_id]?.codigo || '', ccById[r.cc_id]?.descricao || '',
-      r.dims.area || '', r.dims.divisao || '', r.dims.bu || '', ...(temPosto ? [r.dims.posto || '', r.dims.nome || '', r.dims.matricula || '', r.dims.rateio_pct ?? ''] : []), r.dims.historico || '', r.valor,
+      r.dims.area || '', r.dims.divisao || '', r.dims.bu || '', r.dims.historico || '', r.valor,
     ]),
   ])
 
@@ -1958,8 +1968,8 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
   const th: CSSProperties = { textAlign: 'left', padding: '7px 10px', fontSize: 11, color: 'var(--muted)', fontWeight: 600, borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, background: 'var(--bg)' }
   const td: CSSProperties = { padding: '6px 10px', fontSize: 12, borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }
   const inp: CSSProperties = { padding: '4px 6px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 5, outline: 'none', width: '100%', boxSizing: 'border-box' }
-  const temPosto = !isReal && rows.some((r: any) => r.dims?.posto)   // orçado com origem POSTO (Aplicar)
-  const colSpan = (editavel ? 11 : 10) + (isReal ? 4 : 0) + (temPosto ? 3 : 0)
+  const temPosto = !isReal && rows.some((r: any) => r.dims?.posto)   // orçado com origem POSTO → habilita o botão de conciliação
+  const colSpan = (editavel ? 11 : 10) + (isReal ? 4 : 0)
   const keyOf = (r: any, col: string): string | number => {
     switch (col) {
       case 'conta': return contaById[r.conta_id]?.codigo || ''
@@ -1973,9 +1983,6 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
       case 'area': return r.dims?.area || ''
       case 'divisao': return r.dims?.divisao || ''
       case 'bu': return r.dims?.bu || ''
-      case 'posto': return r.dims?.posto || ''
-      case 'ocupante': return r.dims?.nome || ''
-      case 'rateio': return Number(r.dims?.rateio_pct) || 0
       case 'historico': return r.dims?.historico || ''
       case 'valor': return Number(r.valor) || 0
       default: return ''
@@ -1995,7 +2002,13 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
             <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Razão — {titulo}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)' }}>{cenLabel} · {periodoLabel}{editavel ? ' · editável' : ''}</div>
           </div>
-          <X size={20} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {temPosto && onConciliar && <button title="Comparar orçado × realizado da folha por posto"
+              onClick={() => onConciliar({ titulo, versaoId: cen, versaoLabel: cenLabel, meses, masterIds: linhaIds, contaIds, empresaSel, filialFilter, ccFilter, contaToItem: contaItemMap })}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5, fontWeight: 600, borderRadius: 8, cursor: 'pointer', color: 'var(--violet)', border: '1px solid var(--violet)55', background: 'rgba(139,92,246,0.14)' }}>
+              <GitCompareArrows size={14} /> Conciliação Folha</button>}
+            <X size={20} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} />
+          </div>
         </div>
 
         {editavel && (
@@ -2031,7 +2044,6 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('cc')}>CC{seta('cc')}</th>
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('ccdesc')}>Descrição CC{seta('ccdesc')}</th>
               {!isReal && <><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('area')}>Área{seta('area')}</th><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('divisao')}>Divisão{seta('divisao')}</th><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('bu')}>BU{seta('bu')}</th></>}
-              {temPosto && <><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('posto')}>Posto{seta('posto')}</th><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('ocupante')}>Ocupante{seta('ocupante')}</th><th style={{ ...th, textAlign: 'right', cursor: 'pointer' }} onClick={() => sortClick('rateio')}>Rateio{seta('rateio')}</th></>}
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('historico')}>Histórico{seta('historico')}</th>
               <th style={{ ...th, textAlign: 'right', cursor: 'pointer' }} onClick={() => sortClick('valor')}>Valor{seta('valor')}</th>
               {editavel && <th style={th}>Origem</th>}
@@ -2055,9 +2067,6 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
                     {!isReal && <><td style={td}>{r.dims.area || ''}</td>
                     <td style={td}>{r.dims.divisao || ''}</td>
                     <td style={td}>{r.dims.bu || ''}</td></>}
-                    {temPosto && <><td style={{ ...td, fontFamily: 'monospace', color: 'var(--muted)' }}>{r.dims.posto || ''}</td>
-                    <td style={td} title={r.dims.matricula ? `matrícula ${r.dims.matricula}` : ''}>{r.dims.nome || (r.dims.posto ? 'Vaga' : '')}</td>
-                    <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }}>{r.dims.rateio_pct != null ? `${r.dims.rateio_pct}%` : ''}</td></>}
                     <td style={td}>
                       {editavel && !prot
                         ? <input key={`h${r.id}`} style={inp} defaultValue={r.dims.historico || ''} onBlur={e => saveHist(r, e.target.value)} />

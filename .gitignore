@@ -40,3 +40,6 @@ funcionarios_convertido.csv
 
 # Claude Code (local)
 .claude/
+
+# folha realizada (dados)
+folha_realizada*.csv

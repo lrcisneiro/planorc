@@ -86,10 +86,10 @@ export default function FolhaRealizadaPage() {
   const [aberto, setAberto] = useState<Set<string>>(new Set())
   const [importando, setImportando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [info, setInfo] = useState<{ gravados: number; postos: number; semPosto: number; semConta: number; comp: string } | null>(null)
+  const [info, setInfo] = useState<{ gravados: number; postos: number; semPosto: number; semConta: number; semItem: number; comp: string } | null>(null)
 
   const loadComps = async () => {
-    const { data } = await supabase.from('fat_folha').select('ano,mes').order('ano', { ascending: false }).order('mes', { ascending: false })
+    const { data } = await supabase.from('fat_folha').select('ano,mes').eq('tipo', 'REALIZADO').order('ano', { ascending: false }).order('mes', { ascending: false })
     const uniq = [...new Set((data || []).map((r: any) => `${r.ano}-${String(r.mes).padStart(2, '0')}`))]
     setComps(uniq); setCompSel(prev => prev || uniq[0] || '')
   }
@@ -107,7 +107,7 @@ export default function FolhaRealizadaPage() {
   useEffect(() => {
     if (!compSel) { setRows([]); return }
     const [a, m] = compSel.split('-').map(Number)
-    supabase.from('fat_folha').select('posto_id,matricula,nome,empresa_id,cc_id,verba_cod,verba_desc,tipo_verba,valor').eq('ano', a).eq('mes', m)
+    supabase.from('fat_folha').select('posto_id,matricula,nome,empresa_id,cc_id,verba_cod,verba_desc,tipo_verba,valor').eq('tipo', 'REALIZADO').eq('ano', a).eq('mes', m)
       .then(({ data }) => setRows((data || []).map((r: any) => ({ ...r, valor: Number(r.valor) || 0 }))))
   }, [compSel, info])
 
@@ -148,9 +148,11 @@ export default function FolhaRealizadaPage() {
       const postoByCod = new Map((pd || []).map((p: any) => [String(p.codigo).trim(), p.id]))
       const { data: ct } = await supabase.from('conta_contabil').select('id,codigo')
       const contaByCod = new Map((ct || []).map((c: any) => [String(c.codigo).trim(), c.id]))
+      const { data: co } = await supabase.from('conta_orcamentaria').select('id,codigo')
+      const itemByCod = new Map((co || []).map((c: any) => [String(c.codigo).trim(), c.id]))
 
       const comps = new Set<string>()
-      let semPosto = 0, semConta = 0
+      let semPosto = 0, semConta = 0, semItem = 0
       const payload: any[] = []
       for (const r of data) {
         const ano = parseInt(r.ano, 10), mes = parseInt(r.mes, 10)
@@ -163,21 +165,25 @@ export default function FolhaRealizadaPage() {
         if (!posto_id) semPosto++
         const conta_id = contaByCod.get((r.conta_deb || '').trim()) || null
         if (!conta_id) semConta++
+        const item_orc_cod = (r.item_orc || '').trim()
+        const item_orc_id = item_orc_cod ? (itemByCod.get(item_orc_cod) || null) : null
+        if (item_orc_cod && !item_orc_id) semItem++
         payload.push({
           tenant_id: TENANT_ID, ano, mes, empresa_id, filial_id: fil ? fil.id : null, cc_id: ccByCod.get((r.cc || '').trim()) || null,
           matricula: (r.matricula || '').trim() || null, nome: (r.nome || '').trim() || null, posto_id,
           verba_cod: (r.verba_cod || '').trim() || null, verba_desc: (r.verba_desc || '').trim() || null, tipo_verba: (r.tipo_verba || '').trim() || null,
           valor: num(r.valor), conta_deb_cod: (r.conta_deb || '').trim() || null, conta_cred_cod: (r.conta_cred || '').trim() || null, conta_id,
-          competencia: (r.competencia || '').trim() || null, origem: 'FOLHA',
+          item_orc_cod: item_orc_cod || null, item_orc_desc: (r.item_orc_desc || '').trim() || null, item_orc_id,
+          competencia: (r.competencia || '').trim() || null, origem: 'FOLHA', tipo: 'REALIZADO',
         })
       }
       if (!payload.length) { setErro('Nenhuma linha válida (confira o cabeçalho: ano,mes,empresa,filial,cc,matricula,...).'); return }
       // idempotente: substitui as competências presentes no arquivo
-      for (const c of comps) { const [a, m] = c.split('|').map(Number); const { error } = await supabase.from('fat_folha').delete().eq('ano', a).eq('mes', m); if (error) { setErro('Erro ao limpar competência: ' + error.message); return } }
+      for (const c of comps) { const [a, m] = c.split('|').map(Number); const { error } = await supabase.from('fat_folha').delete().eq('tipo', 'REALIZADO').eq('ano', a).eq('mes', m); if (error) { setErro('Erro ao limpar competência: ' + error.message); return } }
       for (let i = 0; i < payload.length; i += 500) { const { error } = await supabase.from('fat_folha').insert(payload.slice(i, i + 500)); if (error) { setErro('Erro ao gravar (parcial): ' + error.message); return } }
       const compLabel = [...comps].map(c => { const [a, m] = c.split('|'); return `${MESES[+m - 1]}/${a}` }).join(', ')
       const postosDistintos = new Set(payload.filter(p => p.posto_id).map(p => p.posto_id)).size
-      setInfo({ gravados: payload.length, postos: postosDistintos, semPosto, semConta, comp: compLabel })
+      setInfo({ gravados: payload.length, postos: postosDistintos, semPosto, semConta, semItem, comp: compLabel })
       loadComps()
     } catch (e: any) { setErro('Erro ao ler o arquivo: ' + (e?.message || e)) }
     finally { setImportando(false) }
@@ -196,6 +202,7 @@ export default function FolhaRealizadaPage() {
           <Link to="/postos/memoria" style={pill(false)}>3 · Memória</Link>
           <Link to="/postos/rateio" style={pill(false)}>4 · Rateio</Link>
           <span style={pill(true)}>5 · Folha realizada</span>
+          <Link to="/postos/conciliacao" style={pill(false)}>6 · Conciliação</Link>
         </div>
       </div>
 
@@ -222,6 +229,7 @@ export default function FolhaRealizadaPage() {
           <div><b>{info.gravados.toLocaleString('pt-BR')} lançamentos</b> de folha importados ({info.comp}) em <b>{info.postos} postos</b>.
             {info.semPosto > 0 && <div style={{ color: 'var(--orange)' }}>{info.semPosto} sem posto casado (matrícula sem posto cadastrado) — importe os postos antes, ou confira filial-matrícula.</div>}
             {info.semConta > 0 && <div style={{ color: 'var(--muted)' }}>{info.semConta} sem conta contábil resolvida (débito fora do plano) — não amarram à DRE.</div>}
+            {info.semItem > 0 && <div style={{ color: 'var(--orange)' }}>{info.semItem} com item orçamentário (IT_CONTAB_DB) que não existe em conta_orcamentaria — cadastre o código pra conciliar.</div>}
           </div>
         </div>
       )}

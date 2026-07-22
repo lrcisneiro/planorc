@@ -30,6 +30,10 @@ def _flag_val(nome, default):
 FOLHA_DIR = _args[0] if len(_args) > 0 else 'dados_rh'
 SAIDA     = _args[1] if len(_args) > 1 else 'dados_rh/folha_realizada.csv'
 DEPARA    = _flag_val('--depara', 'dados_rh/Depara_filial_empresa.csv')
+FORCE     = _flag_val('--competencia', '')   # 'YYYY-MM' força a competência de saída (teste)
+FORCE_ANO = FORCE_MES = None
+if FORCE:
+    _p = FORCE.replace('/', '-').split('-'); FORCE_ANO = int(_p[0]); FORCE_MES = int(_p[1])
 
 def carregar_depara(path: str) -> dict:
     """CSV com colunas 'filial' e 'empresa'. Retorna { filial(4díg) : empresa_gerencial }."""
@@ -63,7 +67,8 @@ def periodo_ano_mes(p):
     return None, None
 
 COLS_SAIDA = ['ano', 'mes', 'empresa', 'filial', 'cc', 'matricula', 'nome',
-              'verba_cod', 'verba_desc', 'tipo_verba', 'valor', 'conta_deb', 'conta_cred', 'competencia']
+              'verba_cod', 'verba_desc', 'tipo_verba', 'valor', 'conta_deb', 'conta_cred',
+              'item_orc', 'item_orc_desc', 'competencia']
 
 def converter(folha_dir: str, saida: str, depara: dict):
     arquivos = sorted(glob.glob(os.path.join(folha_dir, 'prgper02_emp*.xlsx')))
@@ -71,7 +76,7 @@ def converter(folha_dir: str, saida: str, depara: dict):
         print(f'ERRO: nenhum prgper02_emp*.xlsx em "{folha_dir}"'); sys.exit(1)
 
     out_rows = []
-    lidas = puladas = sem_periodo = bases = 0
+    lidas = puladas = sem_periodo = sem_deb = 0
     tipos, competencias, empresas = Counter(), Counter(), Counter()
     filiais_sem_empresa = Counter()
     total_valor = 0.0
@@ -94,9 +99,16 @@ def converter(folha_dir: str, saida: str, depara: dict):
             ano, mes = periodo_ano_mes(g('PERIODO'))
             if not ano:
                 sem_periodo += 1; continue
+            if FORCE_ANO:                        # recarimba a competência (ex.: testar em 2027)
+                ano, mes = FORCE_ANO, FORCE_MES
             tipo_verba = (g('TIPO_VERBA') or '').strip()
-            if tipo_verba.startswith('Base'):    # base de cálculo (informativa) — não é lançamento de custo
-                bases += 1; continue
+            conta_deb = str(g('DEBITO') or '').strip()
+            # critério contábil (não o rótulo provento/desconto/base): só entra quem TEM
+            # contabilização no débito. A folha traz encargos patronais como "Base" com
+            # débito — cortá-los subestimaria o custo. A amarração à linha da DRE é
+            # aplicada na conciliação (conta_id ∈ contas amarradas).
+            if not conta_deb:
+                sem_deb += 1; continue
             filial = filial_folha(g('EMPRESA'), g('FILIAL'))
             empresa = depara.get(filial, '')
             if filial and not empresa:
@@ -113,8 +125,10 @@ def converter(folha_dir: str, saida: str, depara: dict):
                 'nome': (g('NOME') or '').strip(),
                 'verba_cod': str(g('CD_VERBA') or '').strip(), 'verba_desc': (g('DESC_VERBA') or '').strip(),
                 'tipo_verba': tipo_verba, 'valor': f'{valor:.2f}',
-                'conta_deb': str(g('DEBITO') or '').strip(), 'conta_cred': str(g('CREDITO') or '').strip(),
-                'competencia': str(g('PERIODO') or '').strip().split('.')[0],
+                'conta_deb': conta_deb, 'conta_cred': str(g('CREDITO') or '').strip(),
+                # item orçamentário autoritativo da folha (débito) — casa com verba.conta_destino/fat_orcado
+                'item_orc': str(g('IT_CONTAB_DB') or '').strip(), 'item_orc_desc': (g('DESC_IT_CONTAB_DB') or '').strip(),
+                'competencia': f'{ano}{mes:02d}' if FORCE_ANO else str(g('PERIODO') or '').strip().split('.')[0],
             }
             out_rows.append(row)
             tipos[row['tipo_verba'] or '(vazio)'] += 1
@@ -128,7 +142,7 @@ def converter(folha_dir: str, saida: str, depara: dict):
         w.writeheader(); w.writerows(out_rows)
 
     print(f'Arquivos: {len(arquivos)} | linhas lidas: {lidas} | gravadas: {len(out_rows)} | '
-          f'puladas (sem matrícula/valor): {puladas} | bases informativas puladas: {bases} | sem período: {sem_periodo}')
+          f'puladas (sem matrícula/valor): {puladas} | sem débito contábil (informativas): {sem_deb} | sem período: {sem_periodo}')
     print('Competências: ' + ', '.join(f'{k}={v}' for k, v in sorted(competencias.items())))
     print('Tipo de verba: ' + ', '.join(f'{k}={v}' for k, v in sorted(tipos.items())))
     print(f'Empresas ({len(empresas)}): ' + ', '.join(f'{k}={v}' for k, v in sorted(empresas.items())))
@@ -141,4 +155,6 @@ if __name__ == '__main__':
     depara = carregar_depara(DEPARA)
     print(f'De-para filial→empresa: {len(depara)} filiais carregadas de "{DEPARA}".' if depara
           else f'AVISO: de-para "{DEPARA}" não encontrado — empresa gerencial ficará vazia (resolvida pela filial no import).')
+    if FORCE_ANO:
+        print(f'⚠ Competência FORÇADA para {FORCE_ANO}-{FORCE_MES:02d} (teste) — os valores vêm da folha real, só o período foi recarimbado.')
     converter(FOLHA_DIR, SAIDA, depara)

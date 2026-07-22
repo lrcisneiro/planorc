@@ -128,6 +128,7 @@ export default function PostosRateioPage() {
           <Link to="/postos/memoria" style={pill(false)}>3 · Memória</Link>
           <span style={pill(true)}>4 · Rateio</span>
           <Link to="/postos/folha" style={pill(false)}>5 · Folha</Link>
+          <Link to="/postos/conciliacao" style={pill(false)}>6 · Conciliação</Link>
         </div>
       </div>
 

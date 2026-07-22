@@ -436,6 +436,7 @@ export default function PostosRegrasPage() {
           <Link to="/postos/memoria" style={pill(false)}>3 · Memória de cálculo</Link>
           <Link to="/postos/rateio" style={pill(false)}>4 · Rateio</Link>
           <Link to="/postos/folha" style={pill(false)}>5 · Folha</Link>
+          <Link to="/postos/conciliacao" style={pill(false)}>6 · Conciliação</Link>
         </div>
       </div>
 
