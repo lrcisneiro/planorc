@@ -2004,7 +2004,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {temPosto && onConciliar && <button title="Comparar orçado × realizado da folha por posto"
-              onClick={() => onConciliar({ titulo, versaoId: cen, versaoLabel: cenLabel, meses, masterIds: linhaIds, contaIds, empresaSel, filialFilter, ccFilter, contaToItem: contaItemMap })}
+              onClick={() => { onConciliar({ titulo, versaoId: cen, versaoLabel: cenLabel, meses, masterIds: linhaIds, contaIds, empresaSel, filialFilter, ccFilter, contaToItem: contaItemMap }); onClose() }}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5, fontWeight: 600, borderRadius: 8, cursor: 'pointer', color: 'var(--violet)', border: '1px solid var(--violet)55', background: 'rgba(139,92,246,0.14)' }}>
               <GitCompareArrows size={14} /> Conciliação Folha</button>}
             <X size={20} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} />
