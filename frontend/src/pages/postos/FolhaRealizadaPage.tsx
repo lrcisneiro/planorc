@@ -86,7 +86,7 @@ export default function FolhaRealizadaPage() {
   const [aberto, setAberto] = useState<Set<string>>(new Set())
   const [importando, setImportando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [info, setInfo] = useState<{ gravados: number; postos: number; semPosto: number; semConta: number; semItem: number; comp: string } | null>(null)
+  const [info, setInfo] = useState<{ gravados: number; postos: number; semPosto: number; semConta: number; semItem: number; semItemDrop: number; comp: string } | null>(null)
 
   const loadComps = async () => {
     const { data } = await supabase.from('fat_folha').select('ano,mes').eq('tipo', 'REALIZADO').order('ano', { ascending: false }).order('mes', { ascending: false })
@@ -151,12 +151,17 @@ export default function FolhaRealizadaPage() {
       const { data: co } = await supabase.from('conta_orcamentaria').select('id,codigo')
       const itemByCod = new Map((co || []).map((c: any) => [String(c.codigo).trim(), c.id]))
 
+      // se a folha usa item orçamentário (IT_CONTAB_DB), as linhas SEM item são ativo/passivo
+      // (IR/INSS retido, adiantamento…) — não entram no realizado (poluíam a conciliação).
+      const usaItem = data.some(r => (r.item_orc || '').trim())
       const comps = new Set<string>()
-      let semPosto = 0, semConta = 0, semItem = 0
+      let semPosto = 0, semConta = 0, semItem = 0, semItemDrop = 0
       const payload: any[] = []
       for (const r of data) {
         const ano = parseInt(r.ano, 10), mes = parseInt(r.mes, 10)
         if (!ano || !mes) continue
+        const item_orc_cod = (r.item_orc || '').trim()
+        if (usaItem && !item_orc_cod) { semItemDrop++; continue }   // sem item na folha que usa item → não traz
         comps.add(`${ano}|${mes}`)
         const filial = (r.filial || '').trim()
         const fil = filByCod.get(filial)
@@ -165,7 +170,6 @@ export default function FolhaRealizadaPage() {
         if (!posto_id) semPosto++
         const conta_id = contaByCod.get((r.conta_deb || '').trim()) || null
         if (!conta_id) semConta++
-        const item_orc_cod = (r.item_orc || '').trim()
         const item_orc_id = item_orc_cod ? (itemByCod.get(item_orc_cod) || null) : null
         if (item_orc_cod && !item_orc_id) semItem++
         payload.push({
@@ -183,7 +187,7 @@ export default function FolhaRealizadaPage() {
       for (let i = 0; i < payload.length; i += 500) { const { error } = await supabase.from('fat_folha').insert(payload.slice(i, i + 500)); if (error) { setErro('Erro ao gravar (parcial): ' + error.message); return } }
       const compLabel = [...comps].map(c => { const [a, m] = c.split('|'); return `${MESES[+m - 1]}/${a}` }).join(', ')
       const postosDistintos = new Set(payload.filter(p => p.posto_id).map(p => p.posto_id)).size
-      setInfo({ gravados: payload.length, postos: postosDistintos, semPosto, semConta, semItem, comp: compLabel })
+      setInfo({ gravados: payload.length, postos: postosDistintos, semPosto, semConta, semItem, semItemDrop, comp: compLabel })
       loadComps()
     } catch (e: any) { setErro('Erro ao ler o arquivo: ' + (e?.message || e)) }
     finally { setImportando(false) }
@@ -229,6 +233,7 @@ export default function FolhaRealizadaPage() {
           <div><b>{info.gravados.toLocaleString('pt-BR')} lançamentos</b> de folha importados ({info.comp}) em <b>{info.postos} postos</b>.
             {info.semPosto > 0 && <div style={{ color: 'var(--orange)' }}>{info.semPosto} sem posto casado (matrícula sem posto cadastrado) — importe os postos antes, ou confira filial-matrícula.</div>}
             {info.semConta > 0 && <div style={{ color: 'var(--muted)' }}>{info.semConta} sem conta contábil resolvida (débito fora do plano) — não amarram à DRE.</div>}
+            {info.semItemDrop > 0 && <div style={{ color: 'var(--muted)' }}>{info.semItemDrop} linha(s) sem item orçamentário (ativo/passivo) ignoradas — não entram na conciliação.</div>}
             {info.semItem > 0 && <div style={{ color: 'var(--orange)' }}>{info.semItem} com item orçamentário (IT_CONTAB_DB) que não existe em conta_orcamentaria — cadastre o código pra conciliar.</div>}
           </div>
         </div>

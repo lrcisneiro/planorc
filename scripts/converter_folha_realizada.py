@@ -30,6 +30,7 @@ def _flag_val(nome, default):
 FOLHA_DIR = _args[0] if len(_args) > 0 else 'dados_rh'
 SAIDA     = _args[1] if len(_args) > 1 else 'dados_rh/folha_realizada.csv'
 DEPARA    = _flag_val('--depara', 'dados_rh/Depara_filial_empresa.csv')
+DEPARA_IT = _flag_val('--depara-item', 'dados_rh/DePara ItemCCxEmpresa.csv')  # ITEM_CONTABIL → empresa
 FORCE     = _flag_val('--competencia', '')   # 'YYYY-MM' força a competência de saída (teste)
 FORCE_ANO = FORCE_MES = None
 if FORCE:
@@ -54,6 +55,28 @@ def carregar_depara(path: str) -> dict:
                 m[fil] = emp
     return m
 
+def carregar_depara_item(path: str) -> dict:
+    """CSV ITEMCONTABIL;Código da Empresa;Empresa → { item_contabil : empresa_gerencial }.
+    Quando a coluna Y (ITEM_CONTABIL) vem preenchida, a empresa da linha é redirecionada."""
+    m = {}
+    if not os.path.exists(path):
+        return m
+    with open(path, newline='', encoding='utf-8-sig') as f:
+        primeira = f.readline(); f.seek(0)
+        delim = ';' if primeira.count(';') > primeira.count(',') else ','
+        rd = csv.DictReader(f, delimiter=delim)
+        cols = rd.fieldnames or []
+        itemcol = next((c for c in cols if 'item' in (c or '').lower()), cols[0] if cols else None)
+        codecol = next((c for c in cols if 'digo' in (c or '').lower()), cols[1] if len(cols) > 1 else None)  # "Código da Empresa"
+        if not (itemcol and codecol):
+            print(f'AVISO: {path} precisa de colunas ITEMCONTABIL e "Código da Empresa". Ignorando de-para item.')
+            return {}
+        for r in rd:
+            it = str(r.get(itemcol, '')).strip(); emp = str(r.get(codecol, '')).strip()
+            if it:
+                m[it] = emp
+    return m
+
 def norm_mat(x) -> str:
     return str(x or '').strip().split('.')[0].zfill(6)
 
@@ -70,7 +93,8 @@ COLS_SAIDA = ['ano', 'mes', 'empresa', 'filial', 'cc', 'matricula', 'nome',
               'verba_cod', 'verba_desc', 'tipo_verba', 'valor', 'conta_deb', 'conta_cred',
               'item_orc', 'item_orc_desc', 'competencia']
 
-def converter(folha_dir: str, saida: str, depara: dict):
+def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None):
+    depara_item = depara_item or {}
     arquivos = sorted(glob.glob(os.path.join(folha_dir, 'prgper02_emp*.xlsx')))
     if not arquivos:
         print(f'ERRO: nenhum prgper02_emp*.xlsx em "{folha_dir}"'); sys.exit(1)
@@ -79,6 +103,7 @@ def converter(folha_dir: str, saida: str, depara: dict):
     lidas = puladas = sem_periodo = sem_deb = 0
     tipos, competencias, empresas = Counter(), Counter(), Counter()
     filiais_sem_empresa = Counter()
+    redirecionadas = Counter(); item_sem_depara = Counter()
     total_valor = 0.0
 
     for fn in arquivos:
@@ -113,6 +138,14 @@ def converter(folha_dir: str, saida: str, depara: dict):
             empresa = depara.get(filial, '')
             if filial and not empresa:
                 filiais_sem_empresa[filial] += 1
+            # ITEM_CONTABIL (coluna Y) redireciona a EMPRESA (filial permanece), via de-para
+            item_contabil = str(g('ITEM_CONTABIL') or '').strip()
+            if item_contabil:
+                emp_red = depara_item.get(item_contabil)
+                if emp_red:
+                    empresa = emp_red; redirecionadas[item_contabil] += 1
+                else:
+                    item_sem_depara[item_contabil] += 1
             try:
                 valor = float(g('VALOR') or 0)
             except Exception:
@@ -147,6 +180,10 @@ def converter(folha_dir: str, saida: str, depara: dict):
     print('Tipo de verba: ' + ', '.join(f'{k}={v}' for k, v in sorted(tipos.items())))
     print(f'Empresas ({len(empresas)}): ' + ', '.join(f'{k}={v}' for k, v in sorted(empresas.items())))
     print(f'Valor total (soma VALOR): R$ {total_valor:,.2f}')
+    if redirecionadas:
+        print('\nEmpresa redirecionada por ITEM_CONTABIL: ' + ', '.join(f'{k}→{depara_item.get(k)}={v}' for k, v in sorted(redirecionadas.items())))
+    if item_sem_depara:
+        print('⚠ ITEM_CONTABIL preenchido SEM de-para (empresa mantida pela filial): ' + ', '.join(f'{k}={v}' for k, v in sorted(item_sem_depara.items())))
     if filiais_sem_empresa:
         print('\n⚠ Filiais SEM empresa no de-para: ' + ', '.join(f'{k}={v}' for k, v in sorted(filiais_sem_empresa.items())))
     print(f'\n→ {saida}')
@@ -155,6 +192,9 @@ if __name__ == '__main__':
     depara = carregar_depara(DEPARA)
     print(f'De-para filial→empresa: {len(depara)} filiais carregadas de "{DEPARA}".' if depara
           else f'AVISO: de-para "{DEPARA}" não encontrado — empresa gerencial ficará vazia (resolvida pela filial no import).')
+    depara_item = carregar_depara_item(DEPARA_IT)
+    print(f'De-para ITEM_CONTABIL→empresa: {len(depara_item)} itens carregados de "{DEPARA_IT}".' if depara_item
+          else f'AVISO: de-para item "{DEPARA_IT}" não encontrado — ITEM_CONTABIL não redireciona empresa.')
     if FORCE_ANO:
         print(f'⚠ Competência FORÇADA para {FORCE_ANO}-{FORCE_MES:02d} (teste) — os valores vêm da folha real, só o período foi recarimbado.')
-    converter(FOLHA_DIR, SAIDA, depara)
+    converter(FOLHA_DIR, SAIDA, depara, depara_item)

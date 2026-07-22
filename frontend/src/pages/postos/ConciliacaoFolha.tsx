@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
-import { AlertCircle, ChevronDown, ChevronRight } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronRight, Search, X } from 'lucide-react'
 
 // Corpo reutilizável da conciliação de folha (Orçado motor × Realizado folha, por posto).
 // Usado pelo modal (drill do DRE) e pela página avulsa (a partir dos Postos).
@@ -16,7 +16,7 @@ export type ConcilParams = {
   empresaSel: string[]; filialFilter: string[] | null; ccFilter: string[] | null
   contaToItem?: Record<string, string>   // conta_contabil → item orçamentário (vindo pronto do DRE); sem isto, resolve no banco
 }
-type Linha = { key: string; posto_id: string | null; codigo: string; nome: string; orcado: number; realizado: number }
+type Linha = { key: string; posto_id: string | null; codigo: string; nome: string; matricula: string; cargo: string; ccCod: string; ccDesc: string; orcado: number; realizado: number }
 type VerbaReal = { verba_cod: string; verba_desc: string; conta_id: string | null; item_orc_id: string | null; valor: number }
 
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -37,6 +37,14 @@ const S: Record<string, CSSProperties> = {
   detLbl:{ fontSize: 10.5, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '2px 0 6px' },
   detRow:{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12.5, padding: '2px 0' },
   mono:  { fontFamily: 'monospace', color: 'var(--muted)' },
+  dh:    { textAlign: 'left', padding: '4px 8px', fontSize: 10.5, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3, borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' },
+  dt:    { padding: '3px 8px', borderBottom: '1px solid var(--panel-2)', color: 'var(--text)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' },
+  bar:   { display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', margin: '0 0 12px' },
+  fld:   { display: 'flex', flexDirection: 'column', gap: 4 },
+  lbl:   { fontSize: 10.5, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 },
+  sel:   { padding: '7px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--panel)', color: 'var(--text)' },
+  inp:   { padding: '7px 10px 7px 28px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--panel)', color: 'var(--text)', width: 220 },
+  gh:    { padding: '7px 12px', background: 'var(--bg)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', cursor: 'pointer', fontSize: 12.5, color: 'var(--text)', fontWeight: 600 },
 }
 
 // pagina todos os registros (PostgREST devolve no máx. 1000 por chamada)
@@ -57,11 +65,13 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
   const [orcDet, setOrcDet] = useState<Record<string, VerbaReal[]>>({})
   const [realDet, setRealDet] = useState<Record<string, VerbaReal[]>>({})
   const [contaOrc, setContaOrc] = useState<Record<string, any>>({})
-  const [contaCtb, setContaCtb] = useState<Record<string, any>>({})
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [ordem, setOrdem] = useState<{ col: string; dir: 1 | -1 }>({ col: 'delta', dir: 1 })
   const [aberto, setAberto] = useState<Set<string>>(new Set())
+  const [busca, setBusca] = useState('')
+  const [agrupar, setAgrupar] = useState<'nenhum' | 'cc' | 'cargo'>('nenhum')
+  const [fechados, setFechados] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     (async () => {
@@ -98,7 +108,7 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
         //     quando a folha não traz o item — preferindo o master do orçado se houver várias.
         const realById: Record<string, number> = {}, realTmp: Record<string, Record<string, VerbaReal>> = {}
         const realRows = await pageAll(() => {
-          let q = supabase.from('fat_folha').select('posto_id,empresa_id,filial_id,cc_id,ano,mes,valor,verba_cod,verba_desc,conta_id,item_orc_id').in('ano', anos).in('mes', mesesNums)
+          let q = supabase.from('fat_folha').select('posto_id,empresa_id,filial_id,cc_id,ano,mes,valor,verba_cod,verba_desc,conta_id,item_orc_id').eq('tipo', 'REALIZADO').in('ano', anos).in('mes', mesesNums)
           if (p.contaIds) q = q.in('conta_id', p.contaIds)
           return q
         })
@@ -133,20 +143,25 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
         const ids = [...new Set([...Object.keys(orcById), ...Object.keys(realById)].filter(k => k !== '(sem posto)'))]
         const postoById: Record<string, any> = {}
         for (let i = 0; i < ids.length; i += 300) {
-          const { data } = await supabase.from('posto').select('id,codigo,nome').in('id', ids.slice(i, i + 300))
+          const { data } = await supabase.from('posto').select('id,codigo,nome,matricula,cargo(nome),centro_custo(codigo,descricao)').in('id', ids.slice(i, i + 300))
           for (const x of data || []) postoById[x.id] = x
         }
         const itemsUsed = [...new Set([
           ...Object.values(orcDetail).flatMap(l => l.map(x => x.item_orc_id).filter(Boolean)),
           ...Object.values(realDetail).flatMap(l => l.map(x => x.item_orc_id).filter(Boolean)),
         ])] as string[]
-        const contaUsed = [...new Set(Object.values(realDetail).flatMap(l => l.map(x => x.conta_id).filter(Boolean)))] as string[]
         if (itemsUsed.length) { const { data } = await supabase.from('conta_orcamentaria').select('id,codigo,descricao').in('id', itemsUsed); setContaOrc(Object.fromEntries((data || []).map((c: any) => [c.id, c]))) } else setContaOrc({})
-        if (contaUsed.length) { const { data } = await supabase.from('conta_contabil').select('id,codigo,descricao').in('id', contaUsed); setContaCtb(Object.fromEntries((data || []).map((c: any) => [c.id, c]))) } else setContaCtb({})
 
         const merge: Linha[] = [...new Set([...Object.keys(orcById), ...Object.keys(realById)])].map(pid => {
           const q = postoById[pid]
-          return { key: pid, posto_id: pid === '(sem posto)' ? null : pid, codigo: q?.codigo || (pid === '(sem posto)' ? '—' : '?'), nome: q?.nome || (pid === '(sem posto)' ? 'Sem posto (matrícula não casada)' : 'Vaga'), orcado: orcById[pid] || 0, realizado: realById[pid] || 0 }
+          return {
+            key: pid, posto_id: pid === '(sem posto)' ? null : pid,
+            codigo: q?.codigo || (pid === '(sem posto)' ? '—' : '?'),
+            nome: q?.nome || (pid === '(sem posto)' ? 'Sem posto (matrícula não casada)' : 'Vaga'),
+            matricula: q?.matricula || '', cargo: q?.cargo?.nome || '',
+            ccCod: q?.centro_custo?.codigo || '', ccDesc: q?.centro_custo?.descricao || '',
+            orcado: orcById[pid] || 0, realizado: realById[pid] || 0,
+          }
         })
         setLinhas(merge); setOrcDet(orcDetail); setRealDet(realDetail)
       } catch (e: any) { setErro(e?.message || String(e)) }
@@ -154,14 +169,90 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
     })()
   }, [p.versaoId, JSON.stringify(p.meses), JSON.stringify(p.masterIds), JSON.stringify(p.contaIds), JSON.stringify(p.empresaSel), JSON.stringify(p.filialFilter), JSON.stringify(p.ccFilter), JSON.stringify(p.contaToItem)]) // eslint-disable-line
 
-  const linhasOrd = useMemo(() => {
+  const filtrados = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    if (!q) return linhas
+    return linhas.filter(l => [l.codigo, l.nome, l.matricula, l.cargo, l.ccCod, l.ccDesc].some(x => (x || '').toLowerCase().includes(q)))
+  }, [linhas, busca])
+  const ordenar = (arr: Linha[]) => {
     const val = (l: Linha) => ordem.col === 'orcado' ? l.orcado : ordem.col === 'realizado' ? l.realizado : ordem.col === 'codigo' ? l.codigo : (l.orcado - l.realizado)
-    return [...linhas].sort((a, b) => { const va = val(a) as any, vb = val(b) as any; return (typeof va === 'string' ? va.localeCompare(vb) : (Math.abs(vb) - Math.abs(va))) * ordem.dir })
-  }, [linhas, ordem])
-  const tot = useMemo(() => linhas.reduce((s, l) => ({ orc: s.orc + l.orcado, real: s.real + l.realizado }), { orc: 0, real: 0 }), [linhas])
+    return [...arr].sort((a, b) => { const va = val(a) as any, vb = val(b) as any; return (typeof va === 'string' ? va.localeCompare(vb) : (Math.abs(vb) - Math.abs(va))) * ordem.dir })
+  }
+  const linhasOrd = useMemo(() => ordenar(filtrados), [filtrados, ordem]) // eslint-disable-line
+  const grupos = useMemo(() => {
+    if (agrupar === 'nenhum') return null
+    const m = new Map<string, { key: string; label: string; linhas: Linha[]; orc: number; real: number }>()
+    for (const l of filtrados) {
+      const k = agrupar === 'cc' ? (l.ccCod || '(sem CC)') : (l.cargo || '(sem cargo)')
+      const label = agrupar === 'cc' ? (l.ccCod ? `${l.ccCod} · ${l.ccDesc}` : 'Sem centro de custo') : (l.cargo || 'Sem cargo')
+      let g = m.get(k); if (!g) { g = { key: k, label, linhas: [], orc: 0, real: 0 }; m.set(k, g) }
+      g.linhas.push(l); g.orc += l.orcado; g.real += l.realizado
+    }
+    return [...m.values()].sort((a, b) => Math.abs(b.orc - b.real) - Math.abs(a.orc - a.real))
+  }, [filtrados, agrupar])
+  const tot = useMemo(() => filtrados.reduce((s, l) => ({ orc: s.orc + l.orcado, real: s.real + l.realizado }), { orc: 0, real: 0 }), [filtrados])
   const sortClick = (col: string) => setOrdem(o => o.col === col ? { col, dir: (o.dir === 1 ? -1 : 1) } : { col, dir: 1 })
   const seta = (col: string) => ordem.col === col ? (ordem.dir === 1 ? ' ↓' : ' ↑') : ''
   const corDelta = (d: number) => Math.abs(d) < 0.005 ? 'var(--muted)' : d < 0 ? 'var(--red)' : 'var(--green)'
+  const toggleGrupo = (k: string) => setFechados(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
+
+  const renderLinha = (l: Linha) => { const d = l.orcado - l.realizado; const open = aberto.has(l.key)
+    const itensMerge = (() => {
+      type VG = { cod: string; desc: string; orc: number; real: number }
+      const items = new Map<string, { itemId: string | null; orc: number; real: number; verbas: Map<string, VG> }>()
+      const add = (list: VerbaReal[], field: 'orc' | 'real') => { for (const v of list) {
+        const ik = v.item_orc_id || '__sem'
+        let it = items.get(ik); if (!it) { it = { itemId: v.item_orc_id, orc: 0, real: 0, verbas: new Map() }; items.set(ik, it) }
+        it[field] += v.valor
+        const vk = v.verba_cod || '—'; let vg = it.verbas.get(vk); if (!vg) { vg = { cod: vk, desc: v.verba_desc || '', orc: 0, real: 0 }; it.verbas.set(vk, vg) }
+        vg[field] += v.valor; if (!vg.desc && v.verba_desc) vg.desc = v.verba_desc
+      } }
+      add(orcDet[l.key] || [], 'orc'); add(realDet[l.key] || [], 'real')
+      return [...items.values()].sort((a, b) => !a.itemId ? 1 : !b.itemId ? -1 : (contaOrc[a.itemId]?.codigo || '').localeCompare(contaOrc[b.itemId]?.codigo || ''))
+    })()
+    return (
+    <Fragment key={l.key}>
+      <tr style={{ cursor: 'pointer' }} onClick={() => setAberto(s => { const n = new Set(s); n.has(l.key) ? n.delete(l.key) : n.add(l.key); return n })}>
+        <td style={{ ...S.td, ...S.mono }}>{open ? <ChevronDown size={12} style={{ verticalAlign: -2 }} /> : <ChevronRight size={12} style={{ verticalAlign: -2 }} />} {l.codigo}</td>
+        <td style={S.td}>{l.nome}</td>
+        <td style={{ ...S.td, textAlign: 'right' }}>{money(l.orcado)}</td>
+        <td style={{ ...S.td, textAlign: 'right' }}>{money(l.realizado)}</td>
+        <td style={{ ...S.td, textAlign: 'right', color: corDelta(d), fontWeight: 600 }}>{money(d)}</td>
+        <td style={{ ...S.td, textAlign: 'right', color: corDelta(d) }}>{l.realizado ? `${(d / Math.abs(l.realizado) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : (l.orcado ? '—' : '')}</td>
+      </tr>
+      {open && <tr><td colSpan={6} style={{ background: 'var(--bg-soft)', padding: '4px 16px 12px 34px', borderBottom: '1px solid var(--panel-2)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+          <thead><tr>
+            <th style={S.dh}>Item · verba</th>
+            <th style={{ ...S.dh, textAlign: 'right' }}>Orçado</th>
+            <th style={{ ...S.dh, textAlign: 'right' }}>Realizado</th>
+            <th style={{ ...S.dh, textAlign: 'right' }}>Δ</th>
+          </tr></thead>
+          <tbody>
+            {itensMerge.map((it, ii) => { const dItem = it.orc - it.real; return (
+              <Fragment key={ii}>
+                <tr>
+                  <td style={{ ...S.dt, fontWeight: 600 }}>{it.itemId ? <><span style={S.mono}>{contaOrc[it.itemId]?.codigo || '—'}</span> {contaOrc[it.itemId]?.descricao || ''}</> : <span style={{ color: 'var(--orange)' }}>⚠ Sem item orçamentário</span>}</td>
+                  <td style={{ ...S.dt, textAlign: 'right', fontWeight: 600 }}>{money(it.orc)}</td>
+                  <td style={{ ...S.dt, textAlign: 'right', fontWeight: 600 }}>{money(it.real)}</td>
+                  <td style={{ ...S.dt, textAlign: 'right', fontWeight: 600, color: corDelta(dItem) }}>{money(dItem)}</td>
+                </tr>
+                {[...it.verbas.values()].sort((a, b) => (b.orc + b.real) - (a.orc + a.real)).map((v, vi) => { const dv = v.orc - v.real; return (
+                  <tr key={vi}>
+                    <td style={{ ...S.dt, paddingLeft: 22, color: 'var(--muted)' }}><span style={S.mono}>{v.cod}</span> {v.desc}</td>
+                    <td style={{ ...S.dt, textAlign: 'right', color: 'var(--muted)' }}>{v.orc ? money(v.orc) : '·'}</td>
+                    <td style={{ ...S.dt, textAlign: 'right', color: 'var(--muted)' }}>{v.real ? money(v.real) : '·'}</td>
+                    <td style={{ ...S.dt, textAlign: 'right', color: corDelta(dv) }}>{money(dv)}</td>
+                  </tr>
+                ) })}
+              </Fragment>
+            ) })}
+          </tbody>
+        </table>
+      </td></tr>}
+    </Fragment>
+    )
+  }
 
   return (
     <>
@@ -173,8 +264,34 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
         <div style={S.kpi}><div style={S.kpiL}>Δ%</div><div style={{ ...S.kpiV, color: corDelta(tot.orc - tot.real) }}>{tot.real ? `${((tot.orc - tot.real) / Math.abs(tot.real) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : '—'}</div></div>
       </div>
 
+      <div style={S.bar}>
+        <div style={S.fld}><span style={S.lbl}>Buscar</span>
+          <div style={{ position: 'relative' }}>
+            <Search size={14} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--muted)' }} />
+            <input style={S.inp} placeholder="nome, matrícula, cargo, CC…" value={busca} onChange={e => setBusca(e.target.value)} />
+            {busca && <X size={14} style={{ position: 'absolute', right: 8, top: 9, color: 'var(--muted)', cursor: 'pointer' }} onClick={() => setBusca('')} />}
+          </div>
+        </div>
+        <div style={S.fld}><span style={S.lbl}>Agrupar por</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <select style={S.sel} value={agrupar} onChange={e => setAgrupar(e.target.value as any)}>
+              <option value="nenhum">Sem agrupamento (ordenável)</option>
+              <option value="cc">Centro de custo</option>
+              <option value="cargo">Cargo</option>
+            </select>
+            {grupos && grupos.length > 0 && (() => { const abertoAlgum = grupos.some(g => !fechados.has(g.key)); return (
+              <button style={{ ...S.sel, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text-mid)' }}
+                title={abertoAlgum ? 'Recolher todos os grupos' : 'Expandir todos os grupos'}
+                onClick={() => setFechados(abertoAlgum ? new Set(grupos.map(g => g.key)) : new Set())}>
+                {abertoAlgum ? <ChevronRight size={14} /> : <ChevronDown size={14} />}{abertoAlgum ? 'Recolher' : 'Expandir'}
+              </button>
+            ) })()}
+          </div>
+        </div>
+      </div>
+
       <div style={S.card}>
-        <div style={S.cardT}>Por posto <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— {linhas.length} posto(s) · clique p/ ver verbas · Δ negativo (vermelho) = realizado acima do orçado</span></div>
+        <div style={S.cardT}>Por posto <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— {filtrados.length} de {linhas.length} posto(s) · clique p/ ver verbas · Δ negativo (vermelho) = realizado acima do orçado</span></div>
         <div style={{ maxHeight: 620, overflow: 'auto' }}>
           <table style={S.table}>
             <thead><tr>
@@ -187,48 +304,22 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
             </tr></thead>
             <tbody>
               {loading && <tr><td colSpan={6} style={{ ...S.td, textAlign: 'center', color: 'var(--muted)', padding: 24 }}>Carregando…</td></tr>}
-              {!loading && linhasOrd.map(l => { const d = l.orcado - l.realizado; const open = aberto.has(l.key)
-                const grupos = (verbas: VerbaReal[]) => {
-                  const m = new Map<string, { itemId: string | null; total: number; verbas: VerbaReal[] }>()
-                  for (const v of verbas) { const key = v.item_orc_id || '__sem'; const g = m.get(key) || { itemId: v.item_orc_id, total: 0, verbas: [] }; g.total += v.valor; g.verbas.push(v); m.set(key, g) }
-                  return [...m.values()].sort((a, b) => !a.itemId ? 1 : !b.itemId ? -1 : (contaOrc[a.itemId]?.codigo || '').localeCompare(contaOrc[b.itemId]?.codigo || ''))
-                }
-                const col = (gs: ReturnType<typeof grupos>, showConta: boolean) => gs.length ? gs.map((g, gi) => (
-                  <div key={gi} style={{ marginBottom: 5 }}>
-                    <div style={{ ...S.detRow, fontWeight: 600 }}>
-                      <span>{g.itemId ? <><span style={S.mono}>{contaOrc[g.itemId]?.codigo || '—'}</span> {contaOrc[g.itemId]?.descricao || ''}</> : <span style={{ color: 'var(--orange)' }}>⚠ Sem item orçamentário</span>}</span>
-                      <span style={{ fontVariantNumeric: 'tabular-nums' }}>{money(g.total)}</span>
-                    </div>
-                    {g.verbas.map((v, i) => (<div key={i} style={{ ...S.detRow, paddingLeft: 14, color: 'var(--muted)' }}><span><span style={S.mono}>{v.verba_cod}</span> {v.verba_desc}{showConta && v.conta_id ? <span> · {contaCtb[v.conta_id]?.codigo || '?'}</span> : null}</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{money(v.valor)}</span></div>))}
-                  </div>
-                )) : <div style={{ fontSize: 12, color: 'var(--muted)' }}>Sem lançamento neste escopo.</div>
-                return (
-                <Fragment key={l.key}>
-                <tr style={{ cursor: 'pointer' }} onClick={() => setAberto(s => { const n = new Set(s); n.has(l.key) ? n.delete(l.key) : n.add(l.key); return n })}>
-                  <td style={{ ...S.td, ...S.mono }}>{open ? <ChevronDown size={12} style={{ verticalAlign: -2 }} /> : <ChevronRight size={12} style={{ verticalAlign: -2 }} />} {l.codigo}</td>
-                  <td style={S.td}>{l.nome}</td>
-                  <td style={{ ...S.td, textAlign: 'right' }}>{money(l.orcado)}</td>
-                  <td style={{ ...S.td, textAlign: 'right' }}>{money(l.realizado)}</td>
-                  <td style={{ ...S.td, textAlign: 'right', color: corDelta(d), fontWeight: 600 }}>{money(d)}</td>
-                  <td style={{ ...S.td, textAlign: 'right', color: corDelta(d) }}>{l.realizado ? `${(d / Math.abs(l.realizado) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : (l.orcado ? '—' : '')}</td>
-                </tr>
-                {open && <tr><td colSpan={6} style={{ background: 'var(--bg-soft)', padding: '6px 16px 12px 30px', borderBottom: '1px solid var(--panel-2)' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-                    <div>
-                      <div style={S.detLbl}>Orçado por item · verba (motor)</div>
-                      {col(grupos(orcDet[l.key] || []), false)}
-                    </div>
-                    <div>
-                      <div style={S.detLbl}>Realizado por item · verba (folha)</div>
-                      {col(grupos(realDet[l.key] || []), true)}
-                    </div>
-                  </div>
-                </td></tr>}
+              {!loading && agrupar === 'nenhum' && linhasOrd.map(renderLinha)}
+              {!loading && agrupar !== 'nenhum' && (grupos || []).map(g => { const gd = g.orc - g.real; const gopen = !fechados.has(g.key); return (
+                <Fragment key={'g:' + g.key}>
+                  <tr onClick={() => toggleGrupo(g.key)}>
+                    <td colSpan={2} style={S.gh}>{gopen ? <ChevronDown size={12} style={{ verticalAlign: -2 }} /> : <ChevronRight size={12} style={{ verticalAlign: -2 }} />} {g.label} <span style={{ fontWeight: 400, color: 'var(--muted)' }}>· {g.linhas.length} posto(s)</span></td>
+                    <td style={{ ...S.gh, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(g.orc)}</td>
+                    <td style={{ ...S.gh, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(g.real)}</td>
+                    <td style={{ ...S.gh, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: corDelta(gd) }}>{money(gd)}</td>
+                    <td style={{ ...S.gh, textAlign: 'right', color: corDelta(gd) }}>{g.real ? `${(gd / Math.abs(g.real) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : '—'}</td>
+                  </tr>
+                  {gopen && ordenar(g.linhas).map(renderLinha)}
                 </Fragment>
               ) })}
-              {!loading && !linhas.length && <tr><td colSpan={6} style={S.empty}>Sem orçado-posto nem realizado-folha neste escopo/competência.</td></tr>}
+              {!loading && !filtrados.length && <tr><td colSpan={6} style={S.empty}>{linhas.length ? 'Nenhum posto para a busca.' : 'Sem orçado-posto nem realizado-folha neste escopo/competência.'}</td></tr>}
             </tbody>
-            {!loading && linhas.length > 0 && <tfoot><tr>
+            {!loading && filtrados.length > 0 && <tfoot><tr>
               <td style={{ ...S.td, fontWeight: 700 }} colSpan={2}>Total</td>
               <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{money(tot.orc)}</td>
               <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{money(tot.real)}</td>

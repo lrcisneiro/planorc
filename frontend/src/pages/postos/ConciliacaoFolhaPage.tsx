@@ -49,7 +49,7 @@ export default function ConciliacaoFolhaPage() {
         supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
         supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
         supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
-        supabase.from('fat_folha').select('ano,mes').order('ano', { ascending: false }).order('mes', { ascending: false }),
+        supabase.from('fat_folha').select('ano,mes').eq('tipo', 'REALIZADO').order('ano', { ascending: false }).order('mes', { ascending: false }),
       ])
       setVersoes(v.data || []); if (v.data?.length) setVersaoSel(prev => prev || v.data[0].id)
       setEmpresas(e.data || []); setFiliais(f.data || []); setCcs(c.data || [])
