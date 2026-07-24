@@ -26,16 +26,8 @@ function patch(p: Partial<PostoCtx>) {
   try { localStorage.setItem(KEY, JSON.stringify({ ...read(), ...p })) } catch { /* ignora quota/priv */ }
 }
 
-// Preferência de tela persistida em localStorage por chave própria (NÃO
-// compartilhada entre pills) — para toggles de visão como modo/agrupamento.
-// Assinatura igual a useState.
-export function useLocalPref<T>(key: string, initial: T): [T, Dispatch<SetStateAction<T>>] {
-  const [v, setV] = useState<T>(() => {
-    try { const s = localStorage.getItem(key); return s !== null ? (JSON.parse(s) as T) : initial } catch { return initial }
-  })
-  useEffect(() => { try { localStorage.setItem(key, JSON.stringify(v)) } catch { /* ignora */ } }, [key, v])
-  return [v, setV]
-}
+// Preferência de tela por chave própria (modo/agrupamento) mora em lib/uiPrefs.ts
+// — é genérica, usada fora dos postos também.
 
 // useState que espelha um campo do contexto compartilhado: inicializa do
 // localStorage (se houver) e grava a cada mudança. Assinatura igual a useState.

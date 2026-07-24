@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
 import { cascataRateio } from '../../lib/rateioFolha'
-import { useLocalPref } from '../../lib/postoCtx'
+import { useLocalPref } from '../../lib/uiPrefs'
 import { AlertCircle, ChevronDown, ChevronRight, Search, X } from 'lucide-react'
 
 // Corpo reutilizável da conciliação de folha (Orçado motor × Realizado folha, por posto).

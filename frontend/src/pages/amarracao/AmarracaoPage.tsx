@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { useLocalPref } from '../../lib/uiPrefs'
 import { ArrowRight, Link2, Trash2, Search, Check, Download, Upload, RefreshCw } from 'lucide-react'
 
 declare const XLSX: any
@@ -60,30 +61,47 @@ const S: Record<string, CSSProperties> = {
 export default function AmarracaoPage() {
   const [rels, setRels] = useState<Rel[]>([])
   const [planos, setPlanos] = useState<Plano[]>([])
-  const [relId, setRelId] = useState('')
-  const [planoId, setPlanoId] = useState('')
+  // parâmetros da tela persistidos: reabrir não volta pro 1º plano/relatório da lista
+  const [relId, setRelId] = useLocalPref('planorc_amarracao_rel', '')
+  const [planoId, setPlanoId] = useLocalPref('planorc_amarracao_plano', '')
   const [contas, setContas] = useState<Conta[]>([])
   const [linhas, setLinhas] = useState<RL[]>([])
   const [links, setLinks] = useState<Link[]>([])     // conta_linha do relatório (por master)
-  const [amarradas, setAmarradas] = useState<Set<string>>(new Set())  // conta_id amarrado em qualquer lugar
   const [buscaC, setBuscaC] = useState('')
   const [buscaL, setBuscaL] = useState('')
   const [selContas, setSelContas] = useState<Set<string>>(new Set())
   const [selLinha, setSelLinha] = useState<string>('')  // relatorio_linha id (alvo)
-  const [soNaoAmarradas, setSoNaoAmarradas] = useState(false)
-  const [soComMov, setSoComMov] = useState(false)
+  const [soNaoAmarradas, setSoNaoAmarradas] = useLocalPref('planorc_amarracao_so_nao_amarradas', false)
+  const [soComMov, setSoComMov] = useLocalPref('planorc_amarracao_so_com_mov', false)
+  // versão do orçamento que define o ANO do filtro de movimento. '' = todos os anos
+  // (caso do balanço patrimonial, cujo movimento relevante pode estar fora do ano).
+  const [versaoId, setVersaoId] = useLocalPref('planorc_amarracao_versao', '')
+  const [versoes, setVersoes] = useState<{ id: string; codigo: string; ano: number }[]>([])
   const [movSet, setMovSet] = useState<Set<string>>(new Set())   // contas com lançamento no realizado
+  const [movErro, setMovErro] = useState<string | null>(null)     // falha ao carregar o movimento
   const [grupos, setGrupos] = useState<Set<string>>(new Set())   // 1º dígito do código selecionado(s)
   const [msg, setMsg] = useState('')
   const [modoImp, setModoImp] = useState<'add' | 'full'>('full')
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    supabase.from('relatorio').select('id,nome').order('nome').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => p || r.data![0].id) })
-    supabase.from('plano_contas').select('id,codigo,nome').order('codigo').then(r => { setPlanos(r.data || []); if (r.data?.length) setPlanoId(p => p || r.data![0].id) })
-    supabase.from('conta_linha').select('conta_id').then(r => setAmarradas(new Set((r.data || []).map((x: any) => x.conta_id))))
-    supabase.rpc('contas_com_movimento').then((r: any) => { if (!r.error) setMovSet(new Set((r.data || []).map((x: any) => x.conta_id))) })
+    // o salvo só vale se ainda existir (senão cai no 1º, em vez de deixar o select em branco)
+    supabase.from('relatorio').select('id,nome').order('nome').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => r.data!.some(x => x.id === p) ? p : r.data![0].id) })
+    supabase.from('plano_contas').select('id,codigo,nome').order('codigo').then(r => { setPlanos(r.data || []); if (r.data?.length) setPlanoId(p => r.data!.some(x => x.id === p) ? p : r.data![0].id) })
+    supabase.from('versao_orcamento').select('id,codigo,ano').order('ano', { ascending: false }).order('codigo')
+      .then(r => { const vs = (r.data || []) as any[]; setVersoes(vs); setVersaoId(p => (p === '' || vs.some(v => v.id === p)) ? p : '') })
   }, [])
+
+  // movimento por ano da versão escolhida ('' = todos os anos)
+  useEffect(() => {
+    const ano = versoes.find(v => v.id === versaoId)?.ano ?? null
+    supabase.rpc('contas_com_movimento', { p_ano: ano }).then((r: any) => {
+      // erro aqui NÃO pode ser silencioso: o conjunto vazio esconderia todas as
+      // analíticas e pareceria "nenhuma conta tem movimento" (ver movErro em passa()).
+      if (r.error) { setMovErro(r.error.message || String(r.error)); setMovSet(new Set()) }
+      else { setMovErro(null); setMovSet(new Set((r.data || []).map((x: any) => x.conta_id))) }
+    })
+  }, [versaoId, versoes])
 
   useEffect(() => { if (planoId) fetchAll(() => supabase.from('conta_contabil').select('id,codigo,descricao,tipo,pai_id').eq('plano_id', planoId).order('codigo')).then(setContas) }, [planoId])
 
@@ -113,7 +131,7 @@ export default function AmarracaoPage() {
     if (grupos.size && !grupos.has((c.codigo || '').trim().charAt(0))) return false
     if (isSint(c)) return true
     if (soNaoAmarradas && amarradasRel.has(c.id)) return false
-    if (soComMov && !movSet.has(c.id)) return false
+    if (soComMov && !movErro && !movSet.has(c.id)) return false   // com erro, o filtro fica inerte (não esconde nada)
     return true
   }
   const childrenByPai: Record<string, Conta[]> = {}; contas.forEach(c => { const p = c.pai_id || '_'; (childrenByPai[p] = childrenByPai[p] || []).push(c) })
@@ -150,10 +168,9 @@ export default function AmarracaoPage() {
     if (error) { setMsg('Erro: ' + error.message); return }
     setMsg(`${novos.length} conta(s) amarrada(s).`)
     setSelContas(new Set())
-    setAmarradas(prev => { const n = new Set(prev); novos.forEach(c => n.add(c)); return n })
     loadLinks()
   }
-  const removeLink = async (id: string) => { await supabase.from('conta_linha').delete().eq('id', id); loadLinks(); setAmarradas(new Set([...amarradas])) }
+  const removeLink = async (id: string) => { await supabase.from('conta_linha').delete().eq('id', id); loadLinks() }
   const toggleSinal = async (id: string, sinal: number) => { await supabase.from('conta_linha').update({ sinal }).eq('id', id); loadLinks() }
   // o cubo do realizado depende do DE-PARA → recalcular após mudanças de amarração
   const recalcular = async () => {
@@ -240,8 +257,6 @@ export default function AmarracaoPage() {
         const { error } = await supabase.from('conta_linha').upsert(payload.slice(i, i + 500), { onConflict: 'conta_id,linha_id' })
         if (error) throw error
       }
-      // recarrega o conjunto global de amarradas (mudou no full)
-      supabase.from('conta_linha').select('conta_id').then((r: any) => setAmarradas(new Set((r.data || []).map((x: any) => x.conta_id))))
       loadLinks()
       setMsg(`${payload.length} amarração(ões) importada(s)${modoImp === 'full' ? ' (substituição por plano)' : ''}${ign ? `, ${ign} ignorada(s)` : ''}.` + (faltaC.size ? ` ⚠ contas não encontradas: ${[...faltaC].slice(0, 6).join(', ')}` : '') + (faltaO.size ? ` ⚠ contas orç. não encontradas: ${[...faltaO].slice(0, 6).join(', ')}` : ''))
     } catch (e: any) { setMsg('Erro ao importar: ' + (e?.message ?? String(e))) }
@@ -277,10 +292,23 @@ export default function AmarracaoPage() {
         <div style={S.pane}>
           <div style={S.paneH}>
             <span>Contas contábeis ({contasF.length})</span>
-            <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
               <label style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontWeight: 400 }}>
                 <input type="checkbox" checked={soComMov} onChange={e => setSoComMov(e.target.checked)} /> com movimento
               </label>
+              {soComMov && (
+                <select value={versaoId} onChange={e => setVersaoId(e.target.value)} onClick={e => e.stopPropagation()}
+                  title='Ano do movimento: usa o ano da versão escolhida. "Todos os anos" não filtra por ano — use no balanço patrimonial, onde o movimento relevante pode estar fora do ano do orçamento.'
+                  style={{ fontSize: 11, padding: '1px 4px', border: '1px solid var(--border-strong)', borderRadius: 5, background: 'var(--panel)', color: 'var(--text-mid)', fontWeight: 400 }}>
+                  <option value="">todos os anos</option>
+                  {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo} ({v.ano})</option>)}
+                </select>
+              )}
+              {soComMov && movErro && (
+                <span title={movErro} style={{ fontSize: 10.5, color: 'var(--orange)', fontWeight: 600, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  ⚠ filtro inativo — falha ao ler o movimento: {movErro}
+                </span>
+              )}
               <label style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontWeight: 400 }}>
                 <input type="checkbox" checked={soNaoAmarradas} onChange={e => setSoNaoAmarradas(e.target.checked)} /> só não amarradas
               </label>
@@ -310,7 +338,7 @@ export default function AmarracaoPage() {
             {contasF.map(c => {
               const sint = isSint(c)
               const est = sint ? estadoSint(c) : (selContas.has(c.id) ? 'all' : 'none')
-              const on = est === 'all'; const am = amarradas.has(c.id)
+              const on = est === 'all'; const am = amarradasRel.has(c.id)
               return (
                 <div key={c.id} onClick={() => clickConta(c)} style={{ ...S.row, background: on ? 'rgba(139,92,246,0.14)' : est === 'some' ? 'rgba(139,92,246,0.08)' : 'transparent' }}>
                   <input type="checkbox" checked={on} ref={el => { if (el) el.indeterminate = est === 'some' }} readOnly />

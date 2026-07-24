@@ -10,7 +10,8 @@ import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
 import { Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil } from 'lucide-react'
 import { RateioModal } from './RateioModal'
 import { cascataRateio } from '../../lib/rateioFolha'
-import { usePostoCtx, useLocalPref } from '../../lib/postoCtx'
+import { usePostoCtx } from '../../lib/postoCtx'
+import { useLocalPref } from '../../lib/uiPrefs'
 
 // Grade de Postos (P1 step 3) — orçamento de folha por posto, agrupado por CC.
 // Custo c/ encargos, rateio, sindicato e "Aplicar" vêm dos steps 4-5 (placeholder por ora).

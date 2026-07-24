@@ -319,6 +319,15 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const ccAll = (ccSel.length === 0 || ccSel.length === ccs.length) && !areaSel.length && !divisaoSel.length && !buSel.length
   const editavel = podeOrcar && podeEditarEmpresa && !!versaoId && filialAll && ccAll
   useEffect(() => { if (editavel) setAvisoLeituraOff(false) }, [editavel])   // reaparece num novo estado de leitura
+  // Aviso (toast) de somente-leitura: só quando há algo a FAZER a respeito. Em Consultar
+  // (e Estrutura) a leitura é o próprio modo — a tag "somente leitura" do topo já diz isso,
+  // e mandar "selecione 1 empresa e 1 versão" ali seria falso (edição é na tela Orçar).
+  const avisoLeitura = versoes.length === 0
+    ? 'Nenhuma versão cadastrada. Crie em Cadastros → Versões/Cenários (ex.: Orçado 2026).'
+    : !podeOrcar ? null
+    : (!!empresaUnica && !podeEditarEmpresa)
+      ? 'Sem permissão para orçar esta empresa. Selecione uma empresa dentro do seu escopo de edição.'
+      : 'Somente leitura. Abra Filtros e selecione 1 empresa e 1 versão (Filial/CC em "todas") para editar.'
 
   // ── Loads
   const loadRelatorio = useCallback(async () => {
@@ -1795,13 +1804,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         </table>
       </div>
 
-      {!editavel && !avisoLeituraOff && (
+      {!editavel && !avisoLeituraOff && avisoLeitura && (
         <div style={{ position: 'fixed', bottom: 16, right: 16, display: 'flex', alignItems: 'flex-start', gap: 8, background: 'rgba(251,191,36,0.14)', border: '1px solid var(--orange)', borderRadius: 8, padding: '8px 10px 8px 14px', fontSize: 13, color: 'var(--orange)', maxWidth: 320, boxShadow: '0 6px 18px rgba(0,0,0,0.12)', zIndex: 1400 }}>
-          <span>{versoes.length === 0
-            ? 'Nenhuma versão cadastrada. Crie em Cadastros → Versões/Cenários (ex.: Orçado 2026).'
-            : (podeOrcar && !!empresaUnica && !podeEditarEmpresa)
-              ? 'Sem permissão para orçar esta empresa. Selecione uma empresa dentro do seu escopo de edição.'
-              : 'Somente leitura. Abra Filtros e selecione 1 empresa e 1 versão (Filial/CC em "todas") para editar.'}</span>
+          <span>{avisoLeitura}</span>
           <X size={16} style={{ cursor: 'pointer', flexShrink: 0, color: '#b8902a' }} onClick={() => setAvisoLeituraOff(true)} />
         </div>
       )}
