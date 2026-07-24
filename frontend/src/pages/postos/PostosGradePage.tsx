@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
-import { Link } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { PostosPills, passoLabel } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
@@ -10,6 +10,7 @@ import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
 import { Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil } from 'lucide-react'
 import { RateioModal } from './RateioModal'
 import { cascataRateio } from '../../lib/rateioFolha'
+import { usePostoCtx, useLocalPref } from '../../lib/postoCtx'
 
 // Grade de Postos (P1 step 3) — orçamento de folha por posto, agrupado por CC.
 // Custo c/ encargos, rateio, sindicato e "Aplicar" vêm dos steps 4-5 (placeholder por ora).
@@ -60,8 +61,6 @@ const S: Record<string, CSSProperties> = {
   top:   { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' },
   title: { fontSize: 22, fontWeight: 700, color: 'var(--text)', margin: 0 },
   sub:   { fontSize: 13, color: 'var(--muted)', margin: '4px 0 0', maxWidth: 720, lineHeight: 1.5 },
-  pills: { display: 'flex', gap: 6 },
-  pill:  (a: boolean, off?: boolean): CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5, borderRadius: 99, textDecoration: 'none', cursor: off ? 'default' : 'pointer', fontWeight: 600, border: '1px solid ' + (a ? 'var(--violet)' : 'var(--border)'), background: a ? 'rgba(139,92,246,0.16)' : 'var(--panel)', color: a ? 'var(--violet)' : off ? 'var(--border-strong)' : 'var(--text-mid)', opacity: off ? 0.7 : 1 }),
   bar:   { display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap', margin: '20px 0 16px' },
   fld:   { display: 'flex', flexDirection: 'column', gap: 4 },
   lbl:   { fontSize: 10.5, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 },
@@ -126,14 +125,14 @@ export default function PostosGradePage() {
   const [ccs, setCcs] = useState<any[]>([])
   const [cargos, setCargos] = useState<any[]>([])
   const [postos, setPostos] = useState<Posto[]>([])
-  const [empresaSel, setEmpresaSel] = useState<string[]>([])
-  const [filialSel, setFilialSel] = useState<string[]>([])
-  const [ccSel, setCcSel] = useState<string[]>([])
-  const [areaSel, setAreaSel] = useState<string[]>([])
-  const [divisaoSel, setDivisaoSel] = useState<string[]>([])
-  const [buSel, setBuSel] = useState<string[]>([])
+  const [empresaSel, setEmpresaSel] = usePostoCtx('empresaSel', [])
+  const [filialSel, setFilialSel] = usePostoCtx('filialSel', [])
+  const [ccSel, setCcSel] = usePostoCtx('ccSel', [])
+  const [areaSel, setAreaSel] = usePostoCtx('areaSel', [])
+  const [divisaoSel, setDivisaoSel] = usePostoCtx('divisaoSel', [])
+  const [buSel, setBuSel] = usePostoCtx('buSel', [])
   const [modo, setModo] = useState<'upsert' | 'substituir'>('upsert')
-  const [agruparPor, setAgruparPor] = useState<'cc' | 'cargo'>('cc')
+  const [agruparPor, setAgruparPor] = useLocalPref<'cc' | 'cargo'>('planorc_postos_grade_agrupar', 'cc')
   const [regimeSel, setRegimeSel] = useState('')
   const [busca, setBusca] = useState('')
   const [mostrarInativos, setMostrarInativos] = useState(false)
@@ -144,7 +143,7 @@ export default function PostosGradePage() {
   const fileRef = useRef<HTMLInputElement>(null)
   // motor de custo
   const [versoes, setVersoes] = useState<any[]>([])
-  const [versaoSel, setVersaoSel] = useState('')
+  const [versaoSel, setVersaoSel] = usePostoCtx('versaoId', '')
   const [verbas, setVerbas] = useState<VerbaRegra[]>([])
   const [sindMesBase, setSindMesBase] = useState<Record<string, number>>({})
   const [sindByCod, setSindByCod] = useState<Record<string, string>>({})   // codigo → sindicato_id
@@ -179,7 +178,7 @@ export default function PostosGradePage() {
     setSindMesBase(Object.fromEntries((si.data || []).map((s: any) => [s.id, s.mes_database || 1])))
     setSindByCod(Object.fromEntries((si.data || []).map((s: any) => [String(s.codigo), s.id])))
     setSindicatos(si.data || [])
-    if (vs.data?.length) setVersaoSel(prev => prev || vs.data[0].id)
+    if (vs.data?.length) setVersaoSel(prev => vs.data.some((x: any) => x.id === prev) ? prev : vs.data[0].id)
   }
   useEffect(() => {
     if (!versaoSel) { setDissidio({}); return }
@@ -588,14 +587,7 @@ export default function PostosGradePage() {
           <h1 style={S.title}>Posto de Trabalho</h1>
           <p style={S.sub}>Quadro de pessoal orçado por posto — funcionários nominais + vagas planejadas. O custo com encargos/provisões e o rateio são calculados no <b>Aplicar</b> (motor).</p>
         </div>
-        <div style={S.pills}>
-          <span style={S.pill(true)}>1 · Postos</span>
-          <Link to="/postos/regras" style={S.pill(false)}>2 · Estrutura</Link>
-          <Link to="/postos/memoria" style={S.pill(false)}>3 · Memória de cálculo</Link>
-          <Link to="/postos/rateio" style={S.pill(false)}>4 · Rateio</Link>
-          <Link to="/postos/folha" style={S.pill(false)}>5 · Folha</Link>
-          <Link to="/postos/conciliacao" style={S.pill(false)}>6 · Conciliação</Link>
-        </div>
+        <PostosPills />
       </div>
 
       <div style={S.bar}>
@@ -679,7 +671,7 @@ export default function PostosGradePage() {
               ? `${importInfo.beneficios} valores de benefício por posto (posto_verba) atualizados, em ${importInfo.benefColunas} verba(s) da folha.`
               : '⚠ Nenhuma coluna do arquivo casou com verba do catálogo — benefícios NÃO atualizados. Cadastre as verbas (D49, A76, D50, A15, A51…) em Estrutura → Verbas e reimporte.'}</div>
             {importInfo.rateioCol && <div style={{ color: 'var(--text-mid)' }}>{importInfo.rateioPostos} posto(s) com rateio anexado (posto_rateio) pela coluna RATEIO.</div>}
-            {importInfo.rateioNaoAchados.length > 0 && <div style={{ color: 'var(--orange)' }}>Códigos de rateio não encontrados (ignorados): {importInfo.rateioNaoAchados.join(', ')} — confira os nomes em 4 · Rateio.</div>}
+            {importInfo.rateioNaoAchados.length > 0 && <div style={{ color: 'var(--orange)' }}>Códigos de rateio não encontrados (ignorados): {importInfo.rateioNaoAchados.join(', ')} — confira os nomes em {passoLabel('/postos/rateio')}.</div>}
             {importInfo.semEmp.length > 0 && <div style={{ color: 'var(--red)' }}>⚠ Empresas não encontradas (postos ignorados): {importInfo.semEmp.join(', ')}</div>}
             {importInfo.semFil.length > 0 && <div style={{ color: 'var(--orange)' }}>Filiais não encontradas (posto sem filial): {importInfo.semFil.join(', ')}</div>}
             {importInfo.semCc.length > 0 && <div style={{ color: 'var(--orange)' }}>CCs não encontrados (posto sem CC): {importInfo.semCc.slice(0, 20).join(', ')}{importInfo.semCc.length > 20 ? '…' : ''}</div>}

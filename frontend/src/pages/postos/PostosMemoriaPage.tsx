@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
-import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import { PostosPills } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
 import { calcularPosto } from '../../lib/motorFolha'
+import { usePostoCtx } from '../../lib/postoCtx'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
 import { ChevronDown, ChevronRight, Printer, Split } from 'lucide-react'
 import { RateioModal } from './RateioModal'
 
-// Memória de cálculo (P1, pill 3) — read-only. Cascata por posto + totais por conta de destino.
+// Memória de cálculo (P1, pill 5) — read-only. Cascata por posto + totais por conta de destino.
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const milAno = (v: number) => v >= 1e6 ? `R$ ${(v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} mi` : `R$ ${money(v)}`
 const catCor: Record<string, string> = { 'Salário': 'var(--green)', Encargos: 'var(--orange)', 'Provisões': 'var(--blue)', 'Benefícios': 'var(--violet)' }
@@ -22,7 +23,6 @@ type Posto = {
   centro_custo?: { codigo: string; descricao: string } | null
 }
 
-const pill = (a: boolean, off?: boolean): CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5, borderRadius: 99, textDecoration: 'none', cursor: off ? 'default' : 'pointer', fontWeight: 600, border: '1px solid ' + (a ? 'var(--violet)' : 'var(--border)'), background: a ? 'rgba(139,92,246,0.16)' : 'var(--panel)', color: a ? 'var(--violet)' : off ? 'var(--border-strong)' : 'var(--text-mid)', opacity: off ? 0.7 : 1 })
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
@@ -58,17 +58,17 @@ export default function PostosMemoriaPage() {
   const [ccs, setCcs] = useState<any[]>([])
   const [contas, setContas] = useState<any[]>([])
   const [versoes, setVersoes] = useState<any[]>([])
-  const [versaoSel, setVersaoSel] = useState('')
+  const [versaoSel, setVersaoSel] = usePostoCtx('versaoId', '')
   const [verbas, setVerbas] = useState<VerbaRegra[]>([])
   const [sindMesBase, setSindMesBase] = useState<Record<string, number>>({})
   const [dissidio, setDissidio] = useState<Record<string, number>>({})
   const [postoVerbas, setPostoVerbas] = useState<Record<string, Record<string, number>>>({})
-  const [empresaSel, setEmpresaSel] = useState<string[]>([])
-  const [filialSel, setFilialSel] = useState<string[]>([])
-  const [ccSel, setCcSel] = useState<string[]>([])
-  const [areaSel, setAreaSel] = useState<string[]>([])
-  const [divisaoSel, setDivisaoSel] = useState<string[]>([])
-  const [buSel, setBuSel] = useState<string[]>([])
+  const [empresaSel, setEmpresaSel] = usePostoCtx('empresaSel', [])
+  const [filialSel, setFilialSel] = usePostoCtx('filialSel', [])
+  const [ccSel, setCcSel] = usePostoCtx('ccSel', [])
+  const [areaSel, setAreaSel] = usePostoCtx('areaSel', [])
+  const [divisaoSel, setDivisaoSel] = usePostoCtx('divisaoSel', [])
+  const [buSel, setBuSel] = usePostoCtx('buSel', [])
   const [aberto, setAberto] = useState<Set<string>>(new Set())
   const [rateioCods, setRateioCods] = useState<any[]>([])                          // {id,nome,dimensao}
   const [destByRegra, setDestByRegra] = useState<Record<string, any[]>>({})        // regra_id → [{empresa_id,cc_id,pct}]
@@ -89,7 +89,7 @@ export default function PostosMemoriaPage() {
       setEmpresas(e.data || []); setFiliais(f.data || []); setCcs(c.data || []); setContas(ct.data || [])
       setVersoes(vs.data || []); setVerbas((vb.data || []) as VerbaRegra[])
       setSindMesBase(Object.fromEntries((si.data || []).map((s: any) => [s.id, s.mes_database || 1])))
-      if (vs.data?.length) setVersaoSel(prev => prev || vs.data[0].id)
+      if (vs.data?.length) setVersaoSel(prev => vs.data.some((x: any) => x.id === prev) ? prev : vs.data[0].id)
       const { data: pd } = await supabase.from('posto').select('*, cargo(nome), empresa(codigo), filial(codigo), centro_custo(codigo,descricao)').order('codigo')
       setPostos((pd || []) as Posto[])
       const { data: pv } = await supabase.from('posto_verba').select('posto_id,verba_id,valor').eq('ativo', true)
@@ -167,14 +167,7 @@ export default function PostosMemoriaPage() {
           <h1 style={S.title}>Memória de cálculo</h1>
           <p style={S.sub}>Custo da folha orçada por posto — cascata verba-a-verba e totais por conta de destino (prévia do que o Aplicar leva ao orçado).</p>
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <Link to="/postos" style={pill(false)}>1 · Postos</Link>
-          <Link to="/postos/regras" style={pill(false)}>2 · Estrutura</Link>
-          <span style={pill(true)}>3 · Memória de cálculo</span>
-          <Link to="/postos/rateio" style={pill(false)}>4 · Rateio</Link>
-          <Link to="/postos/folha" style={pill(false)}>5 · Folha</Link>
-          <Link to="/postos/conciliacao" style={pill(false)}>6 · Conciliação</Link>
-        </div>
+        <PostosPills />
       </div>
 
       <div style={S.bar}>

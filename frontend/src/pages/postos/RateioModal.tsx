@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import { X, AlertTriangle } from 'lucide-react'
 import { cascataRateio } from '../../lib/rateioFolha'
+import { passoLabel } from './PostosPills'
 
 // Modal de rateio por posto — cascata dos códigos anexados + resultado no grão final.
 // Compartilhado pela grade (/postos) e pela memória (/postos/memoria).
@@ -77,7 +78,7 @@ export function RateioModal({ posto, totMes, totAno, anexos, rateioCods, destByR
             </tbody>
           </table>
           {!ok && <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.35)', borderRadius: 8, padding: '10px 14px', color: 'var(--orange)', fontSize: 12.5 }}>
-            <AlertTriangle size={15} /> A soma do rateio é {(somaPct * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}% — algum código não fecha 100%. Ajuste os destinos em <b>4 · Rateio</b> antes de aplicar.</div>}
+            <AlertTriangle size={15} /> A soma do rateio é {(somaPct * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}% — algum código não fecha 100%. Ajuste os destinos em <b>{passoLabel('/postos/rateio')}</b> antes de aplicar.</div>}
         </div>
       </div>
     </div>

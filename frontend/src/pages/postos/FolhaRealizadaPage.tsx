@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
-import { Link } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { PostosPills } from './PostosPills'
+import { usePostoCtx } from '../../lib/postoCtx'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
 import { Upload, CheckCircle2, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react'
 
-// Folha realizada (F5.2, pill 5) — importa fat_folha do folha_realizada.csv e lista
+// Folha realizada (F5.2, pill 3) — importa fat_folha do folha_realizada.csv e lista
 // o realizado da FOLHA por posto/competência. Base da conciliação Orçado × Realizado.
 
 declare const XLSX: any
@@ -38,7 +39,6 @@ function parseXlsxRows(file: File): Promise<Row[]> {
     r.readAsBinaryString(file) })
 }
 
-const pill = (a: boolean): CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5, borderRadius: 99, textDecoration: 'none', cursor: a ? 'default' : 'pointer', fontWeight: 600, border: '1px solid ' + (a ? 'var(--violet)' : 'var(--border)'), background: a ? 'rgba(139,92,246,0.16)' : 'var(--panel)', color: a ? 'var(--violet)' : 'var(--text-mid)' })
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
@@ -75,14 +75,14 @@ export default function FolhaRealizadaPage() {
   const [filiais, setFiliais] = useState<any[]>([])
   const [ccs, setCcs] = useState<any[]>([])
   const [comps, setComps] = useState<string[]>([])   // 'YYYY-MM' disponíveis
-  const [compSel, setCompSel] = useState('')
+  const [compSel, setCompSel] = usePostoCtx('compSel', '')
   const [rows, setRows] = useState<FolhaRow[]>([])
-  const [empresaSel, setEmpresaSel] = useState<string[]>([])
-  const [filialSel, setFilialSel] = useState<string[]>([])
-  const [ccSel, setCcSel] = useState<string[]>([])
-  const [areaSel, setAreaSel] = useState<string[]>([])
-  const [divisaoSel, setDivisaoSel] = useState<string[]>([])
-  const [buSel, setBuSel] = useState<string[]>([])
+  const [empresaSel, setEmpresaSel] = usePostoCtx('empresaSel', [])
+  const [filialSel, setFilialSel] = usePostoCtx('filialSel', [])
+  const [ccSel, setCcSel] = usePostoCtx('ccSel', [])
+  const [areaSel, setAreaSel] = usePostoCtx('areaSel', [])
+  const [divisaoSel, setDivisaoSel] = usePostoCtx('divisaoSel', [])
+  const [buSel, setBuSel] = usePostoCtx('buSel', [])
   const [aberto, setAberto] = useState<Set<string>>(new Set())
   const [importando, setImportando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -91,7 +91,7 @@ export default function FolhaRealizadaPage() {
   const loadComps = async () => {
     const { data } = await supabase.from('fat_folha').select('ano,mes').eq('tipo', 'REALIZADO').order('ano', { ascending: false }).order('mes', { ascending: false })
     const uniq = [...new Set((data || []).map((r: any) => `${r.ano}-${String(r.mes).padStart(2, '0')}`))]
-    setComps(uniq); setCompSel(prev => prev || uniq[0] || '')
+    setComps(uniq); setCompSel(prev => uniq.includes(prev) ? prev : (uniq[0] || ''))
   }
   useEffect(() => {
     (async () => {
@@ -206,14 +206,7 @@ export default function FolhaRealizadaPage() {
           <h1 style={S.title}>Folha realizada</h1>
           <p style={S.sub}>Realizado da folha por posto (paralelo ao razão): importado da folha analítica <code>prgper02</code> via <code>converter_folha_realizada.py</code>. Base da conciliação Orçado × Realizado por posto.</p>
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <Link to="/postos" style={pill(false)}>1 · Postos</Link>
-          <Link to="/postos/regras" style={pill(false)}>2 · Estrutura</Link>
-          <Link to="/postos/memoria" style={pill(false)}>3 · Memória</Link>
-          <Link to="/postos/rateio" style={pill(false)}>4 · Rateio</Link>
-          <span style={pill(true)}>5 · Folha realizada</span>
-          <Link to="/postos/conciliacao" style={pill(false)}>6 · Conciliação</Link>
-        </div>
+        <PostosPills />
       </div>
 
       <div style={S.bar}>

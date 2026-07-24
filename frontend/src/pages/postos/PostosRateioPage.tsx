@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Link } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { PostosPills } from './PostosPills'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { Plus, Trash2, AlertCircle, Save, X } from 'lucide-react'
 
@@ -14,7 +14,10 @@ import { Plus, Trash2, AlertCircle, Save, X } from 'lucide-react'
 const num = (s: any) => { const n = parseFloat(String(s ?? '').replace(',', '.')); return isNaN(n) ? 0 : n }
 const fmtPct = (n: number) => n.toFixed(2).replace('.', ',')   // 20 → "20,00" · 33.33 → "33,33"
 
-const pill = (a: boolean, off?: boolean): CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5, borderRadius: 99, textDecoration: 'none', cursor: off ? 'default' : 'pointer', fontWeight: 600, border: '1px solid ' + (a ? 'var(--violet)' : 'var(--border)'), background: a ? 'rgba(139,92,246,0.16)' : 'var(--panel)', color: a ? 'var(--violet)' : off ? 'var(--border-strong)' : 'var(--text-mid)', opacity: off ? 0.7 : 1 })
+
+// estilos que dependem de argumento ficam fora do S (que é Record<string, CSSProperties>)
+const stRegra = (a: boolean): CSSProperties => ({ padding: '10px 14px', borderBottom: '1px solid var(--panel-2)', cursor: 'pointer', background: a ? 'rgba(139,92,246,0.10)' : 'transparent' })
+const stTag = (cor: string): CSSProperties => ({ display: 'inline-block', fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 6, color: cor, border: `1px solid ${cor}55`, background: `${cor}18` })
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
@@ -30,8 +33,6 @@ const S: Record<string, CSSProperties> = {
   grid:  { display: 'grid', gridTemplateColumns: 'minmax(300px, 1fr) 1.6fr', gap: 16, alignItems: 'start' },
   card:  { background: 'var(--panel)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' },
   cardT: { padding: '10px 14px', fontSize: 12.5, fontWeight: 600, color: 'var(--text)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  regra: (a: boolean): CSSProperties => ({ padding: '10px 14px', borderBottom: '1px solid var(--panel-2)', cursor: 'pointer', background: a ? 'rgba(139,92,246,0.10)' : 'transparent' }),
-  tag:   (cor: string): CSSProperties => ({ display: 'inline-block', fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 6, color: cor, border: `1px solid ${cor}55`, background: `${cor}18` }),
   finp:  { padding: '6px 9px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg)', color: 'var(--text)', width: '100%', boxSizing: 'border-box' },
   flbl:  { fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 3 },
   th:    { textAlign: 'left', padding: '7px 10px', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3, borderBottom: '1px solid var(--border)' },
@@ -122,14 +123,7 @@ export default function PostosRateioPage() {
           <h1 style={S.title}>Rateio</h1>
           <p style={S.sub}>Códigos de rateio reutilizáveis: cada código redistribui uma dimensão (CC ou empresa) em destinos (% = 100). A origem é o próprio posto — os códigos são anexados aos postos na grade, em cascata.</p>
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <Link to="/postos" style={pill(false)}>1 · Postos</Link>
-          <Link to="/postos/regras" style={pill(false)}>2 · Estrutura</Link>
-          <Link to="/postos/memoria" style={pill(false)}>3 · Memória</Link>
-          <span style={pill(true)}>4 · Rateio</span>
-          <Link to="/postos/folha" style={pill(false)}>5 · Folha</Link>
-          <Link to="/postos/conciliacao" style={pill(false)}>6 · Conciliação</Link>
-        </div>
+        <PostosPills />
       </div>
 
       <div style={S.bar}>
@@ -144,9 +138,9 @@ export default function PostosRateioPage() {
         <div style={S.card}>
           <div style={S.cardT}>Códigos de rateio <span style={{ fontWeight: 400, color: 'var(--muted)' }}>{regras.length}</span></div>
           {regras.map(r => (
-            <div key={r.id} style={S.regra(selId === r.id)} onClick={() => abrir(r)}>
+            <div key={r.id} style={stRegra(selId === r.id)} onClick={() => abrir(r)}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={S.tag(r.dimensao === 'CC' ? 'var(--blue)' : 'var(--violet)')}>→ {r.dimensao === 'CC' ? 'CCs' : 'Empresas'}</span>
+                <span style={stTag(r.dimensao === 'CC' ? 'var(--blue)' : 'var(--violet)')}>→ {r.dimensao === 'CC' ? 'CCs' : 'Empresas'}</span>
                 {!r.ativo && <span style={{ fontSize: 10, color: 'var(--red)' }}>inativo</span>}
                 {editavel && <span style={{ marginLeft: 'auto' }}><button style={S.del} title="Excluir" onClick={e => { e.stopPropagation(); excluirRegra(r.id) }}><Trash2 size={14} /></button></span>}
               </div>

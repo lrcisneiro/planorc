@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
 import { cascataRateio } from '../../lib/rateioFolha'
+import { useLocalPref } from '../../lib/postoCtx'
 import { AlertCircle, ChevronDown, ChevronRight, Search, X } from 'lucide-react'
 
 // Corpo reutilizável da conciliação de folha (Orçado motor × Realizado folha, por posto).
@@ -71,10 +72,10 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
   const [ordem, setOrdem] = useState<{ col: string; dir: 1 | -1 }>({ col: 'delta', dir: 1 })
   const [aberto, setAberto] = useState<Set<string>>(new Set())
   const [busca, setBusca] = useState('')
-  const [agrupar, setAgrupar] = useState<'nenhum' | 'cc' | 'cargo'>('nenhum')
+  const [agrupar, setAgrupar] = useLocalPref<'nenhum' | 'cc' | 'cargo'>('planorc_concil_agrupar', 'nenhum')
   const [fechados, setFechados] = useState<Set<string>>(new Set())
   // 'posto' = por posto (headcount, filtra pela ORIGEM); 'rateado' = gerencial (orçado rateado, filtra pelo DESTINO)
-  const [modo, setModo] = useState<'posto' | 'rateado'>('posto')
+  const [modo, setModo] = useLocalPref<'posto' | 'rateado'>('planorc_concil_modo', 'posto')
 
   useEffect(() => {
     (async () => {

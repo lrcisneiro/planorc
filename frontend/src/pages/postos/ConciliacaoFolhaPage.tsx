@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import { PostosPills, passoLabel } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { FiltrosButton, effectiveCcFilter } from '../dashboard/DashFiltros'
 import { ConciliacaoFolha } from './ConciliacaoFolha'
+import { usePostoCtx } from '../../lib/postoCtx'
 import type { ConcilParams } from './ConciliacaoFolha'
 
 // Página AVULSA de conciliação de folha (a partir dos Postos): escolhe versão +
@@ -13,7 +14,6 @@ import type { ConcilParams } from './ConciliacaoFolha'
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
-const pill = (a: boolean): CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5, borderRadius: 99, textDecoration: 'none', cursor: a ? 'default' : 'pointer', fontWeight: 600, border: '1px solid ' + (a ? 'var(--violet)' : 'var(--border)'), background: a ? 'rgba(139,92,246,0.16)' : 'var(--panel)', color: a ? 'var(--violet)' : 'var(--text-mid)' })
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
   top:   { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' },
@@ -29,18 +29,18 @@ const S: Record<string, CSSProperties> = {
 export default function ConciliacaoFolhaPage() {
   const acesso = useUserAccess()
   const [versoes, setVersoes] = useState<any[]>([])
-  const [versaoSel, setVersaoSel] = useState('')
+  const [versaoSel, setVersaoSel] = usePostoCtx('versaoId', '')
   const [empresas, setEmpresas] = useState<any[]>([])
   const [filiais, setFiliais] = useState<any[]>([])
   const [ccs, setCcs] = useState<any[]>([])
   const [comps, setComps] = useState<string[]>([])
-  const [compSel, setCompSel] = useState('')
-  const [empresaSel, setEmpresaSel] = useState<string[]>([])
-  const [filialSel, setFilialSel] = useState<string[]>([])
-  const [ccSel, setCcSel] = useState<string[]>([])
-  const [areaSel, setAreaSel] = useState<string[]>([])
-  const [divisaoSel, setDivisaoSel] = useState<string[]>([])
-  const [buSel, setBuSel] = useState<string[]>([])
+  const [compSel, setCompSel] = usePostoCtx('compSel', '')
+  const [empresaSel, setEmpresaSel] = usePostoCtx('empresaSel', [])
+  const [filialSel, setFilialSel] = usePostoCtx('filialSel', [])
+  const [ccSel, setCcSel] = usePostoCtx('ccSel', [])
+  const [areaSel, setAreaSel] = usePostoCtx('areaSel', [])
+  const [divisaoSel, setDivisaoSel] = usePostoCtx('divisaoSel', [])
+  const [buSel, setBuSel] = usePostoCtx('buSel', [])
 
   useEffect(() => {
     (async () => {
@@ -51,10 +51,10 @@ export default function ConciliacaoFolhaPage() {
         supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
         supabase.from('fat_folha').select('ano,mes').eq('tipo', 'REALIZADO').order('ano', { ascending: false }).order('mes', { ascending: false }),
       ])
-      setVersoes(v.data || []); if (v.data?.length) setVersaoSel(prev => prev || v.data[0].id)
+      setVersoes(v.data || []); if (v.data?.length) setVersaoSel(prev => v.data.some((x: any) => x.id === prev) ? prev : v.data[0].id)
       setEmpresas(e.data || []); setFiliais(f.data || []); setCcs(c.data || [])
       const uniq = [...new Set((ff.data || []).map((r: any) => `${r.ano}-${String(r.mes).padStart(2, '0')}`))]
-      setComps(uniq); setCompSel(prev => prev || uniq[0] || '')
+      setComps(uniq); setCompSel(prev => uniq.includes(prev) ? prev : (uniq[0] || ''))
     })()
   }, [])
 
@@ -77,14 +77,7 @@ export default function ConciliacaoFolhaPage() {
           <h1 style={S.title}>Conciliação de folha</h1>
           <p style={S.sub}>Orçado (postos aplicados) × Realizado (folha) por posto, na versão e competência escolhidas — todas as contas. Para conciliar uma linha específica, use o botão <b>Conciliação Folha</b> no razão da DRE.</p>
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <Link to="/postos" style={pill(false)}>1 · Postos</Link>
-          <Link to="/postos/regras" style={pill(false)}>2 · Estrutura</Link>
-          <Link to="/postos/memoria" style={pill(false)}>3 · Memória</Link>
-          <Link to="/postos/rateio" style={pill(false)}>4 · Rateio</Link>
-          <Link to="/postos/folha" style={pill(false)}>5 · Folha</Link>
-          <span style={pill(true)}>6 · Conciliação</span>
-        </div>
+        <PostosPills />
       </div>
 
       <div style={S.bar}>
@@ -107,7 +100,7 @@ export default function ConciliacaoFolhaPage() {
         </div>
       </div>
 
-      {!comps.length ? <div style={S.empty}>Nenhuma folha importada ainda. Vá em <b>5 · Folha</b> e importe o realizado antes de conciliar.</div>
+      {!comps.length ? <div style={S.empty}>Nenhuma folha importada ainda. Vá em <b>{passoLabel('/postos/folha')}</b> e importe o realizado antes de conciliar.</div>
         : params ? <ConciliacaoFolha params={params} />
         : <div style={S.empty}>Selecione a versão e a competência.</div>}
     </div>

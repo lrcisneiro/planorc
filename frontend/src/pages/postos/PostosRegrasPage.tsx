@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { PostosPills } from './PostosPills'
+import { usePostoCtx } from '../../lib/postoCtx'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { Plus, Trash2, Pencil, Save, X, AlertCircle, Download, Upload, FileDown } from 'lucide-react'
 
-const pill = (a: boolean, off?: boolean): CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5, borderRadius: 99, textDecoration: 'none', cursor: off ? 'default' : 'pointer', fontWeight: 600, border: '1px solid ' + (a ? 'var(--violet)' : 'var(--border)'), background: a ? 'rgba(139,92,246,0.16)' : 'var(--panel)', color: a ? 'var(--violet)' : off ? 'var(--border-strong)' : 'var(--text-mid)', opacity: off ? 0.7 : 1 })
 
 // SheetJS via CDN (index.html)
 declare const XLSX: any
@@ -344,12 +344,12 @@ function SindicatosTab() {
 function DissidioTab() {
   const [versoes, setVersoes] = useState<any[]>([])
   const [sinds, setSinds] = useState<any[]>([])
-  const [versaoId, setVersaoId] = useState('')
+  const [versaoId, setVersaoId] = usePostoCtx('versaoId', '')
   const [pcts, setPcts] = useState<Record<string, string>>({})
   const [erro, setErro] = useState<string | null>(null)
 
   useEffect(() => {
-    supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => setVersoes(r.data || []))
+    supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => { setVersoes(r.data || []); if (r.data?.length) setVersaoId(prev => r.data!.some((x: any) => x.id === prev) ? prev : r.data![0].id) })
     supabase.from('sindicato').select('id,codigo,nome,mes_database').eq('ativo', true).order('codigo').then(r => setSinds(r.data || []))
   }, [])
   useEffect(() => {
@@ -430,14 +430,7 @@ export default function PostosRegrasPage() {
           <h1 style={S.title}>Estrutura de Postos <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)' }}>· regras de cálculo da folha</span></h1>
           <p style={S.subtitle}>Catálogos que o motor usa ao orçar por posto: rubricas (verbas), cargos, sindicatos e o dissídio por versão.</p>
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <Link to="/postos" style={pill(false)}>1 · Postos</Link>
-          <span style={pill(true)}>2 · Estrutura</span>
-          <Link to="/postos/memoria" style={pill(false)}>3 · Memória de cálculo</Link>
-          <Link to="/postos/rateio" style={pill(false)}>4 · Rateio</Link>
-          <Link to="/postos/folha" style={pill(false)}>5 · Folha</Link>
-          <Link to="/postos/conciliacao" style={pill(false)}>6 · Conciliação</Link>
-        </div>
+        <PostosPills />
       </div>
 
       <div style={S.tabs}>
