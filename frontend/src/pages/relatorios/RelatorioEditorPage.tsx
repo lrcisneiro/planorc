@@ -65,7 +65,6 @@ function bucketLabel(gran: string, start: number, ano: number, showYear: boolean
 const perIdx = (p: Periodo) => p.ano * 12 + (p.mes - 1)
 const addMes = (p: Periodo, d: number): Periodo => { const z = perIdx(p) + d; return { ano: Math.floor(z / 12), mes: (z % 12) + 1 } }
 const samePer = (a: Periodo | null | undefined, b: Periodo | null | undefined) => !!a && !!b && a.ano === b.ano && a.mes === b.mes
-const ordPer = (a: Periodo, b: Periodo): [Periodo, Periodo] => perIdx(a) <= perIdx(b) ? [a, b] : [b, a]
 const mesesNoRange = (ini: Periodo, fim: Periodo): Periodo[] => {
   const n = perIdx(fim) - perIdx(ini) + 1
   return Array.from({ length: Math.max(0, n) }, (_, i) => addMes(ini, i))
@@ -1444,10 +1443,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                       <span style={{ width: 12, flexShrink: 0, color: 'var(--violet)' }}>{ativa ? '✓' : ''}</span>
                       <span style={{ flex: 1, minWidth: 0, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.nome}</span>
                       <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{FUNCAO_LABEL[v.funcao]}</span>
-                      <Settings2 size={13} style={{ cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 }} title="Editar visão"
-                        onClick={e => { e.stopPropagation(); setViewMenu(false); setViewModal(v) }} />
-                      {!v._synthetic && <Trash2 size={13} style={{ cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 }} title="Excluir visão"
-                        onClick={e => { e.stopPropagation(); deleteView(v.id) }} />}
+                      <span title="Editar visão" style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 }}
+                        onClick={e => { e.stopPropagation(); setViewMenu(false); setViewModal(v) }}><Settings2 size={13} /></span>
+                      {!v._synthetic && <span title="Excluir visão" style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 }}
+                        onClick={e => { e.stopPropagation(); deleteView(v.id) }}><Trash2 size={13} /></span>}
                     </div>
                   )
                 })}
