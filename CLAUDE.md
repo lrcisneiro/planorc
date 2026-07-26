@@ -129,6 +129,7 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
 - Tipos TypeScript locais por arquivo (não há pasta `types/`).
 - Sem testes automatizados.
 - Dados: `supabase.from(...)` / `supabase.rpc(...)` direto nos componentes (sem React Query).
+- **Paginação obrigatória:** o PostgREST corta em **1000 linhas por chamada, sem erro**. Todo `.select()` numa tabela que cresce com o negócio (fatos `fat_*`, plano de contas `conta_contabil`/`conta_orcamentaria`, junções `posto_verba`/`posto_rateio`, dropdowns de competência distinct) DEVE usar o helper `pageAll()` de `frontend/src/lib/pageAll.ts`. Dispensam: `.single()`/`.maybeSingle()`, `.in(ids.slice(...))` já em lotes, e catálogos naturalmente pequenos (empresa, filial, versão, sindicato). Sintoma de esquecer: "sumiu gente/conta" que só aparece quando a base passa de 1000.
 
 ## Como rodar
 

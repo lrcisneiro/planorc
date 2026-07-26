@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
 import { cascataRateio } from '../../lib/rateioFolha'
 import { useLocalPref } from '../../lib/uiPrefs'
+import { pageAll } from '../../lib/pageAll'
 import { AlertCircle, ChevronDown, ChevronRight, Search, X } from 'lucide-react'
 
 // Corpo reutilizável da conciliação de folha (Orçado motor × Realizado folha, por posto).
@@ -49,19 +50,6 @@ const S: Record<string, CSSProperties> = {
   gh:    { padding: '7px 12px', background: 'var(--bg)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', cursor: 'pointer', fontSize: 12.5, color: 'var(--text)', fontWeight: 600 },
 }
 
-// pagina todos os registros (PostgREST devolve no máx. 1000 por chamada)
-async function pageAll(makeQuery: () => any): Promise<any[]> {
-  const out: any[] = []; let from = 0; const size = 1000
-  for (;;) {
-    const { data, error } = await makeQuery().range(from, from + size - 1)
-    if (error) throw error
-    out.push(...(data || []))
-    if (!data || data.length < size) break
-    from += size
-  }
-  return out
-}
-
 export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
   const [linhas, setLinhas] = useState<Linha[]>([])
   const [orcDet, setOrcDet] = useState<Record<string, VerbaReal[]>>({})
@@ -97,7 +85,7 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
           return q
         })
         const realRows = await pageAll(() => {
-          let q = supabase.from('fat_folha').select('posto_id,empresa_id,filial_id,cc_id,ano,mes,valor,verba_cod,verba_desc,conta_id,item_orc_id').eq('tipo', 'REALIZADO').in('ano', anos).in('mes', mesesNums)
+          let q = supabase.from('fat_folha').select('posto_id,empresa_id,filial_id,cc_id,ano,mes,valor,verba_cod,verba_desc,tipo_verba,conta_id,item_orc_id').eq('tipo', 'REALIZADO').in('ano', anos).in('mes', mesesNums)
           if (p.contaIds) q = q.in('conta_id', p.contaIds)
           return q
         })
@@ -155,7 +143,7 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
         const realById: Record<string, number> = {}, realTmp: Record<string, Record<string, VerbaReal>> = {}
         const fallbackItem: Record<string, string> = { ...(p.contaToItem || {}) }
         if (!p.contaToItem) {
-          const semItem = [...new Set(realRows.filter((r: any) => !r.item_orc_id && r.conta_id).map((r: any) => r.conta_id))] as string[]
+          const semItem = [...new Set(realRows.filter((r: any) => !r.item_orc_id && r.conta_id && !(r.tipo_verba || '').startsWith('Desconto')).map((r: any) => r.conta_id))] as string[]
           if (semItem.length) {
             const orcMasters = new Set<string>(orcRows.map((r: any) => r.item_orc_id).filter(Boolean))
             const clByConta: Record<string, string[]> = {}
@@ -169,6 +157,9 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
         }
         for (const r of realRows) {
           if (!inPer(r)) continue
+          // descontos de funcionário (INSS retido, IRRF…) são RETENÇÃO, não custo do
+          // empregador — e o orçado (motor) não os modela. Fora do realizado da conciliação.
+          if ((r.tipo_verba || '').startsWith('Desconto')) continue
           const pid = r.posto_id || '(sem posto)'
           const po = postoById[r.posto_id]
           // realizado vem JÁ distribuído do ERP: modo posto filtra pela ORIGEM; rateado pelo DESTINO (linha da folha)
@@ -332,7 +323,7 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
       </div>
 
       <div style={S.card}>
-        <div style={S.cardT}>Por posto <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— {filtrados.length} de {linhas.length} · {modo === 'rateado' ? 'orçado rateado, filtros pelo destino (empresa/filial/CC)' : 'headcount, filtros pela origem do posto'} · clique p/ ver verbas · Δ vermelho = realizado &gt; orçado</span></div>
+        <div style={S.cardT}>Por posto <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— {filtrados.length} de {linhas.length} · {modo === 'rateado' ? 'orçado rateado, filtros pelo destino (empresa/filial/CC)' : 'headcount, filtros pela origem do posto'} · clique p/ ver verbas · Δ vermelho = realizado &gt; orçado · realizado = custo (descontos de funcionário fora)</span></div>
         <div style={{ maxHeight: 620, overflow: 'auto' }}>
           <table style={S.table}>
             <thead><tr>

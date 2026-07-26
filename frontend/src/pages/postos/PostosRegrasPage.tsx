@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { PostosPills } from './PostosPills'
 import { usePostoCtx } from '../../lib/postoCtx'
+import { pageAll } from '../../lib/pageAll'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { Plus, Trash2, Pencil, Save, X, AlertCircle, Download, Upload, FileDown } from 'lucide-react'
 
@@ -295,7 +296,7 @@ function CrudTable({ table, orderBy, cols, defaults, lookups, hint }: {
 // ─── Verbas / regras ─────────────────────────────────────────
 function VerbasTab() {
   const [contas, setContas] = useState<any[]>([])
-  useEffect(() => { supabase.from('conta_orcamentaria').select('id,codigo,descricao').order('codigo').then(r => setContas(r.data || [])) }, [])
+  useEffect(() => { pageAll(() => supabase.from('conta_orcamentaria').select('id,codigo,descricao').order('codigo')).then(setContas) }, [])
   return <CrudTable table="verba_folha" orderBy="ordem" lookups={{ conta: contas }}
     hint="Regra de cálculo de cada rubrica. A ordem importa (encargos calculam sobre verbas anteriores). A conta destino recebe o valor no Aplicar."
     defaults={{ tipo_calculo: 'BASE', incide_encargos: true, ativo: true }}

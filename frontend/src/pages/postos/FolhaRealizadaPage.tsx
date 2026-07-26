@@ -3,9 +3,10 @@ import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { PostosPills } from './PostosPills'
 import { usePostoCtx } from '../../lib/postoCtx'
+import { pageAll } from '../../lib/pageAll'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
-import { Upload, CheckCircle2, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react'
+import { Upload, CheckCircle2, AlertCircle, ChevronDown, ChevronRight, Search, X } from 'lucide-react'
 
 // Folha realizada (F5.2, pill 3) — importa fat_folha do folha_realizada.csv e lista
 // o realizado da FOLHA por posto/competência. Base da conciliação Orçado × Realizado.
@@ -38,6 +39,7 @@ function parseXlsxRows(file: File): Promise<Row[]> {
     r.onload = e => { try { const wb = XLSX.read(e.target?.result, { type: 'binary' }); res(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }) as Row[]) } catch (err) { rej(err) } }
     r.readAsBinaryString(file) })
 }
+
 
 
 const S: Record<string, CSSProperties> = {
@@ -84,13 +86,16 @@ export default function FolhaRealizadaPage() {
   const [divisaoSel, setDivisaoSel] = usePostoCtx('divisaoSel', [])
   const [buSel, setBuSel] = usePostoCtx('buSel', [])
   const [aberto, setAberto] = useState<Set<string>>(new Set())
+  const [busca, setBusca] = useState('')
   const [importando, setImportando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [info, setInfo] = useState<{ gravados: number; postos: number; semPosto: number; semConta: number; semItem: number; semItemDrop: number; semEmpresa: string[]; comp: string } | null>(null)
 
   const loadComps = async () => {
-    const { data } = await supabase.from('fat_folha').select('ano,mes').eq('tipo', 'REALIZADO').order('ano', { ascending: false }).order('mes', { ascending: false })
-    const uniq = [...new Set((data || []).map((r: any) => `${r.ano}-${String(r.mes).padStart(2, '0')}`))]
+    // pagina: sem isto, uma competência grande enche as 1000 primeiras linhas e as
+    // competências mais antigas nem apareceriam no seletor.
+    const data = await pageAll(() => supabase.from('fat_folha').select('ano,mes').eq('tipo', 'REALIZADO').order('ano', { ascending: false }).order('mes', { ascending: false }))
+    const uniq = [...new Set(data.map((r: any) => `${r.ano}-${String(r.mes).padStart(2, '0')}`))]
     setComps(uniq); setCompSel(prev => uniq.includes(prev) ? prev : (uniq[0] || ''))
   }
   useEffect(() => {
@@ -107,16 +112,19 @@ export default function FolhaRealizadaPage() {
   useEffect(() => {
     if (!compSel) { setRows([]); return }
     const [a, m] = compSel.split('-').map(Number)
-    supabase.from('fat_folha').select('posto_id,matricula,nome,empresa_id,cc_id,verba_cod,verba_desc,tipo_verba,valor').eq('tipo', 'REALIZADO').eq('ano', a).eq('mes', m)
-      .then(({ data }) => setRows((data || []).map((r: any) => ({ ...r, valor: Number(r.valor) || 0 }))))
+    pageAll(() => supabase.from('fat_folha').select('posto_id,matricula,nome,empresa_id,cc_id,verba_cod,verba_desc,tipo_verba,valor').eq('tipo', 'REALIZADO').eq('ano', a).eq('mes', m))
+      .then(data => setRows(data.map((r: any) => ({ ...r, valor: Number(r.valor) || 0 }))))
+      .catch(e => setErro('Erro ao carregar a folha: ' + (e?.message || e)))
   }, [compSel, info])
 
   const filtrados = useMemo(() => {
     const empF = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSee)
     const ccF = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee)
     const sEmp = empF ? new Set(empF) : null, sCc = ccF ? new Set(ccF) : null
-    return rows.filter(r => (!sEmp || sEmp.has(r.empresa_id)) && (!sCc || (r.cc_id != null && sCc.has(r.cc_id))))
-  }, [rows, empresaSel, ccSel, areaSel, divisaoSel, buSel, empresas, ccs, acesso.loading]) // eslint-disable-line
+    const q = busca.trim().toLowerCase()
+    return rows.filter(r => (!sEmp || sEmp.has(r.empresa_id)) && (!sCc || (r.cc_id != null && sCc.has(r.cc_id)))
+      && (!q || (r.nome || '').toLowerCase().includes(q) || (r.matricula || '').toLowerCase().includes(q)))
+  }, [rows, busca, empresaSel, ccSel, areaSel, divisaoSel, buSel, empresas, ccs, acesso.loading]) // eslint-disable-line
 
   const empById = useMemo(() => new Map(empresas.map(e => [e.id, e])), [empresas])
   const ccById = useMemo(() => new Map(ccs.map(c => [c.id, c])), [ccs])
@@ -144,12 +152,14 @@ export default function FolhaRealizadaPage() {
       const empByCod = new Map(empresas.map(e => [String(e.codigo).trim(), e.id]))
       const filByCod = new Map(filiais.map(f => [String(f.codigo).trim(), f]))
       const ccByCod = new Map(ccs.map(c => [String(c.codigo).trim(), c.id]))
-      const { data: pd } = await supabase.from('posto').select('id,codigo')
-      const postoByCod = new Map((pd || []).map((p: any) => [String(p.codigo).trim(), p.id]))
-      const { data: ct } = await supabase.from('conta_contabil').select('id,codigo')
-      const contaByCod = new Map((ct || []).map((c: any) => [String(c.codigo).trim(), c.id]))
-      const { data: co } = await supabase.from('conta_orcamentaria').select('id,codigo')
-      const itemByCod = new Map((co || []).map((c: any) => [String(c.codigo).trim(), c.id]))
+      // paginado: plano de contas e lista de postos passam de 1000 fácil — sem isto o
+      // import deixaria de casar posto/conta em parte das linhas, sem avisar.
+      const pd = await pageAll(() => supabase.from('posto').select('id,codigo'))
+      const postoByCod = new Map(pd.map((p: any) => [String(p.codigo).trim(), p.id]))
+      const ct = await pageAll(() => supabase.from('conta_contabil').select('id,codigo'))
+      const contaByCod = new Map(ct.map((c: any) => [String(c.codigo).trim(), c.id]))
+      const co = await pageAll(() => supabase.from('conta_orcamentaria').select('id,codigo'))
+      const itemByCod = new Map(co.map((c: any) => [String(c.codigo).trim(), c.id]))
 
       // se a folha usa item orçamentário (IT_CONTAB_DB), as linhas SEM item são ativo/passivo
       // (IR/INSS retido, adiantamento…) — não entram no realizado (poluíam a conciliação).
@@ -220,6 +230,14 @@ export default function FolhaRealizadaPage() {
           <FiltrosButton empresas={acesso.filterList('empresa', empresas)} filiais={acesso.filterList('filial', filiais)} ccs={acesso.filterList('centro_custo', ccs as any) as any}
             empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel}
             areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
+        </div>
+        <div style={S.fld}><span style={S.lbl}>Buscar</span>
+          <div style={{ position: 'relative' }}>
+            <Search size={13} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--muted)', pointerEvents: 'none' }} />
+            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="ocupante ou matrícula"
+              style={{ ...S.sel, padding: '7px 26px 7px 28px', width: 200 }} />
+            {busca && <X size={14} style={{ position: 'absolute', right: 8, top: 9, color: 'var(--muted)', cursor: 'pointer' }} onClick={() => setBusca('')} />}
+          </div>
         </div>
         <div style={{ flex: 1 }} />
         {editavel && <button style={S.btn} disabled={importando} onClick={() => fileRef.current?.click()}><Upload size={14} /> {importando ? 'Importando…' : 'Importar folha (CSV)'}</button>}

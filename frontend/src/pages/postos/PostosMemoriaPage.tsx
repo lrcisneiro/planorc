@@ -6,6 +6,7 @@ import { useUserAccess } from '../../hooks/useUserAccess'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
 import { calcularPosto } from '../../lib/motorFolha'
 import { usePostoCtx } from '../../lib/postoCtx'
+import { pageAll } from '../../lib/pageAll'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
 import { ChevronDown, ChevronRight, Printer, Split } from 'lucide-react'
 import { RateioModal } from './RateioModal'
@@ -81,33 +82,33 @@ export default function PostosMemoriaPage() {
         supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
         supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
         supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
-        supabase.from('conta_orcamentaria').select('id,codigo,descricao'),
+        pageAll(() => supabase.from('conta_orcamentaria').select('id,codigo,descricao')),
         supabase.from('versao_orcamento').select('id,codigo').order('codigo'),
         supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,regime,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
         supabase.from('sindicato').select('id,mes_database'),
       ])
-      setEmpresas(e.data || []); setFiliais(f.data || []); setCcs(c.data || []); setContas(ct.data || [])
+      setEmpresas(e.data || []); setFiliais(f.data || []); setCcs(c.data || []); setContas((ct as any[]) || [])
       setVersoes(vs.data || []); setVerbas((vb.data || []) as VerbaRegra[])
       setSindMesBase(Object.fromEntries((si.data || []).map((s: any) => [s.id, s.mes_database || 1])))
       if (vs.data?.length) setVersaoSel(prev => vs.data.some((x: any) => x.id === prev) ? prev : vs.data[0].id)
-      const { data: pd } = await supabase.from('posto').select('*, cargo(nome), empresa(codigo), filial(codigo), centro_custo(codigo,descricao)').order('codigo')
+      const pd = await pageAll(() => supabase.from('posto').select('*, cargo(nome), empresa(codigo), filial(codigo), centro_custo(codigo,descricao)').order('codigo'))
       setPostos((pd || []) as Posto[])
-      const { data: pv } = await supabase.from('posto_verba').select('posto_id,verba_id,valor').eq('ativo', true)
+      const pv = await pageAll(() => supabase.from('posto_verba').select('posto_id,verba_id,valor').eq('ativo', true))
       const m: Record<string, Record<string, number>> = {}
       for (const r of pv || []) (m[r.posto_id] ||= {})[r.verba_id] = Number(r.valor) || 0
       setPostoVerbas(m)
       // rateio: códigos, destinos e anexos por posto
       const [rr, rd, pr] = await Promise.all([
         supabase.from('rateio_regra').select('id,nome,dimensao').eq('ativo', true),
-        supabase.from('rateio_destino').select('regra_id,empresa_id,cc_id,pct'),
-        supabase.from('posto_rateio').select('posto_id,regra_id,ordem'),
+        pageAll(() => supabase.from('rateio_destino').select('regra_id,empresa_id,cc_id,pct')),
+        pageAll(() => supabase.from('posto_rateio').select('posto_id,regra_id,ordem')),
       ])
       setRateioCods(rr.data || [])
       const dbr: Record<string, any[]> = {}
-      for (const d of rd.data || []) (dbr[d.regra_id] ||= []).push({ empresa_id: d.empresa_id, cc_id: d.cc_id, pct: Number(d.pct) || 0 })
+      for (const d of (rd as any[]) || []) (dbr[d.regra_id] ||= []).push({ empresa_id: d.empresa_id, cc_id: d.cc_id, pct: Number(d.pct) || 0 })
       setDestByRegra(dbr)
       const rm: Record<string, { regra_id: string; ordem: number }[]> = {}
-      for (const r of pr.data || []) (rm[r.posto_id] ||= []).push({ regra_id: r.regra_id, ordem: Number(r.ordem) || 1 })
+      for (const r of (pr as any[]) || []) (rm[r.posto_id] ||= []).push({ regra_id: r.regra_id, ordem: Number(r.ordem) || 1 })
       for (const k in rm) rm[k].sort((a, b) => a.ordem - b.ordem)
       setPostoRateios(rm)
     })()

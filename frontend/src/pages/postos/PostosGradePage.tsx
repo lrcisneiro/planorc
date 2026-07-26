@@ -12,6 +12,7 @@ import { RateioModal } from './RateioModal'
 import { cascataRateio } from '../../lib/rateioFolha'
 import { usePostoCtx } from '../../lib/postoCtx'
 import { useLocalPref } from '../../lib/uiPrefs'
+import { pageAll } from '../../lib/pageAll'
 
 // Grade de Postos (P1 step 3) — orçamento de folha por posto, agrupado por CC.
 // Custo c/ encargos, rateio, sindicato e "Aplicar" vêm dos steps 4-5 (placeholder por ora).
@@ -187,15 +188,18 @@ export default function PostosGradePage() {
       .then(r => setDissidio(Object.fromEntries((r.data || []).map((x: any) => [x.sindicato_id, Number(x.pct) || 0]))))
   }, [versaoSel])
   const loadPostos = async () => {
-    const { data, error } = await supabase.from('posto')
-      .select('*, cargo(nome), empresa(codigo), filial(codigo), centro_custo(codigo,descricao), sindicato(codigo)').order('codigo')
-    if (error) { setErro(error.message); return }
+    // paginado: posto/posto_verba/posto_rateio escalam com o quadro (postos × verbas/
+    // rateios) e passam de 1000 fácil — sem isto a grade cortaria overrides/rateios de
+    // parte dos postos e calcularia o custo errado, sem avisar.
+    let data: any[]
+    try { data = await pageAll(() => supabase.from('posto').select('*, cargo(nome), empresa(codigo), filial(codigo), centro_custo(codigo,descricao), sindicato(codigo)').order('codigo')) }
+    catch (e: any) { setErro(e?.message || String(e)); return }
     setPostos((data || []) as Posto[])
-    const { data: pv } = await supabase.from('posto_verba').select('posto_id,verba_id,valor').eq('ativo', true)
+    const pv = await pageAll(() => supabase.from('posto_verba').select('posto_id,verba_id,valor').eq('ativo', true))
     const m: Record<string, Record<string, number>> = {}
     for (const r of pv || []) (m[r.posto_id] ||= {})[r.verba_id] = Number(r.valor) || 0
     setPostoVerbas(m)
-    const { data: pr } = await supabase.from('posto_rateio').select('posto_id,regra_id,ordem')
+    const pr = await pageAll(() => supabase.from('posto_rateio').select('posto_id,regra_id,ordem'))
     const rm: Record<string, { regra_id: string; ordem: number }[]> = {}
     for (const r of pr || []) (rm[r.posto_id] ||= []).push({ regra_id: r.regra_id, ordem: Number(r.ordem) || 1 })
     for (const k in rm) rm[k].sort((a, b) => a.ordem - b.ordem)
