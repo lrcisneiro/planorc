@@ -3,7 +3,9 @@ import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { PostosPills } from './PostosPills'
 import { usePostoCtx } from '../../lib/postoCtx'
+import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
+import { cascataRateio } from '../../lib/rateioFolha'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
@@ -36,8 +38,9 @@ function parseCsv(text: string): Row[] {
   return linhas.slice(1).map(l => { const f = pl(l); const o: Row = {}; hdr.forEach((h, i) => o[h] = (f[i] ?? '').trim()); return o })
 }
 // colunas esperadas no arquivo (saída do converter_folha_realizada.py) + 1 linha de exemplo
-const COLS_FOLHA = ['ano', 'mes', 'empresa', 'filial', 'cc', 'matricula', 'nome', 'verba_cod', 'verba_desc', 'tipo_verba', 'valor', 'conta_deb', 'conta_cred', 'item_orc', 'item_orc_desc', 'competencia']
-const EXEMPLO_FOLHA = ['2027', '1', '01', '2102', '214', '000003', 'FULANO DE TAL', '001', 'SALARIO', 'Provento', '4470.00', '41011001', '21012001', '20101', 'SALARIOS', '202701']
+const COLS_FOLHA = ['ano', 'mes', 'empresa', 'filial', 'cc', 'matricula', 'nome', 'verba_cod', 'verba_desc', 'tipo_verba', 'valor', 'conta_deb', 'conta_cred', 'item_orc', 'item_orc_desc', 'competencia', 'posto_codigo', 'rateio']
+//                    posto_codigo: opcional, amarra direto ao posto (precede filial+matrícula) · rateio: S = ratear na conciliação; branco/N = já rateado
+const EXEMPLO_FOLHA = ['2027', '1', '01', '2102', '214', '000003', 'FULANO DE TAL', '001', 'SALARIO', 'Provento', '4470.00', '41011001', '21012001', '20101', 'SALARIOS', '202701', '2102-000003', 'N']
 function baixarModeloFolha() {
   const ws = XLSX.utils.aoa_to_sheet([COLS_FOLHA, EXEMPLO_FOLHA])
   const wb = XLSX.utils.book_new()
@@ -47,7 +50,8 @@ function baixarModeloFolha() {
 
 function parseXlsxRows(file: File): Promise<Row[]> {
   return new Promise((res, rej) => { const r = new FileReader()
-    r.onload = e => { try { const wb = XLSX.read(e.target?.result, { type: 'binary' }); res(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }) as Row[]) } catch (err) { rej(err) } }
+    // raw:false → toda célula vem como TEXTO (número digitado no Excel não quebra os .trim() do import)
+    r.onload = e => { try { const wb = XLSX.read(e.target?.result, { type: 'binary' }); res(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false }) as Row[]) } catch (err) { rej(err) } }
     r.readAsBinaryString(file) })
 }
 
@@ -98,11 +102,12 @@ export default function FolhaRealizadaPage() {
   const [divisaoSel, setDivisaoSel] = usePostoCtx('divisaoSel', [])
   const [buSel, setBuSel] = usePostoCtx('buSel', [])
   const [aberto, setAberto] = useState<Set<string>>(new Set())
-  const [postoDim, setPostoDim] = useState<Map<string, { empresa_id: string; filial_id: string | null; cc_id: string | null }>>(new Map())
+  const [postoDim, setPostoDim] = useState<Map<string, { codigo: string; nome: string | null; empresa_id: string; filial_id: string | null; cc_id: string | null }>>(new Map())
   const [busca, setBusca] = useState('')
+  const [modoImport, setModoImport] = useLocalPref<'full' | 'incremental'>('planorc_folha_modo_import', 'full')
   const [importando, setImportando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [info, setInfo] = useState<{ gravados: number; postos: number; semPosto: number; semConta: number; semItem: number; semItemDrop: number; semEmpresa: string[]; comp: string } | null>(null)
+  const [info, setInfo] = useState<{ gravados: number; postos: number; semPosto: number; semConta: number; semItem: number; semItemDrop: number; semEmpresa: string[]; errosPosto: string[]; incoerentes: string[]; rateadas: number; modo: 'full' | 'incremental'; comp: string } | null>(null)
 
   const loadComps = async () => {
     // pagina: sem isto, uma competência grande enche as 1000 primeiras linhas e as
@@ -121,8 +126,8 @@ export default function FolhaRealizadaPage() {
       setEmpresas(e.data || []); setFiliais(f.data || []); setCcs(c.data || [])
       // dims do POSTO (cadastro) — para o cabeçalho aglutinado usar a empresa/CC do
       // posto, não a da 1ª linha da folha (que pode ser de outra empresa/CC no detalhe).
-      const pd = await pageAll(() => supabase.from('posto').select('id,empresa_id,filial_id,cc_id'))
-      setPostoDim(new Map(pd.map((p: any) => [p.id, { empresa_id: p.empresa_id, filial_id: p.filial_id, cc_id: p.cc_id }])))
+      const pd = await pageAll(() => supabase.from('posto').select('id,codigo,nome,empresa_id,filial_id,cc_id'))
+      setPostoDim(new Map(pd.map((p: any) => [p.id, { codigo: p.codigo, nome: p.nome, empresa_id: p.empresa_id, filial_id: p.filial_id, cc_id: p.cc_id }])))
     })()
     loadComps()
   }, [])
@@ -164,16 +169,30 @@ export default function FolhaRealizadaPage() {
   const onFile = async (file: File) => {
     setErro(null); setInfo(null); setImportando(true)
     try {
-      const data = file.name.toLowerCase().endsWith('.csv') ? parseCsv(await file.text()) : await parseXlsxRows(file)
-      if (!data.length) { setErro('Arquivo vazio.'); return }
+      const bruto = file.name.toLowerCase().endsWith('.csv') ? parseCsv(await file.text()) : await parseXlsxRows(file)
+      if (!bruto.length) { setErro('Arquivo vazio.'); return }
+      // normaliza TODA célula para string — XLSX devolve número/data em alguns casos e
+      // o import faz .trim() em toda parte; assim CSV e XLSX seguem idênticos.
+      const data = bruto.map((row: any) => { const o: Row = {}; for (const k in row) o[k] = row[k] == null ? '' : String(row[k]); return o })
       // mapas de resolução por código
       const empByCod = new Map(empresas.map(e => [String(e.codigo).trim(), e.id]))
       const filByCod = new Map(filiais.map(f => [String(f.codigo).trim(), f]))
       const ccByCod = new Map(ccs.map(c => [String(c.codigo).trim(), c.id]))
       // paginado: plano de contas e lista de postos passam de 1000 fácil — sem isto o
       // import deixaria de casar posto/conta em parte das linhas, sem avisar.
-      const pd = await pageAll(() => supabase.from('posto').select('id,codigo'))
-      const postoByCod = new Map(pd.map((p: any) => [String(p.codigo).trim(), p.id]))
+      // posto com campos p/ validar posto_codigo (existência, vigência, coerência) e origem do rateio
+      const pd = await pageAll(() => supabase.from('posto').select('id,codigo,empresa_id,filial_id,cc_id,ini_ano,ini_mes,fim_ano,fim_mes'))
+      const postoByCod = new Map(pd.map((p: any) => [String(p.codigo).trim(), p]))
+      // regras de rateio p/ EXPANDIR linhas `rateio=S` no import (materializa o rateado)
+      const [pr, rr, rd] = await Promise.all([
+        pageAll(() => supabase.from('posto_rateio').select('posto_id,regra_id,ordem')),
+        supabase.from('rateio_regra').select('id,nome,dimensao').eq('ativo', true).then(r => r.data || []),
+        pageAll(() => supabase.from('rateio_destino').select('regra_id,empresa_id,cc_id,pct')),
+      ])
+      const anexosByPosto: Record<string, { regra_id: string; ordem: number }[]> = {}
+      for (const r of pr) (anexosByPosto[r.posto_id] ||= []).push({ regra_id: r.regra_id, ordem: Number(r.ordem) || 1 })
+      const destByRegra: Record<string, any[]> = {}
+      for (const d of rd) (destByRegra[d.regra_id] ||= []).push({ empresa_id: d.empresa_id, cc_id: d.cc_id, pct: Number(d.pct) || 0 })
       const ct = await pageAll(() => supabase.from('conta_contabil').select('id,codigo'))
       const contaByCod = new Map(ct.map((c: any) => [String(c.codigo).trim(), c.id]))
       const co = await pageAll(() => supabase.from('conta_orcamentaria').select('id,codigo'))
@@ -183,15 +202,16 @@ export default function FolhaRealizadaPage() {
       // (IR/INSS retido, adiantamento…) — não entram no realizado (poluíam a conciliação).
       const usaItem = data.some(r => (r.item_orc || '').trim())
       const comps = new Set<string>()
-      let semPosto = 0, semConta = 0, semItem = 0, semItemDrop = 0
+      let semPosto = 0, semConta = 0, semItem = 0, semItemDrop = 0, rateadas = 0
       const semEmpresa = new Set<string>()   // códigos de empresa (ex.: redirect PY→XX) não cadastrados
+      const errosPosto: string[] = []        // posto_codigo inexistente / fora de vigência (linha rejeitada)
+      const incoerentes = new Set<string>()  // posto_codigo com empresa/filial ≠ cadastro (aviso — redirect/rateio)
       const payload: any[] = []
       for (const r of data) {
         const ano = parseInt(r.ano, 10), mes = parseInt(r.mes, 10)
         if (!ano || !mes) continue
         const item_orc_cod = (r.item_orc || '').trim()
         if (usaItem && !item_orc_cod) { semItemDrop++; continue }   // sem item na folha que usa item → não traz
-        comps.add(`${ano}|${mes}`)
         const filial = (r.filial || '').trim()
         const fil = filByCod.get(filial)
         // empresa: se o CSV traz o código (sempre traz — de-para filial ou redirect ITEM_CONTABIL),
@@ -199,29 +219,64 @@ export default function FolhaRealizadaPage() {
         // desfaria o redirect (ex.: PY→XX) silenciosamente. Só usa a filial se o código vier vazio.
         const empCod = (r.empresa || '').trim()
         const empresa_id = empCod ? (empByCod.get(empCod) || null) : (fil ? fil.empresa_id : null)
+        const cc_id = ccByCod.get((r.cc || '').trim()) || null
+        // posto: posto_codigo tem PRECEDÊNCIA (amarra direto); senão fallback filial+matrícula
+        const postoCod = (r.posto_codigo || '').trim()
+        let posto_id: string | null = null
+        let po: any = null
+        if (postoCod) {
+          po = postoByCod.get(postoCod)
+          if (!po) { errosPosto.push(`${postoCod}: posto não existe`); continue }        // rejeita a linha
+          const ini = po.ini_ano ? po.ini_ano * 12 + (po.ini_mes || 1) : null
+          const fim = po.fim_ano ? po.fim_ano * 12 + (po.fim_mes || 12) : null
+          const per = ano * 12 + mes
+          if ((ini && per < ini) || (fim && per > fim)) { errosPosto.push(`${postoCod}: fora de vigência em ${mes}/${ano}`); continue }
+          // filial diverge → rejeita (filial é estável, não muda com redirect/rateio)
+          if (fil && po.filial_id && fil.id !== po.filial_id) { errosPosto.push(`${postoCod}: filial ${filial} ≠ cadastro do posto`); continue }
+          posto_id = po.id
+          // empresa diverge → só aviso (redirect ITEM_CONTABIL / rateio no ERP mudam legitimamente)
+          if (empresa_id && po.empresa_id && empresa_id !== po.empresa_id) incoerentes.add(postoCod)
+        } else {
+          po = postoByCod.get(`${filial}-${(r.matricula || '').trim()}`) || null
+          posto_id = po?.id || null
+          if (!posto_id) semPosto++
+        }
+        comps.add(`${ano}|${mes}`)
         if (empCod && !empresa_id) semEmpresa.add(empCod)
-        const posto_id = postoByCod.get(`${filial}-${(r.matricula || '').trim()}`) || null
-        if (!posto_id) semPosto++
         const conta_id = contaByCod.get((r.conta_deb || '').trim()) || null
         if (!conta_id) semConta++
         const item_orc_id = item_orc_cod ? (itemByCod.get(item_orc_cod) || null) : null
         if (item_orc_cod && !item_orc_id) semItem++
-        payload.push({
-          tenant_id: TENANT_ID, ano, mes, empresa_id, filial_id: fil ? fil.id : null, cc_id: ccByCod.get((r.cc || '').trim()) || null,
+        const baseRow = {
+          tenant_id: TENANT_ID, ano, mes,
           matricula: (r.matricula || '').trim() || null, nome: (r.nome || '').trim() || null, posto_id,
           verba_cod: (r.verba_cod || '').trim() || null, verba_desc: (r.verba_desc || '').trim() || null, tipo_verba: (r.tipo_verba || '').trim() || null,
-          valor: num(r.valor), conta_deb_cod: (r.conta_deb || '').trim() || null, conta_cred_cod: (r.conta_cred || '').trim() || null, conta_id,
+          conta_deb_cod: (r.conta_deb || '').trim() || null, conta_cred_cod: (r.conta_cred || '').trim() || null, conta_id,
           item_orc_cod: item_orc_cod || null, item_orc_desc: (r.item_orc_desc || '').trim() || null, item_orc_id,
           competencia: (r.competencia || '').trim() || null, origem: 'FOLHA', tipo: 'REALIZADO',
-        })
+        }
+        const valorNum = num(r.valor)
+        const filId = fil ? fil.id : (po?.filial_id || null)
+        // rateio=S → MATERIALIZA: expande a linha nos destinos do rateio do posto (valor × pct);
+        // branco/N → entra como veio (o realizado do ERP já vem rateado via ITEM_CONTABIL).
+        if ((r.rateio || '').trim().toUpperCase() === 'S' && po) {
+          const cells = cascataRateio({ empresa_id: po.empresa_id || null, cc_id: po.cc_id || null }, anexosByPosto[po.id] || [], rr, destByRegra).cells
+          for (const c of cells) payload.push({ ...baseRow, empresa_id: c.empresa_id, filial_id: filId, cc_id: c.cc_id, valor: valorNum * c.pct })
+          rateadas++
+        } else {
+          payload.push({ ...baseRow, empresa_id, filial_id: filId, cc_id, valor: valorNum })
+        }
       }
       if (!payload.length) { setErro('Nenhuma linha válida (confira o cabeçalho: ano,mes,empresa,filial,cc,matricula,...).'); return }
-      // idempotente: substitui as competências presentes no arquivo
-      for (const c of comps) { const [a, m] = c.split('|').map(Number); const { error } = await supabase.from('fat_folha').delete().eq('tipo', 'REALIZADO').eq('ano', a).eq('mes', m); if (error) { setErro('Erro ao limpar competência: ' + error.message); return } }
+      // FULL: substitui a competência (apaga o realizado dela e recarrega). INCREMENTAL:
+      // só empilha (não apaga) — p/ somar o confidencial sobre o export do ERP.
+      if (modoImport === 'full') {
+        for (const c of comps) { const [a, m] = c.split('|').map(Number); const { error } = await supabase.from('fat_folha').delete().eq('tipo', 'REALIZADO').eq('ano', a).eq('mes', m); if (error) { setErro('Erro ao limpar competência: ' + error.message); return } }
+      }
       for (let i = 0; i < payload.length; i += 500) { const { error } = await supabase.from('fat_folha').insert(payload.slice(i, i + 500)); if (error) { setErro('Erro ao gravar (parcial): ' + error.message); return } }
       const compLabel = [...comps].map(c => { const [a, m] = c.split('|'); return `${MESES[+m - 1]}/${a}` }).join(', ')
       const postosDistintos = new Set(payload.filter(p => p.posto_id).map(p => p.posto_id)).size
-      setInfo({ gravados: payload.length, postos: postosDistintos, semPosto, semConta, semItem, semItemDrop, semEmpresa: [...semEmpresa], comp: compLabel })
+      setInfo({ gravados: payload.length, postos: postosDistintos, semPosto, semConta, semItem, semItemDrop, semEmpresa: [...semEmpresa], errosPosto, incoerentes: [...incoerentes], rateadas, modo: modoImport, comp: compLabel })
       loadComps()
     } catch (e: any) { setErro('Erro ao ler o arquivo: ' + (e?.message || e)) }
     finally { setImportando(false) }
@@ -259,19 +314,27 @@ export default function FolhaRealizadaPage() {
         </div>
         <div style={{ flex: 1 }} />
         <button style={S.btn} onClick={baixarModeloFolha} title="Baixar planilha modelo (cabeçalhos esperados + 1 exemplo)"><FileDown size={14} /> Modelo</button>
-        {editavel && <button style={S.btn} disabled={importando} onClick={() => fileRef.current?.click()}><Upload size={14} /> {importando ? 'Importando…' : 'Importar folha (CSV)'}</button>}
+        {editavel && <select style={S.sel} value={modoImport} onChange={e => setModoImport(e.target.value as any)}
+          title="Full: apaga o realizado da competência e recarrega. Incremental: só adiciona (empilha o confidencial sobre o export do ERP).">
+          <option value="full">Substituir competência (full)</option>
+          <option value="incremental">Adicionar (incremental)</option>
+        </select>}
+        {editavel && <button style={S.btn} disabled={importando} onClick={() => fileRef.current?.click()}><Upload size={14} /> {importando ? 'Importando…' : 'Importar folha (CSV/XLSX)'}</button>}
         <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = '' }} />
       </div>
 
       {erro && <div style={S.erro}><AlertCircle size={14} /> {erro}</div>}
       {info && (
         <div style={S.info}><CheckCircle2 size={16} style={{ color: 'var(--green)', flexShrink: 0, marginTop: 1 }} />
-          <div><b>{info.gravados.toLocaleString('pt-BR')} lançamentos</b> de folha importados ({info.comp}) em <b>{info.postos} postos</b>.
+          <div><b>{info.gravados.toLocaleString('pt-BR')} lançamentos</b> de folha {info.modo === 'incremental' ? <b style={{ color: 'var(--blue)' }}>adicionados (incremental)</b> : 'importados'} ({info.comp}) em <b>{info.postos} postos</b>.
             {info.semPosto > 0 && <div style={{ color: 'var(--orange)' }}>{info.semPosto} sem posto casado (matrícula sem posto cadastrado) — importe os postos antes, ou confira filial-matrícula.</div>}
             {info.semConta > 0 && <div style={{ color: 'var(--muted)' }}>{info.semConta} sem conta contábil resolvida (débito fora do plano) — não amarram à DRE.</div>}
             {info.semItemDrop > 0 && <div style={{ color: 'var(--muted)' }}>{info.semItemDrop} linha(s) sem item orçamentário (ativo/passivo) ignoradas — não entram na conciliação.</div>}
             {info.semItem > 0 && <div style={{ color: 'var(--orange)' }}>{info.semItem} com item orçamentário (IT_CONTAB_DB) que não existe em conta_orcamentaria — cadastre o código pra conciliar.</div>}
             {info.semEmpresa.length > 0 && <div style={{ color: 'var(--orange)' }}>Empresa não cadastrada (código do de-para/redirect): <b>{info.semEmpresa.join(', ')}</b> — essas linhas ficaram sem empresa. Cadastre a empresa com esse código pra que o redirect (ITEM_CONTABIL) valha.</div>}
+            {info.errosPosto.length > 0 && <div style={{ color: 'var(--red)' }}>⚠ {info.errosPosto.length} linha(s) rejeitada(s) por posto_codigo inválido: {info.errosPosto.slice(0, 8).join(' · ')}{info.errosPosto.length > 8 ? '…' : ''}</div>}
+            {info.incoerentes.length > 0 && <div style={{ color: 'var(--orange)' }}>posto_codigo com empresa/filial diferente do cadastro (ok se for redirect/rateio): <b>{info.incoerentes.slice(0, 12).join(', ')}</b>{info.incoerentes.length > 12 ? '…' : ''}</div>}
+            {info.rateadas > 0 && <div style={{ color: 'var(--muted)' }}>{info.rateadas} linha(s) com <b>rateio=S</b> expandidas nos destinos do rateio do posto (materializadas no fat_folha).</div>}
           </div>
         </div>
       )}
@@ -297,8 +360,8 @@ export default function FolhaRealizadaPage() {
                 return (
                   <Fragment key={g.key}>
                     <tr style={{ cursor: 'pointer' }} onClick={() => setAberto(s => { const n = new Set(s); n.has(g.key) ? n.delete(g.key) : n.add(g.key); return n })}>
-                      <td style={{ ...S.td, fontFamily: 'monospace', color: 'var(--muted)' }}>{open ? <ChevronDown size={12} style={{ verticalAlign: -2 }} /> : <ChevronRight size={12} style={{ verticalAlign: -2 }} />} {g.matricula}{!g.key.startsWith('mat:') ? '' : ' (sem posto)'}</td>
-                      <td style={S.td}>{g.nome || '—'}</td>
+                      <td style={{ ...S.td, fontFamily: 'monospace', color: 'var(--muted)' }}>{open ? <ChevronDown size={12} style={{ verticalAlign: -2 }} /> : <ChevronRight size={12} style={{ verticalAlign: -2 }} />} {g.key.startsWith('mat:') ? `${g.matricula} (sem posto)` : (postoDim.get(g.key)?.codigo || g.matricula)}</td>
+                      <td style={S.td}>{postoDim.get(g.key)?.nome || g.nome || '—'}</td>
                       {(() => {
                         // empresa/filial/CC DO POSTO (cadastro); "sem posto" cai na 1ª linha da folha
                         const pd = g.key.startsWith('mat:') ? null : postoDim.get(g.key)

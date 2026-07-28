@@ -1,0 +1,13 @@
+-- ============================================================
+-- Reverte a v3_066: remove fat_folha.ratear.
+--
+-- Decisão de 28/jul (revista): o rateio do realizado NÃO será um flag consumido
+-- na conciliação. Quando um ERP não pré-ratear, a expansão será feita no PRÓPRIO
+-- IMPORT (a linha `rateio=S` vira N linhas rateadas pelos destinos do posto), então
+-- `fat_folha` já guarda o realizado final e não precisa da coluna de flag.
+--
+-- Hoje todo o realizado já vem rateado do ERP (redirect ITEM_CONTABIL), então não há
+-- expansão a fazer. A coluna `rateio` segue no template de import como chave da
+-- expansão futura. Ver docs/DESIGN_posto_trabalho.md.
+-- ============================================================
+ALTER TABLE fat_folha DROP COLUMN IF EXISTS ratear;

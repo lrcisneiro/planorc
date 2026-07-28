@@ -89,9 +89,15 @@ def periodo_ano_mes(p):
         return int(s[:4]), int(s[4:6])
     return None, None
 
+# posto_codigo e rateio (layout 28/jul):
+#   posto_codigo = filial+matrícula (amarra explícito ao posto; caminho estrito no
+#     import → linha de posto NÃO cadastrado é rejeitada e reportada, não entra com
+#     posto nulo). Ver postos cadastrados antes de importar a folha.
+#   rateio = 'N' (já rateado): o realizado do ERP já vem distribuído (redirect
+#     ITEM_CONTABIL), então a conciliação NÃO deve ratear de novo.
 COLS_SAIDA = ['ano', 'mes', 'empresa', 'filial', 'cc', 'matricula', 'nome',
               'verba_cod', 'verba_desc', 'tipo_verba', 'valor', 'conta_deb', 'conta_cred',
-              'item_orc', 'item_orc_desc', 'competencia']
+              'item_orc', 'item_orc_desc', 'competencia', 'posto_codigo', 'rateio']
 
 def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None):
     depara_item = depara_item or {}
@@ -162,6 +168,7 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
                 # item orçamentário autoritativo da folha (débito) — casa com verba.conta_destino/fat_orcado
                 'item_orc': str(g('IT_CONTAB_DB') or '').strip(), 'item_orc_desc': (g('DESC_IT_CONTAB_DB') or '').strip(),
                 'competencia': f'{ano}{mes:02d}' if FORCE_ANO else str(g('PERIODO') or '').strip().split('.')[0],
+                'posto_codigo': f'{filial}-{mat}', 'rateio': 'N',
             }
             out_rows.append(row)
             tipos[row['tipo_verba'] or '(vazio)'] += 1

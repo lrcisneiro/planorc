@@ -1,6 +1,7 @@
 # DESIGN — Posto de Trabalho (orçamento de folha) · F5
 
-> Status: **em discussão** (jul/2026). Decisões tomadas com Ricardo em 09/jul.
+> Status: **em discussão** (jul/2026). Decisões tomadas com Ricardo em 09/jul;
+> seção «Import de folha e remunerações confidenciais» fechada em 28/jul.
 > Referências de mercado: position-based workforce planning (Workday Adaptive,
 > Oracle EPM Workforce), payroll reconciliation, variâncias tipificadas
 > (attrition/timing/compensação — Visier, headcount365).
@@ -82,8 +83,10 @@ premissa_dissidio  versao_id, sindicato_id, pct numeric   -- % por versão×sind
 
 fat_folha        id, tenant_id, empresa_id, filial_id, cc_id,
                  funcionario_id (ou matricula texto p/ não-cadastrados),
+                 posto_id (resolvido no import — ver §Import de folha),
                  verba_id (resolvida por codigo), ano, mes, valor,
-                 lote/origem import          -- folha analítica do ERP, paralela
+                 ratear bool,                -- flag `rateio` do template (S=true)
+                 lote/origem import          -- ERP | CONF (confidencial via XLSX)
 ```
 
 `fat_orcado` não muda: o Aplicar grava `dims = {posto, funcionario, verba}` e
@@ -163,12 +166,78 @@ Motor de rateio (etapa final de qualquer Aplicar):
   bater com o contábil (já rateado), a conciliação aplica as mesmas regras
   antes do confronto.
 
+## Import de folha e remunerações confidenciais (P2 — decisões de 28/jul)
+
+**Contexto.** Diretores/sócios foram retirados da folha convencional do ERP
+para restringir quem vê remunerações. O razão contábil **já contempla** os
+valores pagos e rateados (lançados em CCs restritos, rateio feito no próprio
+ERP) — `fat_realizado` e o orçado (CCs restritos + escopo de dados F2) ficam
+íntegros. O gap é **só na `fat_folha`**: o export da folha do ERP não traz
+essas pessoas, o que furaria a conciliação contabilizado × folha.
+
+**Princípio** (prática de mercado — Workday Adaptive, FP&A): nunca excluir o
+dado; base completa, visão restrita por permissão.
+
+### Template único de import de folha (2 colunas novas)
+
+O template de import da folha analítica ganha duas colunas, válidas tanto
+para o export do ERP quanto para o arquivo confidencial:
+
+1. **`posto_codigo`** — opcional, com precedência: se preenchido, amarra a
+   linha direto ao posto; se vazio, cai no fallback atual filial+matrícula.
+   Validação no import: posto inexistente ou fora de vigência, ou empresa/
+   filial incoerente com o cadastro → **erro na linha** (rejeita na carga).
+   Necessário para confidenciais (sem matrícula na folha), prestadores,
+   pró-labore, transferências no meio do mês e reuso de matrícula.
+2. **`rateio`** — define se o **import** expande a linha pelos destinos do posto:
+   - **branco ou `N` = NÃO ratear** (default): a linha **já está rateada** — o
+     CC/empresa da linha é o destino final, como a contabilidade lançou;
+   - **`S` = ratear no import** pelo cadastro do posto (`rateio_regra`/
+     `rateio_destino`, precedência FUNCIONARIO → POSTO → CARGO → CC): a linha é
+     **materializada** em N linhas rateadas no `fat_folha` (valor × pct por
+     destino), como o próprio ERP já faz com o redirect ITEM_CONTABIL.
+
+   > **Revisão 28/jul (decidida na prática):** o rateio é feito no **import**
+   > (materializa), NÃO como flag consumido na conciliação. Assim `fat_folha`
+   > já guarda o realizado final e não há coluna `ratear` (a v3_066 que a
+   > criava foi revertida pela v3_067). Trade-off aceito: é um *snapshot* —
+   > se a regra de rateio mudar, reimporta (consistente com o ERP, que também
+   > espalha na origem). A expansão **já está implementada** no import da folha
+   > (`FolhaRealizadaPage`): `S` roda `cascataRateio` do posto e grava N linhas
+   > (valor × pct por destino). Hoje o realizado real vem todo com `N` (já
+   > rateado via ITEM_CONTABIL), então na prática não há expansão; a coluna
+   > `rateio` é a chave para o caso de um ERP que não pré-rateie. Sem aviso de
+   > "posto com regra veio sem `S`" — `N` é o esperado, não exceção.
+
+### Import confidencial (lote CONF)
+
+- Mesmo template; entra como **lote próprio** (`origem = CONF`) — reimport/
+  estorno independente do export do ERP via mecanismo de lotes; as duas
+  fontes **somam** na mesma competência.
+- Linhas **nominais** (decisão 28/jul): `fat_folha` é paralela e restrita,
+  não alimenta DRE nem dashboards. Como o contábil desses postos já chega
+  rateado, o arquivo confidencial normalmente vem já aberto por CC de
+  destino com `rateio` em branco (não ratear de novo).
+- **Proteção**: tela `/folha` gateada por capacidade (`menu.folha`) **+**
+  escopo de dados por CC (`user_acesso_regra` VER) — quem não enxerga o CC
+  restrito não vê as linhas nominais, mesmo com acesso à conciliação.
+
+### Conciliação — regras decorrentes
+
+- O motor rateia **só as linhas `S`**; divergência entre o rateio aplicado e
+  o contábil aparece como **categoria própria de variância** («rateio»), não
+  como erro.
+- Fonte das regras para o realizado: `rateio_regra.versao_id = NULL` vale
+  para a conciliação (regras versionadas são do orçado). Percentuais das
+  regras devem refletir o praticado no ERP.
+
 ## Fases
 
 - **P1 — Orçar por posto**: cargo/sindicato/verba reestruturada + posto +
   motor (incluindo etapa de rateio) + telas /postos, /postos/regras e
   cadastro de rateios + Aplicar. Entrega o orçamento.
-- **P2 — Folha analítica**: fat_folha + import mensal + conciliação.
+- **P2 — Folha analítica**: fat_folha + import mensal (template com
+  `posto_codigo` e flag `rateio`; lote CONF p/ confidenciais) + conciliação.
 - **P3 — Eventos + Forecast**: posto_evento em versão forecast + variâncias
   tipificadas + premissa de dissídio aplicada por evento re-cálculo.
 - **P4 — Dashboards**: headcount/FTE, custo médio, turnover, vacancy savings.
