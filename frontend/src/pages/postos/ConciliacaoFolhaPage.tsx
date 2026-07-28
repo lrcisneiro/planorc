@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
 import { PostosPills, passoLabel } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
-import { FiltrosButton, effectiveCcFilter } from '../dashboard/DashFiltros'
+import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
 import { ConciliacaoFolha } from './ConciliacaoFolha'
 import { usePostoCtx } from '../../lib/postoCtx'
 import { pageAll } from '../../lib/pageAll'
@@ -62,14 +62,17 @@ export default function ConciliacaoFolhaPage() {
   const params = useMemo<ConcilParams | null>(() => {
     if (!versaoSel || !compSel) return null
     const [a, m] = compSel.split('-').map(Number)
-    const filialFilter = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
-    const ccFilter = effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel)
+    // escopo do usuário como PISO: cruza a seleção com o que o usuário pode VER (canSee).
+    // Seleção vazia → cai no escopo permitido (não em "tudo"). Admin → null (sem filtro).
+    const empEsc = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSee)
+    const filialFilter = escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSee)
+    const ccFilter = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee)
     return {
       titulo: 'Todas as contas', versaoId: versaoSel, versaoLabel: versoes.find(v => v.id === versaoSel)?.codigo || '',
       meses: [{ ano: a, mes: m }], masterIds: null, contaIds: null,
-      empresaSel, filialFilter, ccFilter,
+      empresaSel: empEsc ?? [], filialFilter, ccFilter,
     }
-  }, [versaoSel, compSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, filiais.length, ccs, versoes]) // eslint-disable-line
+  }, [versaoSel, compSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, filiais, empresas, ccs, versoes, acesso.loading]) // eslint-disable-line
 
   return (
     <div style={S.page}>

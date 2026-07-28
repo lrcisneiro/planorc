@@ -139,7 +139,7 @@ export default function PostosGradePage() {
   const [busca, setBusca] = useState('')
   const [mostrarInativos, setMostrarInativos] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[] } | null>(null)
+  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[] } | null>(null)
   const [importando, setImportando] = useState(false)
   const [fechados, setFechados] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
@@ -225,6 +225,7 @@ export default function PostosGradePage() {
         cargoByNome = new Map((data || []).map((c: any) => [String(c.nome).trim().toUpperCase(), c.id])); setCargos(data || [])
       }
       const semEmp = new Set<string>(), semFil = new Set<string>(), semCc = new Set<string>()
+      const foraEscopo = new Set<string>()   // linhas fora do que o usuário pode orçar (empresa/filial/CC)
       const payload: any[] = []
       for (const r of rows) {
         if (!r.posto_codigo) continue
@@ -232,6 +233,10 @@ export default function PostosGradePage() {
         if (!empresa_id) { if (r.empresa) semEmp.add(r.empresa); continue }
         const filial_id = filByCod.get((r.filial || '').trim()) || null; if (!filial_id && r.filial) semFil.add(r.filial)
         const cc_id = ccByCod.get((r.cc || '').trim()) || null; if (!cc_id && r.cc) semCc.add(r.cc)
+        // escopo de EDIÇÃO: não importa nada fora do que o usuário pode orçar (admin passa tudo)
+        if (!acesso.canEdit('empresa', empresa_id) || (filial_id && !acesso.canEdit('filial', filial_id)) || (cc_id && !acesso.canEdit('centro_custo', cc_id))) {
+          foraEscopo.add(r.posto_codigo); continue
+        }
         const cargo_id = cargoByNome.get((r.cargo || '').trim().toUpperCase()) || null
         const [ay, am] = (r.admissao || '').split('-')
         payload.push({ tenant_id: TENANT_ID, codigo: r.posto_codigo, empresa_id, filial_id, cc_id, cargo_id,
@@ -240,13 +245,26 @@ export default function PostosGradePage() {
           nome: (r.nome || '').trim() || null, matricula: (r.matricula || '').trim() || null,
           ini_ano: ay ? parseInt(ay, 10) : null, ini_mes: am ? parseInt(am, 10) : null, fte: 1, ativo: (r.ativo || 'sim') !== 'nao' })
       }
-      if (!payload.length) { setErro('Nenhuma linha resolvida — confira se os códigos de empresa existem nos cadastros.'); return }
+      if (!payload.length) {
+        setErro(foraEscopo.size ? `Nenhuma linha dentro do seu escopo de edição (${foraEscopo.size} fora). Você só importa postos das empresas/filiais/CCs que pode orçar.`
+          : 'Nenhuma linha resolvida — confira se os códigos de empresa existem nos cadastros.'); return
+      }
       let apagados = 0
       if (modo === 'substituir') {
         const empIds = [...new Set(payload.map(p => p.empresa_id))]
         const cods = empIds.map(id => empresas.find(e => e.id === id)?.codigo || id)
-        if (!confirm(`SUBSTITUIR ESCOPO: apaga todos os postos das empresas ${cods.join(', ')} e recarrega.\nAjustes manuais e vagas dessas empresas serão perdidos. Continuar?`)) return
-        const { count, error: delErr } = await supabase.from('posto').delete({ count: 'exact' }).in('empresa_id', empIds)
+        // "substituir" só apaga DENTRO do escopo editável do usuário: se ele é limitado
+        // por filial/CC, o delete é restrito a essas filiais/CCs (não toca no que ele não
+        // pode editar). Admin/irrestrito: apaga por empresa como antes.
+        const editFil = filiais.filter(f => acesso.canEdit('filial', f.id)).map(f => f.id)
+        const editCc = ccs.filter(c => acesso.canEdit('centro_custo', c.id)).map(c => c.id)
+        const scopedFil = editFil.length < filiais.length, scopedCc = editCc.length < ccs.length
+        const alvo = scopedFil || scopedCc ? 'os postos do seu escopo' : 'TODOS os postos'
+        if (!confirm(`SUBSTITUIR: apaga ${alvo} nas empresas ${cods.join(', ')} e recarrega do arquivo.\nAjustes manuais e vagas desse escopo serão perdidos. Continuar?`)) return
+        let dq = supabase.from('posto').delete({ count: 'exact' }).in('empresa_id', empIds)
+        if (scopedFil) dq = dq.in('filial_id', editFil)
+        if (scopedCc) dq = dq.in('cc_id', editCc)
+        const { count, error: delErr } = await dq
         if (delErr) { setErro('Erro ao limpar o escopo: ' + delErr.message); return }
         apagados = count || 0
       }
@@ -304,7 +322,7 @@ export default function PostosGradePage() {
         if (prRows.length) { const { error: prErr } = await supabase.from('posto_rateio').upsert(prRows, { onConflict: 'tenant_id,posto_id,regra_id' }); if (prErr) setErro('Aviso — rateio: ' + prErr.message) }
       }
 
-      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length, rateioPostos, rateioCol: !!rateioCol, rateioNaoAchados: [...rateioNaoAchados] })
+      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], foraEscopo: foraEscopo.size, cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length, rateioPostos, rateioCol: !!rateioCol, rateioNaoAchados: [...rateioNaoAchados] })
       loadPostos()
     } finally { setImportando(false) }
   }
@@ -677,6 +695,7 @@ export default function PostosGradePage() {
               : '⚠ Nenhuma coluna do arquivo casou com verba do catálogo — benefícios NÃO atualizados. Cadastre as verbas (D49, A76, D50, A15, A51…) em Estrutura → Verbas e reimporte.'}</div>
             {importInfo.rateioCol && <div style={{ color: 'var(--text-mid)' }}>{importInfo.rateioPostos} posto(s) com rateio anexado (posto_rateio) pela coluna RATEIO.</div>}
             {importInfo.rateioNaoAchados.length > 0 && <div style={{ color: 'var(--orange)' }}>Códigos de rateio não encontrados (ignorados): {importInfo.rateioNaoAchados.join(', ')} — confira os nomes em {passoLabel('/postos/rateio')}.</div>}
+            {importInfo.foraEscopo > 0 && <div style={{ color: 'var(--orange)' }}>{importInfo.foraEscopo} posto(s) fora do seu escopo de edição (empresa/filial/CC) — ignorados.</div>}
             {importInfo.semEmp.length > 0 && <div style={{ color: 'var(--red)' }}>⚠ Empresas não encontradas (postos ignorados): {importInfo.semEmp.join(', ')}</div>}
             {importInfo.semFil.length > 0 && <div style={{ color: 'var(--orange)' }}>Filiais não encontradas (posto sem filial): {importInfo.semFil.join(', ')}</div>}
             {importInfo.semCc.length > 0 && <div style={{ color: 'var(--orange)' }}>CCs não encontrados (posto sem CC): {importInfo.semCc.slice(0, 20).join(', ')}{importInfo.semCc.length > 20 ? '…' : ''}</div>}

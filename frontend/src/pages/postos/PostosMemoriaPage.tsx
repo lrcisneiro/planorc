@@ -8,7 +8,7 @@ import { calcularPosto } from '../../lib/motorFolha'
 import { usePostoCtx } from '../../lib/postoCtx'
 import { pageAll } from '../../lib/pageAll'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
-import { ChevronDown, ChevronRight, Printer, Split } from 'lucide-react'
+import { ChevronDown, ChevronRight, Printer, Split, Search, X } from 'lucide-react'
 import { RateioModal } from './RateioModal'
 
 // Memória de cálculo (P1, pill 5) — read-only. Cascata por posto + totais por conta de destino.
@@ -71,6 +71,7 @@ export default function PostosMemoriaPage() {
   const [divisaoSel, setDivisaoSel] = usePostoCtx('divisaoSel', [])
   const [buSel, setBuSel] = usePostoCtx('buSel', [])
   const [aberto, setAberto] = useState<Set<string>>(new Set())
+  const [busca, setBusca] = useState('')
   const [rateioCods, setRateioCods] = useState<any[]>([])                          // {id,nome,dimensao}
   const [destByRegra, setDestByRegra] = useState<Record<string, any[]>>({})        // regra_id → [{empresa_id,cc_id,pct}]
   const [postoRateios, setPostoRateios] = useState<Record<string, { regra_id: string; ordem: number }[]>>({})
@@ -136,8 +137,10 @@ export default function PostosMemoriaPage() {
     const filF = escopoFiltro((filialSel.length && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSee)
     const ccF = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee)
     const sEmp = empF ? new Set(empF) : null, sFil = filF ? new Set(filF) : null, sCc = ccF ? new Set(ccF) : null
-    return postos.filter(p => p.ativo !== false && (!sEmp || sEmp.has(p.empresa_id)) && (!sFil || (p.filial_id != null && sFil.has(p.filial_id))) && (!sCc || (p.cc_id != null && sCc.has(p.cc_id))))
-  }, [postos, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
+    const q = busca.trim().toLowerCase()
+    return postos.filter(p => p.ativo !== false && (!sEmp || sEmp.has(p.empresa_id)) && (!sFil || (p.filial_id != null && sFil.has(p.filial_id))) && (!sCc || (p.cc_id != null && sCc.has(p.cc_id)))
+      && (!q || [p.nome, p.codigo, p.cargo?.nome, p.centro_custo?.codigo, p.centro_custo?.descricao].some(x => (x || '').toLowerCase().includes(q))))
+  }, [postos, busca, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
 
   // agregados do escopo
   const agg = useMemo(() => {
@@ -182,6 +185,13 @@ export default function PostosMemoriaPage() {
           <FiltrosButton empresas={acesso.filterList('empresa', empresas)} filiais={acesso.filterList('filial', filiais)} ccs={acesso.filterList('centro_custo', ccs as any) as any}
             empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel}
             areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
+        </div>
+        <div style={S.fld}><span style={S.lbl}>Buscar</span>
+          <div style={{ position: 'relative' }}>
+            <Search size={14} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--muted)' }} />
+            <input style={{ ...S.sel, padding: '7px 26px 7px 28px', width: 210 }} placeholder="ocupante, posto, cargo, CC…" value={busca} onChange={e => setBusca(e.target.value)} />
+            {busca && <X size={14} style={{ position: 'absolute', right: 8, top: 9, color: 'var(--muted)', cursor: 'pointer' }} onClick={() => setBusca('')} />}
+          </div>
         </div>
         <div style={{ flex: 1 }} />
         <button style={S.btn} onClick={() => window.print()}><Printer size={14} /> Imprimir</button>

@@ -97,13 +97,14 @@ type Col = {
   importSample?: string       // valor de exemplo na 1ª linha do modelo
 }
 
-function CrudTable({ table, orderBy, cols, defaults, lookups, hint }: {
+function CrudTable({ table, orderBy, cols, defaults, lookups, hint, editavel }: {
   table: string
   orderBy: string
   cols: Col[]
   defaults: Record<string, any>
   lookups?: { conta?: any[] }
   hint?: string
+  editavel: boolean
 }) {
   const [data, setData] = useState<any[]>([])
   const [editId, setEditId] = useState<string | null>(null)   // '__new' ao adicionar
@@ -260,9 +261,9 @@ function CrudTable({ table, orderBy, cols, defaults, lookups, hint }: {
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>{data.length} {data.length === 1 ? 'registro' : 'registros'}</span>
         <div style={{ display: 'flex', gap: 8 }}>
           <button style={S.btnImp} onClick={baixarModelo} title="Baixar planilha modelo (com cabeçalhos e 1 exemplo)"><FileDown size={14} /> Modelo</button>
-          <button style={S.btnImp} onClick={() => fileRef.current?.click()} title="Importar de xlsx (upsert por código)"><Upload size={14} /> Importar</button>
           <button style={S.btnImp} onClick={exportar} title="Exportar os registros atuais"><Download size={14} /> Exportar</button>
-          <button style={S.btnAdd} onClick={startAdd}><Plus size={14} /> Novo</button>
+          {editavel && <button style={S.btnImp} onClick={() => fileRef.current?.click()} title="Importar de xlsx (upsert por código)"><Upload size={14} /> Importar</button>}
+          {editavel && <button style={S.btnAdd} onClick={startAdd}><Plus size={14} /> Novo</button>}
         </div>
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
           onChange={e => { const f = e.target.files?.[0]; if (f) importar(f); e.target.value = '' }} />
@@ -271,21 +272,21 @@ function CrudTable({ table, orderBy, cols, defaults, lookups, hint }: {
       {erro && <div style={S.erro}><AlertCircle size={14} /> {erro}</div>}
       <div style={{ overflowX: 'auto' }}>
       <table style={S.table}>
-        <thead><tr>{cols.map(c => <th key={c.key} style={{ ...S.th, width: c.width }}>{c.label}</th>)}<th style={{ ...S.th, width: 80 }} /></tr></thead>
+        <thead><tr>{cols.map(c => <th key={c.key} style={{ ...S.th, width: c.width }}>{c.label}</th>)}{editavel && <th style={{ ...S.th, width: 80 }} />}</tr></thead>
         <tbody>
-          {editId === '__new' && <tr>{cols.map(c => <td key={c.key} style={S.td}>{cell(c)}</td>)}<td style={S.td}>{acoes}</td></tr>}
-          {data.map(row => editId === row.id ? (
+          {editavel && editId === '__new' && <tr>{cols.map(c => <td key={c.key} style={S.td}>{cell(c)}</td>)}<td style={S.td}>{acoes}</td></tr>}
+          {data.map(row => editavel && editId === row.id ? (
             <tr key={row.id}>{cols.map(c => <td key={c.key} style={S.td}>{cell(c)}</td>)}<td style={S.td}>{acoes}</td></tr>
           ) : (
             <tr key={row.id}>
               {cols.map(c => <td key={c.key} style={c.mono ? S.tdMono : S.td}>{disp(c, row)}</td>)}
-              <td style={{ ...S.td, whiteSpace: 'nowrap' }}>
+              {editavel && <td style={{ ...S.td, whiteSpace: 'nowrap' }}>
                 <button style={S.btnDel} onClick={() => startEdit(row)} title="Editar"><Pencil size={15} /></button>
                 <button style={S.btnDel} onClick={() => del(row.id)} title="Excluir"><Trash2 size={15} /></button>
-              </td>
+              </td>}
             </tr>
           ))}
-          {!data.length && editId !== '__new' && <tr><td colSpan={cols.length + 1} style={S.empty}>Nenhum registro ainda.</td></tr>}
+          {!data.length && editId !== '__new' && <tr><td colSpan={cols.length + (editavel ? 1 : 0)} style={S.empty}>Nenhum registro ainda.</td></tr>}
         </tbody>
       </table>
       </div>
@@ -294,10 +295,10 @@ function CrudTable({ table, orderBy, cols, defaults, lookups, hint }: {
 }
 
 // ─── Verbas / regras ─────────────────────────────────────────
-function VerbasTab() {
+function VerbasTab({ editavel }: { editavel: boolean }) {
   const [contas, setContas] = useState<any[]>([])
   useEffect(() => { pageAll(() => supabase.from('conta_orcamentaria').select('id,codigo,descricao').order('codigo')).then(setContas) }, [])
-  return <CrudTable table="verba_folha" orderBy="ordem" lookups={{ conta: contas }}
+  return <CrudTable editavel={editavel} table="verba_folha" orderBy="ordem" lookups={{ conta: contas }}
     hint="Regra de cálculo de cada rubrica. A ordem importa (encargos calculam sobre verbas anteriores). A conta destino recebe o valor no Aplicar."
     defaults={{ tipo_calculo: 'BASE', incide_encargos: true, ativo: true }}
     cols={[
@@ -317,8 +318,8 @@ function VerbasTab() {
 }
 
 // ─── Cargos ──────────────────────────────────────────────────
-function CargosTab() {
-  return <CrudTable table="cargo" orderBy="codigo"
+function CargosTab({ editavel }: { editavel: boolean }) {
+  return <CrudTable editavel={editavel} table="cargo" orderBy="codigo"
     defaults={{ ativo: true }}
     cols={[
       { key: 'codigo',      label: 'Código',       kind: 'text', required: true, width: 130, mono: true },
@@ -329,8 +330,8 @@ function CargosTab() {
 }
 
 // ─── Sindicatos ──────────────────────────────────────────────
-function SindicatosTab() {
-  return <CrudTable table="sindicato" orderBy="codigo"
+function SindicatosTab({ editavel }: { editavel: boolean }) {
+  return <CrudTable editavel={editavel} table="sindicato" orderBy="codigo"
     hint="Mês-base = a partir de qual mês o dissídio da versão é aplicado ao salário."
     defaults={{ mes_database: 1, ativo: true }}
     cols={[
@@ -342,7 +343,7 @@ function SindicatosTab() {
 }
 
 // ─── Dissídio (matriz versão × sindicato) ────────────────────
-function DissidioTab() {
+function DissidioTab({ editavel }: { editavel: boolean }) {
   const [versoes, setVersoes] = useState<any[]>([])
   const [sinds, setSinds] = useState<any[]>([])
   const [versaoId, setVersaoId] = usePostoCtx('versaoId', '')
@@ -397,8 +398,10 @@ function DissidioTab() {
                 <td style={S.td}><span style={{ fontFamily: 'monospace', color: 'var(--muted)', marginRight: 8 }}>{s.codigo}</span>{s.nome}</td>
                 <td style={S.td}>{MESES[(s.mes_database || 1) - 1]}</td>
                 <td style={S.td}>
-                  <input style={{ ...S.input, textAlign: 'right', width: 120 }} defaultValue={pcts[s.id] ?? ''} placeholder="0"
-                    key={versaoId + s.id} onBlur={e => salvar(s.id, e.target.value)} /> <span style={{ color: 'var(--muted)' }}>%</span>
+                  {editavel
+                    ? <><input style={{ ...S.input, textAlign: 'right', width: 120 }} defaultValue={pcts[s.id] ?? ''} placeholder="0"
+                        key={versaoId + s.id} onBlur={e => salvar(s.id, e.target.value)} /> <span style={{ color: 'var(--muted)' }}>%</span></>
+                    : <span style={{ fontVariantNumeric: 'tabular-nums' }}>{pcts[s.id] ? `${pcts[s.id]} %` : '—'}</span>}
                 </td>
               </tr>
             ))}
@@ -412,10 +415,7 @@ function DissidioTab() {
 export default function PostosRegrasPage() {
   const [aba, setAba] = useState<Aba>('verbas')
   const cap = useCapacidades()
-
-  if (!cap.loading && !cap.can('estrutura')) {
-    return <div style={S.page}><h1 style={S.title}>Estrutura de Postos</h1><p style={S.subtitle}>Você não tem permissão para editar a estrutura (capacidade «estrutura»).</p></div>
-  }
+  const editavel = cap.can('estrutura')   // sem a capacidade: vê os catálogos em leitura, não edita
 
   const TABS: { id: Aba; label: string }[] = [
     { id: 'verbas',     label: 'Verbas / regras' },
@@ -428,7 +428,8 @@ export default function PostosRegrasPage() {
     <div style={S.page}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={S.title}>Estrutura de Postos <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)' }}>· regras de cálculo da folha</span></h1>
+          <h1 style={S.title}>Estrutura de Postos <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)' }}>· regras de cálculo da folha</span>
+            {!cap.loading && !editavel && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--orange)', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.30)', borderRadius: 99, padding: '2px 8px', marginLeft: 8, verticalAlign: 'middle' }}>somente leitura</span>}</h1>
           <p style={S.subtitle}>Catálogos que o motor usa ao orçar por posto: rubricas (verbas), cargos, sindicatos e o dissídio por versão.</p>
         </div>
         <PostosPills />
@@ -438,10 +439,10 @@ export default function PostosRegrasPage() {
         {TABS.map(t => <button key={t.id} style={S.tab(aba === t.id)} onClick={() => setAba(t.id)}>{t.label}</button>)}
       </div>
 
-      {aba === 'verbas'     && <VerbasTab />}
-      {aba === 'cargos'     && <CargosTab />}
-      {aba === 'sindicatos' && <SindicatosTab />}
-      {aba === 'dissidio'   && <DissidioTab />}
+      {aba === 'verbas'     && <VerbasTab editavel={editavel} />}
+      {aba === 'cargos'     && <CargosTab editavel={editavel} />}
+      {aba === 'sindicatos' && <SindicatosTab editavel={editavel} />}
+      {aba === 'dissidio'   && <DissidioTab editavel={editavel} />}
     </div>
   )
 }

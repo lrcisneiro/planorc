@@ -5,8 +5,9 @@ import { PostosPills } from './PostosPills'
 import { usePostoCtx } from '../../lib/postoCtx'
 import { pageAll } from '../../lib/pageAll'
 import { useUserAccess } from '../../hooks/useUserAccess'
+import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
-import { Upload, CheckCircle2, AlertCircle, ChevronDown, ChevronRight, Search, X } from 'lucide-react'
+import { Upload, CheckCircle2, AlertCircle, ChevronDown, ChevronRight, Search, X, FileDown } from 'lucide-react'
 
 // Folha realizada (F5.2, pill 3) — importa fat_folha do folha_realizada.csv e lista
 // o realizado da FOLHA por posto/competência. Base da conciliação Orçado × Realizado.
@@ -34,6 +35,16 @@ function parseCsv(text: string): Row[] {
   const hdr = pl(linhas[0]).map(h => h.trim())
   return linhas.slice(1).map(l => { const f = pl(l); const o: Row = {}; hdr.forEach((h, i) => o[h] = (f[i] ?? '').trim()); return o })
 }
+// colunas esperadas no arquivo (saída do converter_folha_realizada.py) + 1 linha de exemplo
+const COLS_FOLHA = ['ano', 'mes', 'empresa', 'filial', 'cc', 'matricula', 'nome', 'verba_cod', 'verba_desc', 'tipo_verba', 'valor', 'conta_deb', 'conta_cred', 'item_orc', 'item_orc_desc', 'competencia']
+const EXEMPLO_FOLHA = ['2027', '1', '01', '2102', '214', '000003', 'FULANO DE TAL', '001', 'SALARIO', 'Provento', '4470.00', '41011001', '21012001', '20101', 'SALARIOS', '202701']
+function baixarModeloFolha() {
+  const ws = XLSX.utils.aoa_to_sheet([COLS_FOLHA, EXEMPLO_FOLHA])
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'folha')
+  XLSX.writeFile(wb, 'modelo_folha_realizada.xlsx')
+}
+
 function parseXlsxRows(file: File): Promise<Row[]> {
   return new Promise((res, rej) => { const r = new FileReader()
     r.onload = e => { try { const wb = XLSX.read(e.target?.result, { type: 'binary' }); res(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }) as Row[]) } catch (err) { rej(err) } }
@@ -67,11 +78,12 @@ const S: Record<string, CSSProperties> = {
   empty: { padding: '40px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 },
 }
 
-type FolhaRow = { posto_id: string | null; matricula: string; nome: string; empresa_id: string; cc_id: string | null; verba_cod: string; verba_desc: string; tipo_verba: string; valor: number }
+type FolhaRow = { posto_id: string | null; matricula: string; nome: string; empresa_id: string; filial_id: string | null; cc_id: string | null; verba_cod: string; verba_desc: string; tipo_verba: string; valor: number }
 
 export default function FolhaRealizadaPage() {
   const acesso = useUserAccess()
-  const editavel = !acesso.loading
+  const cap = useCapacidades()
+  const editavel = cap.can('orcar')   // importar folha = ação de escrita (mesma capacidade do quadro/rateio)
   const fileRef = useRef<HTMLInputElement>(null)
   const [empresas, setEmpresas] = useState<any[]>([])
   const [filiais, setFiliais] = useState<any[]>([])
@@ -86,6 +98,7 @@ export default function FolhaRealizadaPage() {
   const [divisaoSel, setDivisaoSel] = usePostoCtx('divisaoSel', [])
   const [buSel, setBuSel] = usePostoCtx('buSel', [])
   const [aberto, setAberto] = useState<Set<string>>(new Set())
+  const [postoDim, setPostoDim] = useState<Map<string, { empresa_id: string; filial_id: string | null; cc_id: string | null }>>(new Map())
   const [busca, setBusca] = useState('')
   const [importando, setImportando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -106,13 +119,17 @@ export default function FolhaRealizadaPage() {
         supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
       ])
       setEmpresas(e.data || []); setFiliais(f.data || []); setCcs(c.data || [])
+      // dims do POSTO (cadastro) — para o cabeçalho aglutinado usar a empresa/CC do
+      // posto, não a da 1ª linha da folha (que pode ser de outra empresa/CC no detalhe).
+      const pd = await pageAll(() => supabase.from('posto').select('id,empresa_id,filial_id,cc_id'))
+      setPostoDim(new Map(pd.map((p: any) => [p.id, { empresa_id: p.empresa_id, filial_id: p.filial_id, cc_id: p.cc_id }])))
     })()
     loadComps()
   }, [])
   useEffect(() => {
     if (!compSel) { setRows([]); return }
     const [a, m] = compSel.split('-').map(Number)
-    pageAll(() => supabase.from('fat_folha').select('posto_id,matricula,nome,empresa_id,cc_id,verba_cod,verba_desc,tipo_verba,valor').eq('tipo', 'REALIZADO').eq('ano', a).eq('mes', m))
+    pageAll(() => supabase.from('fat_folha').select('posto_id,matricula,nome,empresa_id,filial_id,cc_id,verba_cod,verba_desc,tipo_verba,valor').eq('tipo', 'REALIZADO').eq('ano', a).eq('mes', m))
       .then(data => setRows(data.map((r: any) => ({ ...r, valor: Number(r.valor) || 0 }))))
       .catch(e => setErro('Erro ao carregar a folha: ' + (e?.message || e)))
   }, [compSel, info])
@@ -127,14 +144,15 @@ export default function FolhaRealizadaPage() {
   }, [rows, busca, empresaSel, ccSel, areaSel, divisaoSel, buSel, empresas, ccs, acesso.loading]) // eslint-disable-line
 
   const empById = useMemo(() => new Map(empresas.map(e => [e.id, e])), [empresas])
+  const filById = useMemo(() => new Map(filiais.map(f => [f.id, f])), [filiais])
   const ccById = useMemo(() => new Map(ccs.map(c => [c.id, c])), [ccs])
 
   // agrupa por posto (matrícula quando não resolveu)
   const grupos = useMemo(() => {
-    const m = new Map<string, { key: string; nome: string; matricula: string; empresa_id: string; cc_id: string | null; prov: number; desc: number; verbas: FolhaRow[] }>()
+    const m = new Map<string, { key: string; nome: string; matricula: string; empresa_id: string; filial_id: string | null; cc_id: string | null; prov: number; desc: number; verbas: FolhaRow[] }>()
     for (const r of filtrados) {
       const k = r.posto_id || `mat:${r.matricula}`
-      if (!m.has(k)) m.set(k, { key: k, nome: r.nome, matricula: r.matricula, empresa_id: r.empresa_id, cc_id: r.cc_id, prov: 0, desc: 0, verbas: [] })
+      if (!m.has(k)) m.set(k, { key: k, nome: r.nome, matricula: r.matricula, empresa_id: r.empresa_id, filial_id: r.filial_id, cc_id: r.cc_id, prov: 0, desc: 0, verbas: [] })
       const g = m.get(k)!
       if ((r.tipo_verba || '').startsWith('Desconto')) g.desc += r.valor; else g.prov += r.valor
       g.verbas.push(r)
@@ -240,6 +258,7 @@ export default function FolhaRealizadaPage() {
           </div>
         </div>
         <div style={{ flex: 1 }} />
+        <button style={S.btn} onClick={baixarModeloFolha} title="Baixar planilha modelo (cabeçalhos esperados + 1 exemplo)"><FileDown size={14} /> Modelo</button>
         {editavel && <button style={S.btn} disabled={importando} onClick={() => fileRef.current?.click()}><Upload size={14} /> {importando ? 'Importando…' : 'Importar folha (CSV)'}</button>}
         <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = '' }} />
       </div>
@@ -269,7 +288,7 @@ export default function FolhaRealizadaPage() {
         <div style={{ maxHeight: 640, overflow: 'auto' }}>
           <table style={S.table}>
             <thead><tr>
-              <th style={S.th}>Posto / matrícula</th><th style={S.th}>Ocupante</th><th style={S.th}>Empresa · CC</th>
+              <th style={S.th}>Posto / matrícula</th><th style={S.th}>Ocupante</th><th style={S.th}>Empresa · Filial · CC</th>
               <th style={{ ...S.th, textAlign: 'right' }}>Proventos</th><th style={{ ...S.th, textAlign: 'right' }}>Descontos</th><th style={{ ...S.th, textAlign: 'right' }}>Líquido</th>
             </tr></thead>
             <tbody>
@@ -280,15 +299,23 @@ export default function FolhaRealizadaPage() {
                     <tr style={{ cursor: 'pointer' }} onClick={() => setAberto(s => { const n = new Set(s); n.has(g.key) ? n.delete(g.key) : n.add(g.key); return n })}>
                       <td style={{ ...S.td, fontFamily: 'monospace', color: 'var(--muted)' }}>{open ? <ChevronDown size={12} style={{ verticalAlign: -2 }} /> : <ChevronRight size={12} style={{ verticalAlign: -2 }} />} {g.matricula}{!g.key.startsWith('mat:') ? '' : ' (sem posto)'}</td>
                       <td style={S.td}>{g.nome || '—'}</td>
-                      <td style={{ ...S.td, color: 'var(--muted)' }}>{empById.get(g.empresa_id)?.codigo || '—'} · {ccById.get(g.cc_id || '')?.codigo || '—'}</td>
+                      {(() => {
+                        // empresa/filial/CC DO POSTO (cadastro); "sem posto" cai na 1ª linha da folha
+                        const pd = g.key.startsWith('mat:') ? null : postoDim.get(g.key)
+                        const empId = pd?.empresa_id ?? g.empresa_id, filId = pd?.filial_id ?? g.filial_id, ccId = pd?.cc_id ?? g.cc_id
+                        return <td style={{ ...S.td, color: 'var(--muted)' }}>{empById.get(empId)?.codigo || '—'} · {filById.get(filId || '')?.codigo || '—'} · {ccById.get(ccId || '')?.codigo || '—'}</td>
+                      })()}
                       <td style={{ ...S.td, textAlign: 'right' }}>{money(g.prov)}</td>
                       <td style={{ ...S.td, textAlign: 'right', color: 'var(--muted)' }}>{money(g.desc)}</td>
                       <td style={{ ...S.td, textAlign: 'right', fontWeight: 600 }}>{money(g.prov - g.desc)}</td>
                     </tr>
                     {open && g.verbas.map((v, i) => (
                       <tr key={g.key + i}>
-                        <td style={S.sub2} colSpan={2}><span style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{v.verba_cod}</span> {v.verba_desc}</td>
-                        <td style={{ ...S.td, fontSize: 11.5, color: 'var(--muted)' }}>{v.tipo_verba}</td>
+                        <td style={S.sub2} colSpan={2}>
+                          <span style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{v.verba_cod}</span> {v.verba_desc}
+                          {v.tipo_verba && <span style={{ marginLeft: 8, fontSize: 10.5, color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 4, padding: '0 5px' }}>{v.tipo_verba}</span>}
+                        </td>
+                        <td style={{ ...S.td, fontSize: 12, color: 'var(--muted)' }}>{empById.get(v.empresa_id)?.codigo || '—'} · {filById.get(v.filial_id || '')?.codigo || '—'} · {ccById.get(v.cc_id || '')?.codigo || '—'}</td>
                         <td style={{ ...S.td, textAlign: 'right', color: 'var(--muted)' }} colSpan={3}>{money(v.valor)}</td>
                       </tr>
                     ))}
