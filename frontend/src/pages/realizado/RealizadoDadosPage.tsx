@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { pageAll } from '../../lib/pageAll'
+import { fimDoMes, taxaRealizada, materializa } from '../../lib/cambio'
 import { Upload, Download, FileDown, AlertCircle, RefreshCw, Trash2, X, Filter } from 'lucide-react'
 import { useGrid, GridHead } from '../../lib/grid'
 import type { GCol } from '../../lib/grid'
@@ -150,6 +152,9 @@ export default function RealizadoDadosPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [modo, setModo] = useState<'add' | 'full'>('add')
+  const [moedaArq, setMoedaArq] = useState<number>(1)          // slot da moeda do arquivo
+  const [moedas, setMoedas] = useState<any[]>([])              // slots ativos
+  useEffect(() => { supabase.from('moeda').select('slot,codigo').eq('ativo', true).order('slot').then(r => setMoedas(r.data || [])) }, [])
   const [importOpen, setImportOpen] = useState(false)
   const [dropFiles, setDropFiles] = useState<File[]>([])
   const [dragOver, setDragOver] = useState(false)
@@ -309,6 +314,18 @@ export default function RealizadoDadosPage() {
       const ccMap: Record<string, string> = {}; (cc || []).forEach((c: any) => { ccMap[norm(c.codigo)] = c.id })
       const empSelCod = empresas.find(e => e.id === empresaId)?.codigo || ''
 
+      // MULTIMOEDA: materializa val_m1(=valor)/val_m2/val_m3 na moeda do arquivo, pela
+      // taxa REAL da DATA do lançamento (diária, carry-forward). Slot 1 = base (BRL).
+      const cambio = await pageAll(() => supabase.from('cambio').select('moeda_slot,data,taxa'))
+      const slotsAtivos = (moedas.length ? moedas.map((m: any) => m.slot) : [1]) as number[]
+      const conv = (valor: number, ano: number, mes: number, dataISO: string | null): { valor: number; val_m2: number | null; val_m3: number | null } | null => {
+        if (moedaArq === 1 && slotsAtivos.every(s => s === 1)) return { valor, val_m2: null, val_m3: null }
+        const data = dataISO || fimDoMes(ano, mes)
+        const { vals } = materializa(valor, moedaArq, slotsAtivos, (slot) => taxaRealizada(slot, data, cambio))
+        if (vals[1] == null) return null
+        return { valor: vals[1] as number, val_m2: vals[2] ?? null, val_m3: vals[3] ?? null }
+      }
+
       // lotes marcados para NÃO importar (pular_import). Casa por lote + sublote opcional + empresa opcional.
       const { data: lotesPular } = await supabase.from('lote_ignorado').select('lote,sublote,empresa_id,por_prefixo,ativo,pular_import').eq('pular_import', true)
       const pularRegras = (lotesPular || []) as { lote: string; sublote: string | null; empresa_id: string | null; por_prefixo: boolean }[]
@@ -354,6 +371,8 @@ export default function RealizadoDadosPage() {
           // CC é obrigatório em conta de receita/despesa → detecta os que faltam
           if (!cc_id && ccObrig(conta_id)) { const k = ccCod || '(sem CC)'; ccFaltando.set(k, (ccFaltando.get(k) || 0) + 1) }
           const valor = +(cre - deb).toFixed(2)
+          const cv = conv(valor, comp.ano, comp.mes, comp.dataISO || null)
+          if (!cv) { ign++; addIgn('sem cotação de câmbio da data'); continue }
           inserts.push({
             tenant_id: TENANT_ID, linha_id: null, conta_id, empresa_id,
             filial_id: filCod ? (filMap[norm(filCod)] || null) : null,
@@ -363,7 +382,8 @@ export default function RealizadoDadosPage() {
             historico: txt(r, 'historico', 'Histórico', 'HISTORICO') || null,
             debito: deb || null, credito: cre || null, dc: cre >= deb ? 'C' : 'D',
             lote: lote || null, sublote: sublote || null,
-            valor, dims: (ccCod && !cc_id) ? { cc_orig: ccCod } : {}, origem: 'IMPORT',
+            valor: cv.valor, moeda_origem: moedaArq, val_m2: cv.val_m2, val_m3: cv.val_m3,
+            dims: (ccCod && !cc_id) ? { cc_orig: ccCod } : {}, origem: 'IMPORT',
           })
           const ck = `${comp.ano}-${comp.mes}`; (comboEmp[ck] ||= new Set()).add(empresa_id)
         }
@@ -568,6 +588,11 @@ export default function RealizadoDadosPage() {
                 <option value="add">Adicionar</option>
                 <option value="full">Substituir (escopo do arquivo)</option>
               </select>
+              {moedas.length > 1 && <><label style={{ fontSize: 12, color: 'var(--muted)' }}>Moeda:</label>
+                <select style={S.sel} value={moedaArq} onChange={e => setMoedaArq(Number(e.target.value))} disabled={impBusy}
+                  title="Moeda em que os valores deste arquivo estão. Converte para os demais slots pela taxa real da data do lançamento.">
+                  {moedas.map((m: any) => <option key={m.slot} value={m.slot}>{m.codigo}</option>)}
+                </select></>}
               <button style={S.btn} onClick={() => downloadSheet('modelo_realizado.xlsx', [HEADERS, ...EXEMPLO])}><Download size={13} /> Baixar modelo</button>
             </div>
 

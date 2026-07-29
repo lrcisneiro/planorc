@@ -6,6 +6,7 @@ import { usePostoCtx } from '../../lib/postoCtx'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
 import { cascataRateio } from '../../lib/rateioFolha'
+import { fimDoMes, taxaRealizada, materializa } from '../../lib/cambio'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
@@ -105,9 +106,11 @@ export default function FolhaRealizadaPage() {
   const [postoDim, setPostoDim] = useState<Map<string, { codigo: string; nome: string | null; empresa_id: string; filial_id: string | null; cc_id: string | null }>>(new Map())
   const [busca, setBusca] = useState('')
   const [modoImport, setModoImport] = useLocalPref<'full' | 'incremental'>('planorc_folha_modo_import', 'full')
+  const [moedaArq, setMoedaArq] = useLocalPref<number>('planorc_folha_moeda_arq', 1)   // slot da moeda do arquivo
+  const [moedas, setMoedas] = useState<any[]>([])   // slots ativos (p/ o seletor de moeda)
   const [importando, setImportando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [info, setInfo] = useState<{ gravados: number; postos: number; semPosto: number; semConta: number; semItem: number; semItemDrop: number; semEmpresa: string[]; errosPosto: string[]; incoerentes: string[]; rateadas: number; modo: 'full' | 'incremental'; comp: string } | null>(null)
+  const [info, setInfo] = useState<{ gravados: number; postos: number; semPosto: number; semConta: number; semItem: number; semItemDrop: number; semEmpresa: string[]; errosPosto: string[]; incoerentes: string[]; rateadas: number; semTaxa: number; modo: 'full' | 'incremental'; comp: string } | null>(null)
 
   const loadComps = async () => {
     // pagina: sem isto, uma competência grande enche as 1000 primeiras linhas e as
@@ -124,6 +127,7 @@ export default function FolhaRealizadaPage() {
         supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
       ])
       setEmpresas(e.data || []); setFiliais(f.data || []); setCcs(c.data || [])
+      supabase.from('moeda').select('slot,codigo').eq('ativo', true).order('slot').then(r => setMoedas(r.data || []))
       // dims do POSTO (cadastro) — para o cabeçalho aglutinado usar a empresa/CC do
       // posto, não a da 1ª linha da folha (que pode ser de outra empresa/CC no detalhe).
       const pd = await pageAll(() => supabase.from('posto').select('id,codigo,nome,empresa_id,filial_id,cc_id'))
@@ -193,6 +197,18 @@ export default function FolhaRealizadaPage() {
       for (const r of pr) (anexosByPosto[r.posto_id] ||= []).push({ regra_id: r.regra_id, ordem: Number(r.ordem) || 1 })
       const destByRegra: Record<string, any[]> = {}
       for (const d of rd) (destByRegra[d.regra_id] ||= []).push({ empresa_id: d.empresa_id, cc_id: d.cc_id, pct: Number(d.pct) || 0 })
+      // MULTIMOEDA: cotações reais + slots ativos → materializa val_m1(=valor)/val_m2/val_m3
+      // na moeda do arquivo (moedaArq). Slot 1 = base; linha em moeda estrangeira SEM
+      // cotação do mês não tem base → é pulada e reportada (semTaxa).
+      const cambio = await pageAll(() => supabase.from('cambio').select('moeda_slot,data,taxa'))
+      const slotsAtivos = (moedas.length ? moedas.map((m: any) => m.slot) : [1]) as number[]
+      const conv = (valor: number, ano: number, mes: number): { valor: number; val_m2: number | null; val_m3: number | null } | null => {
+        if (moedaArq === 1 && slotsAtivos.every(s => s === 1)) return { valor, val_m2: null, val_m3: null }
+        const { vals } = materializa(valor, moedaArq, slotsAtivos, (slot) => taxaRealizada(slot, fimDoMes(ano, mes), cambio))
+        if (vals[1] == null) return null   // base não computável (origem estrangeira sem cotação)
+        return { valor: vals[1] as number, val_m2: vals[2] ?? null, val_m3: vals[3] ?? null }
+      }
+      let semTaxa = 0
       const ct = await pageAll(() => supabase.from('conta_contabil').select('id,codigo'))
       const contaByCod = new Map(ct.map((c: any) => [String(c.codigo).trim(), c.id]))
       const co = await pageAll(() => supabase.from('conta_orcamentaria').select('id,codigo'))
@@ -257,14 +273,20 @@ export default function FolhaRealizadaPage() {
         }
         const valorNum = num(r.valor)
         const filId = fil ? fil.id : (po?.filial_id || null)
+        // materializa a linha nos slots de moeda (na moeda do arquivo). Sem base → pula.
+        const pushConv = (empresa: any, filial: any, cc: any, valor: number) => {
+          const cv = conv(valor, ano, mes)
+          if (!cv) { semTaxa++; return }
+          payload.push({ ...baseRow, empresa_id: empresa, filial_id: filial, cc_id: cc, moeda_origem: moedaArq, valor: cv.valor, val_m2: cv.val_m2, val_m3: cv.val_m3 })
+        }
         // rateio=S → MATERIALIZA: expande a linha nos destinos do rateio do posto (valor × pct);
         // branco/N → entra como veio (o realizado do ERP já vem rateado via ITEM_CONTABIL).
         if ((r.rateio || '').trim().toUpperCase() === 'S' && po) {
           const cells = cascataRateio({ empresa_id: po.empresa_id || null, cc_id: po.cc_id || null }, anexosByPosto[po.id] || [], rr, destByRegra).cells
-          for (const c of cells) payload.push({ ...baseRow, empresa_id: c.empresa_id, filial_id: filId, cc_id: c.cc_id, valor: valorNum * c.pct })
+          for (const c of cells) pushConv(c.empresa_id, filId, c.cc_id, valorNum * c.pct)
           rateadas++
         } else {
-          payload.push({ ...baseRow, empresa_id, filial_id: filId, cc_id, valor: valorNum })
+          pushConv(empresa_id, filId, cc_id, valorNum)
         }
       }
       if (!payload.length) { setErro('Nenhuma linha válida (confira o cabeçalho: ano,mes,empresa,filial,cc,matricula,...).'); return }
@@ -276,7 +298,7 @@ export default function FolhaRealizadaPage() {
       for (let i = 0; i < payload.length; i += 500) { const { error } = await supabase.from('fat_folha').insert(payload.slice(i, i + 500)); if (error) { setErro('Erro ao gravar (parcial): ' + error.message); return } }
       const compLabel = [...comps].map(c => { const [a, m] = c.split('|'); return `${MESES[+m - 1]}/${a}` }).join(', ')
       const postosDistintos = new Set(payload.filter(p => p.posto_id).map(p => p.posto_id)).size
-      setInfo({ gravados: payload.length, postos: postosDistintos, semPosto, semConta, semItem, semItemDrop, semEmpresa: [...semEmpresa], errosPosto, incoerentes: [...incoerentes], rateadas, modo: modoImport, comp: compLabel })
+      setInfo({ gravados: payload.length, postos: postosDistintos, semPosto, semConta, semItem, semItemDrop, semEmpresa: [...semEmpresa], errosPosto, incoerentes: [...incoerentes], rateadas, semTaxa, modo: modoImport, comp: compLabel })
       loadComps()
     } catch (e: any) { setErro('Erro ao ler o arquivo: ' + (e?.message || e)) }
     finally { setImportando(false) }
@@ -314,6 +336,10 @@ export default function FolhaRealizadaPage() {
         </div>
         <div style={{ flex: 1 }} />
         <button style={S.btn} onClick={baixarModeloFolha} title="Baixar planilha modelo (cabeçalhos esperados + 1 exemplo)"><FileDown size={14} /> Modelo</button>
+        {editavel && moedas.length > 1 && <select style={S.sel} value={moedaArq} onChange={e => setMoedaArq(Number(e.target.value))}
+          title="Moeda em que os valores DESTE arquivo estão. Converte para os demais slots na importação (câmbio real da competência).">
+          {moedas.map((m: any) => <option key={m.slot} value={m.slot}>Moeda: {m.codigo}</option>)}
+        </select>}
         {editavel && <select style={S.sel} value={modoImport} onChange={e => setModoImport(e.target.value as any)}
           title="Full: apaga o realizado da competência e recarrega. Incremental: só adiciona (empilha o confidencial sobre o export do ERP).">
           <option value="full">Substituir competência (full)</option>
@@ -335,6 +361,7 @@ export default function FolhaRealizadaPage() {
             {info.errosPosto.length > 0 && <div style={{ color: 'var(--red)' }}>⚠ {info.errosPosto.length} linha(s) rejeitada(s) por posto_codigo inválido: {info.errosPosto.slice(0, 8).join(' · ')}{info.errosPosto.length > 8 ? '…' : ''}</div>}
             {info.incoerentes.length > 0 && <div style={{ color: 'var(--orange)' }}>posto_codigo com empresa/filial diferente do cadastro (ok se for redirect/rateio): <b>{info.incoerentes.slice(0, 12).join(', ')}</b>{info.incoerentes.length > 12 ? '…' : ''}</div>}
             {info.rateadas > 0 && <div style={{ color: 'var(--muted)' }}>{info.rateadas} linha(s) com <b>rateio=S</b> expandidas nos destinos do rateio do posto (materializadas no fat_folha).</div>}
+            {info.semTaxa > 0 && <div style={{ color: 'var(--orange)' }}>{info.semTaxa} linha(s) puladas por falta de cotação de câmbio da competência — cadastre a taxa em <b>Cadastros → Câmbio</b> e reimporte.</div>}
           </div>
         </div>
       )}

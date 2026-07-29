@@ -9,7 +9,7 @@ import type { GCol } from '../../lib/grid'
 declare const XLSX: any
 import { Plus, Trash2, Check, X, Upload, AlertCircle, Download, FileDown, Pencil, Copy, Link2 } from 'lucide-react'
 
-type Aba = 'empresas' | 'filiais' | 'cc' | 'planos' | 'contas' | 'estrutura' | 'funcionarios' | 'verbas' | 'versoes' | 'lotes'
+type Aba = 'empresas' | 'filiais' | 'cc' | 'planos' | 'contas' | 'estrutura' | 'funcionarios' | 'verbas' | 'versoes' | 'lotes' | 'moedas' | 'cambio' | 'taxaorcada'
 
 // ─── Styles ──────────────────────────────────────────────────
 const S = {
@@ -266,6 +266,7 @@ function Toolbar({ modelo, onImport, onExport, onAdd, busca, onBusca, total, mos
 function EmpresasTab() {
   const [data, setData] = useState<any[]>([])
   const [planos, setPlanos] = useState<any[]>([])
+  const [moedas, setMoedas] = useState<any[]>([])
   const [adding, setAdding] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
@@ -278,8 +279,10 @@ function EmpresasTab() {
     { key: 'codigo', placeholder: 'Código' },
     { key: 'descricao', placeholder: 'Descrição' },
     { key: 'plano_id', placeholder: 'Plano de contas (ERP)', type: 'select' as const, options: planos.map(p => ({ value: p.id, label: `${p.codigo} · ${p.nome}` })) },
+    { key: 'moeda_slot', placeholder: 'Moeda funcional', type: 'select' as const, options: moedas.map(m => ({ value: String(m.slot), label: `${m.slot} · ${m.codigo}` })) },
   ]
   const planoCod = (id: string) => planos.find(p => p.id === id)?.codigo || ''
+  const moedaCod = (slot: number) => moedas.find(m => m.slot === slot)?.codigo || `slot ${slot}`
 
   const load = async () => {
     try { setData(await fetchAll(() => supabase.from('empresa').select('*').order('codigo'))) }
@@ -288,12 +291,14 @@ function EmpresasTab() {
   useEffect(() => {
     load()
     fetchAll(() => supabase.from('plano_contas').select('id,codigo,nome').order('codigo')).then(setPlanos)
+    fetchAll(() => supabase.from('moeda').select('slot,codigo').eq('ativo', true).order('slot')).then(setMoedas)
   }, [])
   const filtered = filtraBusca(data, busca, e => `${e.codigo} ${e.descricao} ${planoCod(e.plano_id)} ${e.ativo ? 'ativo' : 'inativo'}`)
   const GRID: GCol[] = [
     { key: 'codigo', label: 'Código' },
     { key: 'descricao', label: 'Descrição' },
     { key: 'plano', label: 'Plano (ERP)', get: e => planoCod(e.plano_id) },
+    { key: 'moeda', label: 'Moeda', get: e => moedaCod(e.moeda_slot ?? 1) },
     { key: 'ativo', label: 'Status', get: e => e.ativo ? 'Ativo' : 'Inativo' },
   ]
   const grid = useGrid(filtered, GRID)
@@ -301,7 +306,7 @@ function EmpresasTab() {
   const save = async (v: Record<string, string>, id?: string) => {
     if (!v.codigo || !v.descricao) { setErro('Código e descrição são obrigatórios'); return }
     setErro(null)
-    const payload = { codigo: v.codigo.trim(), descricao: v.descricao.trim(), plano_id: v.plano_id || null }
+    const payload = { codigo: v.codigo.trim(), descricao: v.descricao.trim(), plano_id: v.plano_id || null, moeda_slot: v.moeda_slot ? Number(v.moeda_slot) : 1 }
     const { error } = id
       ? await supabase.from('empresa').update(payload).eq('id', id)
       : await supabase.from('empresa').insert({ tenant_id: TENANT_ID, ...payload, ativo: true })
@@ -356,14 +361,15 @@ function EmpresasTab() {
         <GridHead cols={GRID} grid={grid} thStyle={S.th} />
         <tbody>
           {adding && <AddRow cols={COLS} onSave={save} onCancel={() => setAdding(false)} />}
-          {grid.rows.length === 0 && !adding && <tr><td colSpan={5} style={S.empty}>{busca || grid.filtrosOn ? 'Nenhum resultado.' : <>Nenhuma empresa cadastrada.<br /><small>Use "Baixar modelo" e depois "Importar Excel".</small></>}</td></tr>}
+          {grid.rows.length === 0 && !adding && <tr><td colSpan={6} style={S.empty}>{busca || grid.filtrosOn ? 'Nenhum resultado.' : <>Nenhuma empresa cadastrada.<br /><small>Use "Baixar modelo" e depois "Importar Excel".</small></>}</td></tr>}
           {grid.rows.map(e => editId === e.id ? (
-            <AddRow key={e.id} cols={COLS} initial={{ codigo: e.codigo, descricao: e.descricao, plano_id: e.plano_id || '' }} onSave={v => save(v, e.id)} onCancel={() => setEditId(null)} />
+            <AddRow key={e.id} cols={COLS} initial={{ codigo: e.codigo, descricao: e.descricao, plano_id: e.plano_id || '', moeda_slot: String(e.moeda_slot ?? 1) }} onSave={v => save(v, e.id)} onCancel={() => setEditId(null)} />
           ) : (
             <tr key={e.id}>
               <td style={S.tdMono}>{e.codigo}</td>
               <td style={S.td}>{e.descricao}</td>
               <td style={{ ...S.td, color: 'var(--muted)' }}>{planoCod(e.plano_id) || '—'}</td>
+              <td style={{ ...S.td, color: 'var(--muted)' }}>{moedaCod(e.moeda_slot ?? 1)}</td>
               <td style={S.td}><span style={S.badge(e.ativo)}>{e.ativo ? 'Ativo' : 'Inativo'}</span></td>
               <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
                 <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(e.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
@@ -1711,7 +1717,199 @@ const ABAS: { id: Aba; label: string }[] = [
   { id: 'verbas',       label: 'Verbas' },
   { id: 'versoes',      label: 'Versões/Cenários' },
   { id: 'lotes',        label: 'Lotes Ignorados' },
+  { id: 'moedas',       label: 'Moedas' },
+  { id: 'cambio',       label: 'Câmbio' },
+  { id: 'taxaorcada',   label: 'Taxa orçada' },
 ]
+
+// ─── MoedaTab (slots de moeda: M1=base) ─────────────────────
+function MoedaTab() {
+  const [data, setData] = useState<any[]>([])
+  const [adding, setAdding] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const load = async () => { try { setData(await fetchAll(() => supabase.from('moeda').select('*').order('slot'))) } catch (e: any) { setErro(String(e)) } }
+  useEffect(() => { load() }, [])
+  const COLS = [
+    { key: 'slot', placeholder: 'Slot (1 = base)' },
+    { key: 'codigo', placeholder: 'Ex: USD' },
+    { key: 'nome', placeholder: 'Ex: Dólar' },
+    { key: 'simbolo', placeholder: 'Ex: US$' },
+  ]
+  const save = async (v: Record<string, string>, id?: string) => {
+    if (!v.slot || !v.codigo || !v.nome) { setErro('Slot, código e nome são obrigatórios'); return }
+    setErro(null)
+    const payload = { slot: Number(v.slot), codigo: v.codigo.trim().toUpperCase(), nome: v.nome.trim(), simbolo: v.simbolo?.trim() || null }
+    const { error } = id ? await supabase.from('moeda').update(payload).eq('id', id)
+      : await supabase.from('moeda').insert({ tenant_id: TENANT_ID, ...payload, ativo: true })
+    if (error) { setErro(error.message); return }
+    setAdding(false); setEditId(null); load()
+  }
+  const toggleAtivo = async (m: any) => { await supabase.from('moeda').update({ ativo: !m.ativo }).eq('id', m.id); load() }
+  const del = async (id: string) => { if (!confirm('Excluir moeda?')) return; const { error } = await supabase.from('moeda').delete().eq('id', id); if (error) setErro(error.message); else load() }
+  return (
+    <div style={S.card}>
+      <Toolbar onAdd={() => { setAdding(true); setErro(null) }} total={data.length} />
+      <div style={{ fontSize: 12, color: 'var(--muted)', padding: '4px 16px 10px' }}>Slot <b>1</b> é a moeda-base (reporting) — nunca converte. Cotações e taxas orçadas são cadastradas para os slots ≥ 2.</div>
+      {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
+      <table style={S.table}>
+        <thead><tr><th style={S.th}>Slot</th><th style={S.th}>Código</th><th style={S.th}>Nome</th><th style={S.th}>Símbolo</th><th style={S.th}>Ativo</th><th style={S.th}></th></tr></thead>
+        <tbody>
+          {adding && <AddRow cols={COLS} onSave={save} onCancel={() => setAdding(false)} />}
+          {data.map(m => editId === m.id ? (
+            <AddRow key={m.id} cols={COLS} initial={{ slot: String(m.slot), codigo: m.codigo, nome: m.nome, simbolo: m.simbolo ?? '' }} onSave={vv => save(vv, m.id)} onCancel={() => setEditId(null)} />
+          ) : (
+            <tr key={m.id}>
+              <td style={S.tdMono}>{m.slot}{m.slot === 1 ? ' · base' : ''}</td>
+              <td style={S.tdMono}>{m.codigo}</td>
+              <td style={S.td}>{m.nome}</td>
+              <td style={S.td}>{m.simbolo || '—'}</td>
+              <td style={S.td}><button style={{ ...S.btnDel, color: m.ativo ? 'var(--green)' : 'var(--border-strong)', fontSize: 12 }} title="Ativar/desativar" onClick={() => toggleAtivo(m)}>{m.ativo ? 'ativo' : 'inativo'}</button></td>
+              <td style={{ ...S.td, whiteSpace: 'nowrap' }}>
+                <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(m.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
+                <button style={S.btnDel} title="Excluir" onClick={() => del(m.id)}><Trash2 size={14} /></button>
+              </td>
+            </tr>
+          ))}
+          {!data.length && !adding && <tr><td colSpan={6} style={S.empty}>Nenhuma moeda. BRL e USD já vêm no seed da migration.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ─── CambioTab (cotação REAL diária vs base) ────────────────
+function CambioTab() {
+  const [data, setData] = useState<any[]>([])
+  const [moedas, setMoedas] = useState<any[]>([])
+  const [adding, setAdding] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const [busca, setBusca] = useState('')
+  const codBySlot = (s: number) => moedas.find(m => m.slot === s)?.codigo || `slot ${s}`
+  const load = async () => {
+    try {
+      setMoedas(await fetchAll(() => supabase.from('moeda').select('slot,codigo').order('slot')))
+      setData(await fetchAll(() => supabase.from('cambio').select('*').order('data', { ascending: false }).order('moeda_slot')))
+    } catch (e: any) { setErro(String(e)) }
+  }
+  useEffect(() => { load() }, [])
+  const slotOpts = moedas.filter(m => m.slot > 1).map(m => ({ value: String(m.slot), label: `${m.slot} · ${m.codigo}` }))
+  const COLS = [
+    { key: 'data', placeholder: 'AAAA-MM-DD' },
+    { key: 'moeda_slot', placeholder: 'Moeda', type: 'select' as const, options: slotOpts },
+    { key: 'taxa', placeholder: `Ex: 5.20 (${codBySlot(1)} por 1)` },
+  ]
+  const filtered = filtraBusca(data, busca, r => `${r.data} ${codBySlot(r.moeda_slot)}`)
+  const save = async (v: Record<string, string>, id?: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test((v.data || '').trim())) { setErro('Data no formato AAAA-MM-DD'); return }
+    if (!v.moeda_slot) { setErro('Selecione a moeda'); return }
+    const taxa = parseFloat((v.taxa || '').replace(',', '.')); if (!taxa || isNaN(taxa)) { setErro('Taxa inválida'); return }
+    setErro(null)
+    const payload = { data: v.data.trim(), moeda_slot: Number(v.moeda_slot), taxa }
+    const { error } = id ? await supabase.from('cambio').update(payload).eq('id', id)
+      : await supabase.from('cambio').upsert({ tenant_id: TENANT_ID, ...payload }, { onConflict: 'tenant_id,moeda_slot,data' })
+    if (error) { setErro(error.message); return }
+    setAdding(false); setEditId(null); load()
+  }
+  const del = async (id: string) => { if (!confirm('Excluir cotação?')) return; const { error } = await supabase.from('cambio').delete().eq('id', id); if (error) setErro(error.message); else load() }
+  return (
+    <div style={S.card}>
+      <Toolbar onAdd={() => { setAdding(true); setErro(null) }} busca={busca} onBusca={setBusca} total={data.length} mostrando={filtered.length} />
+      <div style={{ fontSize: 12, color: 'var(--muted)', padding: '4px 16px 10px' }}>Cotação por dia: quantas unidades de <b>{codBySlot(1)}</b> (base) por 1 unidade da moeda. Ao converter, usa a taxa da data do lançamento — ou a última anterior (carry-forward).</div>
+      {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
+      <table style={S.table}>
+        <thead><tr><th style={S.th}>Data</th><th style={S.th}>Moeda</th><th style={S.th}>Taxa (→ {codBySlot(1)})</th><th style={S.th}></th></tr></thead>
+        <tbody>
+          {adding && <AddRow cols={COLS} onSave={save} onCancel={() => setAdding(false)} />}
+          {filtered.map(c => editId === c.id ? (
+            <AddRow key={c.id} cols={COLS} initial={{ data: c.data, moeda_slot: String(c.moeda_slot), taxa: String(c.taxa) }} onSave={vv => save(vv, c.id)} onCancel={() => setEditId(null)} />
+          ) : (
+            <tr key={c.id}>
+              <td style={S.tdMono}>{c.data}</td>
+              <td style={S.td}>{codBySlot(c.moeda_slot)}</td>
+              <td style={S.tdMono}>{Number(c.taxa).toLocaleString('pt-BR', { maximumFractionDigits: 6 })}</td>
+              <td style={{ ...S.td, whiteSpace: 'nowrap' }}>
+                <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(c.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
+                <button style={S.btnDel} title="Excluir" onClick={() => del(c.id)}><Trash2 size={14} /></button>
+              </td>
+            </tr>
+          ))}
+          {!filtered.length && !adding && <tr><td colSpan={4} style={S.empty}>{busca ? 'Nenhum resultado.' : 'Nenhuma cotação. Cadastre a taxa USD→BRL por dia.'}</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ─── TaxaOrcadaTab (taxa por versão: premissa do cenário) ────
+function TaxaOrcadaTab() {
+  const [data, setData] = useState<any[]>([])
+  const [moedas, setMoedas] = useState<any[]>([])
+  const [versoes, setVersoes] = useState<any[]>([])
+  const [adding, setAdding] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const codBySlot = (s: number) => moedas.find(m => m.slot === s)?.codigo || `slot ${s}`
+  const versLabel = (id: string) => { const v = versoes.find(x => x.id === id); return v ? `${v.codigo}` : id }
+  const load = async () => {
+    try {
+      setMoedas(await fetchAll(() => supabase.from('moeda').select('slot,codigo').order('slot')))
+      setVersoes(await fetchAll(() => supabase.from('versao_orcamento').select('id,codigo,descricao').order('codigo')))
+      setData(await fetchAll(() => supabase.from('versao_taxa').select('*').order('versao_id').order('moeda_slot')))
+    } catch (e: any) { setErro(String(e)) }
+  }
+  useEffect(() => { load() }, [])
+  const slotOpts = moedas.filter(m => m.slot > 1).map(m => ({ value: String(m.slot), label: `${m.slot} · ${m.codigo}` }))
+  const versOpts = versoes.map(v => ({ value: v.id, label: `${v.codigo} · ${v.descricao}` }))
+  const COLS = [
+    { key: 'versao_id', placeholder: 'Versão', type: 'select' as const, options: versOpts },
+    { key: 'moeda_slot', placeholder: 'Moeda', type: 'select' as const, options: slotOpts },
+    { key: 'ano', placeholder: 'Ano (vazio = constante)' },
+    { key: 'mes', placeholder: 'Mês (vazio = todos)' },
+    { key: 'taxa', placeholder: 'Ex: 5.10' },
+  ]
+  const save = async (v: Record<string, string>, id?: string) => {
+    if (!v.versao_id || !v.moeda_slot) { setErro('Versão e moeda são obrigatórias'); return }
+    const taxa = parseFloat((v.taxa || '').replace(',', '.')); if (!taxa || isNaN(taxa)) { setErro('Taxa inválida'); return }
+    setErro(null)
+    const payload = { versao_id: v.versao_id, moeda_slot: Number(v.moeda_slot), ano: v.ano ? Number(v.ano) : null, mes: v.mes ? Number(v.mes) : null, taxa }
+    const { error } = id ? await supabase.from('versao_taxa').update(payload).eq('id', id)
+      : await supabase.from('versao_taxa').insert({ tenant_id: TENANT_ID, ...payload })
+    if (error) { setErro(error.message); return }
+    setAdding(false); setEditId(null); load()
+  }
+  const del = async (id: string) => { if (!confirm('Excluir taxa orçada?')) return; const { error } = await supabase.from('versao_taxa').delete().eq('id', id); if (error) setErro(error.message); else load() }
+  return (
+    <div style={S.card}>
+      <Toolbar onAdd={() => { setAdding(true); setErro(null) }} total={data.length} />
+      <div style={{ fontSize: 12, color: 'var(--muted)', padding: '4px 16px 10px' }}>Taxa <b>orçada</b> da versão (premissa do cenário) → usada pelo orçado, separada da taxa real. Ano/mês vazios = taxa constante para a versão.</div>
+      {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
+      <table style={S.table}>
+        <thead><tr><th style={S.th}>Versão</th><th style={S.th}>Moeda</th><th style={S.th}>Ano</th><th style={S.th}>Mês</th><th style={S.th}>Taxa (→ {codBySlot(1)})</th><th style={S.th}></th></tr></thead>
+        <tbody>
+          {adding && <AddRow cols={COLS} onSave={save} onCancel={() => setAdding(false)} />}
+          {data.map(t => editId === t.id ? (
+            <AddRow key={t.id} cols={COLS} initial={{ versao_id: t.versao_id, moeda_slot: String(t.moeda_slot), ano: t.ano ? String(t.ano) : '', mes: t.mes ? String(t.mes) : '', taxa: String(t.taxa) }} onSave={vv => save(vv, t.id)} onCancel={() => setEditId(null)} />
+          ) : (
+            <tr key={t.id}>
+              <td style={S.td}>{versLabel(t.versao_id)}</td>
+              <td style={S.td}>{codBySlot(t.moeda_slot)}</td>
+              <td style={S.td}>{t.ano ?? '—'}</td>
+              <td style={S.td}>{t.mes ?? '—'}</td>
+              <td style={S.tdMono}>{Number(t.taxa).toLocaleString('pt-BR', { maximumFractionDigits: 6 })}</td>
+              <td style={{ ...S.td, whiteSpace: 'nowrap' }}>
+                <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(t.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
+                <button style={S.btnDel} title="Excluir" onClick={() => del(t.id)}><Trash2 size={14} /></button>
+              </td>
+            </tr>
+          ))}
+          {!data.length && !adding && <tr><td colSpan={6} style={S.empty}>Nenhuma taxa orçada. Cadastre a taxa que a versão assume (ex.: 5,10 para 2027).</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  )
+}
 
 export default function CadastrosPage() {
   const [aba, setAba] = useState<Aba>('empresas')
@@ -1737,6 +1935,9 @@ export default function CadastrosPage() {
       {aba === 'verbas'       && <VerbasTab />}
       {aba === 'versoes'      && <VersoesTab />}
       {aba === 'lotes'        && <LotesTab />}
+      {aba === 'moedas'       && <MoedaTab />}
+      {aba === 'cambio'       && <CambioTab />}
+      {aba === 'taxaorcada'   && <TaxaOrcadaTab />}
     </div>
   )
 }
