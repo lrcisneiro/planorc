@@ -1786,7 +1786,38 @@ function CambioTab() {
   const [editId, setEditId] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
+  const [recalc, setRecalc] = useState<string | null>(null)
   const codBySlot = (s: number) => moedas.find(m => m.slot === s)?.codigo || `slot ${s}`
+  const recalcular = async () => {
+    if (!confirm('Recalcular preenche as moedas (val_m2..m5) de todos os fatos em BRL a partir do valor + cotações. Rodar agora?')) return
+    setErro(null)
+    // Em LOTES por cursor (id): muitos requests curtos, tabela por tabela, p/ não estourar o timeout do gateway.
+    const LIMIT = 5000
+    const scopes: { k: string; nome: string }[] = [
+      { k: 'orcado', nome: 'Orçado' }, { k: 'realizado', nome: 'Realizado' },
+      { k: 'folha', nome: 'Folha' }, { k: 'saldo', nome: 'Saldo' },
+    ]
+    const totais: Record<string, number> = {}
+    try {
+      for (const s of scopes) {
+        let after: string | null = null, n = 0
+        do {
+          setRecalc(`Recalculando ${s.nome}… ${n.toLocaleString('pt-BR')} linhas`)
+          const resp = await supabase.rpc('recalcular_moedas', { p_scope: s.k, p_limit: LIMIT, p_after: after })
+          if (resp.error) throw new Error(`${s.nome}: ${resp.error.message}`)
+          const row: { processed: number; last_id: string | null } = (resp.data as any[])?.[0] || { processed: 0, last_id: null }
+          n += Number(row.processed || 0); after = row.last_id
+          if (Number(row.processed || 0) < LIMIT) break   // último lote da tabela
+        } while (after)
+        totais[s.nome] = n
+      }
+      setRecalc('Atualizando rollup do realizado…')
+      await supabase.rpc('refresh_realizado_mensal')   // rollup pega os novos slots
+      setRecalc('Recalculado: ' + scopes.map(s => `${s.nome} ${(totais[s.nome] || 0).toLocaleString('pt-BR')}`).join(' · ') + ' · rollup atualizado')
+    } catch (e: any) {
+      setErro('Erro ao recalcular: ' + e.message); setRecalc(null)
+    }
+  }
   const load = async () => {
     try {
       setMoedas(await fetchAll(() => supabase.from('moeda').select('slot,codigo').order('slot')))
@@ -1816,7 +1847,11 @@ function CambioTab() {
   return (
     <div style={S.card}>
       <Toolbar onAdd={() => { setAdding(true); setErro(null) }} busca={busca} onBusca={setBusca} total={data.length} mostrando={filtered.length} />
-      <div style={{ fontSize: 12, color: 'var(--muted)', padding: '4px 16px 10px' }}>Cotação por dia: quantas unidades de <b>{codBySlot(1)}</b> (base) por 1 unidade da moeda. Ao converter, usa a taxa da data do lançamento — ou a última anterior (carry-forward).</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 16px 10px', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: 'var(--muted)', flex: 1, minWidth: 260 }}>Cotação por dia: quantas unidades de <b>{codBySlot(1)}</b> (base) por 1 unidade da moeda. Ao converter, usa a taxa da data do lançamento — ou a última anterior (carry-forward).</span>
+        <button style={S.btnImp} onClick={recalcular} title="Preenche as moedas dos fatos já gravados (orçado/realizado/folha/saldo em BRL) e atualiza o rollup.">Recalcular conversões</button>
+        {recalc && <span style={{ fontSize: 12, color: 'var(--blue)' }}>{recalc}</span>}
+      </div>
       {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
       <table style={S.table}>
         <thead><tr><th style={S.th}>Data</th><th style={S.th}>Moeda</th><th style={S.th}>Taxa (→ {codBySlot(1)})</th><th style={S.th}></th></tr></thead>

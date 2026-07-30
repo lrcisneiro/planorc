@@ -12,7 +12,7 @@ import { ResponsiveLine } from '@nivo/line'
 import { Link } from 'react-router-dom'
 import { TrendingUp, TrendingDown, RefreshCw, ArrowLeft } from 'lucide-react'
 import DrillModal from './DrillModal'
-import { escopoFiltro, effectiveCcFilter, FiltrosButton, PeriodoButton, SalvarCardButton, useCardPreset, ModalPanel, Checklist } from './DashFiltros'
+import { escopoFiltro, effectiveCcFilter, FiltrosButton, PeriodoButton, SalvarCardButton, useCardPreset, ModalPanel, Checklist, useMoedaView, MoedaSelect } from './DashFiltros'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { ListChecks } from 'lucide-react'
 
@@ -162,6 +162,7 @@ export default function DashboardPage() {
   const mesesSel = useMemo(() => [...new Set(periodosSel.map(p => p.mes))].sort((a, b) => a - b), [periodosSel])
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
   const acessoDash = useUserAccess()
+  const { moedas, slot: moedaSlot, setSlot: setMoedaSlot } = useMoedaView()
   const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
   const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
   const [areaSel, setAreaSel] = useState<string[]>(Array.isArray(sv.areaSel) ? sv.areaSel : [])
@@ -293,7 +294,7 @@ export default function DashboardPage() {
         .sort((a, b) => (seqOrd[a.id] ?? 9999) - (seqOrd[b.id] ?? 9999))
       if (indicLines.length) {
         const ccPermI = (ccs as any).every((c: any) => acessoDash.canSee('centro_custo', c.id)) ? null : (ccs as any).filter((c: any) => acessoDash.canSee('centro_custo', c.id)).map((c: any) => c.id)
-        const baseI = { linhas: linhas as RLData[], ccs: ccs as any, empresas: empIds, meses, filialFilter: filFilter, ccFilter, ccPermitidos: ccPermI }
+        const baseI = { linhas: linhas as RLData[], ccs: ccs as any, empresas: empIds, meses, filialFilter: filFilter, ccFilter, ccPermitidos: ccPermI, slot: moedaSlot }
         const [iOrc, iReal, iPrev] = await Promise.all([
           totaisRelatorio({ ...baseI, cen: versaoId, anos }),
           totaisRelatorio({ ...baseI, cen: 'REALIZADO', anos }),
@@ -312,7 +313,7 @@ export default function DashboardPage() {
       const fetchCcAggAll = async (): Promise<any[]> => {
         const out: any[] = []; const size = 1000; let from = 0
         for (;;) {
-          const { data, error } = await supabase.rpc('dashboard_cc_agg', { p_versao: versaoId, p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }).range(from, from + size - 1)
+          const { data, error } = await supabase.rpc('dashboard_cc_agg', { p_versao: versaoId, p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter, p_slot: moedaSlot }).range(from, from + size - 1)
           if (error || !data || !data.length) break   // não-fatal: se a RPC não existe, fica vazio
           out.push(...data)
           if (data.length < size) break
@@ -321,10 +322,10 @@ export default function DashboardPage() {
         return out
       }
       const [orcR, realR, lineEmpR, realPrevR, ccAggRows] = await Promise.all([
-        supabase.rpc('relatorio_orcado_agg', { p_versao: versaoId, p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
-        supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
-        supabase.rpc('relatorio_linha_empresa_agg', { p_versao: versaoId, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
-        supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: anos.map(a => a - 1), p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
+        supabase.rpc('relatorio_orcado_agg', { p_versao: versaoId, p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter, p_slot: moedaSlot }),
+        supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter, p_slot: moedaSlot }),
+        supabase.rpc('relatorio_linha_empresa_agg', { p_versao: versaoId, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter, p_slot: moedaSlot }),
+        supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: anos.map(a => a - 1), p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter, p_slot: moedaSlot }),
         fetchCcAggAll(),
       ])
       if (orcR.error) throw new Error(orcR.error.message)
@@ -525,7 +526,7 @@ export default function DashboardPage() {
     } catch (e: any) { if (myseq === loadSeq.current) setErro(e?.message ?? String(e)) }
     if (myseq === loadSeq.current) setLoading(false)
   }
-  useEffect(() => { load() }, [relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs, acessoDash.loading]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, versaoId, agrupId, anosSel, mesesSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs, acessoDash.loading, moedaSlot]) // eslint-disable-line
 
   const anosOrd = [...anosSel].sort((a, b) => a - b)
   const deltaMes = orcRealMes.map((m: any) => ({ mes: m.mes, 'Δ': Math.round((m.Realizado || 0) - (m.Orçado || 0)) }))
@@ -640,6 +641,7 @@ export default function DashboardPage() {
           </div>
         </PeriodoButton>
         <FiltrosButton empresas={acessoDash.filterList('empresa', empresas)} filiais={acessoDash.filterList('filial', filiais)} ccs={acessoDash.filterList('centro_custo', ccs as any) as any} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
+        <MoedaSelect moedas={moedas} slot={moedaSlot} setSlot={setMoedaSlot} />
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
         <SalvarCardButton base="/dashboard" cor="#3b5bdb" cardId={cardId} getFiltros={() => ({ relId, versaoId, agrupId, periodosSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel })} />
         {indicCards.length > 0 && <button style={S.btn} onClick={() => setPickIndic(true)} title="Escolher quais indicadores exibir"><ListChecks size={13} /> Indicadores{indicSel.length ? ` (${indicSel.length})` : ''}</button>}
@@ -884,7 +886,7 @@ export default function DashboardPage() {
 
       {drill && qparams && (
         <DrillModal relId={relId} versaoId={versaoId} empIds={qparams.empIds} anos={qparams.anos} meses={drill.meses || qparams.meses}
-          filFilter={qparams.filFilter} ccFilter={drill.ccFilter !== undefined ? drill.ccFilter : qparams.ccFilter} startNodeId={drill.nodeId} onClose={() => setDrill(null)} />
+          filFilter={qparams.filFilter} ccFilter={drill.ccFilter !== undefined ? drill.ccFilter : qparams.ccFilter} startNodeId={drill.nodeId} slot={moedaSlot} onClose={() => setDrill(null)} />
       )}
     </div>
   )

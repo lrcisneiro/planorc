@@ -17,6 +17,7 @@ type Props = {
   filFilter: string[] | null
   ccFilter: string[] | null
   startNodeId: string
+  slot?: number   // moeda em exibição (p_slot). Detalhe do razão segue em BRL base.
   onClose: () => void
 }
 type Medida = 'Realizado' | 'Orçado'
@@ -49,7 +50,7 @@ const S: Record<string, CSSProperties> = {
 }
 const crumbItem = (last: boolean): CSSProperties => ({ cursor: last ? 'default' : 'pointer', color: last ? 'var(--text)' : '#3b5bdb', fontWeight: last ? 600 : 400 })
 
-export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFilter, ccFilter, startNodeId, onClose }: Props) {
+export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFilter, ccFilter, startNodeId, slot = 1, onClose }: Props) {
   const [tree, setTree] = useState<{ byId: Record<string, RL>; childrenByPai: Record<string, RL[]>; valR: Record<string, number>; valO: Record<string, number>; disabledMasters: Set<string> } | null>(null)
   const [stack, setStack] = useState<string[]>([startNodeId])
   const [razao, setRazao] = useState<any[] | null>(null)
@@ -74,8 +75,8 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
       const masterIds = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
       const disabledMasters = new Set<string>(); linhas.forEach(l => { if (l.desativada && l.linha_orc_id) disabledMasters.add(l.linha_orc_id) })
       const [rR, rO] = await Promise.all([
-        supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
-        supabase.rpc('relatorio_orcado_agg', { p_versao: versaoId, p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
+        supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter, p_slot: slot }),
+        supabase.rpc('relatorio_orcado_agg', { p_versao: versaoId, p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter, p_slot: slot }),
       ])
       const valR: Record<string, number> = {}, valO: Record<string, number> = {}
       for (const x of rR.data || []) valR[x.linha_id] = (valR[x.linha_id] || 0) + (Number(x.valor) || 0)
@@ -83,7 +84,7 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
       setTree({ byId, childrenByPai, valR, valO, disabledMasters })
       setLoading(false)
     })()
-  }, [relId, anos.join(','), meses.join(','), empIds.join(','), JSON.stringify(filFilter), JSON.stringify(ccFilter)]) // eslint-disable-line
+  }, [relId, anos.join(','), meses.join(','), empIds.join(','), JSON.stringify(filFilter), JSON.stringify(ccFilter), slot]) // eslint-disable-line
 
   if (!tree) return (
     <div style={S.overlay} onClick={onClose}><div style={S.modal} onClick={e => e.stopPropagation()}><div style={S.body}>Carregando…</div></div></div>

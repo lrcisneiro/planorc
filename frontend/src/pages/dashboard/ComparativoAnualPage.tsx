@@ -7,7 +7,7 @@ import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
 import { nivoTheme } from '../../lib/nivoTheme'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
-import { escopoFiltro, FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
+import { escopoFiltro, FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset, useMoedaView, MoedaSelect } from './DashFiltros'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import type { Item, CC } from './DashFiltros'
 
@@ -54,6 +54,7 @@ export default function ComparativoAnualPage() {
   const [relId, setRelId] = useState(''); const [versaoId, setVersaoId] = useState('')
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
   const acessoDash = useUserAccess()
+  const { moedas, slot: moedaSlot, setSlot: setMoedaSlot } = useMoedaView()
   const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
   const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
   const [areaSel, setAreaSel] = useState<string[]>(Array.isArray(sv.areaSel) ? sv.areaSel : [])
@@ -111,8 +112,8 @@ export default function ComparativoAnualPage() {
 
       const meses = Array.from({ length: ateMes }, (_, i) => i + 1)
       const [realR, orcR] = await Promise.all([
-        supabase.rpc('relatorio_realizado_anual', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
-        supabase.rpc('relatorio_orcado_anual', { p_versao: versaoId, p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter }),
+        supabase.rpc('relatorio_realizado_anual', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter, p_slot: moedaSlot }),
+        supabase.rpc('relatorio_orcado_anual', { p_versao: versaoId, p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter, p_slot: moedaSlot }),
       ])
       if (realR.error) throw new Error(realR.error.message)
       if (orcR.error) throw new Error(orcR.error.message)
@@ -153,7 +154,7 @@ export default function ComparativoAnualPage() {
     } catch (e: any) { setErro(e?.message ?? String(e)) }
     setLoading(false)
   }
-  useEffect(() => { load() }, [relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anosSel, ateMes, medida, ocultarVazias, empresas, filiais, ccs, acessoDash.loading]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anosSel, ateMes, medida, ocultarVazias, empresas, filiais, ccs, acessoDash.loading, moedaSlot]) // eslint-disable-line
 
   const anos = [...anosSel].sort((a, b) => a - b)
   const toggleAno = (y: number) => setAnosSel(s => s.includes(y) ? s.filter(x => x !== y) : [...s, y])
@@ -181,6 +182,7 @@ export default function ComparativoAnualPage() {
           <select style={S.sel} value={ateMes} onChange={e => setAteMes(+e.target.value)}>{MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
         </PeriodoButton>
         <FiltrosButton empresas={acessoDash.filterList('empresa', empresas)} filiais={acessoDash.filterList('filial', filiais)} ccs={acessoDash.filterList('centro_custo', ccs)} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
+        <MoedaSelect moedas={moedas} slot={moedaSlot} setSlot={setMoedaSlot} />
         <select style={S.sel} value={medida} onChange={e => setMedida(e.target.value as any)}><option>Realizado</option><option>Orçado</option></select>
         <div style={{ flex: 1 }} />
         <label style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={ocultarVazias} onChange={e => setOcultarVazias(e.target.checked)} /> ocultar vazias</label>

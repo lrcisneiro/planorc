@@ -195,3 +195,24 @@ export function useCardPreset(base: string, apply: (filtros: any) => void): { ca
   }, [cardId, base])
   return { cardId, nome }
 }
+
+// ── Multimoeda: slot em exibição, compartilhado entre telas via localStorage ──
+// Os dashboards passam `slot` como p_slot às RPCs (que já somam a coluna do slot).
+// Mesma chave do editor ('planorc_moeda_view') → escolha consistente no app todo.
+export type MoedaOpt = { slot: number; codigo: string; simbolo: string }
+export function useMoedaView(): { moedas: MoedaOpt[]; slot: number; setSlot: (s: number) => void } {
+  const [moedas, setMoedas] = useState<MoedaOpt[]>([])
+  const [slot, setSlotState] = useState<number>(() => { const s = Number(localStorage.getItem('planorc_moeda_view')); return s >= 1 ? s : 1 })
+  useEffect(() => { supabase.from('moeda').select('slot,codigo,simbolo,ativo').eq('ativo', true).order('slot').then(({ data }) => setMoedas((data || []) as MoedaOpt[])) }, [])
+  const setSlot = (s: number) => { setSlotState(s); localStorage.setItem('planorc_moeda_view', String(s)) }
+  return { moedas, slot, setSlot }
+}
+export function MoedaSelect({ moedas, slot, setSlot }: { moedas: MoedaOpt[]; slot: number; setSlot: (s: number) => void }) {
+  if (moedas.length <= 1) return null   // só BRL → sem seletor
+  return (
+    <select value={slot} onChange={e => setSlot(Number(e.target.value))} title="Moeda de exibição (valor já convertido pela RPC)"
+      style={{ ...btn, borderColor: slot === 1 ? 'var(--border-strong)' : 'var(--green)', color: slot === 1 ? 'var(--text-mid)' : 'var(--green)', fontWeight: 500 }}>
+      {moedas.map(m => <option key={m.slot} value={m.slot}>{m.simbolo ? `${m.simbolo} ` : ''}{m.codigo}</option>)}
+    </select>
+  )
+}

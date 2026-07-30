@@ -20,11 +20,13 @@ type Opts = {
   empresas: string[]; anos: number[]; meses: number[]
   filialFilter: string[] | null; ccFilter: string[] | null
   ccPermitidos?: string[] | null     // F2: escopo VER do usuário (null = sem restrição). Limita o filtro_escopo das linhas.
+  slot?: number                      // multimoeda: slot em exibição (p_slot). 1 = base/BRL (default).
 }
 
 // Retorna { [lineId]: total } sobre anos×meses, com as linhas escopadas recalculadas no seu CC.
 export async function totaisRelatorio(o: Opts): Promise<Record<string, number>> {
   const { linhas, ccs, cen, empresas, anos, meses, filialFilter, ccFilter } = o
+  const slot = o.slot ?? 1
   const masterIds = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
   if (!masterIds.length || !empresas.length || !anos.length || !meses.length) return {}
 
@@ -43,11 +45,11 @@ export async function totaisRelatorio(o: Opts): Promise<Record<string, number>> 
       else { const rl = rlOfMaster[master]; if (rl) (raw[rl] ||= {})[pk] = cell }
     }
     if (cen === 'REALIZADO') {
-      const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: empresas, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccF })
+      const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: empresas, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccF, p_slot: slot })
       if (error) throw new Error(error.message)
       for (const r of data || []) assign(r.linha_id, `${r.ano}-${r.mes}`, { valor: Number(r.valor) || 0 })
     } else {
-      const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: empresas, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccF })
+      const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: empresas, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccF, p_slot: slot })
       if (error) throw new Error(error.message)
       for (const r of data || []) assign(r.linha_id, `${r.ano}-${r.mes}`, (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 })
     }

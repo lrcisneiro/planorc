@@ -7,7 +7,7 @@ import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
 import { nivoTheme } from '../../lib/nivoTheme'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
-import { escopoFiltro, FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
+import { escopoFiltro, FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset, useMoedaView, MoedaSelect } from './DashFiltros'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import type { Item, CC } from './DashFiltros'
 
@@ -51,6 +51,7 @@ export default function CagrPage() {
   const [relId, setRelId] = useState('')
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
   const acessoDash = useUserAccess()
+  const { moedas, slot: moedaSlot, setSlot: setMoedaSlot } = useMoedaView()
   const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
   const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
   const [areaSel, setAreaSel] = useState<string[]>(Array.isArray(sv.areaSel) ? sv.areaSel : [])
@@ -117,7 +118,7 @@ export default function CagrPage() {
       const anos = [anoIni, anoFim]
       if (!masterIds.length || !empIds.length) { setRes([]); setLoading(false); return }
       const meses = Array.from({ length: ateMes }, (_, i) => i + 1)
-      const r = await supabase.rpc('relatorio_realizado_anual', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter })
+      const r = await supabase.rpc('relatorio_realizado_anual', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: masterIds, p_filiais: filFilter, p_ccs: ccFilter, p_slot: moedaSlot })
       if (r.error) throw new Error(r.error.message)
       const valYM: Record<number, Record<string, number>> = {}
       for (const x of r.data || []) { (valYM[x.ano] = valYM[x.ano] || {})[x.linha_id] = Number(x.valor) || 0 }
@@ -140,7 +141,7 @@ export default function CagrPage() {
     } catch (e: any) { setErro(e?.message ?? String(e)) }
     setLoading(false)
   }
-  useEffect(() => { load() }, [relId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anoIni, anoFim, ateMes, sel, empresas, filiais, ccs, acessoDash.loading]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, anoIni, anoFim, ateMes, sel, empresas, filiais, ccs, acessoDash.loading, moedaSlot]) // eslint-disable-line
 
   const toggle = (id: string) => setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
   const chartData = res.filter(x => x.cagr != null).sort((a, b) => (a.cagr || 0) - (b.cagr || 0)).map(x => ({ linha: cut(x.desc, 28), CAGR: +(x.cagr || 0).toFixed(1) }))
@@ -166,6 +167,7 @@ export default function CagrPage() {
           <select style={S.sel} value={ateMes} onChange={e => setAteMes(+e.target.value)}>{MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
         </PeriodoButton>
         <FiltrosButton empresas={acessoDash.filterList('empresa', empresas)} filiais={acessoDash.filterList('filial', filiais)} ccs={acessoDash.filterList('centro_custo', ccs)} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
+        <MoedaSelect moedas={moedas} slot={moedaSlot} setSlot={setMoedaSlot} />
         <button style={S.btn} onClick={load}><RefreshCw size={13} /></button>
         <SalvarCardButton base="/dashboards/cagr" cor="#1098ad" cardId={cardId} getFiltros={() => ({ relId, anoIni, anoFim, ateMes, sel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })} />
       </div>

@@ -6,7 +6,7 @@ import { formatValor } from '../../lib/engine'
 import { totaisRelatorio } from '../../lib/relatorioTotais'
 import type { RLData } from '../../lib/relatorioTotais'
 import { ArrowLeft, RefreshCw, TrendingUp, TrendingDown, ListChecks } from 'lucide-react'
-import { escopoFiltro, FiltrosButton, PeriodoButton, ModalPanel, Checklist, effectiveCcFilter, SalvarCardButton, useCardPreset } from './DashFiltros'
+import { escopoFiltro, FiltrosButton, PeriodoButton, ModalPanel, Checklist, effectiveCcFilter, SalvarCardButton, useCardPreset, useMoedaView, MoedaSelect } from './DashFiltros'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import type { Item, CC } from './DashFiltros'
 
@@ -44,6 +44,7 @@ export default function IndicadoresPage() {
   const [relId, setRelId] = useState(''); const [versaoId, setVersaoId] = useState(''); const [ano, setAno] = useState<number>(sv.ano || 2026); const [ateMes, setAteMes] = useState<number>(sv.ateMes || ULT_FECHADO)
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
   const acessoDash = useUserAccess()
+  const { moedas, slot: moedaSlot, setSlot: setMoedaSlot } = useMoedaView()
   const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
   const [ccSel, setCcSel] = useState<string[]>(Array.isArray(sv.ccSel) ? sv.ccSel : [])
   const [areaSel, setAreaSel] = useState<string[]>(Array.isArray(sv.areaSel) ? sv.areaSel : [])
@@ -101,7 +102,7 @@ export default function IndicadoresPage() {
       const ccFilter = escopoFiltro(effectiveCcFilter(ccs, ccSel, areaSel, divisaoSel, buSel), ccs, 'centro_custo', acessoDash.canSee)
       const meses = Array.from({ length: ateMes }, (_, i) => i + 1)
       const ccPerm = ccs.every(c => acessoDash.canSee('centro_custo', c.id)) ? null : ccs.filter(c => acessoDash.canSee('centro_custo', c.id)).map(c => c.id)
-      const base = { linhas: linhas as RLData[], ccs, empresas: empIds, meses, filialFilter: filFilter, ccFilter, ccPermitidos: ccPerm }
+      const base = { linhas: linhas as RLData[], ccs, empresas: empIds, meses, filialFilter: filFilter, ccFilter, ccPermitidos: ccPerm, slot: moedaSlot }
       const [orc, real, prev] = await Promise.all([
         totaisRelatorio({ ...base, cen: versaoId, anos: [ano] }),
         totaisRelatorio({ ...base, cen: 'REALIZADO', anos: [ano] }),
@@ -116,7 +117,7 @@ export default function IndicadoresPage() {
     } catch (e: any) { if (myseq === loadSeq.current) setErro(e?.message ?? String(e)) }
     if (myseq === loadSeq.current) setLoading(false)
   }
-  useEffect(() => { load() }, [relId, versaoId, sel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes, empresas, filiais, ccs, linhas, acessoDash.loading]) // eslint-disable-line
+  useEffect(() => { load() }, [relId, versaoId, sel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes, empresas, filiais, ccs, linhas, acessoDash.loading, moedaSlot]) // eslint-disable-line
 
   const linhaItems: Item[] = linhas.filter(l => l.tipo_linha !== 'ESPACO').map(l => ({ id: l.id, codigo: l.codigo, descricao: l.descricao }))
 
@@ -139,6 +140,7 @@ export default function IndicadoresPage() {
           <select style={S.sel} value={ateMes} onChange={e => setAteMes(+e.target.value)}>{MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
         </PeriodoButton>
         <FiltrosButton empresas={acessoDash.filterList('empresa', empresas)} filiais={acessoDash.filterList('filial', filiais)} ccs={acessoDash.filterList('centro_custo', ccs)} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
+        <MoedaSelect moedas={moedas} slot={moedaSlot} setSlot={setMoedaSlot} />
         <button style={S.btn} onClick={load}><RefreshCw size={13} /></button>
         <SalvarCardButton base="/dashboards/indicadores" cor="var(--cyan)" cardId={cardId} getFiltros={() => ({ relId, versaoId, ano, ateMes, sel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })} />
       </div>

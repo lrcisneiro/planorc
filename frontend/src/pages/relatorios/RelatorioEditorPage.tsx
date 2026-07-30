@@ -8,6 +8,8 @@ import {
   computeCenario, computeTotais, formatValor, parseNum, pkey,
 } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Computed, Periodo, TipoLinha, Formato } from '../../lib/engine'
+import { taxaOrcada, materializa } from '../../lib/cambio'
+import type { VersaoTaxaRow } from '../../lib/cambio'
 import FormulaCellInput from './FormulaCellInput'
 import { importBaseline as importBaselineLib, modeloBaseline as modeloBaselineLib } from '../../lib/importOrcado'
 import { effectiveCcFilter, FiltrosButton, PeriodoButton, Checklist, opcoesAttr, SalvarCardButton, useCardPreset } from '../dashboard/DashFiltros'
@@ -230,6 +232,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const [selId, setSelId] = useState<string | null>(null)
   const [contas,     setContas]     = useState<{ id: string; codigo: string; descricao: string; plano_id?: string; plano?: string }[]>([])
   const [contaLinks, setContaLinks] = useState<Record<string, any[]>>({})
+  // Multimoeda: catálogo de moedas (slots), taxas orçadas da versão e o slot em exibição/digitação.
+  const [moedas, setMoedas] = useState<{ slot: number; codigo: string; simbolo: string; ativo: boolean }[]>([])
+  const [versaoTaxas, setVersaoTaxas] = useState<VersaoTaxaRow[]>([])
+  const [moedaView, setMoedaView] = useState<number>(() => { const s = Number(localStorage.getItem('planorc_moeda_view')); return s >= 1 ? s : 1 })
   // F1 estrutura — coluna de simulação (efêmera, não grava em fato)
   const [simShow, setSimShow] = useState(false)
   const [simVals, setSimVals] = useState<Record<string, number[]>>({})
@@ -310,6 +316,24 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const natEff = (id: string | null): string => { let cur = id ? linById[id] : undefined, g = 0; while (cur && g++ < 60) { if (cur.natureza === 'RECEITA' || cur.natureza === 'DESPESA') return cur.natureza; cur = cur.pai_id ? linById[cur.pai_id] : undefined } return '' }
   const facOf = (l: Linha) => natEff(l.id) === 'DESPESA' ? -1 : 1
 
+  // Multimoeda: slots ativos (sempre inclui a base=1), taxas orçadas da versão e persistência da moeda em exibição.
+  const slotsAtivos = useMemo(() => { const s = new Set(moedas.map(m => m.slot)); s.add(1); return [...s].sort((a, b) => a - b) }, [moedas])
+  useEffect(() => { localStorage.setItem('planorc_moeda_view', String(moedaView)) }, [moedaView])
+  useEffect(() => {
+    if (!versaoId) { setVersaoTaxas([]); return }
+    supabase.from('versao_taxa').select('moeda_slot,ano,mes,taxa').eq('versao_id', versaoId)
+      .then(({ data }) => setVersaoTaxas((data || []) as VersaoTaxaRow[]))
+  }, [versaoId])
+  // Materializa um valor orçado (já com sinal), digitado na moeda `moedaView`, para gravar nos slots.
+  // Retorna o payload {valor(base), val_m2..m5, moeda_origem} ou null se falta a taxa orçada da origem.
+  const matOrc = (valorView: number | null, ano: number, mes: number): Record<string, any> | null => {
+    if (valorView == null) return { valor: null, val_m2: null, val_m3: null, val_m4: null, val_m5: null, moeda_origem: moedaView }
+    const { vals } = materializa(valorView, moedaView, slotsAtivos, s => taxaOrcada(s, ano, mes, versaoTaxas))
+    if (vals[1] == null) return null   // sem taxa da origem → base desconhecida, não grava
+    return { valor: vals[1], val_m2: vals[2] ?? null, val_m3: vals[3] ?? null, val_m4: vals[4] ?? null, val_m5: vals[5] ?? null, moeda_origem: moedaView }
+  }
+  const moedaCod = (slot: number) => moedas.find(m => m.slot === slot)?.codigo || `M${slot}`
+
   // Dimensões obrigatórias e únicas para edição: 1 empresa, 1 versão, 1 ano, sem filtro de filial/CC
   const empresaUnica = empresaSel.length === 1 ? empresaSel[0] : null
   // F2: só edita o orçado da empresa que o escopo ORÇAR permite (canEdit cai pra VER quando não há regra ORCAR)
@@ -347,14 +371,16 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   }, [id])
 
   const loadDim = useCallback(async () => {
-    const [{ data: emps }, { data: vers }, { data: fis }, { data: cc }] = await Promise.all([
+    const [{ data: emps }, { data: vers }, { data: fis }, { data: cc }, { data: mo }] = await Promise.all([
       supabase.from('empresa').select('id,codigo,descricao').order('codigo'),
       supabase.from('versao_orcamento').select('id,codigo,ano').order('codigo'),
       supabase.from('filial').select('id,codigo,descricao').order('codigo'),
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo'),
+      supabase.from('moeda').select('slot,codigo,simbolo,ativo').eq('ativo', true).order('slot'),
     ])
     const e = emps || [], v = vers || []
     setEmpresas(e); setVersoes(v); setFiliais(fis || []); setCcs(cc || [])
+    setMoedas((mo || []) as any)
     if (e.length) setEmpresaSel(prev => prev.length ? prev : [e[0].id])
     if (v.length) setVersaoId(prev => prev || v[0].id)
   }, [])
@@ -483,20 +509,20 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           // Balanço: realizado = SALDO (balancete) por mês, lido do fat_saldo
           for (const y of anos) {
             const { data, error } = await supabase.rpc('relatorio_saldo_agg',
-              { p_empresas: empresaSel, p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter })
+              { p_empresas: empresaSel, p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
             if (error) throw new Error(error.message)
             for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${y}-${r.mes}`] = { valor: Number(r.saldo) || 0 } }
           }
         } else {
           const { data, error } = await supabase.rpc('relatorio_realizado_agg',
-            { p_empresas: empresaSel, p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter })
+            { p_empresas: empresaSel, p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
           if (error) throw new Error(error.message)
           for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0 } }
         }
       } else {
         const anosCen = cicloMode ? [anoDoCenario[cen] ?? refAno] : anos   // ciclo: só o ano DESTA versão
         const { data, error } = await supabase.rpc('relatorio_orcado_agg',
-          { p_versao: cen, p_empresas: empresaSel, p_anos: anosCen, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter })
+          { p_versao: cen, p_empresas: empresaSel, p_anos: anosCen, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
         if (error) throw new Error(error.message)
         for (const r of data || []) {
           const rl = rlOfOrc[r.linha_id]; if (!rl) continue
@@ -530,17 +556,17 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           if (cen === REALIZADO) {
             if (isBalanco) {
               for (const y of anos) {
-                const { data, error } = await supabase.rpc('relatorio_saldo_agg', { p_empresas: [eid], p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter })
+                const { data, error } = await supabase.rpc('relatorio_saldo_agg', { p_empresas: [eid], p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
                 if (error) throw new Error(error.message)
                 for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${y}-${r.mes}`] = { valor: Number(r.saldo) || 0 } }
               }
             } else {
-              const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: [eid], p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter })
+              const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: [eid], p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
               if (error) throw new Error(error.message)
               for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0 } }
             }
           } else {
-            const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: [eid], p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter })
+            const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: [eid], p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
             if (error) throw new Error(error.message)
             for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; const k = `${r.ano}-${r.mes}`; (map[rl] ||= {})[k] = (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 } }
           }
@@ -577,18 +603,18 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           if (cen === REALIZADO) {
             if (isBalanco) {
               for (const y of anos) {
-                const { data, error } = await supabase.rpc('relatorio_saldo_agg', { p_empresas: empresaSel, p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter })
+                const { data, error } = await supabase.rpc('relatorio_saldo_agg', { p_empresas: empresaSel, p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
                 if (error) throw new Error(error.message)
                 for (const r of data || []) setMaster(r.linha_id, `${y}-${r.mes}`, { valor: Number(r.saldo) || 0 })
               }
             } else {
-              const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: empresaSel, p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccList })
+              const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: empresaSel, p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccList, p_slot: moedaView })
               if (error) throw new Error(error.message)
               for (const r of data || []) setMaster(r.linha_id, `${r.ano}-${r.mes}`, { valor: Number(r.valor) || 0 })
             }
           } else {
             const anosCen = cicloMode ? [anoDoCenario[cen] ?? refAno] : anos
-            const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: empresaSel, p_anos: anosCen, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccList })
+            const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: empresaSel, p_anos: anosCen, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccList, p_slot: moedaView })
             if (error) throw new Error(error.message)
             for (const r of data || []) setMaster(r.linha_id, `${cicloMode ? refAno : r.ano}-${r.mes}`, (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 })
           }
@@ -614,9 +640,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       setRaw(next); setDetalhado(det); setRawEmp(nextEmp); setRawScoped(rawScopedNext); setEscSig(escSigNext); setValErro(null)
     } catch (e: any) {
       console.error('loadValores erro:', e)
-      setValErro(e?.message ?? String(e))
+      setValErro('Erro ao carregar valores: ' + (e?.message ?? String(e)))
     }
-  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, periodosSel, cenariosAtivos, cicloMode, anoDoCenario, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEmpresa, empsCols, linhas, acesso.loading]) // eslint-disable-line
+  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, periodosSel, cenariosAtivos, cicloMode, anoDoCenario, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEmpresa, empsCols, linhas, acesso.loading, moedaView]) // eslint-disable-line
 
   useEffect(() => { loadValores() }, [loadValores])
 
@@ -934,16 +960,19 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const fac = facOf(linById[linhaId] || ({} as Linha))   // exibe positivo p/ despesa → grava com sinal
     const txt = editVal.trim()
     const isFormula = txt.startsWith('=')
-    const valor = isFormula ? null : fac * parseNum(txt)
+    const valor = isFormula ? null : fac * parseNum(txt)   // valor DIGITADO na moeda em exibição (moedaView)
     const expressao = isFormula ? toStored(txt) : null
+    const mat = matOrc(valor, per.ano, per.mes)            // materializa nos slots (base + val_m2..m5)
+    if (!mat) { setValErro(`Sem taxa orçada de ${moedaCod(moedaView)} em ${per.mes}/${per.ano} — cadastre em Cadastros › Taxa orçada.`); setSaving(false); return }
     const { data: ex } = await supabase.from('fat_orcado').select('id')
       .eq('versao_id', versaoId).eq('linha_id', master).eq('empresa_id', empresaUnica)
       .eq('ano', per.ano).eq('mes', per.mes).is('filial_id', null).is('cc_id', null).maybeSingle()
-    if (ex) await supabase.from('fat_orcado').update({ valor, expressao, origem: 'MANUAL' }).eq('id', ex.id)
+    if (ex) await supabase.from('fat_orcado').update({ ...mat, expressao, origem: 'MANUAL' }).eq('id', ex.id)
     else await supabase.from('fat_orcado').insert({
       tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaUnica,
-      filial_id: null, cc_id: null, ano: per.ano, mes: per.mes, valor, expressao, origem: 'MANUAL', dims: {},
+      filial_id: null, cc_id: null, ano: per.ano, mes: per.mes, ...mat, expressao, origem: 'MANUAL', dims: {},
     })
+    // raw guarda o valor NA MOEDA EM EXIBIÇÃO (o que a RPC devolveria via p_slot)
     setRaw(prev => ({ ...prev, [versaoId]: { ...(prev[versaoId] || {}),
       [linhaId]: { ...(prev[versaoId]?.[linhaId] || {}), [pkey(per)]: { valor, expressao } } } }))
     setEditCell(null); setSaving(false)
@@ -976,22 +1005,26 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const fac = facOf(linById[linhaId] || ({} as Linha))
     const t = txt.trim()
     const isFormula = t.startsWith('=')
-    const valor = isFormula ? null : fac * parseNum(t)
+    const valor = isFormula ? null : fac * parseNum(t)   // na moeda em exibição (moedaView)
     const expressao = isFormula ? toStored(t) : null
     const updates: Record<string, { valor: number | null; expressao: string | null }> = {}
     const start = displayedMeses.findIndex(p => samePer(p, fromPer))
     const alvos = start >= 0 ? displayedMeses.slice(start) : [fromPer]
+    const semTaxa: string[] = []
     for (const per of alvos) {
+      const mat = matOrc(valor, per.ano, per.mes)   // taxa orçada pode variar por mês
+      if (!mat) { semTaxa.push(`${per.mes}/${per.ano}`); continue }   // sem taxa da origem nesse mês → pula
       const { data: ex } = await supabase.from('fat_orcado').select('id')
         .eq('versao_id', versaoId).eq('linha_id', master).eq('empresa_id', empresaUnica)
         .eq('ano', per.ano).eq('mes', per.mes).is('filial_id', null).is('cc_id', null).maybeSingle()
-      if (ex) await supabase.from('fat_orcado').update({ valor, expressao, origem: 'MANUAL' }).eq('id', ex.id)
+      if (ex) await supabase.from('fat_orcado').update({ ...mat, expressao, origem: 'MANUAL' }).eq('id', ex.id)
       else await supabase.from('fat_orcado').insert({
         tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaUnica,
-        filial_id: null, cc_id: null, ano: per.ano, mes: per.mes, valor, expressao, origem: 'MANUAL', dims: {},
+        filial_id: null, cc_id: null, ano: per.ano, mes: per.mes, ...mat, expressao, origem: 'MANUAL', dims: {},
       })
       updates[pkey(per)] = { valor, expressao }
     }
+    if (semTaxa.length) setValErro(`Sem taxa orçada de ${moedaCod(moedaView)} em ${semTaxa.join(', ')} — meses pulados (cadastre em Cadastros › Taxa orçada).`)
     setRaw(prev => ({ ...prev, [versaoId]: { ...(prev[versaoId] || {}),
       [linhaId]: { ...(prev[versaoId]?.[linhaId] || {}), ...updates } } }))
     setEditCell(null); setSaving(false)
@@ -1423,6 +1456,14 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           </div>
         </PeriodoButton>
         <FiltrosButton empresas={acesso.filterList('empresa', empresas)} filiais={acesso.filterList('filial', filiais)} ccs={acesso.filterList('centro_custo', ccs) as any} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
+        {/* Multimoeda: define a moeda EXIBIDA (valor já somado pela RPC) e a moeda de ORIGEM ao digitar */}
+        {moedas.length > 1 && (
+          <select value={moedaView} onChange={e => setMoedaView(Number(e.target.value))}
+            style={{ ...S.sel, borderColor: moedaView === 1 ? 'var(--border-strong)' : 'var(--green)', color: moedaView === 1 ? 'var(--text)' : 'var(--green)', fontWeight: 500 }}
+            title={editavel ? 'Moeda exibida e moeda de origem ao digitar (converte pela taxa orçada da versão)' : 'Moeda exibida (valor já convertido)'}>
+            {moedas.map(m => <option key={m.slot} value={m.slot}>{m.simbolo ? `${m.simbolo} ` : ''}{m.codigo}</option>)}
+          </select>
+        )}
         <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
           {(empresaSel.length === 0 ? 'nenhuma empresa' : empresaSel.length === empresas.length ? 'Todas empresas' : empresaSel.length === 1 ? (empresas.find(e => e.id === empresaSel[0])?.codigo || '1 empresa') : `${empresaSel.length} empresas`)}
           {' · '}{versoes.find(v => v.id === versaoId)?.codigo || '—'}{' · '}{pIni.ano === pFim.ano ? pIni.ano : `${pIni.ano}–${pFim.ano}`}
@@ -1615,7 +1656,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
 
       {valErro && (
         <div style={{ margin: '8px 16px 0', padding: '8px 12px', background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 8, fontSize: 12, color: 'var(--red)' }}>
-          ⚠ Erro ao carregar valores: {valErro}
+          ⚠ {valErro}
         </div>
       )}
       {dupContas.length > 0 && (

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useUserAccess } from '../../hooks/useUserAccess'
-import { escopoFiltro } from '../dashboard/DashFiltros'
+import { escopoFiltro, useMoedaView, MoedaSelect } from '../dashboard/DashFiltros'
 import { computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
@@ -105,6 +105,7 @@ export default function BalancoDashboardPage() {
   const [dreId, setDreId] = useState<string>(sv.dreId || '')
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(sv.empresaSel) ? sv.empresaSel : [])
   const acessoDash = useUserAccess()
+  const { moedas, slot: moedaSlot, setSlot: setMoedaSlot } = useMoedaView()
   const [filialSel, setFilialSel] = useState<string[]>(Array.isArray(sv.filialSel) ? sv.filialSel : [])
   const [filtroOpen, setFiltroOpen] = useState(false)
   const [ano, setAno] = useState<number>(sv.ano || 2026)
@@ -138,8 +139,8 @@ export default function BalancoDashboardPage() {
       const bpLines = (await fetchAll(() => supabase.from('relatorio_linha').select('id,pai_id,codigo,descricao,tipo_linha,expressao,natureza,desativada,linha_orc_id,nao_soma').eq('relatorio_id', bpId))) as RL[]
       const bpMasters = [...new Set(bpLines.filter(l => l.tipo_linha === 'ANALITICA' && l.linha_orc_id).map(l => l.linha_orc_id))] as string[]
       const rlOf: Record<string, string> = {}; bpLines.forEach(l => { if (l.linha_orc_id) rlOf[l.linha_orc_id] = l.id })
-      const rpc = (anos: number[], meses: number[], linhas: string[]) => supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: linhas, p_filiais: filIds, p_ccs: null })
-      const saldoR = await supabase.rpc('relatorio_saldo_agg', { p_empresas: empIds, p_ano: ano, p_meses: todosMeses, p_linhas: bpMasters, p_filiais: filIds })
+      const rpc = (anos: number[], meses: number[], linhas: string[]) => supabase.rpc('relatorio_realizado_agg', { p_empresas: empIds, p_anos: anos, p_meses: meses, p_linhas: linhas, p_filiais: filIds, p_ccs: null, p_slot: moedaSlot })
+      const saldoR = await supabase.rpc('relatorio_saldo_agg', { p_empresas: empIds, p_ano: ano, p_meses: todosMeses, p_linhas: bpMasters, p_filiais: filIds, p_slot: moedaSlot })
       if (saldoR.error) throw new Error(saldoR.error.message)
       const saldoM: Record<string, Record<number, number>> = {}
       for (const r of saldoR.data || []) { (saldoM[r.linha_id] = saldoM[r.linha_id] || {})[r.mes] = (saldoM[r.linha_id]?.[r.mes] || 0) + (Number(r.saldo) || 0) }
@@ -241,7 +242,7 @@ export default function BalancoDashboardPage() {
     } catch (e: any) { setErro(e?.message ?? String(e)) }
     setLoading(false)
   }
-  useEffect(() => { load() }, [bpId, dreId, empresaSel, filialSel, ano, mes, empresas.length, filiais.length, acessoDash.loading]) // eslint-disable-line
+  useEffect(() => { load() }, [bpId, dreId, empresaSel, filialSel, ano, mes, empresas.length, filiais.length, acessoDash.loading, moedaSlot]) // eslint-disable-line
 
   return (
     <div style={S.page}>
@@ -276,6 +277,7 @@ export default function BalancoDashboardPage() {
         </div>
         <select style={S.sel} value={ano} onChange={e => setAno(Number(e.target.value))}>{ANOS.map(y => <option key={y} value={y}>{y}</option>)}</select>
         <select style={S.sel} value={mes} onChange={e => setMes(Number(e.target.value))}>{MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
+        <MoedaSelect moedas={moedas} slot={moedaSlot} setSlot={setMoedaSlot} />
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
         {loading && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Carregando…</span>}
       </div>
