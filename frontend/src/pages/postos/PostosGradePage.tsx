@@ -360,7 +360,7 @@ export default function PostosGradePage() {
         if (orig === 1 && slotsAtivos.every(s => s === 1)) return true
         const { vals } = materializa(row.valor, orig, slotsAtivos, (slot) => taxaOrcada(slot, row.ano, row.mes, vtaxas as any))
         if (vals[1] == null) { semTaxaOrc++; return false }   // origem estrangeira sem taxa orçada
-        row.valor = vals[1]; row.val_m2 = vals[2] ?? null; row.val_m3 = vals[3] ?? null; return true
+        row.valor = vals[1]; row.val_m2 = vals[2] ?? null; row.val_m3 = vals[3] ?? null; row.val_m4 = vals[4] ?? null; row.val_m5 = vals[5] ?? null; return true
       }
       const byKey = new Map<string, any>()   // dedup pela chave da uq_fat_orcado (soma colisões)
       const contasTocadas = new Set<string>(); let postosAplicados = 0; let gerados = 0

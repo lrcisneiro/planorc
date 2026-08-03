@@ -6,6 +6,8 @@ import { parseNum, numToInput, formatValor, computeCenario, pkey } from '../../l
 import type { LinhaCalc, RawValues, Periodo } from '../../lib/engine'
 import { ChevronLeft, Lock, Plus, Trash2, ArrowUp, ArrowDown, Settings2, Play, Globe, Table } from 'lucide-react'
 import FormulaCellInput from '../relatorios/FormulaCellInput'
+import { taxaOrcada, materializa } from '../../lib/cambio'
+import type { VersaoTaxaRow } from '../../lib/cambio'
 
 // Editor de Formulário de drivers (F5) — SPLIT por modo (mesmo padrão da F1 do relatório):
 //  · mode="estrutura"  → desenho GENÉRICO do formulário (formulario_linha): drivers,
@@ -68,6 +70,11 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   const [fxModal, setFxModal] = useState<{ lineId: string; val: string } | null>(null)   // modal de edição da fórmula da linha
   const [scopeRows, setScopeRows] = useState<{ empresa_id: string | null; filial_id: string | null; cc_id: string | null }[]>([])   // escopos com dados (marca ●)
   const [scopesRefresh, setScopesRefresh] = useState(0)
+  // Multimoeda: ao APLICAR, o resultado é materializado em fat_orcado na moeda funcional
+  // da empresa (empresa.moeda_slot) → convertido aos slots pela taxa orçada da versão.
+  const [moedas, setMoedas] = useState<{ slot: number }[]>([])
+  const [versaoTaxas, setVersaoTaxas] = useState<VersaoTaxaRow[]>([])
+  const [empMoeda, setEmpMoeda] = useState<Record<string, number>>({})
 
   // Rola a célula ativa para dentro da tela ao navegar pelo teclado (horizontal = meses; vertical = linhas).
   // block/inline 'nearest' = movimento mínimo; depois ajusta a horizontal por causa da coluna "Linha" sticky.
@@ -97,16 +104,19 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       setNome(f.data?.nome || '')
       setContasOrc((co.data || []) as Opt[])
       if (!isEstrutura) {
-        const [vs, emp, fil, cc] = await Promise.all([
+        const [vs, emp, fil, cc, mo] = await Promise.all([
           supabase.from('versao_orcamento').select('id,codigo,descricao,ano,bloqueada').eq('ativa', true).order('ano', { ascending: false }).order('codigo'),
-          supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
+          supabase.from('empresa').select('id,codigo,descricao,moeda_slot').eq('ativo', true).order('codigo'),
           supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
           supabase.from('centro_custo').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
+          supabase.from('moeda').select('slot,ativo').eq('ativo', true).order('slot'),
         ])
         setVersoes((vs.data || []) as Versao[])
         setEmpresas((emp.data || []) as Opt[])
+        setEmpMoeda(Object.fromEntries((emp.data || []).map((e: any) => [e.id, e.moeda_slot ?? 1])))
         setFiliais((fil.data || []) as Fil[])
         setCcs((cc.data || []) as Opt[])
+        setMoedas((mo.data || []) as any)
       }
       await loadLinhas()
       setLoading(false)
@@ -139,6 +149,12 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   const ano = versao?.ano || 0
   const bloqueada = !!versao?.bloqueada
   const pronto = !!versaoId && !!empresaId
+  // Multimoeda: slots ativos (inclui base=1) e taxas orçadas da versão (p/ materializar no APLICAR)
+  const slotsAtivos = useMemo(() => { const s = new Set(moedas.map(m => m.slot)); s.add(1); return [...s].sort((a, b) => a - b) }, [moedas])
+  useEffect(() => {
+    if (!versaoId) { setVersaoTaxas([]); return }
+    supabase.from('versao_taxa').select('moeda_slot,ano,mes,taxa').eq('versao_id', versaoId).then(({ data }) => setVersaoTaxas((data || []) as VersaoTaxaRow[]))
+  }, [versaoId])
   // Lançar/Aplicar exige grão completo (empresa+filial+CC); global 🌐 é a camada de premissas.
   // Consolidado (empresa real sem filial/CC) fica só-leitura — a soma de conferência virá depois.
   const escopoCompleto = isGlobal || (!!empresaId && !isGlobal && !!filialId && !!ccId)
@@ -386,6 +402,15 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       del = ccId ? del.eq('cc_id', ccId) : del.is('cc_id', null)
       const { error: eDel } = await del; if (eDel) throw eDel
       // agrega por conta_destino × mês (soma linhas do MESMO formulário na mesma conta) — evita colisão de chave
+      // multimoeda: o resultado é digitado na moeda funcional da empresa (empresa.moeda_slot)
+      const origem = empMoeda[empresaId] ?? 1
+      const semTaxa = new Set<number>()
+      const matAplic = (v: number, mes: number): Record<string, any> | null => {
+        const { vals, semTaxa: st } = materializa(v, origem, slotsAtivos, s => taxaOrcada(s, ano, mes, versaoTaxas))
+        if (vals[1] == null) return null
+        st.forEach(s => semTaxa.add(s))
+        return { valor: vals[1], val_m2: vals[2] ?? null, val_m3: vals[3] ?? null, val_m4: vals[4] ?? null, val_m5: vals[5] ?? null, moeda_origem: origem }
+      }
       const agg = new Map<string, any>()
       for (const l of destinos) for (let mes = 1; mes <= 12; mes++) {
         const v = computed[l.id]?.[`${ano}-${mes}`] || 0
@@ -395,9 +420,16 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
         if (cur) cur.valor += v
         else agg.set(key, { tenant_id: TENANT_ID, versao_id: versaoId, linha_id: l.conta_destino_id, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, valor: v, expressao: null, origem: 'FORMULARIO', origem_formulario_linha_id: l.id, dims: marca })
       }
-      const recs = Array.from(agg.values())
+      // materializa cada registro nos slots pela moeda de origem (bloqueia se falta a taxa da origem)
+      const recs: any[] = []
+      for (const rec of agg.values()) {
+        const mat = matAplic(rec.valor, rec.mes)
+        if (!mat) { alert(`Sem taxa orçada de origem (slot ${origem}) em ${rec.mes}/${ano} — cadastre em Cadastros › Taxa orçada antes de aplicar.`); setAplicando(false); return }
+        recs.push({ ...rec, ...mat })
+      }
       for (let i = 0; i < recs.length; i += 500) { const { error } = await supabase.from('fat_orcado').insert(recs.slice(i, i + 500)); if (error) throw error }
-      alert(`Aplicado: ${recs.length} célula(s) em ${contaIds.length} conta(s), rastreável no histórico como "${trace}". Valores manuais e de outros formulários foram preservados.`)
+      const avisoSlot = semTaxa.size ? `\n\nAtenção: sem cotação nos slots ${[...semTaxa].join(', ')} — nesses a conversão ficou vazia até cadastrar a taxa e recalcular.` : ''
+      alert(`Aplicado: ${recs.length} célula(s) em ${contaIds.length} conta(s), rastreável no histórico como "${trace}". Valores manuais e de outros formulários foram preservados.${avisoSlot}`)
     } catch (e: any) { alert('Erro ao aplicar: ' + (e?.message ?? JSON.stringify(e))) }
     setAplicando(false)
   }

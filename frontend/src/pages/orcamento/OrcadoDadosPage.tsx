@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { Upload, Download, FileDown, AlertCircle, RefreshCw } from 'lucide-react'
+import { taxaOrcada } from '../../lib/cambio'
+import type { VersaoTaxaRow } from '../../lib/cambio'
 
 declare const XLSX: any
 
@@ -120,15 +122,27 @@ export default function OrcadoDadosPage() {
       if (!raw.length) { setErro('Arquivo vazio'); setInfo(null); return }
 
       // Mapas de resolução (F2: linha resolve na estrutura compartilhada por código)
-      const [{ data: ls }, { data: emps }, { data: vers }] = await Promise.all([
+      const [{ data: ls }, { data: emps }, { data: vers }, { data: moe }, { data: vtx }] = await Promise.all([
         supabase.from('conta_orcamentaria').select('id,codigo'),
         supabase.from('empresa').select('id,codigo'),
         supabase.from('versao_orcamento').select('id,codigo'),
+        supabase.from('moeda').select('slot,ativo').eq('ativo', true),
+        supabase.from('versao_taxa').select('versao_id,moeda_slot,ano,mes,taxa'),
       ])
       const linhaMap: Record<string, string> = {}
       ;(ls || []).forEach((l: any) => { linhaMap[String(l.codigo)] = l.id })
       const empMap: Record<string, string> = {}; (emps || []).forEach((e: any) => { empMap[e.codigo] = e.id })
       const verMap: Record<string, string> = {}; (vers || []).forEach((v: any) => { verMap[v.codigo] = v.id })
+      // multimoeda: planilha entra em BRL base (moeda_origem=1); materializa val_m2..m5 pela taxa orçada da versão da linha
+      const slots = [...new Set([1, ...((moe || []).map((m: any) => m.slot))])].filter(s => s >= 2)
+      const taxasByVer: Record<string, VersaoTaxaRow[]> = {}
+      ;(vtx || []).forEach((t: any) => { (taxasByVer[t.versao_id] = taxasByVer[t.versao_id] || []).push(t) })
+      const slotsOf = (valor: number | null, versao_id: string, anoV: number, mesV: number) => {
+        const o: any = { moeda_origem: 1, val_m2: null, val_m3: null, val_m4: null, val_m5: null }
+        if (valor == null) return o
+        for (const s of slots) { const tx = taxaOrcada(s, anoV, mesV, taxasByVer[versao_id] || []); o['val_m' + s] = (tx && tx !== 0) ? valor / tx : null }
+        return o
+      }
 
       let ok = 0, ignorados = 0
       for (const r of raw) {
@@ -149,10 +163,11 @@ export default function OrcadoDadosPage() {
         const { data: ex } = await supabase.from('fat_orcado').select('id')
           .eq('versao_id', versao_id).eq('linha_id', linha_id).eq('empresa_id', empresa_id)
           .eq('ano', anoV).eq('mes', mesV).is('filial_id', null).is('cc_id', null).maybeSingle()
-        if (ex) { const { error } = await supabase.from('fat_orcado').update({ valor, expressao, origem: 'MANUAL' }).eq('id', ex.id); if (error) throw error }
+        const slotVals = slotsOf(valor, versao_id, anoV, mesV)
+        if (ex) { const { error } = await supabase.from('fat_orcado').update({ valor, expressao, origem: 'MANUAL', ...slotVals }).eq('id', ex.id); if (error) throw error }
         else { const { error } = await supabase.from('fat_orcado').insert({
           tenant_id: TENANT_ID, versao_id, linha_id, empresa_id, filial_id: null, cc_id: null,
-          ano: anoV, mes: mesV, valor, expressao, origem: 'MANUAL', dims: {},
+          ano: anoV, mes: mesV, valor, expressao, origem: 'MANUAL', dims: {}, ...slotVals,
         }); if (error) throw error }
         ok++
       }
