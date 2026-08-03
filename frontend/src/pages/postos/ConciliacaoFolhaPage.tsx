@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
 import { PostosPills, passoLabel } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
-import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
+import { FiltrosButton, effectiveCcFilter, escopoFiltro, useMoedaView, MoedaSelect } from '../dashboard/DashFiltros'
 import { ConciliacaoFolha } from './ConciliacaoFolha'
 import { usePostoCtx } from '../../lib/postoCtx'
 import { pageAll } from '../../lib/pageAll'
@@ -29,6 +29,7 @@ const S: Record<string, CSSProperties> = {
 
 export default function ConciliacaoFolhaPage() {
   const acesso = useUserAccess()
+  const { moedas, slot: moedaSlot, setSlot: setMoedaSlot } = useMoedaView()
   const [versoes, setVersoes] = useState<any[]>([])
   const [versaoSel, setVersaoSel] = usePostoCtx('versaoId', '')
   const [empresas, setEmpresas] = useState<any[]>([])
@@ -70,9 +71,9 @@ export default function ConciliacaoFolhaPage() {
     return {
       titulo: 'Todas as contas', versaoId: versaoSel, versaoLabel: versoes.find(v => v.id === versaoSel)?.codigo || '',
       meses: [{ ano: a, mes: m }], masterIds: null, contaIds: null,
-      empresaSel: empEsc ?? [], filialFilter, ccFilter,
+      empresaSel: empEsc ?? [], filialFilter, ccFilter, slot: moedaSlot,
     }
-  }, [versaoSel, compSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, filiais, empresas, ccs, versoes, acesso.loading]) // eslint-disable-line
+  }, [versaoSel, compSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, filiais, empresas, ccs, versoes, acesso.loading, moedaSlot]) // eslint-disable-line
 
   return (
     <div style={S.page}>
@@ -102,6 +103,8 @@ export default function ConciliacaoFolhaPage() {
             empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel}
             areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         </div>
+        {moedas.length > 1 && <div style={S.fld}><span style={S.lbl}>Moeda</span>
+          <MoedaSelect moedas={moedas} slot={moedaSlot} setSlot={setMoedaSlot} /></div>}
       </div>
 
       {!comps.length ? <div style={S.empty}>Nenhuma folha importada ainda. Vá em <b>{passoLabel('/postos/folha')}</b> e importe o realizado antes de conciliar.</div>

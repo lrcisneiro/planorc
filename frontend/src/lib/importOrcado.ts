@@ -62,17 +62,32 @@ export async function importBaseline(opts: {
   modo: ImportModo
   versaoId: string
   canWrite?: CanWrite
-  taxas?: VersaoTaxaRow[]   // multimoeda: taxas orçadas da versão p/ materializar val_m2..m5 (baseline em BRL base)
+  taxas?: VersaoTaxaRow[]   // multimoeda: taxas orçadas da versão p/ materializar val_m2..m5
+  slotOrigem?: number       // moeda em que o arquivo está (1 = BRL base, default). ≠1 → converte p/ base.
 }): Promise<ImportBaselineResult> {
   const { file, modo, versaoId } = opts
   const canWrite: CanWrite = opts.canWrite || (() => true)
   const taxas = opts.taxas || []
-  // baseline entra em BRL (moeda_origem=1); materializa os slots pela taxa orçada da versão
-  const slotsOf = (valor: number, ano: number, mes: number) => {
-    const o: any = { moeda_origem: 1 }
-    for (const s of [2, 3, 4, 5]) { const t = taxaOrcada(s, ano, mes, taxas); o['val_m' + s] = (t && t !== 0) ? valor / t : null }
+  const slotOrigem = opts.slotOrigem ?? 1
+  // converte um valor na moeda de ORIGEM → base (BRL). null se falta a taxa orçada da origem.
+  const toBase = (v: number, ano: number, mes: number): number | null => {
+    if (slotOrigem === 1) return v
+    const t = taxaOrcada(slotOrigem, ano, mes, taxas)
+    return (t && t !== 0) ? v * t : null
+  }
+  // dado o BASE (BRL), preenche val_m2..m5 (val_m<slotOrigem> reconstrói o valor do arquivo)
+  const slotsFromBase = (base: number, ano: number, mes: number) => {
+    const o: any = {}
+    for (const s of [2, 3, 4, 5]) { const t = taxaOrcada(s, ano, mes, taxas); o['val_m' + s] = (t && t !== 0) ? base / t : null }
     return o
   }
+  // registro com `valor` na moeda de origem → { valor: base, val_m2..m5, moeda_origem }. null se falta taxa da origem.
+  const materializeRec = (rec: any): any | null => {
+    const base = toBase(rec.valor, rec.ano, rec.mes)
+    if (base == null) return null
+    return { ...rec, valor: base, ...slotsFromBase(base, rec.ano, rec.mes), moeda_origem: slotOrigem }
+  }
+  let semTaxaOrig = 0   // registros descartados por falta da taxa orçada da moeda de origem
   const fail = (message: string): ImportBaselineResult => ({ ok: false, message, imported: 0, skipped: 0, blocked: 0 })
 
   const wb = await readWorkbook(file)
@@ -164,12 +179,13 @@ export async function importBaseline(opts: {
     for (let i = 0; i < delIds.length; i += 500) {
       const { error } = await supabase.from('fat_orcado').delete().in('id', delIds.slice(i, i + 500)); if (error) throw error
     }
-    const recIns = records.map((r: any) => ({ ...r, ...slotsOf(r.valor, r.ano, r.mes) }))
+    const recIns: any[] = []
+    for (const r of records) { const mr = materializeRec(r); if (mr) recIns.push(mr); else semTaxaOrig++ }
     for (let i = 0; i < recIns.length; i += 500) {
       const { error } = await supabase.from('fat_orcado').insert(recIns.slice(i, i + 500)); if (error) throw error
     }
-    return { ok: true, imported: records.length, skipped: skip, blocked,
-      message: `Full load: ${records.length} lançamentos importados (total ${fmtTotal}) em ${empSet.size} empresa(s).` + (skip || blocked ? detalhe() : '') }
+    return { ok: true, imported: recIns.length, skipped: skip, blocked,
+      message: `Full load: ${recIns.length} lançamentos importados (total ${fmtTotal}) em ${empSet.size} empresa(s).` + (semTaxaOrig ? `\n• ${semTaxaOrig} descartado(s) por falta de taxa orçada da moeda de origem (slot ${slotOrigem}).` : '') + (skip || blocked ? detalhe() : '') }
   }
   // Adicionar: soma aos existentes (busca chaves atuais e acumula)
   const ex = await fetchAllRows(() => supabase.from('fat_orcado')
@@ -183,13 +199,20 @@ export async function importBaseline(opts: {
   const toInsert: any[] = []; const toUpdate: { id: string; valor: number; ano: number; mes: number }[] = []
   for (const [key, rec] of agg.entries()) {
     const hit = exMap[key]
-    if (hit) toUpdate.push({ id: hit.id, valor: hit.valor + rec.valor, ano: rec.ano, mes: rec.mes })
-    else toInsert.push({ ...rec, ...slotsOf(rec.valor, rec.ano, rec.mes) })
+    if (hit) {
+      // soma na BASE (converte o novo valor da origem antes de acumular ao existente, que já é base)
+      const baseNew = toBase(rec.valor, rec.ano, rec.mes)
+      if (baseNew == null) { semTaxaOrig++; continue }
+      toUpdate.push({ id: hit.id, valor: hit.valor + baseNew, ano: rec.ano, mes: rec.mes })
+    } else {
+      const mr = materializeRec(rec); if (mr) toInsert.push(mr); else semTaxaOrig++
+    }
   }
   for (let i = 0; i < toInsert.length; i += 500) {
     const { error } = await supabase.from('fat_orcado').insert(toInsert.slice(i, i + 500)); if (error) throw error
   }
-  for (const u of toUpdate) { const { error } = await supabase.from('fat_orcado').update({ valor: u.valor, ...slotsOf(u.valor, u.ano, u.mes) }).eq('id', u.id); if (error) throw error }
+  // update recomputa os slots a partir do NOVO total em base (moeda_origem do existente é preservada)
+  for (const u of toUpdate) { const { error } = await supabase.from('fat_orcado').update({ valor: u.valor, ...slotsFromBase(u.valor, u.ano, u.mes) }).eq('id', u.id); if (error) throw error }
   return { ok: true, imported: toInsert.length + toUpdate.length, skipped: skip, blocked,
-    message: `Adicionado: ${toInsert.length} novos, ${toUpdate.length} somados (total do arquivo ${fmtTotal}).` + (skip || blocked ? detalhe() : '') }
+    message: `Adicionado: ${toInsert.length} novos, ${toUpdate.length} somados (total do arquivo ${fmtTotal}).` + (semTaxaOrig ? `\n• ${semTaxaOrig} descartado(s) por falta de taxa orçada da moeda de origem (slot ${slotOrigem}).` : '') + (skip || blocked ? detalhe() : '') }
 }

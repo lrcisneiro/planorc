@@ -273,10 +273,12 @@ export default function OrcarGradePage() {
     const msgModo = modo === 'full'
       ? `SUBSTITUIR (full load): apaga o orçado manual (dentro do seu escopo) da versão "${verCod}" das empresas presentes no arquivo e importa de novo.`
       : `ADICIONAR: soma os valores ao orçado já existente da versão "${verCod}" (não apaga nada).`
-    if (!confirm(`${msgModo}\n\nConfirmar importação?`)) return
+    // moeda de origem do arquivo = a moeda selecionada na grade (moedaView); ≠BRL é convertida pela taxa orçada
+    const moedaMsg = moedaView !== 1 ? `\n\nOs valores do arquivo serão lidos em ${moedaCod(moedaView)} e convertidos pela taxa orçada da versão.` : ''
+    if (!confirm(`${msgModo}${moedaMsg}\n\nConfirmar importação?`)) return
     setSaving(true)
     try {
-      const res = await importBaseline({ file, modo, versaoId, canWrite: canWriteScope, taxas: versaoTaxas })
+      const res = await importBaseline({ file, modo, versaoId, canWrite: canWriteScope, taxas: versaoTaxas, slotOrigem: moedaView })
       alert(res.message)
       if (res.ok) setRefresh(x => x + 1)
     } catch (e: any) {

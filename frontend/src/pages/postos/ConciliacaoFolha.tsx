@@ -18,13 +18,14 @@ export type ConcilParams = {
   contaIds: string[] | null    // conta_contabil (fat_folha.conta_id) — null = todas
   empresaSel: string[]; filialFilter: string[] | null; ccFilter: string[] | null
   contaToItem?: Record<string, string>   // conta_contabil → item orçamentário (vindo pronto do DRE); sem isto, resolve no banco
+  slot?: number   // multimoeda: moeda em exibição (val_m<slot>); 1 = base/BRL
 }
 type Linha = { key: string; posto_id: string | null; codigo: string; nome: string; matricula: string; cargo: string; empCod: string; filCod: string; ccCod: string; ccDesc: string; orcado: number; realizado: number; divergDims: string[] }
 type VerbaReal = { verba_cod: string; verba_desc: string; conta_id: string | null; item_orc_id: string | null; valor: number }
 type DimCell = { empId: string | null; filId: string | null; ccId: string | null; orc: number; real: number }
 
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const milAno = (v: number) => Math.abs(v) >= 1e6 ? `R$ ${(v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} mi` : `R$ ${money(v)}`
+const milAno = (v: number, sym = 'R$') => Math.abs(v) >= 1e6 ? `${sym} ${(v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} mi` : `${sym} ${money(v)}`
 
 const S: Record<string, CSSProperties> = {
   kpis:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, margin: '0 0 16px' },
@@ -68,6 +69,14 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
   const [soDiverg, setSoDiverg] = useState(false)   // filtro rápido: só postos com realizado fora da origem
   const [dimBreak, setDimBreak] = useState<Record<string, DimCell[]>>({})   // posto → células (empresa×filial×CC) orç×real
   const [modalDim, setModalDim] = useState<Linha | null>(null)   // posto aberto no modal comparativo de dimensões
+  // multimoeda: lê a coluna do slot em exibição; símbolo p/ os KPIs
+  const slot = p.slot ?? 1
+  const sv = (r: any) => slot >= 2 ? Number(r['val_m' + slot] ?? 0) : Number(r.valor ?? 0)
+  const [moedaSim, setMoedaSim] = useState('R$')
+  useEffect(() => {
+    if (slot === 1) { setMoedaSim('R$'); return }
+    supabase.from('moeda').select('simbolo,codigo').eq('slot', slot).maybeSingle().then(({ data }) => setMoedaSim((data as any)?.simbolo || (data as any)?.codigo || `M${slot}`))
+  }, [slot])
 
   useEffect(() => {
     (async () => {
@@ -84,12 +93,12 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
 
         // busca as linhas (escopo aplicado depois, por MODO)
         const orcRows = await pageAll(() => {
-          let q = supabase.from('fat_folha').select('posto_id,empresa_id,filial_id,cc_id,ano,mes,valor,verba_cod,verba_desc,item_orc_id').eq('tipo', 'ORCADO').eq('versao_id', p.versaoId).in('ano', anos).in('mes', mesesNums)
+          let q = supabase.from('fat_folha').select('posto_id,empresa_id,filial_id,cc_id,ano,mes,valor,val_m2,val_m3,val_m4,val_m5,verba_cod,verba_desc,item_orc_id').eq('tipo', 'ORCADO').eq('versao_id', p.versaoId).in('ano', anos).in('mes', mesesNums)
           if (p.masterIds) q = q.in('item_orc_id', p.masterIds)
           return q
         })
         const realRows = await pageAll(() => {
-          let q = supabase.from('fat_folha').select('posto_id,empresa_id,filial_id,cc_id,ano,mes,valor,verba_cod,verba_desc,tipo_verba,conta_id,item_orc_id').eq('tipo', 'REALIZADO').in('ano', anos).in('mes', mesesNums)
+          let q = supabase.from('fat_folha').select('posto_id,empresa_id,filial_id,cc_id,ano,mes,valor,val_m2,val_m3,val_m4,val_m5,verba_cod,verba_desc,tipo_verba,conta_id,item_orc_id').eq('tipo', 'REALIZADO').in('ano', anos).in('mes', mesesNums)
           if (p.contaIds) q = q.in('conta_id', p.contaIds)
           return q
         })
@@ -155,7 +164,7 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
           let fator = 1
           if (modo === 'posto') { if (!passa(po?.empresa_id, po?.filial_id, po?.cc_id)) continue }
           else { fator = pctEscopo(r.posto_id); if (!fator) continue }
-          const v = (Number(r.valor) || 0) * fator
+          const v = sv(r) * fator
           orcById[pid] = (orcById[pid] || 0) + v
           // breakdown: distribui o orçado pelos destinos do rateio (sem rateio = origem)
           if (modo === 'posto') for (const c of orcCells(pid)) addDim(pid, c.empId, c.filId, c.ccId, 'orc', v * c.pct)
@@ -204,7 +213,7 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
             if (!cells.some(c => (c.ccId || null) === (r.cc_id || null))) s.add('CC')
             if (s.size === 0) s.add('combinação')
           }
-          const v = Number(r.valor) || 0
+          const v = sv(r)
           realById[pid] = (realById[pid] || 0) + v
           if (modo === 'posto') addDim(pid, r.empresa_id, r.filial_id, r.cc_id, 'real', v)
           const t = (realTmp[pid] ||= {}); const k = `${r.verba_cod}|${r.conta_id}`
@@ -237,7 +246,7 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
       } catch (e: any) { setErro(e?.message || String(e)) }
       finally { setLoading(false) }
     })()
-  }, [modo, p.versaoId, JSON.stringify(p.meses), JSON.stringify(p.masterIds), JSON.stringify(p.contaIds), JSON.stringify(p.empresaSel), JSON.stringify(p.filialFilter), JSON.stringify(p.ccFilter), JSON.stringify(p.contaToItem)]) // eslint-disable-line
+  }, [modo, slot, p.versaoId, JSON.stringify(p.meses), JSON.stringify(p.masterIds), JSON.stringify(p.contaIds), JSON.stringify(p.empresaSel), JSON.stringify(p.filialFilter), JSON.stringify(p.ccFilter), JSON.stringify(p.contaToItem)]) // eslint-disable-line
 
   const nDiverg = useMemo(() => linhas.filter(l => l.divergDims.length > 0).length, [linhas])
   useEffect(() => { if (nDiverg === 0 && soDiverg) setSoDiverg(false) }, [nDiverg]) // eslint-disable-line
@@ -335,9 +344,9 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
     <>
       {erro && <div style={S.erro}><AlertCircle size={14} /> {erro}</div>}
       <div style={S.kpis}>
-        <div style={S.kpi}><div style={S.kpiL}>Orçado (postos)</div><div style={S.kpiV}>{milAno(tot.orc)}</div></div>
-        <div style={S.kpi}><div style={S.kpiL}>Realizado (folha)</div><div style={S.kpiV}>{milAno(tot.real)}</div></div>
-        <div style={S.kpi}><div style={S.kpiL}>Δ (orç − real)</div><div style={{ ...S.kpiV, color: corDelta(tot.orc - tot.real) }}>{milAno(tot.orc - tot.real)}</div></div>
+        <div style={S.kpi}><div style={S.kpiL}>Orçado (postos)</div><div style={S.kpiV}>{milAno(tot.orc, moedaSim)}</div></div>
+        <div style={S.kpi}><div style={S.kpiL}>Realizado (folha)</div><div style={S.kpiV}>{milAno(tot.real, moedaSim)}</div></div>
+        <div style={S.kpi}><div style={S.kpiL}>Δ (orç − real)</div><div style={{ ...S.kpiV, color: corDelta(tot.orc - tot.real) }}>{milAno(tot.orc - tot.real, moedaSim)}</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Δ%</div><div style={{ ...S.kpiV, color: corDelta(tot.orc - tot.real) }}>{tot.real ? `${((tot.orc - tot.real) / Math.abs(tot.real) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : '—'}</div></div>
       </div>
 

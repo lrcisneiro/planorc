@@ -1123,11 +1123,12 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const msgModo = modo === 'full'
       ? `SUBSTITUIR (full load): apaga TODO o orçado manual da versão "${verCod}" das empresas presentes no arquivo e importa de novo.`
       : `ADICIONAR: soma os valores ao orçado já existente da versão "${verCod}" (não apaga nada).`
-    if (!confirm(`${msgModo}\n\nConfirmar importação?`)) return
+    const moedaMsg = moedaView !== 1 ? `\n\nOs valores do arquivo serão lidos em ${moedaCod(moedaView)} e convertidos pela taxa orçada da versão.` : ''
+    if (!confirm(`${msgModo}${moedaMsg}\n\nConfirmar importação?`)) return
     setSaving(true)
     await ensureSnapshot()
     try {
-      const res = await importBaselineLib({ file, modo, versaoId })   // sem canWrite: editor de estrutura importa sem trava de escopo
+      const res = await importBaselineLib({ file, modo, versaoId, taxas: versaoTaxas, slotOrigem: moedaView })   // sem canWrite: editor de estrutura importa sem trava de escopo
       alert(res.message)
       if (res.ok) await loadValores()
     } catch (e: any) { alert('Erro ao importar: ' + (e?.message ?? JSON.stringify(e))) }
@@ -2060,7 +2061,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {temPosto && onConciliar && <button title="Comparar orçado × realizado da folha por posto"
-              onClick={() => { onConciliar({ titulo, versaoId: cen, versaoLabel: cenLabel, meses, masterIds: linhaIds, contaIds, empresaSel, filialFilter, ccFilter, contaToItem: contaItemMap }); onClose() }}
+              onClick={() => { onConciliar({ titulo, versaoId: cen, versaoLabel: cenLabel, meses, masterIds: linhaIds, contaIds, empresaSel, filialFilter, ccFilter, contaToItem: contaItemMap, slot: moedaSlot }); onClose() }}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5, fontWeight: 600, borderRadius: 8, cursor: 'pointer', color: 'var(--violet)', border: '1px solid var(--violet)55', background: 'rgba(139,92,246,0.14)' }}>
               <GitCompareArrows size={14} /> Conciliação Folha</button>}
             <X size={20} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} />
