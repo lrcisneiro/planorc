@@ -14,6 +14,7 @@ export type VerbaRegra = {
   conta_destino_id: string | null
   incide_encargos: boolean          // entra na base de PCT_BASE/PROVISAO?
   regime: string | null             // null = vale p/ todos os regimes
+  pais?: string | null              // país da regra; null = compartilhada (vale p/ todos os países)
   ordem: number | null
   categoria?: string | null         // sobrescreve a categoria da composição (SALARIO/ENCARGOS/PROVISOES/BENEFICIOS); null = padrão do tipo
 }
@@ -22,6 +23,7 @@ export type PostoCalc = {
   salario_base: number
   fte: number | null
   regime: string | null
+  pais?: string | null              // país do posto (resolvido da empresa) — filtra as verbas aplicáveis
   ini_ano?: number | null; ini_mes?: number | null
   fim_ano?: number | null; fim_mes?: number | null
 }
@@ -59,10 +61,16 @@ export const regimeAplica = (verbaRegime: string | null | undefined, postoRegime
   return !rs.length || (postoRegime != null && rs.includes(postoRegime))
 }
 
-// verbas que se aplicam ao regime do posto, na ordem de cálculo (INFORMATIVA fora)
-export function verbasDoRegime(verbas: VerbaRegra[], regime: string | null): VerbaRegra[] {
+// `verba.pais` null/vazio = compartilhada (todos os países); senão só casa com o país do posto.
+export const paisAplica = (verbaPais: string | null | undefined, postoPais: string | null | undefined): boolean => {
+  const vp = (verbaPais || '').trim()
+  return !vp || vp === (postoPais || '')
+}
+
+// verbas que se aplicam ao país × regime do posto, na ordem de cálculo (INFORMATIVA fora)
+export function verbasDoRegime(verbas: VerbaRegra[], regime: string | null, pais: string | null = null): VerbaRegra[] {
   return verbas
-    .filter(v => v.tipo_calculo !== 'INFORMATIVA' && regimeAplica(v.regime, regime))
+    .filter(v => v.tipo_calculo !== 'INFORMATIVA' && paisAplica(v.pais, pais) && regimeAplica(v.regime, regime))
     .sort((a, b) => (a.ordem ?? 9999) - (b.ordem ?? 9999))
 }
 
@@ -104,7 +112,7 @@ export function calcularPosto(
   opts: { dissidioPct: number; mesBase: number; ano: number; valoresFixos?: Record<string, number> },
 ): ResultadoPosto {
   const valoresFixos = opts.valoresFixos || {}
-  const regVerbas = verbasDoRegime(verbas, posto.regime)
+  const regVerbas = verbasDoRegime(verbas, posto.regime, posto.pais ?? null)
   const fte = Number(posto.fte || 1)
   const salBase = Number(posto.salario_base || 0)
   const [ini, fim] = vigencia(posto, opts.ano)

@@ -244,6 +244,28 @@ para o export do ERP quanto para o arquivo confidencial:
 - **P5 — Rateio de despesas gerais**: aplicar o motor de rateio como
   pós-processamento do orçado por CC (marketing, TI, aluguéis do CSC).
 
+## Estruturas de encargo por PAÍS (implementado — ago/2026, schema_v3_074)
+
+Encargos/provisões diferem por país (BR: INSS/FGTS/13º/férias; PY: IPS/aguinaldo;
+BO: CNS/AFP/aguinaldo/indemnización). O **motor já era país-agnóstico** — os
+primitivos (`PCT_BASE`, `PROVISAO_1_12`, `PCT_VERBA`, `VALOR_FIXO`) cobrem os três.
+Faltava **particionar o catálogo por país** (antes só filtrava por `regime`).
+
+Solução (Opção A, mínima): dimensão de país em `empresa.pais` e `verba_folha.pais`.
+- O posto resolve o país via `empresa_id`; o motor seleciona a verba se
+  `verba.pais IS NULL` (compartilhada) **OU** `verba.pais = posto.pais`
+  (`paisAplica` em `motorFolha.ts`), cruzado com o regime.
+- `verba.pais NULL` = universal. **Ao ir multipaís, marque o país das verbas de
+  cada país**; deixe NULL só as genuinamente universais (senão uma NULL vaza p/ todos).
+- Editável em Cadastros → Empresas (país da unidade) e /postos/regras (país da verba).
+- Retrocompat: tudo NULL = comportamento atual. `PCT_VERBA` resolve códigos DENTRO
+  do conjunto já filtrado por país (sem colisão entre países).
+- Se os catálogos divergirem muito no futuro: evoluir p/ "plano de folha" por país
+  (padrão `plano_contas` multi-ERP) — a Opção A migra sem retrabalho.
+- **Limite correlato** (não é de país): base de incidência é um acumulador único
+  (`incide_encargos`); encargos com bases distintas usam `PCT_VERBA`. Outros países
+  estressam mais isso — considerar base explícita por verba no futuro.
+
 ## Pendências / a discutir
 
 - Origem no fat_orcado: 'FORMULARIO' reuso vs novo valor 'POSTO' (preferir POSTO).

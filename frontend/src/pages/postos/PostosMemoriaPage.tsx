@@ -80,12 +80,12 @@ export default function PostosMemoriaPage() {
   useEffect(() => {
     (async () => {
       const [e, f, c, ct, vs, vb, si] = await Promise.all([
-        supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
+        supabase.from('empresa').select('id,codigo,descricao,pais').eq('ativo', true).order('codigo'),
         supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
         supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
         pageAll(() => supabase.from('conta_orcamentaria').select('id,codigo,descricao')),
         supabase.from('versao_orcamento').select('id,codigo').order('codigo'),
-        supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,regime,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
+        supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,regime,pais,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
         supabase.from('sindicato').select('id,mes_database'),
       ])
       setEmpresas(e.data || []); setFiliais(f.data || []); setCcs(c.data || []); setContas((ct as any[]) || [])
@@ -121,16 +121,17 @@ export default function PostosMemoriaPage() {
   }, [versaoSel])
 
   const anoCalc = useMemo(() => { const m = (versoes.find(v => v.id === versaoSel)?.codigo || '').match(/(20\d{2})/); return m ? parseInt(m[1], 10) : new Date().getFullYear() }, [versoes, versaoSel])
+  const empPais = useMemo(() => new Map((empresas as any[]).map(e => [e.id, e.pais ?? null])), [empresas])
   const custos = useMemo(() => {
     const map = new Map<string, ResultadoPosto>()
     if (!verbas.length) return map
-    for (const p of postos) map.set(p.id, calcularPosto(p as any, verbas, {
+    for (const p of postos) map.set(p.id, calcularPosto({ ...(p as any), pais: empPais.get((p as any).empresa_id) ?? null }, verbas, {
       dissidioPct: p.sindicato_id ? (dissidio[p.sindicato_id] || 0) : 0,
       mesBase: p.sindicato_id ? (sindMesBase[p.sindicato_id] || 1) : 1,
       ano: anoCalc, valoresFixos: postoVerbas[p.id] || {},
     }))
     return map
-  }, [postos, verbas, dissidio, sindMesBase, anoCalc, postoVerbas])
+  }, [postos, verbas, dissidio, sindMesBase, anoCalc, postoVerbas, empPais])
 
   const filtrados = useMemo(() => {
     const empF = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSee)

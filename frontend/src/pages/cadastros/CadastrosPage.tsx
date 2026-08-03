@@ -4,6 +4,7 @@ import { supabase, TENANT_ID } from '../../lib/supabase'
 import { decodeCC, AREA_MAP, DIVISAO_MAP, BU_MAP } from '../../lib/ccDims'
 import { useGrid, GridHead } from '../../lib/grid'
 import type { GCol } from '../../lib/grid'
+import { PAISES, paisNome } from '../../lib/paises'
 
 // SheetJS carregado via CDN no index.html
 declare const XLSX: any
@@ -280,6 +281,7 @@ function EmpresasTab() {
     { key: 'descricao', placeholder: 'Descrição' },
     { key: 'plano_id', placeholder: 'Plano de contas (ERP)', type: 'select' as const, options: planos.map(p => ({ value: p.id, label: `${p.codigo} · ${p.nome}` })) },
     { key: 'moeda_slot', placeholder: 'Moeda funcional', type: 'select' as const, options: moedas.map(m => ({ value: String(m.slot), label: `${m.slot} · ${m.codigo}` })) },
+    { key: 'pais', placeholder: 'País (folha)', type: 'select' as const, options: PAISES.map(p => ({ value: p.codigo, label: `${p.codigo} · ${p.nome}` })) },
   ]
   const planoCod = (id: string) => planos.find(p => p.id === id)?.codigo || ''
   const moedaCod = (slot: number) => moedas.find(m => m.slot === slot)?.codigo || `slot ${slot}`
@@ -299,6 +301,7 @@ function EmpresasTab() {
     { key: 'descricao', label: 'Descrição' },
     { key: 'plano', label: 'Plano (ERP)', get: e => planoCod(e.plano_id) },
     { key: 'moeda', label: 'Moeda', get: e => moedaCod(e.moeda_slot ?? 1) },
+    { key: 'pais', label: 'País', get: e => paisNome(e.pais) || '—' },
     { key: 'ativo', label: 'Status', get: e => e.ativo ? 'Ativo' : 'Inativo' },
   ]
   const grid = useGrid(filtered, GRID)
@@ -306,7 +309,7 @@ function EmpresasTab() {
   const save = async (v: Record<string, string>, id?: string) => {
     if (!v.codigo || !v.descricao) { setErro('Código e descrição são obrigatórios'); return }
     setErro(null)
-    const payload = { codigo: v.codigo.trim(), descricao: v.descricao.trim(), plano_id: v.plano_id || null, moeda_slot: v.moeda_slot ? Number(v.moeda_slot) : 1 }
+    const payload = { codigo: v.codigo.trim(), descricao: v.descricao.trim(), plano_id: v.plano_id || null, moeda_slot: v.moeda_slot ? Number(v.moeda_slot) : 1, pais: v.pais || null }
     const { error } = id
       ? await supabase.from('empresa').update(payload).eq('id', id)
       : await supabase.from('empresa').insert({ tenant_id: TENANT_ID, ...payload, ativo: true })

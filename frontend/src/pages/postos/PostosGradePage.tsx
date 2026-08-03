@@ -162,12 +162,12 @@ export default function PostosGradePage() {
 
   const loadLookups = async () => {
     const [e, f, c, cg, vs, vb, si, rr, rd] = await Promise.all([
-      supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
+      supabase.from('empresa').select('id,codigo,descricao,pais').eq('ativo', true).order('codigo'),
       supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
       supabase.from('cargo').select('id,codigo,nome').order('nome'),
       supabase.from('versao_orcamento').select('id,codigo').order('codigo'),
-      supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,regime,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
+      supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,regime,pais,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
       supabase.from('sindicato').select('id,codigo,mes_database'),
       supabase.from('rateio_regra').select('id,nome,dimensao').eq('ativo', true).order('nome'),
       supabase.from('rateio_destino').select('regra_id,empresa_id,cc_id,pct'),
@@ -511,17 +511,18 @@ export default function PostosGradePage() {
     return m ? parseInt(m[1], 10) : new Date().getFullYear()
   }, [versoes, versaoSel])
   const temMotor = verbas.length > 0
+  const empPais = useMemo(() => new Map((empresas as any[]).map(e => [e.id, e.pais ?? null])), [empresas])
   const custos = useMemo(() => {
     const map = new Map<string, ResultadoPosto>()
     if (!temMotor) return map
-    for (const p of postos) map.set(p.id, calcularPosto(p as any, verbas, {
+    for (const p of postos) map.set(p.id, calcularPosto({ ...(p as any), pais: empPais.get(p.empresa_id) ?? null }, verbas, {
       dissidioPct: p.sindicato_id ? (dissidio[p.sindicato_id] || 0) : 0,
       mesBase: p.sindicato_id ? (sindMesBase[p.sindicato_id] || 1) : 1,
       ano: anoCalc,
       valoresFixos: postoVerbas[p.id] || {},
     }))
     return map
-  }, [postos, verbas, dissidio, sindMesBase, anoCalc, temMotor, postoVerbas])
+  }, [postos, verbas, dissidio, sindMesBase, anoCalc, temMotor, postoVerbas, empPais])
   const custoAnoP = (p: Posto) => custos.get(p.id)?.totalAno ?? (Number(p.salario_base) || 0) * (Number(p.fte) || 1) * 12
   const custoMesP = (p: Posto) => custos.get(p.id)?.totalMes ?? (Number(p.salario_base) || 0) * (Number(p.fte) || 1)
   const empById = useMemo(() => new Map(empresas.map((e: any) => [e.id, e])), [empresas])

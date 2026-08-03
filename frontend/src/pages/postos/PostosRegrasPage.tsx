@@ -5,7 +5,10 @@ import { PostosPills } from './PostosPills'
 import { usePostoCtx } from '../../lib/postoCtx'
 import { pageAll } from '../../lib/pageAll'
 import { useCapacidades } from '../../hooks/useCapacidades'
+import { PAISES } from '../../lib/paises'
 import { Plus, Trash2, Pencil, Save, X, AlertCircle, Download, Upload, FileDown } from 'lucide-react'
+
+const PAIS_OPTS: { value: string; label: string }[] = PAISES.map(p => ({ value: p.codigo, label: `${p.codigo} · ${p.nome}` }))
 
 
 // SheetJS via CDN (index.html)
@@ -312,6 +315,7 @@ function VerbasTab({ editavel }: { editavel: boolean }) {
       { key: 'incide_encargos',  label: 'Base p/ encargos', kind: 'check', width: 100, importSample: 'sim' },
       { key: 'categoria',        label: 'Categoria',        kind: 'select', options: CATEGORIA_OPTS, width: 130, importSample: '' },
       { key: 'regime',           label: 'Regime(s)',        kind: 'regimes', width: 210, importSample: 'CLT,PROLABORE' },
+      { key: 'pais',             label: 'País',             kind: 'select', options: PAIS_OPTS, width: 130, importSample: '' },
       { key: 'aglutina_em',      label: 'Aglutina em',      kind: 'select', lookup: 'self_cod', width: 150, importSample: '' },
       { key: 'ativo',            label: 'Ativo',            kind: 'check', width: 60, importSample: 'sim' },
     ]} />

@@ -1,0 +1,24 @@
+-- ============================================================
+-- F5 · Posto de Trabalho — país na folha (estruturas de encargos por país).
+--
+-- Motivo: os encargos/provisões diferem por país (BR: INSS/FGTS/13º/férias;
+-- PY: IPS/aguinaldo; BO: CNS/AFP/aguinaldo/indemnización). O motor de cálculo
+-- (motorFolha.ts) já é país-agnóstico — os primitivos (PCT_BASE, PROVISAO_1_12,
+-- PCT_VERBA…) cobrem os três. O que faltava era PARTICIONAR o catálogo por país:
+-- hoje `verba_folha` é único por tenant e o motor só filtra por `regime`.
+--
+-- Solução (Opção A): dimensão de país em empresa e verba.
+--   · empresa.pais  → o posto resolve o país via empresa_id.
+--   · verba_folha.pais → a que país a regra se aplica.
+-- Seleção no motor: verba entra se (verba.pais IS NULL) OU (verba.pais = posto.pais).
+--   verba.pais NULL = compartilhada (vale p/ todos os países).
+--
+-- RETROCOMPAT: ambas nullable, sem default. Tudo NULL hoje → comportamento
+-- idêntico ao atual (verba país-null casa com qualquer posto). A partição só
+-- passa a valer quando o usuário marca país nas empresas E nas verbas.
+-- ATENÇÃO ao migrar p/ multipaís: marque o país das verbas de CADA país; deixe
+-- NULL só as genuinamente universais — senão uma verba NULL vaza para todos.
+-- Idempotente.
+-- ============================================================
+ALTER TABLE empresa      ADD COLUMN IF NOT EXISTS pais text;   -- 'BR','PY','BO'… NULL = não informado
+ALTER TABLE verba_folha  ADD COLUMN IF NOT EXISTS pais text;   -- país da regra; NULL = compartilhada (todos)
