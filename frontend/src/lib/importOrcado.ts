@@ -1,4 +1,6 @@
 import { supabase, TENANT_ID } from './supabase'
+import { taxaOrcada } from './cambio'
+import type { VersaoTaxaRow } from './cambio'
 
 // Importação de orçado Baseline (planilha larga, detalhada por empresa/filial/CC/dims).
 // Extraído do editor de relatório para ser reusado na grade de Orçar. A lógica é a mesma:
@@ -60,9 +62,17 @@ export async function importBaseline(opts: {
   modo: ImportModo
   versaoId: string
   canWrite?: CanWrite
+  taxas?: VersaoTaxaRow[]   // multimoeda: taxas orçadas da versão p/ materializar val_m2..m5 (baseline em BRL base)
 }): Promise<ImportBaselineResult> {
   const { file, modo, versaoId } = opts
   const canWrite: CanWrite = opts.canWrite || (() => true)
+  const taxas = opts.taxas || []
+  // baseline entra em BRL (moeda_origem=1); materializa os slots pela taxa orçada da versão
+  const slotsOf = (valor: number, ano: number, mes: number) => {
+    const o: any = { moeda_origem: 1 }
+    for (const s of [2, 3, 4, 5]) { const t = taxaOrcada(s, ano, mes, taxas); o['val_m' + s] = (t && t !== 0) ? valor / t : null }
+    return o
+  }
   const fail = (message: string): ImportBaselineResult => ({ ok: false, message, imported: 0, skipped: 0, blocked: 0 })
 
   const wb = await readWorkbook(file)
@@ -154,8 +164,9 @@ export async function importBaseline(opts: {
     for (let i = 0; i < delIds.length; i += 500) {
       const { error } = await supabase.from('fat_orcado').delete().in('id', delIds.slice(i, i + 500)); if (error) throw error
     }
-    for (let i = 0; i < records.length; i += 500) {
-      const { error } = await supabase.from('fat_orcado').insert(records.slice(i, i + 500)); if (error) throw error
+    const recIns = records.map((r: any) => ({ ...r, ...slotsOf(r.valor, r.ano, r.mes) }))
+    for (let i = 0; i < recIns.length; i += 500) {
+      const { error } = await supabase.from('fat_orcado').insert(recIns.slice(i, i + 500)); if (error) throw error
     }
     return { ok: true, imported: records.length, skipped: skip, blocked,
       message: `Full load: ${records.length} lançamentos importados (total ${fmtTotal}) em ${empSet.size} empresa(s).` + (skip || blocked ? detalhe() : '') }
@@ -169,16 +180,16 @@ export async function importBaseline(opts: {
     const k = `${r.linha_id}|${r.empresa_id}|${r.filial_id || ''}|${r.cc_id || ''}|${r.ano}|${r.mes}|${dimsKeyOf(r.dims || {})}`
     exMap[k] = { id: r.id, valor: Number(r.valor) || 0 }
   })
-  const toInsert: any[] = []; const toUpdate: { id: string; valor: number }[] = []
+  const toInsert: any[] = []; const toUpdate: { id: string; valor: number; ano: number; mes: number }[] = []
   for (const [key, rec] of agg.entries()) {
     const hit = exMap[key]
-    if (hit) toUpdate.push({ id: hit.id, valor: hit.valor + rec.valor })
-    else toInsert.push(rec)
+    if (hit) toUpdate.push({ id: hit.id, valor: hit.valor + rec.valor, ano: rec.ano, mes: rec.mes })
+    else toInsert.push({ ...rec, ...slotsOf(rec.valor, rec.ano, rec.mes) })
   }
   for (let i = 0; i < toInsert.length; i += 500) {
     const { error } = await supabase.from('fat_orcado').insert(toInsert.slice(i, i + 500)); if (error) throw error
   }
-  for (const u of toUpdate) { const { error } = await supabase.from('fat_orcado').update({ valor: u.valor }).eq('id', u.id); if (error) throw error }
+  for (const u of toUpdate) { const { error } = await supabase.from('fat_orcado').update({ valor: u.valor, ...slotsOf(u.valor, u.ano, u.mes) }).eq('id', u.id); if (error) throw error }
   return { ok: true, imported: toInsert.length + toUpdate.length, skipped: skip, blocked,
     message: `Adicionado: ${toInsert.length} novos, ${toUpdate.length} somados (total do arquivo ${fmtTotal}).` + (skip || blocked ? detalhe() : '') }
 }

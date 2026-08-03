@@ -1854,7 +1854,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
 
       {linhaModal && <LinhaModal linha={{ ...linhaModal, expressao: toDisplay(linhaModal.expressao) }} refLinhas={linhas.map(x => ({ codigo: x.codigo, descricao: x.descricao }))} ccs={ccs as any} onClose={() => setLinhaModal(null)} onSave={saveLinha} />}
       {viewModal && <ViewModal view={viewModal} versoes={versoes} onClose={() => setViewModal(null)} onSave={saveView} />}
-      {razao && <RazaoModal {...razao} onConciliar={setConcil} onClose={() => setRazao(null)} />}
+      {razao && <RazaoModal {...razao} moedaSlot={moedaView} matOrc={matOrc} moedaCod={moedaCod} onConciliar={setConcil} onClose={() => setRazao(null)} />}
       {concil && <ConciliacaoFolhaModal params={concil} onClose={() => setConcil(null)} />}
       {pickerOpen && <EstruturaPicker masters={masters} jaNoRelatorio={new Set(linhas.map(l => l.codigo))} alvo={selId ? linhas.find(l => l.id === selId)?.descricao ?? null : null} onAdd={addDaEstrutura} onClose={() => setPickerOpen(false)} />}
       {contaModal && (
@@ -1869,7 +1869,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
 }
 
 // ─── Modal: Razão (detalhe + edição dos lançamentos de uma célula) ────
-function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaIds, contaIds, contaSinal, contaItemMap, empresaSel, filialFilter, ccFilter, ccById, contaById, linhaById, empById, filById, editavel, linhaId, isBalanco, empresasList, filiaisList, ccsList, onChanged, onBeforeChange, onClose, onConciliar }: {
+function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaIds, contaIds, contaSinal, contaItemMap, empresaSel, filialFilter, ccFilter, ccById, contaById, linhaById, empById, filById, editavel, linhaId, isBalanco, empresasList, filiaisList, ccsList, moedaSlot, matOrc, moedaCod, onChanged, onBeforeChange, onClose, onConciliar }: {
   titulo: string; cen: string; cenLabel: string; periodoLabel: string; meses: Periodo[]; perAdd: Periodo | null
   linhaIds: string[]; contaIds: string[]; contaSinal: Record<string, number>; contaItemMap?: Record<string, string>; empresaSel: string[]; filialFilter: string[] | null; ccFilter: string[] | null
   ccById: Record<string, any>; contaById: Record<string, any>; linhaById: Record<string, string>; empById: Record<string, any>; filById: Record<string, any>
@@ -1877,9 +1877,13 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
   empresasList: { id: string; codigo: string; descricao: string }[]
   filiaisList: { id: string; codigo: string; descricao: string }[]
   ccsList: { id: string; codigo: string; descricao: string }[]
+  moedaSlot?: number; matOrc?: (v: number | null, ano: number, mes: number) => Record<string, any> | null; moedaCod?: (s: number) => string
   onChanged: () => void; onBeforeChange?: () => Promise<void>; onClose: () => void
   onConciliar?: (params: ConcilParams) => void
 }) {
+  // Multimoeda: exibe a coluna do slot em exibição (val_m<slot>); slot 1 = base.
+  const slot = moedaSlot ?? 1
+  const slotVal = (r: any, base: string) => slot >= 2 ? Number(r['val_m' + slot] ?? 0) : Number(r[base] ?? 0)
   const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
@@ -1890,6 +1894,9 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
   const [form, setForm] = useState<any>(emptyForm)
 
   const isReal = ehReal(cen)
+  // valor em EXIBIÇÃO: realizado/saldo/orçado-consulta já vêm agregados no slot em r.valor;
+  // orçado editável mantém a linha crua (r.valor = base) → converte pela coluna do slot.
+  const dispVal = (r: any) => (editavel && !isReal) ? slotVal(r, 'valor') : Number(r.valor || 0)
   const load = async () => {
     setLoading(true)
     if (isReal && !contaIds.length) { setRows([]); setLoading(false); return }
@@ -1899,7 +1906,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
     // Balanço: realizado = SALDO por conta (balancete), do fat_saldo
     if (isReal && isBalanco) {
       const raw = await fetchAllRows(() => {
-        let q = supabase.from('fat_saldo').select('conta_id,empresa_id,filial_id,ano,mes,saldo').in('conta_id', contaIds).in('empresa_id', empresaSel).in('ano', anosQ).in('mes', mesesQ)
+        let q = supabase.from('fat_saldo').select('conta_id,empresa_id,filial_id,ano,mes,saldo,val_m2,val_m3,val_m4,val_m5').in('conta_id', contaIds).in('empresa_id', empresaSel).in('ano', anosQ).in('mes', mesesQ)
         if (filialFilter) q = q.in('filial_id', filialFilter)
         return q
       })
@@ -1907,7 +1914,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
       const agg = new Map<string, any>()
       for (const r of data) {
         const k = `${r.conta_id}|${r.empresa_id || ''}|${r.filial_id || ''}`
-        const v = (Number(r.saldo) || 0) * (contaSinal[r.conta_id] ?? 1)
+        const v = slotVal(r, 'saldo') * (contaSinal[r.conta_id] ?? 1)
         const cur = agg.get(k)
         if (cur) cur.valor += v
         else agg.set(k, { conta_id: r.conta_id, empresa_id: r.empresa_id, filial_id: r.filial_id, cc_id: null, dims: { historico: '' }, valor: v })
@@ -1917,8 +1924,8 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
     }
     const raw = await fetchAllRows(() => {
       let q = isReal
-        ? supabase.from('fat_realizado').select('conta_id,empresa_id,filial_id,cc_id,ano,mes,data,valor,historico,documento,dims,lote,sublote').in('conta_id', contaIds)
-        : supabase.from('fat_orcado').select(editavel ? 'id,empresa_id,filial_id,cc_id,ano,mes,valor,dims,origem' : 'linha_id,empresa_id,filial_id,cc_id,ano,mes,valor,dims').in('linha_id', linhaIds).eq('versao_id', cen)
+        ? supabase.from('fat_realizado').select('conta_id,empresa_id,filial_id,cc_id,ano,mes,data,valor,val_m2,val_m3,val_m4,val_m5,historico,documento,dims,lote,sublote').in('conta_id', contaIds)
+        : supabase.from('fat_orcado').select(editavel ? 'id,empresa_id,filial_id,cc_id,ano,mes,valor,val_m2,val_m3,val_m4,val_m5,dims,origem' : 'linha_id,empresa_id,filial_id,cc_id,ano,mes,valor,val_m2,val_m3,val_m4,val_m5,dims').in('linha_id', linhaIds).eq('versao_id', cen)
       q = q.in('empresa_id', empresaSel).in('ano', anosQ).in('mes', mesesQ)
       if (filialFilter) q = q.in('filial_id', filialFilter)
       if (ccFilter) q = q.in('cc_id', ccFilter)
@@ -1940,7 +1947,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
       const agg = new Map<string, any>()
       for (const r of data) {
         const k = `${r.conta_id}|${r.empresa_id || ''}|${r.filial_id || ''}|${r.cc_id || ''}|${r.data || ''}|${r.documento || ''}|${r.lote || ''}|${r.sublote || ''}|${r.historico || ''}`
-        const v = (Number(r.valor) || 0) * (contaSinal[r.conta_id] ?? 1)
+        const v = slotVal(r, 'valor') * (contaSinal[r.conta_id] ?? 1)
         const cur = agg.get(k)
         if (cur) cur.valor += v
         else agg.set(k, { conta_id: r.conta_id, empresa_id: r.empresa_id, filial_id: r.filial_id, cc_id: r.cc_id, data: r.data || '', documento: r.documento || '', lote: r.lote || '', sublote: r.sublote || '', dims: { historico: r.historico || '' }, valor: v })
@@ -1953,8 +1960,8 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
       for (const r of data as any[]) {
         const k = `${r.linha_id}|${r.empresa_id || ''}|${r.filial_id || ''}|${r.cc_id || ''}|${JSON.stringify(r.dims || {})}`
         const cur = agg.get(k)
-        if (cur) cur.valor += Number(r.valor) || 0
-        else agg.set(k, { linha_id: r.linha_id, empresa_id: r.empresa_id, filial_id: r.filial_id, cc_id: r.cc_id, dims: r.dims || {}, valor: Number(r.valor) || 0 })
+        if (cur) cur.valor += slotVal(r, 'valor')
+        else agg.set(k, { linha_id: r.linha_id, empresa_id: r.empresa_id, filial_id: r.filial_id, cc_id: r.cc_id, dims: r.dims || {}, valor: slotVal(r, 'valor') })
       }
       setRows(Array.from(agg.values()).sort((a, b) => (a.dims.historico || '').localeCompare(b.dims.historico || '')))
     }
@@ -1962,23 +1969,25 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
   }
   useEffect(() => { load() }, []) // eslint-disable-line
 
-  const soma = rows.reduce((s, r) => s + (Number(r.valor) || 0), 0)
+  const soma = rows.reduce((s, r) => s + dispVal(r), 0)
   const exportar = () => downloadSheet('razao.xlsx', [
     [...(isReal ? ['Conta', 'Descrição Conta', 'Data', 'Documento', 'Lote', 'Sublote'] : []), 'Empresa', 'Filial', 'Linha', 'CC', 'Descrição CC', 'Área', 'Divisão', 'BU', 'Histórico', 'Valor'],
     ...rows.map(r => [
       ...(isReal ? [contaById[r.conta_id]?.codigo || '', contaById[r.conta_id]?.descricao || '', r.data || '', r.documento || '', r.lote || '', r.sublote || ''] : []),
       empById[r.empresa_id]?.codigo || '', filById[r.filial_id]?.codigo || '',
       linhaById[r.linha_id ?? linhaId] || titulo, ccById[r.cc_id]?.codigo || '', ccById[r.cc_id]?.descricao || '',
-      r.dims.area || '', r.dims.divisao || '', r.dims.bu || '', r.dims.historico || '', r.valor,
+      r.dims.area || '', r.dims.divisao || '', r.dims.bu || '', r.dims.historico || '', dispVal(r),
     ]),
   ])
 
   // ── edição (modo editável) ──
   const saveValor = async (r: any, str: string) => {
-    const v = parseNum(str); if (v === Number(r.valor)) return
+    const vView = parseNum(str); if (vView === slotVal(r, 'valor')) return   // digitado na moeda em exibição
+    const mat = matOrc ? matOrc(vView, r.ano, r.mes) : { valor: vView }
+    if (!mat) { alert(`Sem taxa orçada de ${moedaCod?.(slot) ?? 'moeda'} em ${r.mes}/${r.ano} — cadastre em Cadastros › Taxa orçada.`); return }
     await onBeforeChange?.()
-    await supabase.from('fat_orcado').update({ valor: v, origem: 'MANUAL' }).eq('id', r.id)
-    setRows(prev => prev.map(x => x.id === r.id ? { ...x, valor: v } : x)); onChanged()
+    await supabase.from('fat_orcado').update({ ...mat, origem: 'MANUAL' }).eq('id', r.id)
+    setRows(prev => prev.map(x => x.id === r.id ? { ...x, ...mat } : x)); onChanged()
   }
   const saveHist = async (r: any, str: string) => {
     const h = str.trim(); if (h === (r.dims.historico || '')) return
@@ -1997,14 +2006,16 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
   const addRow = async () => {
     if (perAdd == null) { alert('Adição disponível só em célula de mês.'); return }
     if (!form.empresa_id) { alert('Selecione a empresa.'); return }
-    const valor = parseNum(form.valor)
-    if (!valor) { alert('Informe um valor.'); return }
+    const valorView = parseNum(form.valor)   // digitado na moeda em exibição
+    if (!valorView) { alert('Informe um valor.'); return }
+    const mat = matOrc ? matOrc(valorView, perAdd.ano, perAdd.mes) : { valor: valorView }
+    if (!mat) { alert(`Sem taxa orçada de ${moedaCod?.(slot) ?? 'moeda'} em ${perAdd.mes}/${perAdd.ano} — cadastre em Cadastros › Taxa orçada.`); return }
     const dims: any = {}
     for (const k of ['area', 'divisao', 'bu', 'historico']) if (form[k]?.trim()) dims[k] = form[k].trim()
     await onBeforeChange?.()
     const { error } = await supabase.from('fat_orcado').insert({
       tenant_id: TENANT_ID, versao_id: cen, linha_id: linhaId, empresa_id: form.empresa_id,
-      filial_id: form.filial_id || null, cc_id: form.cc_id || null, ano: perAdd.ano, mes: perAdd.mes, valor, expressao: null, origem: 'MANUAL', dims,
+      filial_id: form.filial_id || null, cc_id: form.cc_id || null, ano: perAdd.ano, mes: perAdd.mes, ...mat, expressao: null, origem: 'MANUAL', dims,
     })
     if (error) { alert('Erro ao adicionar: ' + (error.message.includes('uq_fat_orcado') ? 'já existe um lançamento com essas dimensões — edite o existente.' : error.message)); return }
     setForm(emptyForm); setShowAdd(false); await load(); onChanged()
@@ -2029,7 +2040,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
       case 'divisao': return r.dims?.divisao || ''
       case 'bu': return r.dims?.bu || ''
       case 'historico': return r.dims?.historico || ''
-      case 'valor': return Number(r.valor) || 0
+      case 'valor': return dispVal(r)
       default: return ''
     }
   }
@@ -2045,7 +2056,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Razão — {titulo}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{cenLabel} · {periodoLabel}{editavel ? ' · editável' : ''}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{cenLabel} · {periodoLabel}{editavel ? ' · editável' : ''}{slot >= 2 ? ` · em ${moedaCod?.(slot) ?? `M${slot}`}` : ''}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {temPosto && onConciliar && <button title="Comparar orçado × realizado da folha por posto"
@@ -2119,8 +2130,8 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
                     </td>
                     <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                       {editavel && !prot
-                        ? <input key={`v${r.id}`} style={{ ...inp, textAlign: 'right' }} defaultValue={String(r.valor)} onBlur={e => saveValor(r, e.target.value)} />
-                        : formatValor(Number(r.valor) || 0, 'NUMERO', 2)}
+                        ? <input key={`v${r.id}`} style={{ ...inp, textAlign: 'right' }} defaultValue={String(dispVal(r))} onBlur={e => saveValor(r, e.target.value)} />
+                        : formatValor(dispVal(r), 'NUMERO', 2)}
                     </td>
                     {editavel && <td style={{ ...td, fontSize: 10, color: r.origem === 'FORMULARIO' ? 'var(--cyan)' : 'var(--muted)' }}>{r.origem || 'MANUAL'}</td>}
                     {editavel && <td style={td}>{!prot && <button style={{ ...S.iconBtn, color: 'var(--red)' }} onClick={() => delRow(r)}><Trash2 size={13} /></button>}</td>}

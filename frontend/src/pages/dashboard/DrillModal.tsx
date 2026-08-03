@@ -113,18 +113,20 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
     const empCod: Record<string, string> = {}; (emps || []).forEach((e: any) => { empCod[e.id] = e.codigo })
     const filCod: Record<string, string> = {}; (fis || []).forEach((x: any) => { filCod[x.id] = x.codigo })
     const agg = new Map<string, any>()
+    // multimoeda: no slot em exibição usa val_m<slot>; base (slot 1) usa valor
+    const sv = (r: any) => slot >= 2 ? Number(r['val_m' + slot] ?? 0) : Number(r.valor || 0)
 
     if (medida === 'Orçado') {
       // orçado é por LINHA (fat_orcado.linha_id = master), sem conta
       const rows = await fetchAll(() => {
-        let q = supabase.from('fat_orcado').select('empresa_id,filial_id,valor,dims').eq('versao_id', versaoId).in('linha_id', masters).in('empresa_id', empIds).in('ano', anos).in('mes', meses)
+        let q = supabase.from('fat_orcado').select('empresa_id,filial_id,valor,val_m2,val_m3,val_m4,val_m5,dims').eq('versao_id', versaoId).in('linha_id', masters).in('empresa_id', empIds).in('ano', anos).in('mes', meses)
         if (filFilter) q = q.in('filial_id', filFilter)
         if (ccFilter) q = q.in('cc_id', ccFilter)
         return q
       })
       for (const r of rows) {
         const hist = (r.dims && (r.dims.historico || r.dims.hist)) || ''
-        const v = f * (Number(r.valor) || 0)
+        const v = f * sv(r)
         const k = `${r.empresa_id || ''}|${r.filial_id || ''}|${hist}`
         const c = agg.get(k)
         if (c) c.valor += v
@@ -143,7 +145,7 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
       let rows: any[] = []
       if (contaIds.length) {
         rows = await fetchAll(() => {
-          let q = supabase.from('fat_realizado').select('conta_id,empresa_id,filial_id,historico,valor,lote,sublote,data,documento').in('conta_id', contaIds).in('empresa_id', empIds).in('ano', anos).in('mes', meses)
+          let q = supabase.from('fat_realizado').select('conta_id,empresa_id,filial_id,historico,valor,val_m2,val_m3,val_m4,val_m5,lote,sublote,data,documento').in('conta_id', contaIds).in('empresa_id', empIds).in('ano', anos).in('mes', meses)
           if (filFilter) q = q.in('filial_id', filFilter)
           if (ccFilter) q = q.in('cc_id', ccFilter)
           return q
@@ -151,7 +153,7 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
       }
       for (const r of rows) {
         if (ignora(r)) continue
-        const v = f * (Number(r.valor) || 0) * (sinalByConta[r.conta_id] ?? 1)
+        const v = f * sv(r) * (sinalByConta[r.conta_id] ?? 1)
         const k = `${r.conta_id}|${r.empresa_id || ''}|${r.filial_id || ''}|${r.data || ''}|${r.documento || ''}|${r.lote || ''}|${r.sublote || ''}|${r.historico || ''}`
         const c = agg.get(k)
         if (c) c.valor += v

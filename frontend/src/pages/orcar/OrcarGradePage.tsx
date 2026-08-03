@@ -8,6 +8,8 @@ import type { LinhaCalc, RawValues, Periodo } from '../../lib/engine'
 import { ChevronLeft, Lock, Upload, Download } from 'lucide-react'
 import FormulaCellInput from '../relatorios/FormulaCellInput'
 import { importBaseline, modeloBaseline, type ImportModo } from '../../lib/importOrcado'
+import { taxaOrcada, materializa } from '../../lib/cambio'
+import type { VersaoTaxaRow } from '../../lib/cambio'
 
 // Grade de Orçar dedicada (F3.1): escrita do orçado por empresa × filial × CC, escopada pelos
 // direitos ORÇAR. Mostra a ESTRUTURA INTEIRA na ordem (DFS) do relatório; sintéticas/fórmulas e
@@ -60,16 +62,21 @@ export default function OrcarGradePage() {
   const [refresh, setRefresh] = useState(0)   // bump para recarregar a grade após importar
   const [scopeRows, setScopeRows] = useState<{ empresa_id: string | null; filial_id: string | null; cc_id: string | null }[]>([])   // escopos com dados (marca ●)
   const [scopesRefresh, setScopesRefresh] = useState(0)
+  // Multimoeda: catálogo, taxas orçadas da versão e slot em exibição/digitação
+  const [moedas, setMoedas] = useState<{ slot: number; codigo: string; simbolo: string }[]>([])
+  const [versaoTaxas, setVersaoTaxas] = useState<VersaoTaxaRow[]>([])
+  const [moedaView, setMoedaView] = useState<number>(() => { const s = Number(localStorage.getItem('planorc_moeda_view')); return s >= 1 ? s : 1 })
 
   useEffect(() => {
     (async () => {
-      const [rel, lr, vs, emp, fil, cc] = await Promise.all([
+      const [rel, lr, vs, emp, fil, cc, mo] = await Promise.all([
         supabase.from('relatorio').select('nome').eq('id', relId).maybeSingle(),
         supabase.from('relatorio_linha').select('id,pai_id,codigo,descricao,tipo_linha,expressao,natureza,linha_orc_id,desativada,nao_soma,ordem').eq('relatorio_id', relId).order('ordem', { nullsFirst: false }),
         supabase.from('versao_orcamento').select('id,codigo,descricao,ano,bloqueada').eq('ativa', true).order('ano', { ascending: false }).order('codigo'),
         supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
         supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
         supabase.from('centro_custo').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
+        supabase.from('moeda').select('slot,codigo,simbolo,ativo').eq('ativo', true).order('slot'),
       ])
       setRelNome(rel.data?.nome || '')
       setLinhas((lr.data || []) as Linha[])
@@ -77,6 +84,7 @@ export default function OrcarGradePage() {
       setEmpresas((emp.data || []) as Opt[])
       setFiliais((fil.data || []) as Fil[])
       setCcs((cc.data || []) as Opt[])
+      setMoedas((mo.data || []) as any)
       setLoading(false)
     })()
   }, [relId])
@@ -108,6 +116,23 @@ export default function OrcarGradePage() {
     return out
   }, [linhas])
 
+  // Multimoeda: slots ativos (inclui base=1), taxas orçadas da versão, materialização e persistência.
+  const slotsAtivos = useMemo(() => { const s = new Set(moedas.map(m => m.slot)); s.add(1); return [...s].sort((a, b) => a - b) }, [moedas])
+  const moedaCod = (slot: number) => moedas.find(m => m.slot === slot)?.codigo || `M${slot}`
+  const slotVal = (r: any, base: string) => moedaView >= 2 ? Number(r['val_m' + moedaView] ?? 0) : Number(r[base] ?? 0)
+  useEffect(() => { localStorage.setItem('planorc_moeda_view', String(moedaView)) }, [moedaView])
+  useEffect(() => {
+    if (!versaoId) { setVersaoTaxas([]); return }
+    supabase.from('versao_taxa').select('moeda_slot,ano,mes,taxa').eq('versao_id', versaoId).then(({ data }) => setVersaoTaxas((data || []) as VersaoTaxaRow[]))
+  }, [versaoId])
+  // materializa um valor orçado (já com sinal) digitado na moeda em exibição, p/ o mês corrente
+  const matOrc = (valorView: number | null, mes: number): Record<string, any> | null => {
+    if (valorView == null) return { valor: null, val_m2: null, val_m3: null, val_m4: null, val_m5: null, moeda_origem: moedaView }
+    const { vals } = materializa(valorView, moedaView, slotsAtivos, s => taxaOrcada(s, ano, mes, versaoTaxas))
+    if (vals[1] == null) return null
+    return { valor: vals[1], val_m2: vals[2] ?? null, val_m3: vals[3] ?? null, val_m4: vals[4] ?? null, val_m5: vals[5] ?? null, moeda_origem: moedaView }
+  }
+
   const empresasEd = useMemo(() => acesso.filterEdit('empresa', empresas), [empresas, acesso.loading]) // eslint-disable-line
   const filiaisEd = useMemo(() => acesso.filterEdit('filial', filiais), [filiais, acesso.loading]) // eslint-disable-line — filiais pelos direitos do usuário, não pela empresa selecionada
   const ccsEd = useMemo(() => acesso.filterEdit('centro_custo', ccs), [ccs, acesso.loading]) // eslint-disable-line
@@ -130,7 +155,7 @@ export default function OrcarGradePage() {
   useEffect(() => {
     if (!pronto) { setCells({}); setHist({}); return }
     (async () => {
-      let q = supabase.from('fat_orcado').select('linha_id,mes,valor,expressao,dims,origem').eq('versao_id', versaoId).eq('empresa_id', empresaId).eq('ano', ano)
+      let q = supabase.from('fat_orcado').select('linha_id,mes,valor,val_m2,val_m3,val_m4,val_m5,expressao,dims,origem').eq('versao_id', versaoId).eq('empresa_id', empresaId).eq('ano', ano)
       q = filialId ? q.eq('filial_id', filialId) : q.is('filial_id', null)
       q = ccId ? q.eq('cc_id', ccId) : q.is('cc_id', null)
       const { data } = await q
@@ -145,14 +170,14 @@ export default function OrcarGradePage() {
       }
       for (const k in byCell) {
         const rows = byCell[k]; const sep = k.indexOf('|'); const linha = k.slice(0, sep); const mes = Number(k.slice(sep + 1))
-        const soma = rows.reduce((s, r) => s + (Number(r.valor) || 0), 0)
+        const soma = rows.reduce((s, r) => s + slotVal(r, 'valor'), 0)
         const loneExpr = rows.length === 1 && rows[0].expressao ? rows[0].expressao : null   // fórmula manual única
         ;(v[linha] = v[linha] || {})[mes] = { valor: soma, expressao: loneExpr }
         ;(meta[linha] = meta[linha] || {})[mes] = { count: rows.length, inline: rows.length === 1 && rows[0].origem === 'MANUAL' }
       }
       setCells(v); setHist(h); setCellMeta(meta)
     })()
-  }, [versaoId, empresaId, filialId, ccId, ano, pronto, refresh])
+  }, [versaoId, empresaId, filialId, ccId, ano, pronto, refresh, moedaView])
 
   // marca ● nos seletores: quais empresa/filial/CC já têm orçado desta versão (contas deste relatório)
   useEffect(() => {
@@ -179,13 +204,17 @@ export default function OrcarGradePage() {
   const totalLinha = (l: Linha) => periodos.reduce((s, p) => s + (computed[l.id]?.[pkey(p)] || 0), 0)
 
   // grava UMA célula no fat_orcado (select-then-upsert por causa do filial/cc NULL)
-  const saveOne = async (master: string, mes: number, valor: number | null, expressao: string | null) => {
+  const saveOne = async (master: string, mes: number, valor: number | null, expressao: string | null): Promise<boolean> => {
+    // valor digitado na moeda em exibição (moedaView) → materializa nos slots (base + val_m2..m5)
+    const mat = expressao != null ? { valor: null, val_m2: null, val_m3: null, val_m4: null, val_m5: null, moeda_origem: moedaView } : matOrc(valor, mes)
+    if (!mat) { alert(`Sem taxa orçada de ${moedaCod(moedaView)} em ${mes}/${ano} — cadastre em Cadastros › Taxa orçada.`); return false }
     let sel = supabase.from('fat_orcado').select('id').eq('versao_id', versaoId).eq('linha_id', master).eq('empresa_id', empresaId).eq('ano', ano).eq('mes', mes)
     sel = filialId ? sel.eq('filial_id', filialId) : sel.is('filial_id', null)
     sel = ccId ? sel.eq('cc_id', ccId) : sel.is('cc_id', null)
     const { data: ex } = await sel.maybeSingle()
-    if (ex) await supabase.from('fat_orcado').update({ valor, expressao, origem: 'MANUAL' }).eq('id', (ex as any).id)
-    else await supabase.from('fat_orcado').insert({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, valor, expressao, origem: 'MANUAL', dims: {} })
+    if (ex) await supabase.from('fat_orcado').update({ ...mat, expressao, origem: 'MANUAL' }).eq('id', (ex as any).id)
+    else await supabase.from('fat_orcado').insert({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, ...mat, expressao, origem: 'MANUAL', dims: {} })
+    return true
   }
   // grava o HISTÓRICO/comentário da linha (nota por linha, replicada nos 12 meses via dims.historico)
   const saveHistLinha = async (master: string, texto: string) => {
@@ -223,9 +252,11 @@ export default function OrcarGradePage() {
     if (!pronto || readOnly || !editavel(l)) { setEditing(false); return }
     setSaving(true)
     const { valor, expressao } = parseCell(l, editVal)
-    await saveOne(master, mes, valor, expressao)
-    setCells(prev => ({ ...prev, [master]: { ...(prev[master] || {}), [mes]: { valor: valor || 0, expressao } } }))
-    setScopesRefresh(x => x + 1)
+    const ok = await saveOne(master, mes, valor, expressao)
+    if (ok) {
+      setCells(prev => ({ ...prev, [master]: { ...(prev[master] || {}), [mes]: { valor: valor || 0, expressao } } }))
+      setScopesRefresh(x => x + 1)
+    }
     setSaving(false)
   }
 
@@ -245,7 +276,7 @@ export default function OrcarGradePage() {
     if (!confirm(`${msgModo}\n\nConfirmar importação?`)) return
     setSaving(true)
     try {
-      const res = await importBaseline({ file, modo, versaoId, canWrite: canWriteScope })
+      const res = await importBaseline({ file, modo, versaoId, canWrite: canWriteScope, taxas: versaoTaxas })
       alert(res.message)
       if (res.ok) setRefresh(x => x + 1)
     } catch (e: any) {
@@ -365,6 +396,11 @@ export default function OrcarGradePage() {
             {!ccRestrito && <option value="">— consolidado —</option>}
             {ccsEd.map(c => <option key={c.id} value={c.id}>{ccsComDados.has(c.id) ? '● ' : ''}{c.codigo} · {c.descricao}</option>)}
           </select></div>
+        {moedas.length > 1 && <div><div style={S.lbl}>Moeda</div>
+          <select style={{ ...S.sel, borderColor: moedaView === 1 ? undefined : 'var(--green)', color: moedaView === 1 ? undefined : 'var(--green)', fontWeight: 500 }} value={moedaView} onChange={e => setMoedaView(Number(e.target.value))}
+            title="Moeda de exibição e de origem ao digitar (converte pela taxa orçada da versão)">
+            {moedas.map(m => <option key={m.slot} value={m.slot}>{m.simbolo ? `${m.simbolo} ` : ''}{m.codigo}</option>)}
+          </select></div>}
         {pronto && <div style={{ alignSelf: 'flex-end', fontSize: 12, color: 'var(--muted)' }}>{preenchidas} de {totalCelulas} células preenchidas</div>}
         <div style={{ marginLeft: 'auto', alignSelf: 'flex-end', position: 'relative' }}>
           <button
@@ -475,6 +511,7 @@ export default function OrcarGradePage() {
       {lancModal && (
         <LancamentosModal master={lancModal.master} mes={lancModal.mes} linhaDesc={lancModal.linha.descricao} fac={facOf(lancModal.linha)}
           versaoId={versaoId} empresaId={empresaId} filialId={filialId} ccId={ccId} ano={ano}
+          moedaSlot={moedaView} matOrc={matOrc} moedaCod={moedaCod}
           onClose={() => setLancModal(null)} onChanged={() => setRefresh(x => x + 1)} />
       )}
     </div>
@@ -483,11 +520,13 @@ export default function OrcarGradePage() {
 
 // Modal enxuto: lançamentos de UMA célula (versão×linha×empresa×filial×CC×ano×mês). Manuais editáveis;
 // os de formulário são só-leitura (mudam no formulário). Fecha e pede refresh da grade ao alterar.
-function LancamentosModal({ master, mes, linhaDesc, fac, versaoId, empresaId, filialId, ccId, ano, onClose, onChanged }: {
+function LancamentosModal({ master, mes, linhaDesc, fac, versaoId, empresaId, filialId, ccId, ano, moedaSlot, matOrc, moedaCod, onClose, onChanged }: {
   master: string; mes: number; linhaDesc: string; fac: number
   versaoId: string; empresaId: string; filialId: string; ccId: string; ano: number
+  moedaSlot: number; matOrc: (v: number | null, mes: number) => Record<string, any> | null; moedaCod: (s: number) => string
   onClose: () => void; onChanged: () => void
 }) {
+  const sVal = (r: any) => moedaSlot >= 2 ? Number(r['val_m' + moedaSlot] ?? 0) : Number(r.valor || 0)
   const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [addVal, setAddVal] = useState('')
@@ -501,14 +540,16 @@ function LancamentosModal({ master, mes, linhaDesc, fac, versaoId, empresaId, fi
   }
   const load = async () => {
     setLoading(true)
-    const { data } = await scope(supabase.from('fat_orcado').select('id,valor,expressao,origem,dims'))
+    const { data } = await scope(supabase.from('fat_orcado').select('id,valor,val_m2,val_m3,val_m4,val_m5,expressao,origem,dims'))
     setRows(((data || []) as any[]).filter(r => r.valor != null || r.expressao != null))
     setLoading(false)
   }
   useEffect(() => { load() }, [])   // eslint-disable-line
-  const total = rows.reduce((s, r) => s + (Number(r.valor) || 0), 0)
+  const total = rows.reduce((s, r) => s + sVal(r), 0)
   const editarManual = async (id: string, txt: string) => {
-    setBusy(true); await supabase.from('fat_orcado').update({ valor: fac * parseNum(txt), expressao: null, origem: 'MANUAL' }).eq('id', id)
+    const mat = matOrc(fac * parseNum(txt), mes)   // digitado na moeda em exibição → materializa
+    if (!mat) { alert(`Sem taxa orçada de ${moedaCod(moedaSlot)} em ${mes}/${ano} — cadastre em Cadastros › Taxa orçada.`); return }
+    setBusy(true); await supabase.from('fat_orcado').update({ ...mat, expressao: null, origem: 'MANUAL' }).eq('id', id)
     await load(); onChanged(); setBusy(false)
   }
   const excluir = async (id: string) => {
@@ -520,7 +561,9 @@ function LancamentosModal({ master, mes, linhaDesc, fac, versaoId, empresaId, fi
     if (!addVal.trim()) return
     setBusy(true)
     const dims: any = addHist.trim() ? { historico: addHist.trim() } : {}
-    const { error } = await supabase.from('fat_orcado').insert({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, valor: fac * parseNum(addVal), expressao: null, origem: 'MANUAL', dims })
+    const mat = matOrc(fac * parseNum(addVal), mes)   // digitado na moeda em exibição → materializa
+    if (!mat) { setBusy(false); alert(`Sem taxa orçada de ${moedaCod(moedaSlot)} em ${mes}/${ano} — cadastre em Cadastros › Taxa orçada.`); return }
+    const { error } = await supabase.from('fat_orcado').insert({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, ...mat, expressao: null, origem: 'MANUAL', dims })
     setBusy(false)
     if (error) { alert('Erro ao adicionar: ' + error.message + (String(error.message).includes('uq_fat_orcado') ? '\n\nJá existe um lançamento com esse histórico nesta célula — informe um histórico diferente.' : '')); return }
     setAddVal(''); setAddHist(''); await load(); onChanged()
@@ -547,11 +590,11 @@ function LancamentosModal({ master, mes, linhaDesc, fac, versaoId, empresaId, fi
                     </td>
                     <td style={{ padding: '5px 6px', textAlign: 'right' }}>
                       {manual
-                        ? <input defaultValue={numToInput(fac * (Number(r.valor) || 0))} disabled={busy}
-                            onBlur={e => { const t = e.target.value.trim(); if (t && parseNum(t) !== (fac * (Number(r.valor) || 0))) editarManual(r.id, t) }}
+                        ? <input defaultValue={numToInput(fac * sVal(r))} disabled={busy}
+                            onBlur={e => { const t = e.target.value.trim(); if (t && parseNum(t) !== (fac * sVal(r))) editarManual(r.id, t) }}
                             onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                             style={{ width: 120, textAlign: 'right', fontFamily: 'monospace', padding: '3px 6px', border: '1px solid var(--border-strong)', borderRadius: 4, background: 'var(--bg)', color: 'var(--text)' }} />
-                        : <span style={{ fontFamily: 'monospace', color: 'var(--text-mid)' }}>{formatValor(fac * (Number(r.valor) || 0), 'NUMERO', 2)}</span>}
+                        : <span style={{ fontFamily: 'monospace', color: 'var(--text-mid)' }}>{formatValor(fac * sVal(r), 'NUMERO', 2)}</span>}
                     </td>
                     <td style={{ padding: '5px 6px', textAlign: 'center' }}>
                       {manual && <button onClick={() => excluir(r.id)} disabled={busy} title="Excluir" style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer' }}>🗑</button>}
