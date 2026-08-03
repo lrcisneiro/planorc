@@ -8,7 +8,8 @@
 -- Retrocompat: sem p_slot (ou p_slot=1) devolve a BASE, idêntico ao anterior.
 -- Muda a aridade → DROP + CREATE. Read-only, STABLE, RLS por tenant. Idempotente.
 -- ============================================================
-DROP FUNCTION IF EXISTS dashboard_cc_agg(uuid, uuid[], int[], int[], uuid[], uuid[], uuid[]);
+DROP FUNCTION IF EXISTS dashboard_cc_agg(uuid, uuid[], int[], int[], uuid[], uuid[], uuid[]);       -- assinatura antiga (7 args)
+DROP FUNCTION IF EXISTS dashboard_cc_agg(uuid, uuid[], int[], int[], uuid[], uuid[], uuid[], int);  -- nova (8 args, p_slot) — idempotência
 CREATE FUNCTION dashboard_cc_agg(
   p_versao   uuid,
   p_empresas uuid[],

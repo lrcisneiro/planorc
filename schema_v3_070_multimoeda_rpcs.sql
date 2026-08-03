@@ -44,6 +44,7 @@ $$;
 
 -- ================= ORÇADO (fat_orcado direto) =================
 DROP FUNCTION IF EXISTS relatorio_orcado_agg(uuid, uuid[], int[], int[], uuid[], uuid[], uuid[]);
+DROP FUNCTION IF EXISTS relatorio_orcado_agg(uuid, uuid[], int[], int[], uuid[], uuid[], uuid[], int);
 CREATE FUNCTION relatorio_orcado_agg(
   p_versao uuid, p_empresas uuid[], p_anos int[], p_meses int[], p_linhas uuid[],
   p_filiais uuid[] DEFAULT NULL, p_ccs uuid[] DEFAULT NULL, p_slot int DEFAULT 1
@@ -65,6 +66,7 @@ AS $$
 $$;
 
 DROP FUNCTION IF EXISTS relatorio_orcado_anual(uuid, uuid[], int[], int[], uuid[], uuid[], uuid[]);
+DROP FUNCTION IF EXISTS relatorio_orcado_anual(uuid, uuid[], int[], int[], uuid[], uuid[], uuid[], int);
 CREATE FUNCTION relatorio_orcado_anual(
   p_versao uuid, p_empresas uuid[], p_anos int[], p_meses int[], p_linhas uuid[],
   p_filiais uuid[] DEFAULT NULL, p_ccs uuid[] DEFAULT NULL, p_slot int DEFAULT 1
@@ -84,6 +86,7 @@ $$;
 
 -- ================= SALDO (fat_saldo direto; base = saldo) =================
 DROP FUNCTION IF EXISTS relatorio_saldo_agg(uuid[], int, int[], uuid[], uuid[]);
+DROP FUNCTION IF EXISTS relatorio_saldo_agg(uuid[], int, int[], uuid[], uuid[], int);
 CREATE FUNCTION relatorio_saldo_agg(
   p_empresas uuid[], p_ano int, p_meses int[], p_linhas uuid[],
   p_filiais uuid[] DEFAULT NULL, p_slot int DEFAULT 1
@@ -106,6 +109,7 @@ $$;
 
 -- ================= REALIZADO via rollup (fat_realizado_mensal) =================
 DROP FUNCTION IF EXISTS relatorio_realizado_agg(uuid[], int[], int[], uuid[], uuid[], uuid[]);
+DROP FUNCTION IF EXISTS relatorio_realizado_agg(uuid[], int[], int[], uuid[], uuid[], uuid[], int);
 CREATE FUNCTION relatorio_realizado_agg(
   p_empresas uuid[], p_anos int[], p_meses int[], p_linhas uuid[],
   p_filiais uuid[] DEFAULT NULL, p_ccs uuid[] DEFAULT NULL, p_slot int DEFAULT 1
@@ -140,6 +144,7 @@ AS $$
 $$;
 
 DROP FUNCTION IF EXISTS relatorio_realizado_anual(uuid[], int[], int[], uuid[], uuid[], uuid[]);
+DROP FUNCTION IF EXISTS relatorio_realizado_anual(uuid[], int[], int[], uuid[], uuid[], uuid[], int);
 CREATE FUNCTION relatorio_realizado_anual(
   p_empresas uuid[], p_anos int[], p_meses int[], p_linhas uuid[],
   p_filiais uuid[] DEFAULT NULL, p_ccs uuid[] DEFAULT NULL, p_slot int DEFAULT 1
@@ -175,6 +180,7 @@ $$;
 
 -- ================= POR EMPRESA × LINHA (orçado direto + realizado rollup) =================
 DROP FUNCTION IF EXISTS relatorio_linha_empresa_agg(uuid, int[], int[], uuid[], uuid[], uuid[]);
+DROP FUNCTION IF EXISTS relatorio_linha_empresa_agg(uuid, int[], int[], uuid[], uuid[], uuid[], int);
 CREATE FUNCTION relatorio_linha_empresa_agg(
   p_versao uuid, p_anos int[], p_meses int[], p_linhas uuid[],
   p_filiais uuid[] DEFAULT NULL, p_ccs uuid[] DEFAULT NULL, p_slot int DEFAULT 1
@@ -223,6 +229,7 @@ $$;
 
 -- ================= POR EMPRESA (orçado direto + realizado fat_realizado DIRETO) =================
 DROP FUNCTION IF EXISTS relatorio_empresa_agg(uuid, int[], int[], uuid[]);
+DROP FUNCTION IF EXISTS relatorio_empresa_agg(uuid, int[], int[], uuid[], int);
 CREATE FUNCTION relatorio_empresa_agg(
   p_versao uuid, p_anos int[], p_meses int[], p_linhas uuid[], p_slot int DEFAULT 1
 ) RETURNS TABLE(empresa_id uuid, orcado numeric, realizado numeric)
@@ -262,6 +269,7 @@ AS $$
 $$;
 
 DROP FUNCTION IF EXISTS relatorio_empresa_mes_agg(uuid, int[], int[], uuid[], uuid[], uuid[]);
+DROP FUNCTION IF EXISTS relatorio_empresa_mes_agg(uuid, int[], int[], uuid[], uuid[], uuid[], int);
 CREATE FUNCTION relatorio_empresa_mes_agg(
   p_versao uuid, p_anos int[], p_meses int[], p_linhas uuid[],
   p_filiais uuid[] DEFAULT NULL, p_ccs uuid[] DEFAULT NULL, p_slot int DEFAULT 1
