@@ -364,15 +364,16 @@ function EmpresasTab() {
         <GridHead cols={GRID} grid={grid} thStyle={S.th} />
         <tbody>
           {adding && <AddRow cols={COLS} onSave={save} onCancel={() => setAdding(false)} />}
-          {grid.rows.length === 0 && !adding && <tr><td colSpan={6} style={S.empty}>{busca || grid.filtrosOn ? 'Nenhum resultado.' : <>Nenhuma empresa cadastrada.<br /><small>Use "Baixar modelo" e depois "Importar Excel".</small></>}</td></tr>}
+          {grid.rows.length === 0 && !adding && <tr><td colSpan={7} style={S.empty}>{busca || grid.filtrosOn ? 'Nenhum resultado.' : <>Nenhuma empresa cadastrada.<br /><small>Use "Baixar modelo" e depois "Importar Excel".</small></>}</td></tr>}
           {grid.rows.map(e => editId === e.id ? (
-            <AddRow key={e.id} cols={COLS} initial={{ codigo: e.codigo, descricao: e.descricao, plano_id: e.plano_id || '', moeda_slot: String(e.moeda_slot ?? 1) }} onSave={v => save(v, e.id)} onCancel={() => setEditId(null)} />
+            <AddRow key={e.id} cols={COLS} initial={{ codigo: e.codigo, descricao: e.descricao, plano_id: e.plano_id || '', moeda_slot: String(e.moeda_slot ?? 1), pais: e.pais || '' }} onSave={v => save(v, e.id)} onCancel={() => setEditId(null)} />
           ) : (
             <tr key={e.id}>
               <td style={S.tdMono}>{e.codigo}</td>
               <td style={S.td}>{e.descricao}</td>
               <td style={{ ...S.td, color: 'var(--muted)' }}>{planoCod(e.plano_id) || '—'}</td>
               <td style={{ ...S.td, color: 'var(--muted)' }}>{moedaCod(e.moeda_slot ?? 1)}</td>
+              <td style={{ ...S.td, color: 'var(--muted)' }}>{paisNome(e.pais) || '—'}</td>
               <td style={S.td}><span style={S.badge(e.ativo)}>{e.ativo ? 'Ativo' : 'Inativo'}</span></td>
               <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
                 <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(e.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
