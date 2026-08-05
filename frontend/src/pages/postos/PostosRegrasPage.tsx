@@ -48,9 +48,11 @@ const TIPO_CALCULO: { value: string; label: string }[] = [
   { value: 'INFORMATIVA',   label: 'Informativa (não orça)' },
 ]
 const REGIME_OPTS: { value: string; label: string }[] = [
-  { value: 'CLT',       label: 'CLT' },
-  { value: 'PRESTADOR', label: 'Prestador' },
-  { value: 'PROLABORE', label: 'Pró-labore' },
+  { value: 'BR-CLT',       label: 'BR · CLT' },
+  { value: 'BR-PRESTADOR', label: 'BR · Prestador' },
+  { value: 'BR-PROLABORE', label: 'BR · Pró-labore' },
+  { value: 'PY-IPS',       label: 'PY · IPS (rel. dependência)' },
+  { value: 'PY-CONTRATO',  label: 'PY · Contrato/Honorários' },
 ]
 const CATEGORIA_OPTS: { value: string; label: string }[] = [
   { value: 'SALARIO', label: 'Salário' },
@@ -100,22 +102,36 @@ type Col = {
   importSample?: string       // valor de exemplo na 1ª linha do modelo
 }
 
-function CrudTable({ table, orderBy, cols, defaults, lookups, hint, editavel }: {
+function CrudTable({ table, orderBy, cols, defaults, lookups, hint, editavel, filterKey }: {
   table: string
-  orderBy: string
+  orderBy: string | string[]        // ordena por 1+ colunas (ex.: ['pais','ordem'] p/ não misturar países)
   cols: Col[]
   defaults: Record<string, any>
   lookups?: { conta?: any[] }
   hint?: string
   editavel: boolean
+  filterKey?: string                // coluna p/ o filtro do cabeçalho (ex.: 'pais')
 }) {
   const [data, setData] = useState<any[]>([])
   const [editId, setEditId] = useState<string | null>(null)   // '__new' ao adicionar
   const [draft, setDraft] = useState<Record<string, any>>({})
   const [erro, setErro] = useState<string | null>(null)
+  const [filtro, setFiltro] = useState('')                     // valor do filtro do cabeçalho ('' = todos)
 
-  const load = () => supabase.from(table).select('*').order(orderBy, { nullsFirst: false }).then(r => setData(r.data || []))
+  const load = () => {
+    let q = supabase.from(table).select('*')
+    for (const ob of (Array.isArray(orderBy) ? orderBy : [orderBy])) q = q.order(ob, { nullsFirst: false })
+    q.then(r => setData(r.data || []))
+  }
   useEffect(() => { load() /* eslint-disable-next-line */ }, [])
+
+  // filtro do cabeçalho: opções = valores distintos da coluna (rótulo via options do Col)
+  const filterCol = filterKey ? cols.find(c => c.key === filterKey) : null
+  const filterOpts = filterKey
+    ? [...new Set(data.map(d => d[filterKey]).filter(v => v != null && v !== ''))].sort()
+        .map(v => ({ value: String(v), label: filterCol?.options?.find(o => o.value === String(v))?.label || String(v) }))
+    : []
+  const shown = filterKey && filtro ? data.filter(d => String(d[filterKey] ?? '') === filtro) : data
 
   const optsFor = (c: Col): { value: string; label: string }[] => {
     if (c.options) return c.options
@@ -261,7 +277,15 @@ function CrudTable({ table, orderBy, cols, defaults, lookups, hint, editavel }: 
   return (
     <div style={S.card}>
       <div style={S.toolbar}>
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{data.length} {data.length === 1 ? 'registro' : 'registros'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{shown.length}{filtro ? ` de ${data.length}` : ''} {shown.length === 1 ? 'registro' : 'registros'}</span>
+          {filterKey && filterOpts.length > 0 && (
+            <select style={{ ...S.select, width: 'auto' }} value={filtro} onChange={e => setFiltro(e.target.value)} title={`Filtrar por ${filterCol?.label || filterKey}`}>
+              <option value="">Todos · {filterCol?.label || filterKey}</option>
+              {filterOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          )}
+        </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button style={S.btnImp} onClick={baixarModelo} title="Baixar planilha modelo (com cabeçalhos e 1 exemplo)"><FileDown size={14} /> Modelo</button>
           <button style={S.btnImp} onClick={exportar} title="Exportar os registros atuais"><Download size={14} /> Exportar</button>
@@ -278,7 +302,7 @@ function CrudTable({ table, orderBy, cols, defaults, lookups, hint, editavel }: 
         <thead><tr>{cols.map(c => <th key={c.key} style={{ ...S.th, width: c.width }}>{c.label}</th>)}{editavel && <th style={{ ...S.th, width: 80 }} />}</tr></thead>
         <tbody>
           {editavel && editId === '__new' && <tr>{cols.map(c => <td key={c.key} style={S.td}>{cell(c)}</td>)}<td style={S.td}>{acoes}</td></tr>}
-          {data.map(row => editavel && editId === row.id ? (
+          {shown.map(row => editavel && editId === row.id ? (
             <tr key={row.id}>{cols.map(c => <td key={c.key} style={S.td}>{cell(c)}</td>)}<td style={S.td}>{acoes}</td></tr>
           ) : (
             <tr key={row.id}>
@@ -289,7 +313,7 @@ function CrudTable({ table, orderBy, cols, defaults, lookups, hint, editavel }: 
               </td>}
             </tr>
           ))}
-          {!data.length && editId !== '__new' && <tr><td colSpan={cols.length + (editavel ? 1 : 0)} style={S.empty}>Nenhum registro ainda.</td></tr>}
+          {!shown.length && editId !== '__new' && <tr><td colSpan={cols.length + (editavel ? 1 : 0)} style={S.empty}>{filtro ? 'Nenhuma verba deste país.' : 'Nenhum registro ainda.'}</td></tr>}
         </tbody>
       </table>
       </div>
@@ -301,10 +325,11 @@ function CrudTable({ table, orderBy, cols, defaults, lookups, hint, editavel }: 
 function VerbasTab({ editavel }: { editavel: boolean }) {
   const [contas, setContas] = useState<any[]>([])
   useEffect(() => { pageAll(() => supabase.from('conta_orcamentaria').select('id,codigo,descricao').order('codigo')).then(setContas) }, [])
-  return <CrudTable editavel={editavel} table="verba_folha" orderBy="ordem" lookups={{ conta: contas }}
-    hint="Regra de cálculo de cada rubrica. A ordem importa (encargos calculam sobre verbas anteriores). A conta destino recebe o valor no Aplicar."
+  return <CrudTable editavel={editavel} table="verba_folha" orderBy={['pais', 'ordem']} filterKey="pais" lookups={{ conta: contas }}
+    hint="Regra de cálculo de cada rubrica, agrupada por país. A ordem importa (encargos calculam sobre verbas anteriores). A conta destino recebe o valor no Aplicar."
     defaults={{ tipo_calculo: 'BASE', incide_encargos: true, ativo: true }}
     cols={[
+      { key: 'pais',             label: 'País',             kind: 'select', options: PAIS_OPTS, width: 120, importSample: 'BR' },
       { key: 'ordem',            label: 'Ordem',            kind: 'num',   width: 70,  importSample: '10' },
       { key: 'codigo',           label: 'Código',           kind: 'text',  required: true, width: 110, mono: true, importSample: 'SAL' },
       { key: 'descricao',        label: 'Descrição',        kind: 'text',  required: true, importSample: 'Salário base' },
@@ -315,7 +340,6 @@ function VerbasTab({ editavel }: { editavel: boolean }) {
       { key: 'incide_encargos',  label: 'Base p/ encargos', kind: 'check', width: 100, importSample: 'sim' },
       { key: 'categoria',        label: 'Categoria',        kind: 'select', options: CATEGORIA_OPTS, width: 130, importSample: '' },
       { key: 'regime',           label: 'Regime(s)',        kind: 'regimes', width: 210, importSample: 'CLT,PROLABORE' },
-      { key: 'pais',             label: 'País',             kind: 'select', options: PAIS_OPTS, width: 130, importSample: '' },
       { key: 'aglutina_em',      label: 'Aglutina em',      kind: 'select', lookup: 'self_cod', width: 150, importSample: '' },
       { key: 'ativo',            label: 'Ativo',            kind: 'check', width: 60, importSample: 'sim' },
     ]} />

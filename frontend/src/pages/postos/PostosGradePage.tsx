@@ -5,7 +5,7 @@ import { PostosPills, passoLabel } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
-import { calcularPosto, regimeAplica } from '../../lib/motorFolha'
+import { calcularPosto, regimeAplica, paisAplica } from '../../lib/motorFolha'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
 import { Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil } from 'lucide-react'
 import { RateioModal } from './RateioModal'
@@ -50,7 +50,7 @@ const inp2 = (v: any) => Number(v ?? 0).toFixed(2).replace('.', ',')   // 2 casa
 // aceita "3908,71", "3.908,71" (vírgula = decimal) e "3908.71" (ponto = decimal quando não há vírgula)
 const parseNum = (s: string): number => { const r = (s || '').trim(); return r.includes(',') ? parseFloat(r.replace(/\./g, '').replace(',', '.')) : parseFloat(r) }
 const milAno = (v: number) => v >= 1e6 ? `R$ ${(v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} mi` : `R$ ${money(v)}`
-const REGIMES = ['CLT', 'PRESTADOR', 'PROLABORE']
+const REGIMES = ['BR-CLT', 'BR-PRESTADOR', 'BR-PROLABORE', 'PY-IPS', 'PY-CONTRATO']
 // sindicato por empresa (regra Ricardo): 06→MS, 08/YY/ZZ→PR, demais→SP. O import atribui (persiste no reimport).
 const sindCodPorEmp = (empCod: string) => empCod === '06' ? 'SINDPDMS' : ['08', 'YY', 'ZZ'].includes(empCod) ? 'SINDPDPR' : 'SINDPDSP'
 const abbrev = (nome: string) => {
@@ -104,11 +104,13 @@ const T = {
   sind: tag('var(--panel-2)', 'var(--muted)', 'var(--border)'),
 }
 const tagRegime = (r: string | null): CSSProperties =>
-  r === 'CLT' ? tag('rgba(59,130,246,0.12)', 'var(--blue)', 'rgba(59,130,246,0.4)')
-  : r === 'PRESTADOR' ? tag('rgba(251,146,60,0.12)', 'var(--orange)', 'rgba(251,146,60,0.4)')
-  : r === 'PROLABORE' ? tag('rgba(139,92,246,0.12)', 'var(--violet)', 'rgba(139,92,246,0.4)')
+  r === 'BR-CLT' ? tag('rgba(59,130,246,0.12)', 'var(--blue)', 'rgba(59,130,246,0.4)')
+  : r === 'BR-PRESTADOR' ? tag('rgba(251,146,60,0.12)', 'var(--orange)', 'rgba(251,146,60,0.4)')
+  : r === 'BR-PROLABORE' ? tag('rgba(139,92,246,0.12)', 'var(--violet)', 'rgba(139,92,246,0.4)')
+  : r === 'PY-IPS' ? tag('rgba(52,211,153,0.12)', 'var(--green)', 'rgba(52,211,153,0.4)')
+  : r === 'PY-CONTRATO' ? tag('rgba(34,211,238,0.12)', 'var(--cyan)', 'rgba(34,211,238,0.4)')
   : T.sind
-const REGIMES_LABEL: Record<string, string> = { CLT: 'CLT', PRESTADOR: 'Prestador', PROLABORE: 'Pró-labore' }
+const REGIMES_LABEL: Record<string, string> = { 'BR-CLT': 'BR · CLT', 'BR-PRESTADOR': 'BR · Prestador', 'BR-PROLABORE': 'BR · Pró-labore', 'PY-IPS': 'PY · IPS', 'PY-CONTRATO': 'PY · Contrato' }
 
 type Posto = {
   id: string; codigo: string; nome: string | null; matricula: string | null; regime: string | null; ativo?: boolean
@@ -242,7 +244,7 @@ export default function PostosGradePage() {
         const [ay, am] = (r.admissao || '').split('-')
         payload.push({ tenant_id: TENANT_ID, codigo: r.posto_codigo, empresa_id, filial_id, cc_id, cargo_id,
           sindicato_id: sindByCod[sindCodPorEmp((r.empresa || '').trim())] || null,
-          regime: (r.regime || '').trim() || null, salario_base: r.salario ? parseFloat(r.salario) : 0,
+          regime: (() => { const s = (r.regime || '').trim(); return s ? (s.includes('-') ? s : 'BR-' + s) : null })(), salario_base: r.salario ? parseFloat(r.salario) : 0,
           nome: (r.nome || '').trim() || null, matricula: (r.matricula || '').trim() || null,
           ini_ano: ay ? parseInt(ay, 10) : null, ini_mes: am ? parseInt(am, 10) : null, fte: 1, ativo: (r.ativo || 'sim') !== 'nao' })
       }
@@ -334,7 +336,7 @@ export default function PostosGradePage() {
 
   // ── Aplicar no orçado (step 5): grava fat_orcado (origem POSTO) do quadro ativo da versão ──
   const [aplicando, setAplicando] = useState(false)
-  const [aplicarInfo, setAplicarInfo] = useState<{ linhas: number; postos: number; contas: number; ano: number; fundidas: number } | null>(null)
+  const [aplicarInfo, setAplicarInfo] = useState<{ linhas: number; postos: number; contas: number; ano: number; fundidas: number; semTaxa: number } | null>(null)
   const aplicarNoOrcado = async () => {
     setErro(null); setAplicarInfo(null)
     if (!versaoSel) { setErro('Selecione a versão do orçamento.'); return }
@@ -423,7 +425,7 @@ export default function PostosGradePage() {
         const { error } = await supabase.from('fat_folha').insert(folhaOk.slice(i, i + 500))
         if (error) { setErro('Aviso — orçado por verba (gravação): ' + error.message); break }
       }
-      setAplicarInfo({ linhas: rows.length, postos: postosAplicados, contas: contasTocadas.size, ano: anoCalc, fundidas: gerados - rows.length })
+      setAplicarInfo({ linhas: rows.length, postos: postosAplicados, contas: contasTocadas.size, ano: anoCalc, fundidas: gerados - rows.length, semTaxa: semTaxaOrc })
     } finally { setAplicando(false) }
   }
   const salvar = async (id: string, patch: Partial<Posto>) => {
@@ -438,7 +440,7 @@ export default function PostosGradePage() {
     setPostos(ps => ps.filter(p => p.id !== id))
   }
   // novo posto / vaga ou edição (código, ocupante, cargo, local, regime, salário, vigência)
-  const novoPosto = (pre?: { cc_id?: string; cargo_id?: string }) => setForm({ codigo: '', codigoAuto: true, nome: '', matricula: '', cargo_id: pre?.cargo_id || '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: pre?.cc_id || '', sindicato_id: '', regime: 'CLT', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', rateios: [] })
+  const novoPosto = (pre?: { cc_id?: string; cargo_id?: string }) => setForm({ codigo: '', codigoAuto: true, nome: '', matricula: '', cargo_id: pre?.cargo_id || '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: pre?.cc_id || '', sindicato_id: '', regime: 'BR-CLT', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', rateios: [] })
   const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, codigoAuto: false, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', salario_base: p.salario_base != null ? String(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
   const salvarPosto = async () => {
     if (!form) return
@@ -705,6 +707,7 @@ export default function PostosGradePage() {
           <div>Orçado aplicado na versão (ano {aplicarInfo.ano}): <b>{aplicarInfo.linhas.toLocaleString('pt-BR')} linhas</b> gravadas em <b>{aplicarInfo.postos} postos</b> e {aplicarInfo.contas} conta(s), origem POSTO.
             <div style={{ color: 'var(--muted)' }}>Substituiu o orçado POSTO anterior desta versão. Veja em Orçar / DRE (some com o manual/formulário na mesma célula).</div>
             {aplicarInfo.fundidas > 0 && <div style={{ color: 'var(--orange)' }}>⚠ {aplicarInfo.fundidas} lançamento(s) caíram na mesma célula e foram somados — pode indicar posto duplicado nos dados. Confira se há códigos de posto repetidos.</div>}
+            {aplicarInfo.semTaxa > 0 && <div style={{ color: 'var(--red)', fontWeight: 600 }}>⚠ {aplicarInfo.semTaxa} linha(s) DESCARTADA(S) por falta de taxa orçada da moeda de origem (empresa em moeda estrangeira). Cadastre a taxa em Cadastros → Taxa orçada para esta versão e reaplique.</div>}
           </div>
         </div>
       )}
@@ -818,7 +821,7 @@ export default function PostosGradePage() {
               </div>}
 
               {editavel && (() => {
-                const benefVerbas = verbas.filter(v => v.tipo_calculo === 'VALOR_FIXO' && regimeAplica(v.regime, drill.regime))
+                const benefVerbas = verbas.filter(v => v.tipo_calculo === 'VALOR_FIXO' && paisAplica(v.pais, empPais.get(drill.empresa_id) ?? null) && regimeAplica(v.regime, drill.regime))
                 if (!benefVerbas.length) return null
                 return (
                   <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
@@ -864,7 +867,7 @@ export default function PostosGradePage() {
                     : <button type="button" title="Voltar ao código automático" style={{ padding: '0 10px', fontSize: 11, fontWeight: 600, border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--panel)', color: 'var(--text-mid)', cursor: 'pointer' }} onClick={() => setForm((f: any) => ({ ...f, codigoAuto: true, codigo: gerarCodigoPosto(f.filial_id, f.matricula) }))}>auto</button>}
                 </div></div>
               <div><span style={S.flbl}>Cargo</span><select style={S.finp} value={form.cargo_id} onChange={e => setForm((f: any) => ({ ...f, cargo_id: e.target.value }))}><option value="">—</option>{cargos.map((c: any) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></div>
-              <div><span style={S.flbl}>Regime</span><select style={S.finp} value={form.regime} onChange={e => setForm((f: any) => ({ ...f, regime: e.target.value }))}><option value="">—</option>{REGIMES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+              <div><span style={S.flbl}>Regime</span><select style={S.finp} value={form.regime} onChange={e => setForm((f: any) => ({ ...f, regime: e.target.value }))}><option value="">—</option>{REGIMES.map(r => <option key={r} value={r}>{REGIMES_LABEL[r] || r}</option>)}</select></div>
               <div><span style={S.flbl}>Sindicato <span style={{ color: 'var(--muted)' }}>(vazio = pela empresa)</span></span><select style={S.finp} value={form.sindicato_id} onChange={e => setForm((f: any) => ({ ...f, sindicato_id: e.target.value }))}><option value="">— automático —</option>{sindicatos.map((s: any) => <option key={s.id} value={s.id}>{s.codigo}</option>)}</select></div>
               <div><span style={S.flbl}>Salário base</span><input style={S.finp} value={form.salario_base} placeholder="0,00" onChange={e => setForm((f: any) => ({ ...f, salario_base: e.target.value }))} /></div>
               <div><span style={S.flbl}>FTE</span><input style={S.finp} value={form.fte} placeholder="1" onChange={e => setForm((f: any) => ({ ...f, fte: e.target.value }))} /></div>
