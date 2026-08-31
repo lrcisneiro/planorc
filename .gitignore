@@ -44,3 +44,7 @@ funcionarios_convertido.csv
 # folha realizada (dados)
 folha_realizada*.csv
 DePara*.csv
+
+# razão do ERP e lotes mensais gerados (dados grandes)
+LancamentoContabil.csv
+lotes_saida/

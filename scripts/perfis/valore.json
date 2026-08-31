@@ -1,0 +1,41 @@
+{
+  "nome": "Valore — Protheus (razão / LancamentoContabil)",
+  "descricao": "Export padrão do Protheus. Empresa vem do item contábil quando ele está mapeado; senão vale a empresa do arquivo. Remap final 07→05 e 08→25.",
+
+  "arquivo_padrao": "LancamentoContabil.csv",
+
+  "colunas": {
+    "empresa": "BK_EMPRESA",
+    "filial": "BK_FILIAL",
+    "conta": "BK_CONTA",
+    "cc": "BK_CENTRO_CUSTO",
+    "item_contabil": "BK_ITEM_CONTABIL",
+    "data": "DATA",
+    "documento": "DOC",
+    "historico": "HISTORICO",
+    "debito": "VALOR_DEBITO",
+    "credito": "VALOR_CREDITO",
+    "lote": "LOTE",
+    "sublote": "SUBLOTE"
+  },
+
+  "desempilhar_pipe": true,
+
+  "empresa_por_item_contabil": {
+    "01": "05",
+    "02": "01",
+    "03": "06",
+    "04": "08",
+    "05": "ZZ",
+    "06": "YY",
+    "PY": "XX",
+    "BO": "BO",
+    "FB": "28",
+    "TP": "40"
+  },
+
+  "empresa_remap_final": {
+    "07": "05",
+    "08": "25"
+  }
+}

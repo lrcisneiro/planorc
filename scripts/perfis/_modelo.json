@@ -1,0 +1,31 @@
+{
+  "nome": "MODELO — copie este arquivo para criar o perfil de outra empresa",
+  "descricao": "Perfil enxuto: só o de-para de colunas do export do ERP. Sem regra de empresa por item contábil, sem remap. Renomeie o arquivo (ex.: acme.json) e ajuste os nomes das colunas conforme o export do cliente.",
+
+  "arquivo_padrao": "LancamentoContabil.csv",
+
+  "_ajuda_colunas": "Chave = campo do Planorc; valor = nome da coluna no CSV do ERP. Deixe \"\" (vazio) no que o export não tiver — o campo sai em branco no xlsx.",
+  "colunas": {
+    "empresa": "BK_EMPRESA",
+    "filial": "BK_FILIAL",
+    "conta": "BK_CONTA",
+    "cc": "BK_CENTRO_CUSTO",
+    "item_contabil": "",
+    "data": "DATA",
+    "documento": "DOC",
+    "historico": "HISTORICO",
+    "debito": "VALOR_DEBITO",
+    "credito": "VALOR_CREDITO",
+    "lote": "LOTE",
+    "sublote": "SUBLOTE"
+  },
+
+  "_ajuda_pipe": "true quando o Protheus exporta os campos como \"P |01|valor\" — vale o trecho após o ÚLTIMO pipe. Use false para export limpo.",
+  "desempilhar_pipe": true,
+
+  "_ajuda_itemcc": "Opcional. item contábil → código de empresa do Planorc. Item fora do mapa mantém a empresa do arquivo. Deixe {} para não usar.",
+  "empresa_por_item_contabil": {},
+
+  "_ajuda_remap": "Opcional. Última troca aplicada ao código de empresa, depois de tudo. Deixe {} para não usar.",
+  "empresa_remap_final": {}
+}

@@ -1,3 +1,46 @@
+# Realizado — lotes mensais do razão (ERP)
+
+Quebra o razão do ERP (ex.: `LancamentoContabil.csv` do Protheus, ~330 MB) em
+**um xlsx por mês**, no formato do modelo de import da tela `/realizado`.
+
+```bash
+./scripts/realizado.sh              # pergunta ano e meses (Enter aceita o default)
+./scripts/realizado.sh --mes 8      # só agosto do ano corrente — fechamento do mês
+./scripts/realizado.sh --ano 2025 -y  # o ano inteiro, sem perguntar nada
+```
+
+Sem argumentos ele acha o arquivo sozinho (na raiz do projeto; aceita `.zip` e
+descompacta), gera em `lotes_saida/`, imprime o resumo por mês e abre a pasta no
+Finder — daí é só arrastar os arquivos para **Realizado → Importar**.
+
+> Regerar só o mês do fechamento (`--mes 8`) é o caminho normal do dia a dia.
+> Na tela, use o modo **Substituir** para o mês reimportado não duplicar.
+
+## Perfis (`scripts/perfis/*.json`) — uma empresa/ERP por arquivo
+
+As regras de conversão **não estão no código**: cada cliente tem um perfil JSON.
+Para atender outra empresa, copie `_modelo.json`, renomeie e ajuste — nenhum `.py`
+é tocado. Havendo mais de um perfil, o wrapper pergunta qual usar (ou `--perfil nome`).
+
+| chave | o que faz |
+|---|---|
+| `colunas` | de-para: campo do Planorc → nome da coluna no export do ERP |
+| `desempilhar_pipe` | campos `P \|01\|valor` do Protheus: vale o trecho após o **último** pipe |
+| `empresa_por_item_contabil` | item contábil → empresa. Item fora do mapa mantém a empresa do arquivo |
+| `empresa_remap_final` | última troca do código de empresa (no perfil `valore`: 07→05, 08→25) |
+| `arquivo_padrao` | nome procurado quando você não passa o caminho |
+
+O perfil `valore.json` reproduz exatamente as regras que estavam hardcoded no
+script até ago/2026 — a saída é idêntica à dos lotes gerados antes.
+
+Se o perfil apontar uma coluna que não existe no arquivo, o script para logo no
+começo e lista as colunas que o export realmente tem (em vez de gerar xlsx vazio).
+
+O gerador continua chamável direto, se preferir:
+`python3 scripts/gerar_lotes_mensais.py [csv|zip] [saida] [--perfil x] [--ano 2026] [--mes 1-3]`
+
+---
+
 # Pipeline de import de postos (F5 · Posto de Trabalho)
 
 Converte os exports do TOTVS num CSV único e o importa na grade `/postos`.
