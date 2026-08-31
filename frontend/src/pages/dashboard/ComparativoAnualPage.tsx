@@ -1,13 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { computeTotais, pkey } from '../../lib/engine'
-import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
+import { computeTotais, pkey, formatValor } from '../../lib/engine'
+import type { LinhaCalc, Computed, Periodo, Formato } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
 import { nivoTheme } from '../../lib/nivoTheme'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
-import { escopoFiltro, FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset, useMoedaView, MoedaSelect } from './DashFiltros'
+import { escopoFiltro, FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset, useMoedaView, MoedaSelect, ExportarButton } from './DashFiltros'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import type { Item, CC } from './DashFiltros'
 
@@ -16,11 +16,18 @@ const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'O
 const ULT_FECHADO = new Date().getMonth() === 0 ? 12 : new Date().getMonth() // mês anterior ao atual (1-based)
 const YCOLORS = ['#3b5bdb', '#f59f00', '#2f9e44', '#e8590c', '#7048e8', '#1098ad']
 const fmt = (v: number) => (v || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })
+
+// A tabela trunca as casas decimais para ficar limpa — mas INDICADOR com formato
+// definido no relatório (percentual, ou casas > 0) mantém o formato de lá:
+// truncar um índice percentual em 0 casas inviabiliza a análise.
+type Row = { id: string; depth: number; desc: string; tipo: any; formato: Formato; casas: number; vals: Record<number, number>; cagr: number | null }
+const respeitaRelatorio = (r: Row) => r.tipo === 'INDICADOR' && (r.casas > 0 || r.formato === 'PERCENTUAL')
+const fmtRow = (r: Row, v: number) => respeitaRelatorio(r) ? formatValor(v, r.formato, r.casas) : fmt(v)
 const cut = (s: string, n: number) => s.length > n ? s.slice(0, n) + '…' : s
 
 type Rel = { id: string; codigo: string; nome: string }
 type Versao = { id: string; codigo: string }
-type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null; nao_soma?: boolean }
+type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; ordem: number | null; nao_soma?: boolean; formato: Formato; casas_decimais: number }
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
@@ -61,10 +68,11 @@ export default function ComparativoAnualPage() {
   const [divisaoSel, setDivisaoSel] = useState<string[]>(Array.isArray(sv.divisaoSel) ? sv.divisaoSel : [])
   const [buSel, setBuSel] = useState<string[]>(Array.isArray(sv.buSel) ? sv.buSel : [])
   const [anosSel, setAnosSel] = useState<number[]>(Array.isArray(sv.anosSel) && sv.anosSel.length ? sv.anosSel : [2024, 2025, 2026])
+  const dashRef = useRef<HTMLDivElement>(null)   // alvo da exportação (PNG/PDF)
   const [ateMes, setAteMes] = useState<number>(sv.ateMes || ULT_FECHADO)
   const [medida, setMedida] = useState<'Realizado' | 'Orçado'>(sv.medida || 'Realizado')
   const [ocultarVazias, setOcultarVazias] = useState<boolean>(sv.ocultarVazias ?? true)
-  const [rows, setRows] = useState<{ id: string; depth: number; desc: string; tipo: any; vals: Record<number, number>; cagr: number | null }[]>([])
+  const [rows, setRows] = useState<Row[]>([])
   const [chartLine, setChartLine] = useState('')
   const [loading, setLoading] = useState(false); const [erro, setErro] = useState<string | null>(null); const [temDados, setTemDados] = useState(true)
 
@@ -89,7 +97,7 @@ export default function ComparativoAnualPage() {
     if (!relId || !versaoId) return
     setLoading(true); setErro(null)
     try {
-      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,ordem,nao_soma').eq('relatorio_id', relId)
+      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,ordem,nao_soma,formato,casas_decimais').eq('relatorio_id', relId)
       const linhas = (linhasRaw || []) as RL[]
       const byId: Record<string, RL> = {}; linhas.forEach(l => { byId[l.id] = l })
       const childrenByPai: Record<string, RL[]> = {}
@@ -132,7 +140,7 @@ export default function ComparativoAnualPage() {
       }
 
       // monta linhas em ordem hierárquica
-      const out: { id: string; depth: number; desc: string; tipo: any; vals: Record<number, number>; cagr: number | null }[] = []
+      const out: Row[] = []
       const walk = (paiKey: string, depth: number) => {
         for (const c of (childrenByPai[paiKey] || [])) {
           if (c.tipo_linha !== 'ESPACO' && !c.nao_soma) {
@@ -142,7 +150,7 @@ export default function ComparativoAnualPage() {
             const v0 = vals[anos[0]], vN = vals[anos[anos.length - 1]], n = anos.length - 1
             const cagr = (n > 0 && v0 > 0 && vN > 0) ? (Math.pow(vN / v0, 1 / n) - 1) * 100 : null
             const algum = anos.some(y => Math.abs(vals[y]) > 0.005)
-            if (!ocultarVazias || algum) out.push({ id: c.id, depth, desc: c.descricao, tipo: c.tipo_linha, vals, cagr })
+            if (!ocultarVazias || algum) out.push({ id: c.id, depth, desc: c.descricao, tipo: c.tipo_linha, formato: c.formato, casas: c.casas_decimais ?? 0, vals, cagr })
           }
           walk(c.id, depth + 1)
         }
@@ -159,18 +167,20 @@ export default function ComparativoAnualPage() {
   const anos = [...anosSel].sort((a, b) => a - b)
   const toggleAno = (y: number) => setAnosSel(s => s.includes(y) ? s.filter(x => x !== y) : [...s, y])
   const chartRow = rows.find(r => r.id === chartLine)
-  const chartData = chartRow ? anos.map((y, i) => { const v = Math.round(chartRow.vals[y] || 0); const pv = i > 0 ? Math.round(chartRow.vals[anos[i - 1]] || 0) : null; return { ano: String(y), valor: v, delta: pv == null ? null : v - pv, deltaPct: pv ? ((v - pv) / Math.abs(pv)) * 100 : null } }) : []
+  const arred = (v: number) => chartRow && respeitaRelatorio(chartRow) ? v : Math.round(v)
+  const fmtC = (v: number) => chartRow ? fmtRow(chartRow, v) : fmt(v)
+  const chartData = chartRow ? anos.map((y, i) => { const v = arred(chartRow.vals[y] || 0); const pv = i > 0 ? arred(chartRow.vals[anos[i - 1]] || 0) : null; return { ano: String(y), valor: v, delta: pv == null ? null : v - pv, deltaPct: pv ? ((v - pv) / Math.abs(pv)) * 100 : null } }) : []
   const isBold = (t: any) => t === 'SUBTOTAL' || t === 'FORMULA' || t === 'TOTAL'
 
   return (
-    <div style={S.page}>
+    <div style={S.page} ref={dashRef}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
         <Link to="/dashboards" style={{ ...S.btn, textDecoration: 'none' }}><ArrowLeft size={14} /> Dashboards</Link>
         <h1 style={S.title}>DRE — Comparativo anual{cardNome && <span style={{ color: '#2f9e44' }}> · {cardNome}</span>}</h1>
       </div>
       <p style={S.sub}>Vários anos em base equivalente: compara os meses <strong>Jan–{MESES[ateMes - 1]}</strong> em todos os anos. Despesas exibidas como positivas.</p>
 
-      <div style={S.bar}>
+      <div style={S.bar} data-noexport>
         <select style={S.sel} value={relId} onChange={e => setRelId(e.target.value)}>{rels.map(r => <option key={r.id} value={r.id}>{r.codigo} · {r.nome}</option>)}</select>
         <select style={S.sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>{versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}</select>
         <PeriodoButton resumo={`${[...anosSel].sort((a, b) => a - b).join(', ') || '—'} · até ${MESES[ateMes - 1]}`}>
@@ -188,6 +198,7 @@ export default function ComparativoAnualPage() {
         <label style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={ocultarVazias} onChange={e => setOcultarVazias(e.target.checked)} /> ocultar vazias</label>
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
         <SalvarCardButton base="/dashboards/anual" cor="#2f9e44" cardId={cardId} getFiltros={() => ({ relId, versaoId, anosSel, ateMes, medida, ocultarVazias, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })} />
+        <ExportarButton alvo={dashRef} nome="comparativo-anual" titulo={`DRE — Comparativo anual${cardNome ? ` · ${cardNome}` : ''}`} legenda={`${medida} · ${[...anosSel].sort((a, b) => a - b).join(', ')} · Jan–${MESES[ateMes - 1]}`} />
       </div>
 
       {erro && <div style={{ background: 'rgba(248,113,113,0.10)', border: '1px solid #ffc9c9', color: 'var(--red)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>{erro}</div>}
@@ -206,8 +217,8 @@ export default function ComparativoAnualPage() {
             </div>
             <div style={S.chart}>
               <ResponsiveBar theme={nivoTheme()} data={chartData as any} keys={['valor']} indexBy="ano" margin={{ top: 10, right: 20, bottom: 40, left: 70 }}
-                padding={0.35} colors={YCOLORS[0]} enableLabel={false} axisLeft={{ format: (v: any) => fmt(v) }}
-                valueFormat={(v: any) => fmt(v)} tooltip={({ indexValue, value, data }: any) => <div style={{ background: 'var(--panel)', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, boxShadow: '0 4px 14px rgba(0,0,0,0.08)' }}><strong>{indexValue}</strong>: {fmt(value)}{data.delta != null && <div style={{ color: data.delta >= 0 ? '#2f9e44' : '#e03131', marginTop: 2 }}>Δ vs ano anterior: {data.delta >= 0 ? '+' : ''}{fmt(data.delta)}{data.deltaPct != null ? ` (${data.deltaPct >= 0 ? '+' : ''}${data.deltaPct.toFixed(1)}%)` : ''}</div>}</div>} />
+                padding={0.35} colors={YCOLORS[0]} enableLabel={false} axisLeft={{ format: (v: any) => fmtC(v) }}
+                valueFormat={(v: any) => fmtC(v)} tooltip={({ indexValue, value, data }: any) => <div style={{ background: 'var(--panel)', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, boxShadow: '0 4px 14px rgba(0,0,0,0.08)' }}><strong>{indexValue}</strong>: {fmtC(value)}{data.delta != null && <div style={{ color: data.delta >= 0 ? '#2f9e44' : '#e03131', marginTop: 2 }}>Δ vs ano anterior: {data.delta >= 0 ? '+' : ''}{fmtC(data.delta)}{data.deltaPct != null ? ` (${data.deltaPct >= 0 ? '+' : ''}${data.deltaPct.toFixed(1)}%)` : ''}</div>}</div>} />
             </div>
           </div>
 
@@ -222,7 +233,7 @@ export default function ComparativoAnualPage() {
                 {rows.map(r => (
                   <tr key={r.id}>
                     <td style={{ ...S.tdL, paddingLeft: 12 + r.depth * 16, fontWeight: isBold(r.tipo) ? 600 : 400 }}>{r.desc}</td>
-                    {anos.map(y => <td key={y} style={{ ...S.td, fontWeight: isBold(r.tipo) ? 600 : 400 }}>{r.vals[y] ? fmt(r.vals[y]) : '—'}</td>)}
+                    {anos.map(y => <td key={y} style={{ ...S.td, fontWeight: isBold(r.tipo) ? 600 : 400 }}>{r.vals[y] ? fmtRow(r, r.vals[y]) : '—'}</td>)}
                     <td style={{ ...S.td, color: r.cagr == null ? 'var(--muted)' : r.cagr >= 0 ? '#2f9e44' : '#e03131', fontWeight: 600 }}>{r.cagr == null ? '—' : `${r.cagr >= 0 ? '+' : ''}${r.cagr.toFixed(1)}%`}</td>
                   </tr>
                 ))}

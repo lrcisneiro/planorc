@@ -4,8 +4,12 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { computeCenario, computeTotais } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Periodo } from '../../lib/engine'
-import { ArrowLeft, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react'
-import { escopoFiltro, FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset, useMoedaView, MoedaSelect } from './DashFiltros'
+import { ArrowLeft, RefreshCw, TrendingUp, TrendingDown, ListChecks } from 'lucide-react'
+import { escopoFiltro, FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset, useMoedaView, MoedaSelect, ExportarButton, ModalPanel, Checklist } from './DashFiltros'
+import { totaisRelatorio } from '../../lib/relatorioTotais'
+import type { RLData } from '../../lib/relatorioTotais'
+import IndicCard from './IndicCard'
+import type { IC } from './IndicCard'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import type { Item, CC } from './DashFiltros'
 
@@ -16,7 +20,7 @@ const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').t
 
 type Rel = { id: string; codigo: string; nome: string }
 type Versao = { id: string; codigo: string }
-type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; nao_soma?: boolean }
+type RL = { id: string; pai_id: string | null; codigo: string; tipo_linha: any; expressao: string | null; desativada: boolean; natureza: string | null; linha_orc_id: string | null; descricao: string; nao_soma?: boolean; formato: any; casas_decimais: number | null; visivel_dashboard?: boolean | null; filtro_escopo?: any }
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
@@ -74,13 +78,19 @@ export default function ExecutivoPage() {
   const [buSel, setBuSel] = useState<string[]>(Array.isArray(sv.buSel) ? sv.buSel : [])
   const [k, setK] = useState<{ rec: number[]; desp: number[]; eb: number[]; res: number[]; prev: { rec: number; desp: number; eb: number; res: number }; anoPrev: number } | null>(null)
   const [loading, setLoading] = useState(false); const [erro, setErro] = useState<string | null>(null)
+  // indicadores do relatório escolhidos como cards (mesmo tratamento do Acompanhamento)
+  const [indicCards, setIndicCards] = useState<IC[]>([])
+  const [indicSel, setIndicSel] = useState<string[]>(Array.isArray(sv.indicSel) ? sv.indicSel : [])
+  const [pickIndic, setPickIndic] = useState(false)
   const loadSeq = useRef(0)
+  const dashRef = useRef<HTMLDivElement>(null)   // alvo da exportação (PNG/PDF)
 
   const { cardId, nome: cardNome } = useCardPreset('/dashboards/executivo', (f) => {
     if (f.relId !== undefined) setRelId(f.relId); if (f.versaoId !== undefined) setVersaoId(f.versaoId)
     if (typeof f.ano === 'number') setAno(f.ano); if (typeof f.ateMes === 'number') setAteMes(f.ateMes)
     if (Array.isArray(f.empresaSel)) setEmpresaSel(f.empresaSel); if (Array.isArray(f.filialSel)) setFilialSel(f.filialSel); if (Array.isArray(f.ccSel)) setCcSel(f.ccSel)
     if (Array.isArray(f.areaSel)) setAreaSel(f.areaSel); if (Array.isArray(f.divisaoSel)) setDivisaoSel(f.divisaoSel); if (Array.isArray(f.buSel)) setBuSel(f.buSel)
+    if (Array.isArray(f.indicSel)) setIndicSel(f.indicSel)
   })
 
   useEffect(() => {
@@ -90,14 +100,14 @@ export default function ExecutivoPage() {
     supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
     supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo').then(r => setCcs(r.data || []))
   }, [])
-  useEffect(() => { if (cardId) return; localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes })) }, [cardId, relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes])
+  useEffect(() => { if (cardId) return; localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes, indicSel })) }, [cardId, relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes, indicSel])
 
   const load = async () => {
     if (!relId || !versaoId) return
     const myseq = ++loadSeq.current
     setLoading(true); setErro(null)
     try {
-      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,nao_soma').eq('relatorio_id', relId)
+      const { data: linhasRaw } = await supabase.from('relatorio_linha').select('id,pai_id,codigo,tipo_linha,expressao,desativada,natureza,linha_orc_id,descricao,nao_soma,formato,casas_decimais,visivel_dashboard,filtro_escopo').eq('relatorio_id', relId)
       const linhas = (linhasRaw || []) as RL[]
       const byId: Record<string, RL> = {}; linhas.forEach(l => { byId[l.id] = l })
       const masterIds = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
@@ -110,7 +120,29 @@ export default function ExecutivoPage() {
       const filFilter = escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acessoDash.canSee)
       const ccFilter = escopoFiltro(effectiveCcFilter(ccs, ccSel, areaSel, divisaoSel, buSel), ccs, 'centro_custo', acessoDash.canSee)
       const meses = Array.from({ length: ateMes }, (_, i) => i + 1)
-      if (!masterIds.length || !empIds.length) { setK(null); setLoading(false); return }
+      if (!masterIds.length || !empIds.length) { setK(null); setLoading(false); setIndicCards([]); return }
+
+      // Cards de indicadores do relatório — mesma fonte do Acompanhamento (totaisRelatorio),
+      // que recalcula a linha no filtro_escopo de CC dela e cruza com o escopo VER do usuário.
+      const indicLines = linhas.filter(l => (l.tipo_linha === 'INDICADOR' || l.nao_soma) && l.visivel_dashboard !== false)
+      if (indicLines.length) {
+        const ccPermI = ccs.every(c => acessoDash.canSee('centro_custo', c.id)) ? null : ccs.filter(c => acessoDash.canSee('centro_custo', c.id)).map(c => c.id)
+        const baseI = { linhas: linhas as unknown as RLData[], ccs, empresas: empIds, meses, filialFilter: filFilter, ccFilter, ccPermitidos: ccPermI, slot: moedaSlot }
+        const [iOrc, iReal, iPrev] = await Promise.all([
+          totaisRelatorio({ ...baseI, cen: versaoId, anos: [ano] }),
+          totaisRelatorio({ ...baseI, cen: 'REALIZADO', anos: [ano] }),
+          totaisRelatorio({ ...baseI, cen: 'REALIZADO', anos: [ano - 1] }),
+        ])
+        if (myseq !== loadSeq.current) return
+        setIndicCards(indicLines.map(l => {
+          const desp = natOf(l.id) === 'DESPESA', f = desp ? -1 : 1
+          return {
+            id: l.id, label: l.descricao, isPct: l.formato === 'PERCENTUAL', desp, formato: l.formato,
+            casas: l.casas_decimais ?? (l.formato === 'PERCENTUAL' ? 1 : 0),
+            R: f * (iReal[l.id] || 0), O: f * (iOrc[l.id] || 0), P: f * (iPrev[l.id] || 0),
+          }
+        }))
+      } else if (myseq === loadSeq.current) setIndicCards([])
 
       const anoPrev = ano - 1
       const [orcR, realR, realRprev] = await Promise.all([
@@ -144,14 +176,14 @@ export default function ExecutivoPage() {
   useEffect(() => { load() }, [relId, versaoId, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ano, ateMes, empresas, filiais, ccs, acessoDash.loading, moedaSlot]) // eslint-disable-line
 
   return (
-    <div style={S.page}>
+    <div style={S.page} ref={dashRef}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
         <Link to="/dashboards" style={{ ...S.btn, textDecoration: 'none' }}><ArrowLeft size={14} /> Dashboards</Link>
         <h1 style={S.title}>Visão executiva{cardNome && <span style={{ color: 'var(--orange)' }}> · {cardNome}</span>}</h1>
       </div>
       <p style={S.sub}>KPIs consolidados Jan–{MESES[ateMes - 1]}/{ano} — orçado × realizado nos mesmos meses, % de execução e variação vs. {ano - 1} (mesmos meses). Despesas exibidas como positivas.</p>
 
-      <div style={S.bar}>
+      <div style={S.bar} data-noexport>
         <select style={S.sel} value={relId} onChange={e => setRelId(e.target.value)}>{rels.map(r => <option key={r.id} value={r.id}>{r.codigo} · {r.nome}</option>)}</select>
         <select style={S.sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>{versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}</select>
         <PeriodoButton width="min(420px, calc(100vw - 40px))" resumo={`${ano} · até ${MESES[ateMes - 1]}`}>
@@ -163,12 +195,21 @@ export default function ExecutivoPage() {
         <FiltrosButton empresas={acessoDash.filterList('empresa', empresas)} filiais={acessoDash.filterList('filial', filiais)} ccs={acessoDash.filterList('centro_custo', ccs)} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         <MoedaSelect moedas={moedas} slot={moedaSlot} setSlot={setMoedaSlot} />
         <button style={S.btn} onClick={load}><RefreshCw size={13} /></button>
-        <SalvarCardButton base="/dashboards/executivo" cor="var(--orange)" cardId={cardId} getFiltros={() => ({ relId, versaoId, ano, ateMes, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })} />
+        <SalvarCardButton base="/dashboards/executivo" cor="var(--orange)" cardId={cardId} getFiltros={() => ({ relId, versaoId, ano, ateMes, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel })} />
+        {indicCards.length > 0 && <button style={S.btn} onClick={() => setPickIndic(true)} title="Escolher quais indicadores do relatório exibir como cards"><ListChecks size={13} /> Indicadores{indicSel.length ? ` (${indicSel.length})` : ''}</button>}
+        <ExportarButton alvo={dashRef} nome="visao-executiva" titulo={`Visão executiva${cardNome ? ` · ${cardNome}` : ''}`} legenda={`${ano} · Jan–${MESES[ateMes - 1]}`} />
       </div>
 
       {erro && <div style={{ background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.35)', color: 'var(--red)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>{erro}</div>}
       {loading && <div style={S.sub}>Carregando…</div>}
       {!loading && !k && <div style={S.empty}>Selecione um relatório com dados.</div>}
+      {pickIndic && (
+        <ModalPanel titulo="Indicadores a exibir" onClose={() => setPickIndic(false)} width="min(520px, calc(100vw - 40px))">
+          <Checklist titulo="Indicadores" items={indicCards.map(c => ({ id: c.id, codigo: '', descricao: c.label }))} sel={indicSel} setSel={setIndicSel} />
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Marque as linhas de indicador do relatório que devem virar cards nesta visão. A seleção vai junto no card salvo.</div>
+        </ModalPanel>
+      )}
+
       {!loading && k && (
         <div style={S.kpis}>
           <Kpi label="Receita" real={k.rec[1]} orc={k.rec[0]} prev={k.prev.rec} anoPrev={k.anoPrev} />
@@ -177,6 +218,16 @@ export default function ExecutivoPage() {
           <Kpi label="Resultado líquido" real={k.res[1]} orc={k.res[0]} prev={k.prev.res} anoPrev={k.anoPrev} />
         </div>
       )}
+
+      {!loading && (() => {
+        const vis = indicCards.filter(c => indicSel.includes(c.id))
+        return vis.length > 0 && (
+          <>
+            <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '20px 0 8px' }}>Indicadores do relatório</div>
+            <div style={S.kpis}>{vis.map(c => <IndicCard key={c.id} c={c} anoPrev={ano - 1} />)}</div>
+          </>
+        )
+      })()}
     </div>
   )
 }
