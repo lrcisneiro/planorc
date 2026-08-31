@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PLANORC — Mockup · Indicadores Operacionais TOESTE</title>
+<style>
+  /* ===== Tema v2 do PLANORC (copiado de index.css) ===== */
+  :root {
+    --bg: #0a0a0f; --bg-soft: #0e0e16; --panel: #14141d; --panel-2: #181823;
+    --border: rgba(255,255,255,0.07); --border-strong: rgba(255,255,255,0.12);
+    --text: #e8e8f0; --text-mid: #b4b4c4; --muted: #74748a; --faint: #4a4a5a;
+    --violet: #8b5cf6; --violet-d: #6d3ff0; --blue: #3b82f6; --green: #34d399;
+    --red: #f87171; --orange: #fbbf24; --cyan: #22d3ee; --chart-bg: #23232e;
+  }
+  :root[data-theme="light"] {
+    --bg: #f8f9fa; --bg-soft: #ffffff; --panel: #ffffff; --panel-2: #f1f3f5;
+    --border: #e9ecef; --border-strong: #dee2e6;
+    --text: #212529; --text-mid: #495057; --muted: #868e96; --faint: #adb5bd;
+    --violet: #7048e8; --violet-d: #5f3dc4; --blue: #1971c2; --green: #2f9e44;
+    --red: #e03131; --orange: #e8590c; --cyan: #0c8599; --chart-bg: #f1f3f5;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 14px; }
+  .page { padding: 24px; max-width: 1440px; margin: 0 auto; }
+
+  /* barra de mockup */
+  .mockbar { background: rgba(139,92,246,0.10); border: 1px solid rgba(139,92,246,0.35); color: var(--violet); border-radius: 8px; padding: 8px 14px; font-size: 12.5px; margin-bottom: 16px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  .mockbar b { font-weight: 700; }
+
+  /* header padrão das páginas de dashboard */
+  .hd { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 13px; background: var(--panel); color: var(--text-mid); border: 1px solid var(--border-strong); border-radius: 6px; cursor: pointer; text-decoration: none; }
+  h1.title { font-size: 22px; font-weight: 600; color: var(--text); }
+  .sub { font-size: 13px; color: var(--muted); margin: 4px 0 16px; }
+
+  /* toolbar (selects/botões, padrão S.bar/S.sel) */
+  .bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .sel { padding: 6px 10px; font-size: 13px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--panel); color: var(--text-mid); }
+
+  /* tabs do mockup (no app real, cada uma é uma rota/página) */
+  .tabs { display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap; }
+  .tab { display:flex; gap:10px; align-items:center; background: linear-gradient(180deg, var(--panel), var(--bg-soft)); border:1px solid var(--border); border-radius:14px; padding:12px 16px; cursor:pointer; transition: box-shadow .15s, transform .15s, border-color .15s; }
+  .tab:hover { box-shadow: 0 10px 30px rgba(0,0,0,.4); transform: translateY(-2px); border-color: var(--border-strong); }
+  .tab.on { border-color: var(--border-strong); box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+  .tab .ico { width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:17px; flex-shrink:0; }
+  .tab .t1 { font-size:14px; font-weight:600; color:var(--text); }
+  .tab .t2 { font-size:11.5px; color:var(--muted); }
+
+  /* KPI cards (padrão S.kpis/S.kpi do Executivo/Indicadores) */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; position: relative; }
+  .lbl { font-size: 12px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: .3px; display:flex; align-items:center; gap:8px; }
+  .val { font-size: 26px; font-weight: 700; color: var(--text); margin: 8px 0 4px; }
+  .ksub { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .ksep { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--panel-2); }
+  .good { color: var(--green); } .bad { color: var(--red); } .warn { color: var(--orange); }
+  .chip { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; border-radius: 99px; padding: 2px 8px; }
+  .chip.exc { color:#0a0a0f; background: var(--green); }
+  .chip.sau { color: var(--green); background: rgba(52,211,153,.15); border:1px solid rgba(52,211,153,.35); }
+  .chip.ate { color: var(--orange); background: rgba(251,191,36,.13); border:1px solid rgba(251,191,36,.35); }
+  .chip.cri { color: var(--red); background: rgba(248,113,113,.13); border:1px solid rgba(248,113,113,.35); }
+  .chip.fase { color: var(--muted); background: var(--panel-2); border:1px solid var(--border-strong); }
+  .kpi.off { opacity:.55; }
+  .kpi.off .val { color: var(--faint); font-size: 20px; }
+
+  /* gráficos */
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .chart { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  .chart.wide { grid-column: 1 / -1; }
+  .ct { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+  .cs { font-size: 11.5px; color: var(--muted); margin-bottom: 10px; }
+  .leg { display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--text-mid); margin-top:8px; }
+  .leg i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  svg text { font-family: inherit; }
+  .hide { display: none; }
+  @media (max-width: 720px){ .charts{ grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="mockbar">
+    <span><b>MOCKUP</b> — Indicadores Operacionais TOESTE dentro do PLANORC · Fase 1 (LER + Financeiro) + Cockpit dos Sócios. Série LER/receita = histórico real abr/24–abr/26; orçado e abertura R1/R2/S1/S2 <b>ilustrativos</b>.</span>
+    <button class="btn" id="themeBtn" onclick="toggleTheme()">☀️ Tema claro</button>
+  </div>
+
+  <div class="hd">
+    <span class="btn">← Dashboards</span>
+    <h1 class="title" id="pageTitle">Cockpit dos Sócios</h1>
+  </div>
+  <p class="sub" id="pageSub"></p>
+
+  <!-- toolbar padrão (DashFiltros): no app real são os componentes existentes -->
+  <div class="bar">
+    <select class="sel" disabled><option>DRE001 · DRE Gerencial</option></select>
+    <select class="sel" disabled><option>BASELINE_2026</option></select>
+    <span class="btn">📅 2026 · até Abr</span>
+    <span class="btn">⚙ Filtros</span>
+    <span class="btn">R$ BRL</span>
+    <span class="btn">↻</span>
+    <span class="btn">🔖 Salvar card</span>
+    <span class="btn">⬇ Exportar</span>
+  </div>
+
+  <!-- tabs: no app real, 3 páginas em /dashboards (hub) -->
+  <div class="tabs">
+    <div class="tab on" data-tab="cockpit" onclick="showTab('cockpit')">
+      <div class="ico" style="background:rgba(139,92,246,.14); color:var(--violet)">◆</div>
+      <div><div class="t1">Cockpit dos Sócios</div><div class="t2">8 KPIs · olhar semanal</div></div>
+    </div>
+    <div class="tab" data-tab="ler" onclick="showTab('ler')">
+      <div class="ico" style="background:rgba(34,211,238,.13); color:var(--cyan)">⚡</div>
+      <div><div class="t1">LER — Eficiência</div><div class="t2">indicador prioritário</div></div>
+    </div>
+    <div class="tab" data-tab="fin" onclick="showTab('fin')">
+      <div class="ico" style="background:rgba(59,130,246,.14); color:var(--blue)">▤</div>
+      <div><div class="t1">Financeiro</div><div class="t2">receita · margens · real × orçado</div></div>
+    </div>
+  </div>
+
+  <!-- ================= COCKPIT ================= -->
+  <div id="tab-cockpit">
+    <div class="kpis" id="cockpitKpis"></div>
+    <div class="charts">
+      <div class="chart wide">
+        <div class="ct">LER Bruto — 12 meses móveis × mensal</div>
+        <div class="cs">Receita ÷ Custo Total de Pessoas (fully loaded) · faixas: ≥2,5x excelente · ≥2,0x saudável · ≥1,5x atenção</div>
+        <svg id="chCockpitLer" width="100%" height="240"></svg>
+        <div class="leg"><span><i style="background:var(--cyan)"></i>LER mensal</span><span><i style="background:var(--violet)"></i>LER 12m móveis</span><span><i style="background:var(--green);opacity:.5"></i>meta ≥ 2,0x</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= LER ================= -->
+  <div id="tab-ler" class="hide">
+    <div class="kpis" id="lerKpis"></div>
+    <div class="charts">
+      <div class="chart wide">
+        <div class="ct">LER Bruto mensal — 25 meses</div>
+        <div class="cs">Linhas de referência em 2,0x (saudável) e 2,5x (excelente)</div>
+        <svg id="chLerTrend" width="100%" height="240"></svg>
+      </div>
+      <div class="chart">
+        <div class="ct">Receita Total × Custo de Pessoas</div>
+        <div class="cs">As duas curvas crescem juntas — por isso o LER não sobe (R$ mi/mês)</div>
+        <svg id="chRecCusto" width="100%" height="220"></svg>
+        <div class="leg"><span><i style="background:var(--blue)"></i>Receita</span><span><i style="background:var(--red)"></i>Custo Pessoas</span></div>
+      </div>
+      <div class="chart">
+        <div class="ct">LER Bruto por trimestre</div>
+        <div class="cs">Visão trimestral com status por faixa</div>
+        <svg id="chLerQ" width="100%" height="220"></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= FINANCEIRO ================= -->
+  <div id="tab-fin" class="hide">
+    <div class="kpis" id="finKpis"></div>
+    <div class="charts">
+      <div class="chart wide">
+        <div class="ct">Receita por linha — matriz 2×2 (R$ mi/mês)</div>
+        <div class="cs">R1 repasse recorrente · S1 serviço recorrente · R2 repasse pontual · S2 projetos — abertura R1/S1 e R2/S2 ilustrativa</div>
+        <svg id="chMatriz" width="100%" height="250"></svg>
+        <div class="leg"><span><i style="background:var(--violet)"></i>R1 · repasse recorrente</span><span><i style="background:var(--cyan)"></i>S1 · serviço recorrente</span><span><i style="background:var(--blue)"></i>R2 · repasse pontual</span><span><i style="background:var(--faint)"></i>S2 · projetos</span><span><i style="background:var(--green)"></i>— % recorrência</span></div>
+      </div>
+      <div class="chart">
+        <div class="ct">Margem Bruta % × meta 35%</div>
+        <div class="cs">MB ÷ Receita Total, mensal</div>
+        <svg id="chMb" width="100%" height="210"></svg>
+      </div>
+      <div class="chart">
+        <div class="ct">Receita: Real × Orçado (orçado ilustrativo)</div>
+        <div class="cs">Últimos 12 meses · desvio no rótulo</div>
+        <svg id="chRealOrc" width="100%" height="210"></svg>
+        <div class="leg"><span><i style="background:var(--blue)"></i>Real</span><span><i style="background:var(--border-strong)"></i>Orçado</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ===================== DADOS (histórico real da planilha) ===================== */
+const MESES=['abr/24','mai/24','jun/24','jul/24','ago/24','set/24','out/24','nov/24','dez/24','jan/25','fev/25','mar/25','abr/25','mai/25','jun/25','jul/25','ago/25','set/25','out/25','nov/25','dez/25','jan/26','fev/26','mar/26','abr/26'];
+const REC=[6639517,6763961,6712552,6746135,7154356,6922199,6781162,7183472,6410680,7199263,8317386,7205537,7371163,8679092,8258056,8152676,8212534,7866124,8531657,8326420,8521254,8390575,8330420,8554408,9344860];
+const RECOR=[2420498,3073611,2706791,2758471,3217703,2980125,2841365,3177122,2791547,3305565,3766522,3059113,3116454,3539458,3079361,3344556,3492441,3115384,3599534,3608190,3298913,4006846,3845558,3503920,4237068];
+const CUSTO=[3817554,3916456,3795891,3867883,3876512,3946494,3963267,3960829,3889858,3796630,4164561,4392542,4572077,4617124,4771127,5094646,4967783,4867383,4874119,5094095,5060414,5193127,4866849,5146513,5186151];
+const MB=[1591686,1455228,1552211,1461601,2217046,1786210,1588348,1938601,1421638,2314067,2659972,1378600,1464519,2644500,2030956,1164603,1808647,1523669,1765334,1529953,1565117,1926454,1919244,1653761,2164235];
+const N=MESES.length;
+const LER=REC.map((r,i)=>r/CUSTO[i]);
+const LERM=MB.map((m,i)=>m/CUSTO[i]);
+/* 12m móveis */
+const LER12=REC.map((_,i)=>{ if(i<11) return null; let r=0,c=0; for(let j=i-11;j<=i;j++){r+=REC[j];c+=CUSTO[j];} return r/c; });
+/* orçado ilustrativo (fatores fixos) */
+const FAT=[1.02,.98,1.01,1.04,.99,1.02,1.05,.97,1.01,1.03,.98,1.02];
+const ORC=REC.map((r,i)=>r*FAT[i%12]);
+/* matriz 2×2 ilustrativa: R1=70% do recorrente, S1=30%; R2=15% do não-rec, S2=85% */
+const NREC=REC.map((r,i)=>r-RECOR[i]);
+const R1=RECOR.map(v=>v*.70), S1=RECOR.map(v=>v*.30), R2=NREC.map(v=>v*.15), S2=NREC.map(v=>v*.85);
+
+const fmt=v=>(v||0).toLocaleString('pt-BR',{maximumFractionDigits:0});
+const fmtMi=v=>(v/1e6).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1});
+const fx=v=>v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const pct=v=>(v*100).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
+const statusLer=v=>v>=2.5?['Excelente','exc']:v>=2.0?['Saudável','sau']:v>=1.5?['Atenção','ate']:['Crítico','cri'];
+function cssv(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+/* ===================== KPI CARDS ===================== */
+const i0=N-1, prevA=i0-12;
+const ler12=LER12[i0], lerMes=LER[i0];
+const recAcum=REC.slice(21).reduce((a,b)=>a+b,0), orcAcum=ORC.slice(21).reduce((a,b)=>a+b,0);
+const recAcumPrev=REC.slice(9,13).reduce((a,b)=>a+b,0);
+const pctRec=(R1[i0]+S1[i0])/REC[i0];
+const arr=(R1[i0]+S1[i0])*12, arrPrev=(R1[prevA]+S1[prevA])*12;
+const mbPct=MB[i0]/REC[i0];
+
+function kpi({label,val,chip,l2,l3,off,fase}){
+  return `<div class="kpi${off?' off':''}">
+    <div class="lbl">${label}${chip?`<span class="chip ${chip[1]}">${chip[0]}</span>`:''}${fase?`<span class="chip fase">${fase}</span>`:''}</div>
+    <div class="val">${val}</div>
+    ${l2?`<div class="ksub">${l2}</div>`:''}
+    ${l3?`<div class="ksub ksep">${l3}</div>`:''}
+  </div>`;
+}
+const up=t=>`<span class="good">▲ ${t}</span>`, dn=t=>`<span class="bad">▼ ${t}</span>`;
+
+document.getElementById('cockpitKpis').innerHTML=[
+  kpi({label:'LER Bruto · 12m móveis',val:fx(ler12)+'x',chip:statusLer(ler12),l2:`Mês: <b style="color:var(--text-mid)">${fx(lerMes)}x</b> · meta ≥ 2,00x`,l3:`abr/25 ${fx(LER12[prevA]??0)}x · ${ler12>=LER12[prevA]?up('+'+fx(ler12-LER12[prevA])):dn(fx(ler12-LER12[prevA]))}`}),
+  kpi({label:'Receita Total · Jan–Abr/26',val:'R$ '+fmtMi(recAcum)+' mi',l2:`Orçado R$ ${fmtMi(orcAcum)} mi · ${recAcum>=orcAcum?up(((recAcum/orcAcum)*100).toFixed(0)+'%'):dn(((recAcum/orcAcum)*100).toFixed(0)+'%')}`,l3:`2025 R$ ${fmtMi(recAcumPrev)} mi · ${up('+'+((recAcum/recAcumPrev-1)*100).toFixed(0)+'%')}`}),
+  kpi({label:'% Recorrência total',val:pct(pctRec),chip:pctRec>=.5?['≥ meta','sau']:['< 50%','ate'],l2:'R1 + S1 ÷ Receita Total · meta ≥ 50%',l3:'Trilha de longo prazo: 60%+ (TOTVS: 91%)'}),
+  kpi({label:'EBITDA % · Jan–Abr/26',val:'14,8%',chip:['ilustrativo','fase'],l2:'Meta ≥ 15% · HPO do setor: 14,5%',l3:`2025 12,1% · ${up('+2,7 pp')}`}),
+  kpi({label:'ARR (anualizado)',val:'R$ '+fmtMi(arr)+' mi',l2:`Adição líq. 12m: ${arr>=arrPrev?up('+R$ '+fmtMi(arr-arrPrev)+' mi'):dn('R$ '+fmtMi(arr-arrPrev)+' mi')}`,l3:`Ritmo TOTVS: +13% a.a. · atual ${up('+'+((arr/arrPrev-1)*100).toFixed(0)+'%')}`}),
+  kpi({label:'GRR · NRR consolidado',val:'—',off:1,fase:'Fase 2',l2:'Motor de repasses por cliente'}),
+  kpi({label:'Utilização faturável',val:'—',off:1,fase:'Fase 3',l2:'Apontamento de horas · meta 70–80%'}),
+  kpi({label:'Book-to-Bill',val:'—',off:1,fase:'Fase 4',l2:'CRM + faturamento · meta ≥ 1,0x'}),
+].join('');
+
+document.getElementById('lerKpis').innerHTML=[
+  kpi({label:'LER Bruto (mês)',val:fx(lerMes)+'x',chip:statusLer(lerMes),l2:'Receita ÷ Custo Pessoas · meta ≥ 2,00x',l3:`abr/25 ${fx(LER[prevA])}x · ${lerMes>=LER[prevA]?up('+'+fx(lerMes-LER[prevA])):dn(fx(lerMes-LER[prevA]))}`}),
+  kpi({label:'LER de Margem (mês)',val:fx(LERM[i0])+'x',chip:LERM[i0]>=1?['Excelente','exc']:LERM[i0]>=.8?['Saudável','sau']:LERM[i0]>=.6?['Atenção','ate']:['Crítico','cri'],l2:'MB ÷ Custo Pessoas · meta ≥ 0,80x',l3:`abr/25 ${fx(LERM[prevA])}x · ${LERM[i0]>=LERM[prevA]?up('+'+fx(LERM[i0]-LERM[prevA])):dn(fx(LERM[i0]-LERM[prevA]))}`}),
+  kpi({label:'Receita por FTE',val:'R$ 38,9 mil',chip:['novo no PLANORC','fase'],l2:'Headcount do PLANORC (ilustrativo: 240 FTE)',l3:'Benchmark canal TOTVS: R$ 25–40 mil/mês'}),
+  kpi({label:'dLER · mLER (Crabtree)',val:'—',off:1,fase:'Fase 1b',l2:'Folha por centro de custo (direto × gestão)'}),
+].join('');
+
+document.getElementById('finKpis').innerHTML=[
+  kpi({label:'Receita Total (mês)',val:'R$ '+fmtMi(REC[i0])+' mi',l2:`Orçado R$ ${fmtMi(ORC[i0])} mi · ${REC[i0]>=ORC[i0]?up(((REC[i0]/ORC[i0])*100).toFixed(0)+'%'):dn(((REC[i0]/ORC[i0])*100).toFixed(0)+'%')}`,l3:`abr/25 R$ ${fmtMi(REC[prevA])} mi · ${up('+'+((REC[i0]/REC[prevA]-1)*100).toFixed(0)+'%')}`}),
+  kpi({label:'% Recorrente vs Não Rec.',val:pct(RECOR[i0]/REC[i0]),chip:RECOR[i0]/REC[i0]>=.5?['≥ meta','sau']:['< 50%','ate'],l2:'Meta ≥ 50% recorrente',l3:`abr/25 ${pct(RECOR[prevA]/REC[prevA])} · ${up('+'+((RECOR[i0]/REC[i0]-RECOR[prevA]/REC[prevA])*100).toFixed(1)+' pp')}`}),
+  kpi({label:'Margem Bruta %',val:pct(mbPct),chip:mbPct>=.35?['≥ meta','sau']:['< 35%','ate'],l2:'Meta ≥ 35% · HPO margem projeto: 45%',l3:`abr/25 ${pct(MB[prevA]/REC[prevA])} · ${mbPct>=MB[prevA]/REC[prevA]?up('+'+((mbPct-MB[prevA]/REC[prevA])*100).toFixed(1)+' pp'):dn(((mbPct-MB[prevA]/REC[prevA])*100).toFixed(1)+' pp')}`}),
+  kpi({label:'DSO (prazo médio receb.)',val:'—',off:1,fase:'Fase 1b',l2:'Contas a receber ÷ receita × dias · meta ≤ 60d'}),
+].join('');
+
+/* ===================== GRÁFICOS (SVG puro; no app real: @nivo + nivoTheme()) ===================== */
+function sized(el){ const w=el.clientWidth||el.parentNode.clientWidth||800; el.setAttribute('viewBox',`0 0 ${w} ${el.getAttribute('height')}`); return [w,+el.getAttribute('height')]; }
+function scale(min,max,a,b){ return v=>a+(v-min)/(max-min)*(b-a); }
+function axisTxt(x,y,t,anchor='middle',size=10){ return `<text x="${x}" y="${y}" fill="${cssv('--muted')}" font-size="${size}" text-anchor="${anchor}">${t}</text>`; }
+
+function lerTrendChart(id,showMobile){
+  const el=document.getElementById(id); const [W,H]=sized(el);
+  const L=44,R=14,T=14,B=26, ymin=1.3, ymax=2.7;
+  const sx=scale(0,N-1,L,W-R), sy=scale(ymin,ymax,H-B,T);
+  let s='';
+  /* bandas de faixa */
+  s+=`<rect x="${L}" y="${sy(2.7)}" width="${W-L-R}" height="${sy(2.5)-sy(2.7)}" fill="${cssv('--green')}" opacity=".07"/>`;
+  s+=`<rect x="${L}" y="${sy(2.5)}" width="${W-L-R}" height="${sy(2.0)-sy(2.5)}" fill="${cssv('--green')}" opacity=".05"/>`;
+  s+=`<rect x="${L}" y="${sy(2.0)}" width="${W-L-R}" height="${sy(1.5)-sy(2.0)}" fill="${cssv('--orange')}" opacity=".05"/>`;
+  s+=`<rect x="${L}" y="${sy(1.5)}" width="${W-L-R}" height="${(H-B)-sy(1.5)}" fill="${cssv('--red')}" opacity=".05"/>`;
+  [1.5,2.0,2.5].forEach(v=>{ s+=`<line x1="${L}" x2="${W-R}" y1="${sy(v)}" y2="${sy(v)}" stroke="${cssv('--border-strong')}" stroke-dasharray="4 4"/>`+axisTxt(L-8,sy(v)+3,fx(v),'end'); });
+  /* linha mensal */
+  const pts=LER.map((v,i)=>`${sx(i)},${sy(v)}`).join(' ');
+  s+=`<polyline points="${pts}" fill="none" stroke="${cssv('--cyan')}" stroke-width="2"/>`;
+  LER.forEach((v,i)=>{ s+=`<circle cx="${sx(i)}" cy="${sy(v)}" r="2.6" fill="${cssv('--cyan')}"/>`; });
+  /* 12m móveis */
+  if(showMobile){ const p2=LER12.map((v,i)=>v==null?null:`${sx(i)},${sy(v)}`).filter(Boolean).join(' ');
+    s+=`<polyline points="${p2}" fill="none" stroke="${cssv('--violet')}" stroke-width="2.5" stroke-dasharray="1 0"/>`; }
+  /* eixo x */
+  for(let i=0;i<N;i+=3) s+=axisTxt(sx(i),H-8,MESES[i]);
+  /* último ponto rotulado */
+  s+=`<text x="${sx(N-1)}" y="${sy(LER[N-1])-10}" fill="${cssv('--text')}" font-size="11" font-weight="700" text-anchor="end">${fx(LER[N-1])}x</text>`;
+  el.innerHTML=s;
+}
+
+function recCustoChart(){
+  const el=document.getElementById('chRecCusto'); const [W,H]=sized(el);
+  const L=40,R=12,T=12,B=26, ymin=3.2e6, ymax=9.8e6;
+  const sx=scale(0,N-1,L,W-R), sy=scale(ymin,ymax,H-B,T);
+  let s='';
+  [4e6,6e6,8e6].forEach(v=>{ s+=`<line x1="${L}" x2="${W-R}" y1="${sy(v)}" y2="${sy(v)}" stroke="${cssv('--border-strong')}" stroke-width=".5"/>`+axisTxt(L-6,sy(v)+3,(v/1e6)+',0','end'); });
+  s+=`<polyline points="${REC.map((v,i)=>`${sx(i)},${sy(v)}`).join(' ')}" fill="none" stroke="${cssv('--blue')}" stroke-width="2"/>`;
+  s+=`<polyline points="${CUSTO.map((v,i)=>`${sx(i)},${sy(v)}`).join(' ')}" fill="none" stroke="${cssv('--red')}" stroke-width="2"/>`;
+  for(let i=0;i<N;i+=4) s+=axisTxt(sx(i),H-8,MESES[i]);
+  el.innerHTML=s;
+}
+
+function lerQChart(){
+  const el=document.getElementById('chLerQ'); const [W,H]=sized(el);
+  const qs=[]; for(let i=0;i<N-2;i+=3){ const r=REC.slice(i,i+3).reduce((a,b)=>a+b,0), c=CUSTO.slice(i,i+3).reduce((a,b)=>a+b,0); qs.push({l:['2024Q2','2024Q3','2024Q4','2025Q1','2025Q2','2025Q3','2025Q4','2026Q1'][qs.length]||'2026Q2',v:r/c}); }
+  const L=40,R=12,T=16,B=26, ymin=1.0, ymax=2.2;
+  const bw=(W-L-R)/qs.length*0.62, sy=scale(ymin,ymax,H-B,T);
+  let s=`<line x1="${L}" x2="${W-R}" y1="${sy(2.0)}" y2="${sy(2.0)}" stroke="${cssv('--green')}" stroke-dasharray="4 4" opacity=".6"/>`+axisTxt(L-6,sy(2)+3,'2,00','end');
+  qs.forEach((q,i)=>{ const x=L+(W-L-R)*(i+0.5)/qs.length-bw/2;
+    const col=q.v>=2?cssv('--green'):q.v>=1.5?cssv('--orange'):cssv('--red');
+    s+=`<rect x="${x}" y="${sy(q.v)}" width="${bw}" height="${(H-B)-sy(q.v)}" rx="4" fill="${col}" opacity=".78"/>`;
+    s+=`<text x="${x+bw/2}" y="${sy(q.v)-5}" fill="${cssv('--text')}" font-size="10.5" font-weight="600" text-anchor="middle">${fx(q.v)}</text>`;
+    s+=axisTxt(x+bw/2,H-8,q.l);
+  });
+  el.innerHTML=s;
+}
+
+function matrizChart(){
+  const el=document.getElementById('chMatriz'); const [W,H]=sized(el);
+  const L=40,R=44,T=14,B=26, ymax=10e6;
+  const sy=scale(0,ymax,H-B,T), n=N, bw=(W-L-R)/n*0.66;
+  let s='';
+  [2.5e6,5e6,7.5e6,10e6].forEach(v=>{ s+=`<line x1="${L}" x2="${W-R}" y1="${sy(v)}" y2="${sy(v)}" stroke="${cssv('--border-strong')}" stroke-width=".5"/>`+axisTxt(L-6,sy(v)+3,(v/1e6).toLocaleString('pt-BR'),'end'); });
+  const cores=[cssv('--violet'),cssv('--cyan'),cssv('--blue'),cssv('--faint')];
+  for(let i=0;i<n;i++){
+    const x=L+(W-L-R)*(i+0.5)/n-bw/2;
+    let acc=0; [R1[i],S1[i],R2[i],S2[i]].forEach((v,k)=>{
+      const y1=sy(acc+v), h=sy(acc)-sy(acc+v);
+      s+=`<rect x="${x}" y="${y1}" width="${bw}" height="${h}" fill="${cores[k]}" opacity="${k==3?.55:.85}"/>`; acc+=v; });
+  }
+  /* linha % recorrência (eixo direito 0–100%) */
+  const syP=scale(0,1,H-B,T);
+  const pr=REC.map((r,i)=>(R1[i]+S1[i])/r);
+  s+=`<polyline points="${pr.map((v,i)=>`${L+(W-L-R)*(i+0.5)/n},${syP(v)}`).join(' ')}" fill="none" stroke="${cssv('--green')}" stroke-width="2"/>`;
+  s+=`<line x1="${L}" x2="${W-R}" y1="${syP(.5)}" y2="${syP(.5)}" stroke="${cssv('--green')}" stroke-dasharray="3 5" opacity=".5"/>`;
+  s+=axisTxt(W-R+8,syP(.5)+3,'50%','start');
+  for(let i=0;i<n;i+=3) s+=axisTxt(L+(W-L-R)*(i+0.5)/n,H-8,MESES[i]);
+  el.innerHTML=s;
+}
+
+function mbChart(){
+  const el=document.getElementById('chMb'); const [W,H]=sized(el);
+  const L=40,R=12,T=12,B=26, ymin=.1, ymax=.4;
+  const sx=scale(0,N-1,L,W-R), sy=scale(ymin,ymax,H-B,T);
+  const mb=MB.map((m,i)=>m/REC[i]);
+  let s=`<line x1="${L}" x2="${W-R}" y1="${sy(.35)}" y2="${sy(.35)}" stroke="${cssv('--green')}" stroke-dasharray="4 4" opacity=".6"/>`+axisTxt(L-6,sy(.35)+3,'35%','end');
+  [.15,.25].forEach(v=>{ s+=`<line x1="${L}" x2="${W-R}" y1="${sy(v)}" y2="${sy(v)}" stroke="${cssv('--border-strong')}" stroke-width=".5"/>`+axisTxt(L-6,sy(v)+3,(v*100)+'%','end'); });
+  s+=`<polyline points="${mb.map((v,i)=>`${sx(i)},${sy(v)}`).join(' ')}" fill="none" stroke="${cssv('--orange')}" stroke-width="2"/>`;
+  mb.forEach((v,i)=>{ s+=`<circle cx="${sx(i)}" cy="${sy(v)}" r="2.4" fill="${cssv('--orange')}"/>`; });
+  for(let i=0;i<N;i+=4) s+=axisTxt(sx(i),H-8,MESES[i]);
+  el.innerHTML=s;
+}
+
+function realOrcChart(){
+  const el=document.getElementById('chRealOrc'); const [W,H]=sized(el);
+  const L=40,R=12,T=16,B=26, ymax=10.5e6, n=12, off=N-12;
+  const sy=scale(0,ymax,H-B,T), gw=(W-L-R)/n, bw=gw*0.30;
+  let s='';
+  [3e6,6e6,9e6].forEach(v=>{ s+=`<line x1="${L}" x2="${W-R}" y1="${sy(v)}" y2="${sy(v)}" stroke="${cssv('--border-strong')}" stroke-width=".5"/>`+axisTxt(L-6,sy(v)+3,(v/1e6).toLocaleString('pt-BR'),'end'); });
+  for(let i=0;i<n;i++){
+    const xi=L+gw*(i+0.5), r=REC[off+i], o=ORC[off+i];
+    s+=`<rect x="${xi-bw-1}" y="${sy(r)}" width="${bw}" height="${(H-B)-sy(r)}" rx="3" fill="${cssv('--blue')}" opacity=".85"/>`;
+    s+=`<rect x="${xi+1}" y="${sy(o)}" width="${bw}" height="${(H-B)-sy(o)}" rx="3" fill="${cssv('--border-strong')}"/>`;
+    const d=(r/o-1)*100;
+    s+=`<text x="${xi}" y="${sy(Math.max(r,o))-5}" fill="${d>=0?cssv('--green'):cssv('--red')}" font-size="9.5" font-weight="600" text-anchor="middle">${d>=0?'+':''}${d.toFixed(0)}%</text>`;
+    if(i%2==0) s+=axisTxt(xi,H-8,MESES[off+i]);
+  }
+  el.innerHTML=s;
+}
+
+function drawAll(){
+  lerTrendChart('chCockpitLer',true);
+  lerTrendChart('chLerTrend',false);
+  recCustoChart(); lerQChart(); matrizChart(); mbChart(); realOrcChart();
+}
+
+/* ===================== tabs + tema ===================== */
+const SUBS={
+  cockpit:'Camada 1 — os 8 KPIs dos sócios · Jan–Abr/2026 · realizado × orçado × 2025. Cards apagados indicam a fase em que o dado chega.',
+  ler:'Indicador prioritário — Receita ÷ Custo Total de Pessoas (fully loaded) · leitura mensal, 12m móveis e trimestral · faixas da aba Parâmetros.',
+  fin:'Receita na matriz 2×2 (repasses × serviços · recorrente × não recorrente), margens e execução orçamentária.'
+};
+const TITLES={cockpit:'Cockpit dos Sócios',ler:'LER — Eficiência de Mão de Obra',fin:'Financeiro'};
+function showTab(t){
+  ['cockpit','ler','fin'].forEach(k=>{
+    document.getElementById('tab-'+k).classList.toggle('hide',k!==t);
+    document.querySelector(`.tab[data-tab="${k}"]`).classList.toggle('on',k===t);
+  });
+  document.getElementById('pageTitle').textContent=TITLES[t];
+  document.getElementById('pageSub').textContent=SUBS[t];
+  drawAll();
+}
+function toggleTheme(){
+  const html=document.documentElement;
+  const light=html.dataset.theme==='light';
+  if(light){ delete html.dataset.theme; document.getElementById('themeBtn').textContent='☀️ Tema claro'; }
+  else { html.dataset.theme='light'; document.getElementById('themeBtn').textContent='🌙 Tema escuro'; }
+  drawAll();
+}
+document.getElementById('pageSub').textContent=SUBS.cockpit;
+window.addEventListener('resize',drawAll);
+drawAll();
+</script>
+</body>
+</html>
