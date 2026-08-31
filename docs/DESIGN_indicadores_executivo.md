@@ -92,6 +92,8 @@ Resolução por precedência (mesmo padrão de herança das premissas globais da
 ## 5. Fases de implementação
 
 - **P0 (sem código)** — criar linhas/contas da seção 2 no DRE via modo Estrutura + amarração; validar LER calculado contra a planilha (gabarito: estudo-base seção 7, abr/24–abr/26). ✅ critério: card LER na página Indicadores batendo com a planilha.
+  - Scripts prontos na raiz: **`seed_indicadores_operacionais.sql`** (cria CPESSOAS/FTE/LER/LERM/RFTE/CMP/MBP na raiz do DRE; matriz R1/R2/S1/S2 opcional em bloco separado) e **`validar_ler_vs_planilha.sql`** (LER mês a mês × gabarito + checagem de dupla amarração). Ambos idempotentes e testados contra um Postgres 15 com fixture do schema.
+  - **RFTE e CMP são por pessoa-mês.** O engine soma a linha ANALÍTICA nos meses do período, então lançar o FTE mensal faz o acumulado virar *pessoas-mês* — e `Receita ÷ pessoas-mês` continua correto em qualquer janela. Somar headcount e dividir a receita acumulada por ele daria um número sem sentido; é por isso que os rótulos dizem "(mês)".
 - **P1** — migration `indicador_meta` + CRUD em Cadastros + chips de status nos cards (D2); linha FTE com entrada manual (D1a). Carga inicial das metas: seção 5 do estudo-base (Parâmetros) + `benchmark_ref` da pesquisa de mercado.
 - **P2** — seções Eficiência e Receita na Visão Executiva (gráficos nivo do mockup); 12m móveis (D3).
 - **P3** — separação S1×S2 no plano de contas + reamarração (D4); PREC completo.
