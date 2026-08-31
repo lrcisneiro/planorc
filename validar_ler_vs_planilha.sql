@@ -185,6 +185,74 @@ SELECT codigo, descricao, redutora,
  ORDER BY abs(sum(v)) DESC;
 
 
+-- ══════════════ 5) Mapa do DRE — onde está o imposto / a receita líquida ══════════════
+-- Estrutura hierárquica do relatório com o realizado do ano por linha (a linha
+-- pai traz a soma da subárvore). Use para achar a linha de impostos sobre venda
+-- e a de receita líquida, e então decidir qual código o LER deve usar.
+-- ATENÇÃO: linha FORMULA sai com a soma das analíticas abaixo dela, que não é o
+-- que a fórmula calcula — nessas, olhe o valor pela tela.
+WITH RECURSIVE cfg AS (
+  SELECT 'DRE'::text AS rel_codigo,   -- ajuste
+         2025        AS ano
+),
+t AS (SELECT id FROM tenant LIMIT 1),
+rel AS (SELECT r.id FROM relatorio r CROSS JOIN cfg CROSS JOIN t
+         WHERE r.tenant_id = t.id AND r.codigo = cfg.rel_codigo),
+lin AS (SELECT rl.* FROM relatorio_linha rl CROSS JOIN rel WHERE rl.relatorio_id = rel.id),
+cl AS (
+  SELECT DISTINCT ON (c.conta_id) c.conta_id, c.linha_id, c.sinal
+    FROM conta_linha c CROSS JOIN t
+   WHERE c.tenant_id = t.id
+     AND c.linha_id IN (SELECT DISTINCT linha_orc_id FROM lin WHERE linha_orc_id IS NOT NULL)
+   ORDER BY c.conta_id, c.id DESC
+),
+-- valor realizado de cada linha ANALÍTICA no ano
+folha AS (
+  SELECT l.id, sum(v.valor) AS total
+    FROM lin l
+    JOIN LATERAL (
+      SELECT fm.valor FROM fat_realizado_mensal fm
+       WHERE fm.tenant_id = (SELECT id FROM t) AND fm.ano = (SELECT ano FROM cfg)
+         AND fm.linha_id = l.linha_orc_id
+      UNION ALL
+      SELECT fm.valor * cl.sinal FROM fat_realizado_mensal fm
+       JOIN cl ON cl.conta_id = fm.conta_id
+       WHERE fm.tenant_id = (SELECT id FROM t) AND fm.ano = (SELECT ano FROM cfg)
+         AND fm.linha_id IS NULL AND cl.linha_id = l.linha_orc_id
+    ) v ON true
+   WHERE l.linha_orc_id IS NOT NULL AND l.tipo_linha = 'ANALITICA'
+     AND NOT l.desativada AND NOT COALESCE(l.nao_soma, false)
+   GROUP BY l.id
+),
+-- cada folha e todos os seus ancestrais → permite somar a subárvore de qualquer linha
+anc AS (
+  SELECT f.id AS folha_id, f.id AS no FROM folha f
+  UNION ALL
+  SELECT a.folha_id, l.pai_id FROM anc a JOIN lin l ON l.id = a.no WHERE l.pai_id IS NOT NULL
+),
+subarvore AS (
+  SELECT a.no AS id, sum(f.total) AS total
+    FROM anc a JOIN folha f ON f.id = a.folha_id
+   GROUP BY a.no
+),
+arvore AS (
+  SELECT l.id, l.codigo, l.descricao, l.tipo_linha, l.natureza, l.redutora, l.nao_soma,
+         1 AS prof, ARRAY[COALESCE(l.ordem, 0)] AS caminho
+    FROM lin l WHERE l.pai_id IS NULL
+  UNION ALL
+  SELECT l.id, l.codigo, l.descricao, l.tipo_linha, l.natureza, l.redutora, l.nao_soma,
+         t2.prof + 1, t2.caminho || COALESCE(l.ordem, 0)
+    FROM lin l JOIN arvore t2 ON l.pai_id = t2.id
+)
+SELECT repeat('   ', a.prof - 1) || a.codigo AS linha,
+       a.descricao, a.tipo_linha, a.natureza, a.redutora,
+       round(s.total)          AS total_ano,
+       round(s.total / 12.0)   AS media_mes
+  FROM arvore a
+  LEFT JOIN subarvore s ON s.id = a.id
+ ORDER BY a.caminho;
+
+
 -- ══════════════ 3) Conta amarrada a mais de uma linha do relatório ══════════════
 -- Fonte clássica de dupla contagem — e o risco direto de criar a matriz de
 -- receita (R1/R2/S1/S2) sem tirar a amarração antiga. Esperado: zero linhas.
