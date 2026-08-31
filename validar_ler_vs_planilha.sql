@@ -11,15 +11,23 @@
 -- relatório, aplicando o sinal).
 --
 -- LIMITE: soma a SUBÁRVORE de cada código configurado, contando só as linhas
--- ANALÍTICAS. Se a sua Margem Bruta for FORMULA (receita − custos), ela sai
--- zerada aqui — rode a checagem 2 antes de acreditar na coluna de margem.
+-- ANALÍTICAS. Linha FORMULA (típico da Receita Líquida e da Margem Bruta) sai
+-- ZERADA aqui — some 0,00 em todos os meses é o sintoma. Para a receita, use a
+-- BRUTA em `cod_receita` e liste os impostos em `cods_deducao`; para a margem,
+-- confira pela tela. Rode a checagem 2 para ver o tipo de cada linha.
+-- Nada disso afeta o app: o engine avalia fórmula normalmente.
 -- Sem filtro de empresa/filial/CC: compara o consolidado, como a planilha.
 -- ============================================================
 
 -- ══════════════ 1) COMPARATIVO MÊS A MÊS ══════════════
+-- IMPORTANTE: `cod_receita` tem de ser uma linha SOMÁVEL (SOMAR_FILHOS de
+-- analíticas). Se a sua Receita Líquida for FORMULA (bruta − impostos), aponte
+-- aqui a receita BRUTA e liste os impostos em `cods_deducao` — a consulta faz a
+-- subtração. Apontar a fórmula direto devolve receita ZERO em todos os meses.
 WITH RECURSIVE cfg AS (
-  SELECT 'DRE'::text            AS rel_codigo,   -- ajuste os 4 abaixo
-         'REC'::text            AS cod_receita,
+  SELECT 'DRE'::text            AS rel_codigo,   -- ajuste os 5 abaixo
+         'REC'::text            AS cod_receita,  -- receita BRUTA (somável)
+         ARRAY['IMP']::text[]   AS cods_deducao, -- impostos sobre venda; ARRAY[]::text[] se não houver
          'MB'::text             AS cod_margem,   -- '' se a margem não for somável
          ARRAY['DP01']::text[]  AS cods_custo
 ),
@@ -40,6 +48,8 @@ raiz AS (
   SELECT l.id, 'MARGEM'  FROM lin l CROSS JOIN cfg WHERE cfg.cod_margem <> '' AND l.codigo = cfg.cod_margem
   UNION ALL
   SELECT l.id, 'CUSTO'   FROM lin l CROSS JOIN cfg WHERE l.codigo = ANY(cfg.cods_custo)
+  UNION ALL
+  SELECT l.id, 'DEDUCAO' FROM lin l CROSS JOIN cfg WHERE l.codigo = ANY(cfg.cods_deducao)
 ),
 arv AS (
   SELECT r.id, r.grupo FROM raiz r
@@ -68,7 +78,11 @@ mov AS (
 ),
 planorc AS (
   SELECT ano, mes,
-         COALESCE(sum(v) FILTER (WHERE grupo = 'RECEITA'), 0)      AS receita,
+         COALESCE(sum(v) FILTER (WHERE grupo = 'RECEITA'), 0)      AS receita_bruta,
+         -- imposto costuma vir negativo (redutora/despesa); abs() protege contra o sinal invertido
+         abs(COALESCE(sum(v) FILTER (WHERE grupo = 'DEDUCAO'), 0)) AS deducao,
+         COALESCE(sum(v) FILTER (WHERE grupo = 'RECEITA'), 0)
+           - abs(COALESCE(sum(v) FILTER (WHERE grupo = 'DEDUCAO'), 0)) AS receita,
          COALESCE(-sum(v) FILTER (WHERE grupo = 'CUSTO'), 0)       AS custo,   -- despesa negativa → positiva
          COALESCE(sum(v) FILTER (WHERE grupo = 'MARGEM'), 0)       AS margem
     FROM mov GROUP BY ano, mes
@@ -102,6 +116,9 @@ gab (ano, mes, receita, custo, margem, ler, lerm) AS (VALUES
 )
 SELECT
   g.ano, g.mes,
+  round(p.receita_bruta)                                             AS receita_bruta,
+  round(p.deducao)                                                   AS deducao,
+  round(p.deducao / NULLIF(p.receita_bruta, 0) * 100, 1)             AS deducao_pct,
   round(p.receita)                                                   AS receita_planorc,
   g.receita                                                          AS receita_planilha,
   round((p.receita - g.receita) / NULLIF(g.receita, 0) * 100, 1)      AS receita_dif_pct,
