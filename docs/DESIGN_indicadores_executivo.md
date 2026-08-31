@@ -47,6 +47,12 @@ Com isso, LER e % recorrência **aparecem sozinhos** como cards na página Indic
 
 ## 3. Decisões de conceito (fechar antes de codar)
 
+**D0 — A receita do LER é LÍQUIDA, e o LER canônico nem usa receita (decidido ago/2026).** Duas conclusões da validação do P0, com consequência direta nas metas do P1:
+
+- **Qual receita.** O `LER` e o `RFTE` apontam para a linha de **receita líquida** do DRE, não a bruta. Fundamento: no framework original imposto sobre venda nunca entra — nos EUA ele sequer é receita (ASC 606-10-32-2A: tributo cobrado do cliente em nome do governo é excluído do preço da transação), então o *revenue* do Crabtree equivale à nossa receita líquida. Foi exatamente esse ~6% que separava o PLANORC da planilha.
+- **Qual fórmula.** O LER do livro é `dLER = (Receita − CPV não-trabalho) ÷ Custo do time direto` = **Margem Bruta ÷ custo de gente** — receita não é o numerador, justamente para não premiar volume de pass-through. No nosso caso isso importa muito, porque **repasse TOTVS (R1/R2) entra com receita alta e quase sem custo direto**. Logo o indicador do mercado é o nosso **LERM**; o "LER Bruto" é simplificação local.
+- **Consequência para o P1:** as faixas ≥2,5x / ≥2,0x / ≥1,5x da seção 5 do estudo-base são **do dLER**, e não valem para o LER Bruto — aplicá-las nele deixaria a empresa permanentemente em "Atenção" por erro de referência. Ou se derivam faixas próprias da série histórica, ou se implementa dLER/mLER de verdade (EFI-05/06 do benchmark, que dependem de separar folha do time direto × gestão por centro de custo — a folha por CC já existe). Para o LERM valem as faixas ≥1,0 / ≥0,8 / ≥0,6.
+
 **D1 — De onde vem o FTE (medida não financeira).** Opções:
 - (a) **Curto prazo**: linha ANALITICA de apoio preenchida como orçado (grade Orçar) e realizado lançado manual/importado (`fat_realizado.origem = MANUAL|IMPORT` já existe). Simples, destrava Receita por FTE já.
 - (b) **Médio prazo**: o motor de postos (F5.2) passa a publicar headcount/FTE mensal por empresa — o grão funcionário já está no design aprovado. A linha FTE passa a ser alimentada pelo motor.
@@ -94,6 +100,7 @@ Resolução por precedência (mesmo padrão de herança das premissas globais da
 - **P0 (sem código)** — criar linhas/contas da seção 2 no DRE via modo Estrutura + amarração; validar LER calculado contra a planilha (gabarito: estudo-base seção 7, abr/24–abr/26). ✅ critério: card LER na página Indicadores batendo com a planilha.
   - Scripts prontos na raiz: **`seed_indicadores_operacionais.sql`** (cria CPESSOAS/FTE/LER/LERM/RFTE/CMP/MBP na raiz do DRE; matriz R1/R2/S1/S2 opcional em bloco separado) e **`validar_ler_vs_planilha.sql`** (LER mês a mês × gabarito + checagem de dupla amarração). Ambos idempotentes e testados contra um Postgres 15 com fixture do schema.
   - **RFTE e CMP são por pessoa-mês.** O engine soma a linha ANALÍTICA nos meses do período, então lançar o FTE mensal faz o acumulado virar *pessoas-mês* — e `Receita ÷ pessoas-mês` continua correto em qualquer janela. Somar headcount e dividir a receita acumulada por ele daria um número sem sentido; é por isso que os rótulos dizem "(mês)".
+  - **Resultado da validação (ago/2026).** Custo de pessoas bateu **ao centavo** com a planilha em 21 meses (abr/24–dez/25); em 2026 fica +0,5%, com o PLANORC mais atualizado que o preenchimento manual. A receita saiu **+6,0% em média** (faixa 5,6–7,9%, positiva nos 25 meses) porque o `REC` do DRE é **bruto** e a linha de imposto sobre venda está fora da subárvore de receita. Cruzamento independente: LER Jan–Mai/2025 = 1,92 tanto pelo engine (card) quanto por SQL — o motor está correto, a divergência era só de base.
 - **P1** — migration `indicador_meta` + CRUD em Cadastros + chips de status nos cards (D2); linha FTE com entrada manual (D1a). Carga inicial das metas: seção 5 do estudo-base (Parâmetros) + `benchmark_ref` da pesquisa de mercado.
 - **P2** — seções Eficiência e Receita na Visão Executiva (gráficos nivo do mockup); 12m móveis (D3).
 - **P3** — separação S1×S2 no plano de contas + reamarração (D4); PREC completo.
