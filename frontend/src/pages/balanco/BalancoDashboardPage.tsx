@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useUserAccess } from '../../hooks/useUserAccess'
-import { escopoFiltro, useMoedaView, MoedaSelect } from '../dashboard/DashFiltros'
+import { escopoFiltro, useMoedaView, MoedaSelect, ExportarButton } from '../dashboard/DashFiltros'
 import { computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
@@ -110,6 +110,7 @@ export default function BalancoDashboardPage() {
   const [filtroOpen, setFiltroOpen] = useState(false)
   const [ano, setAno] = useState<number>(sv.ano || 2026)
   const [mes, setMes] = useState<number>(sv.mes || 12)
+  const dashRef = useRef<HTMLDivElement>(null)   // alvo da exportação (PNG/PDF)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [temDados, setTemDados] = useState(false)
@@ -245,14 +246,14 @@ export default function BalancoDashboardPage() {
   useEffect(() => { load() }, [bpId, dreId, empresaSel, filialSel, ano, mes, empresas.length, filiais.length, acessoDash.loading, moedaSlot]) // eslint-disable-line
 
   return (
-    <div style={S.page}>
+    <div style={S.page} ref={dashRef}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
         <Link to="/dashboards" style={{ ...S.btn, textDecoration: 'none' }}><ArrowLeft size={14} /> Dashboards</Link>
         <h1 style={S.title}><Scale size={20} /> Balanço Patrimonial</h1>
       </div>
       <p style={S.sub}>Posição (saldo acumulado do realizado) em {MESES[mes - 1]}/{ano}. Índices de ciclo usam Receita/Custos/EBITDA da DRE.</p>
 
-      <div style={S.bar}>
+      <div style={S.bar} data-noexport>
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>Balanço:</span>
         <select style={S.sel} value={bpId} onChange={e => setBpId(e.target.value)}>{rels.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}</select>
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>DRE:</span>
@@ -279,6 +280,7 @@ export default function BalancoDashboardPage() {
         <select style={S.sel} value={mes} onChange={e => setMes(Number(e.target.value))}>{MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
         <MoedaSelect moedas={moedas} slot={moedaSlot} setSlot={setMoedaSlot} />
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
+        <ExportarButton alvo={dashRef} nome="balanco-patrimonial" titulo="Balanço Patrimonial" legenda={`Posição em ${MESES[mes - 1]}/${ano} · ${empresaSel.length ? `${empresaSel.length} empresa(s)` : 'todas as empresas'}`} />
         {loading && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Carregando…</span>}
       </div>
       <div style={S.chip}>{empresaSel.length ? `${empresaSel.length} empresa(s)` : 'todas as empresas'} · {filialSel.length ? `${filialSel.length} filial(is)` : 'todas as filiais'}</div>

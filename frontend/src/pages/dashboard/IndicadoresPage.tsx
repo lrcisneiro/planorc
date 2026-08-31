@@ -6,7 +6,7 @@ import { formatValor } from '../../lib/engine'
 import { totaisRelatorio } from '../../lib/relatorioTotais'
 import type { RLData } from '../../lib/relatorioTotais'
 import { ArrowLeft, RefreshCw, TrendingUp, TrendingDown, ListChecks } from 'lucide-react'
-import { escopoFiltro, FiltrosButton, PeriodoButton, ModalPanel, Checklist, effectiveCcFilter, SalvarCardButton, useCardPreset, useMoedaView, MoedaSelect } from './DashFiltros'
+import { escopoFiltro, FiltrosButton, PeriodoButton, ModalPanel, Checklist, effectiveCcFilter, SalvarCardButton, useCardPreset, useMoedaView, MoedaSelect, ExportarButton } from './DashFiltros'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import type { Item, CC } from './DashFiltros'
 
@@ -56,6 +56,7 @@ export default function IndicadoresPage() {
   const [cards, setCards] = useState<Card[] | null>(null)
   const [loading, setLoading] = useState(false); const [erro, setErro] = useState<string | null>(null)
   const loadSeq = useRef(0)
+  const dashRef = useRef<HTMLDivElement>(null)   // alvo da exportação (PNG/PDF)
 
   const { cardId, nome: cardNome } = useCardPreset('/dashboards/indicadores', (f) => {
     if (f.relId !== undefined) setRelId(f.relId); if (f.versaoId !== undefined) setVersaoId(f.versaoId)
@@ -122,14 +123,14 @@ export default function IndicadoresPage() {
   const linhaItems: Item[] = linhas.filter(l => l.tipo_linha !== 'ESPACO').map(l => ({ id: l.id, codigo: l.codigo, descricao: l.descricao }))
 
   return (
-    <div style={S.page}>
+    <div style={S.page} ref={dashRef}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
         <Link to="/dashboards" style={{ ...S.btn, textDecoration: 'none' }}><ArrowLeft size={14} /> Dashboards</Link>
         <h1 style={S.title}>Indicadores{cardNome && <span style={{ color: 'var(--cyan)' }}> · {cardNome}</span>}</h1>
       </div>
       <p style={S.sub}>Linhas do relatório (incl. indicadores e medidas com filtro de CC) como cards — realizado × orçado, % execução e variação vs. {ano - 1}. Jan–{MESES[ateMes - 1]}/{ano}.</p>
 
-      <div style={S.bar}>
+      <div style={S.bar} data-noexport>
         <select style={S.sel} value={relId} onChange={e => setRelId(e.target.value)}>{rels.map(r => <option key={r.id} value={r.id}>{r.codigo} · {r.nome}</option>)}</select>
         <select style={S.sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>{versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}</select>
         <button style={S.btn} onClick={() => setPickOpen(true)}><ListChecks size={14} /> Linhas{sel.length ? ` (${sel.length})` : ''}</button>
@@ -143,6 +144,7 @@ export default function IndicadoresPage() {
         <MoedaSelect moedas={moedas} slot={moedaSlot} setSlot={setMoedaSlot} />
         <button style={S.btn} onClick={load}><RefreshCw size={13} /></button>
         <SalvarCardButton base="/dashboards/indicadores" cor="var(--cyan)" cardId={cardId} getFiltros={() => ({ relId, versaoId, ano, ateMes, sel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })} />
+        <ExportarButton alvo={dashRef} nome="indicadores" titulo={`Indicadores${cardNome ? ` · ${cardNome}` : ''}`} legenda={`${ano} · Jan–${MESES[ateMes - 1]}`} />
       </div>
 
       {pickOpen && (

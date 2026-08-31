@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
-import type { CSSProperties } from 'react'
-import { Filter, X, CalendarRange, Bookmark } from 'lucide-react'
+import type { CSSProperties, RefObject } from 'react'
+import { Filter, X, CalendarRange, Bookmark, Download, Image as ImageIcon, FileText } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { exportarPng, exportarPdf } from '../../lib/exportarDash'
+import { useCapacidades } from '../../hooks/useCapacidades'
 
 export type Item = { id: string; codigo: string; descricao: string }
 
@@ -174,6 +177,77 @@ export function SalvarCardButton({ base, getFiltros, cor, cardId }: { base: stri
       {cardId && <button style={{ ...btn, background: 'rgba(59,130,246,0.16)', borderColor: 'var(--blue)', color: 'var(--blue)' }} onClick={atualizar} title="Salvar os filtros atuais NESTE card"><Bookmark size={13} /> Atualizar card</button>}
       <button style={btn} onClick={salvarNovo} title="Salvar os filtros atuais como um NOVO card"><Bookmark size={13} /> {cardId ? 'Salvar como novo' : 'Salvar card'}</button>
     </>
+  )
+}
+
+// ── Exportar a tela como imagem (PNG) ou PDF ──
+// `alvo` = container do dashboard. O que estiver marcado com data-noexport (a
+// barra de filtros, por ex.) fica fora da captura; o contexto dos filtros vai
+// no cabeçalho do PDF por `legenda`. Sai no tema em que a tela está (WYSIWYG).
+export function ExportarButton({ alvo, nome, titulo, legenda }: {
+  alvo: RefObject<HTMLElement | null>; nome: string; titulo?: string; legenda?: string
+}) {
+  const { can } = useCapacidades()
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)   // menu ancorado ao botão
+  const [busy, setBusy] = useState<'' | 'png' | 'pdf'>('')
+  const open = pos !== null
+  const setOpen = (v: boolean) => { if (!v) setPos(null); else abrir() }
+
+  // Abre AO LADO do botão (à direita), em position:fixed via portal — assim o
+  // menu não é cortado pelo container com overflow nem some atrás da lateral.
+  const LARG = 190
+  const abrir = () => {
+    const r = btnRef.current?.getBoundingClientRect()
+    if (!r) return
+    const cabeDireita = r.right + 6 + LARG <= window.innerWidth - 8
+    setPos({
+      top: Math.min(r.top, window.innerHeight - 100),
+      left: cabeDireita ? r.right + 6 : Math.max(8, r.left - 6 - LARG),
+    })
+  }
+  useEffect(() => {
+    if (!open) return
+    const fecha = () => setPos(null)
+    window.addEventListener('scroll', fecha, true)
+    window.addEventListener('resize', fecha)
+    return () => { window.removeEventListener('scroll', fecha, true); window.removeEventListener('resize', fecha) }
+  }, [open])
+
+  if (!can('exportar')) return null
+
+  const gerar = async (tipo: 'png' | 'pdf') => {
+    const el = alvo.current
+    setOpen(false)
+    if (!el) { alert('Nada para exportar nesta tela.'); return }
+    setBusy(tipo)
+    try {
+      const hoje = new Date().toISOString().slice(0, 10)
+      const opts = { nome: `${nome}-${hoje}`, titulo, legenda }
+      if (tipo === 'png') await exportarPng(el, opts)
+      else await exportarPdf(el, opts)
+    } catch (e: any) {
+      alert(`Não consegui exportar: ${e?.message ?? e}\n\nA geração usa uma biblioteca carregada do CDN — verifique a conexão.`)
+    }
+    setBusy('')
+  }
+
+  const item: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 10px', fontSize: 13, background: 'transparent', border: 0, borderRadius: 6, color: 'var(--text-mid)', cursor: 'pointer', textAlign: 'left' }
+  return (
+    <div style={{ position: 'relative' }} data-noexport>
+      <button ref={btnRef} style={btn} disabled={!!busy} onClick={() => setOpen(!open)} title="Baixar esta tela como imagem ou PDF">
+        <Download size={13} /> {busy ? 'Gerando…' : 'Exportar'}
+      </button>
+      {pos && createPortal(
+        <>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 1480 }} onClick={() => setOpen(false)} />
+          <div style={{ position: 'fixed', top: pos.top, left: pos.left, width: LARG, zIndex: 1481, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 12px 30px rgba(0,0,0,0.25)', padding: 4 }}>
+            <button style={item} onClick={() => gerar('png')}><ImageIcon size={14} /> Imagem (PNG)</button>
+            <button style={item} onClick={() => gerar('pdf')}><FileText size={14} /> PDF</button>
+          </div>
+        </>,
+        document.body)}
+    </div>
   )
 }
 

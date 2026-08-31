@@ -7,7 +7,7 @@ import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
 import { nivoTheme } from '../../lib/nivoTheme'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
-import { escopoFiltro, FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset, useMoedaView, MoedaSelect } from './DashFiltros'
+import { escopoFiltro, FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset, useMoedaView, MoedaSelect, ExportarButton } from './DashFiltros'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import type { Item, CC } from './DashFiltros'
 
@@ -63,6 +63,7 @@ export default function CagrPage() {
   const [sel, setSel] = useState<string[]>([])
   const [res, setRes] = useState<{ id: string; desc: string; vi: number; vf: number; cagr: number | null }[]>([])
   const [loading, setLoading] = useState(false); const [erro, setErro] = useState<string | null>(null)
+  const dashRef = useRef<HTMLDivElement>(null)   // alvo da exportação (PNG/PDF)
 
   const { cardId, nome: cardNome } = useCardPreset('/dashboards/cagr', (f) => {
     if (f.relId !== undefined) setRelId(f.relId)
@@ -147,14 +148,14 @@ export default function CagrPage() {
   const chartData = res.filter(x => x.cagr != null).sort((a, b) => (a.cagr || 0) - (b.cagr || 0)).map(x => ({ linha: cut(x.desc, 28), CAGR: +(x.cagr || 0).toFixed(1) }))
 
   return (
-    <div style={S.page}>
+    <div style={S.page} ref={dashRef}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
         <Link to="/dashboards" style={{ ...S.btn, textDecoration: 'none' }}><ArrowLeft size={14} /> Dashboards</Link>
         <h1 style={S.title}>CAGR — crescimento anual composto{cardNome && <span style={{ color: '#1098ad' }}> · {cardNome}</span>}</h1>
       </div>
       <p style={S.sub}>CAGR = (valor final / valor inicial) ^ (1/anos) − 1. Sobre o realizado (cubo anual). Despesas como positivas.</p>
 
-      <div style={S.bar}>
+      <div style={S.bar} data-noexport>
         <select style={S.sel} value={relId} onChange={e => setRelId(e.target.value)}>{rels.map(r => <option key={r.id} value={r.id}>{r.codigo} · {r.nome}</option>)}</select>
         <PeriodoButton width="min(420px, calc(100vw - 40px))" resumo={`${anoIni}→${anoFim} · até ${MESES[ateMes - 1]}`}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -170,6 +171,7 @@ export default function CagrPage() {
         <MoedaSelect moedas={moedas} slot={moedaSlot} setSlot={setMoedaSlot} />
         <button style={S.btn} onClick={load}><RefreshCw size={13} /></button>
         <SalvarCardButton base="/dashboards/cagr" cor="#1098ad" cardId={cardId} getFiltros={() => ({ relId, anoIni, anoFim, ateMes, sel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })} />
+        <ExportarButton alvo={dashRef} nome="cagr" titulo={`CAGR${cardNome ? ` · ${cardNome}` : ''}`} legenda={`${anoIni}→${anoFim} · Jan–${MESES[ateMes - 1]}`} />
       </div>
 
       {erro && <div style={{ background: 'rgba(248,113,113,0.10)', border: '1px solid #ffc9c9', color: 'var(--red)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>{erro}</div>}
