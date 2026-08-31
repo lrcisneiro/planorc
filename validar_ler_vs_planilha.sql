@@ -130,6 +130,61 @@ SELECT rl.codigo, rl.descricao, rl.tipo_linha, rl.expressao,
  ORDER BY rl.ordem;
 
 
+-- ══════════════ 4) Abre a RECEITA por linha analítica ══════════════
+-- Use quando a receita do PLANORC não bate com a da planilha: mostra quanto
+-- cada linha da subárvore de receita traz por mês. A linha responsável pela
+-- diferença é a que tem total anual próximo da soma das diferenças da
+-- checagem 1 (ex.: ~R$ 500 mil/mês → ~R$ 6,2 mi no ano).
+WITH RECURSIVE cfg AS (
+  SELECT 'DRE'::text AS rel_codigo,   -- ajuste
+         'REC'::text AS cod_receita,
+         2025        AS ano
+),
+t AS (SELECT id FROM tenant LIMIT 1),
+rel AS (SELECT r.id FROM relatorio r CROSS JOIN cfg CROSS JOIN t
+         WHERE r.tenant_id = t.id AND r.codigo = cfg.rel_codigo),
+lin AS (SELECT rl.* FROM relatorio_linha rl CROSS JOIN rel WHERE rl.relatorio_id = rel.id),
+cl AS (
+  SELECT DISTINCT ON (c.conta_id) c.conta_id, c.linha_id, c.sinal
+    FROM conta_linha c CROSS JOIN t
+   WHERE c.tenant_id = t.id
+     AND c.linha_id IN (SELECT DISTINCT linha_orc_id FROM lin WHERE linha_orc_id IS NOT NULL)
+   ORDER BY c.conta_id, c.id DESC
+),
+arv AS (
+  SELECT l.id FROM lin l CROSS JOIN cfg WHERE l.codigo = cfg.cod_receita
+  UNION ALL
+  SELECT l.id FROM lin l JOIN arv a ON l.pai_id = a.id
+),
+alvo AS (
+  SELECT l.id, l.codigo, l.descricao, l.redutora, l.linha_orc_id AS m
+    FROM arv a JOIN lin l ON l.id = a.id
+   WHERE l.linha_orc_id IS NOT NULL AND l.tipo_linha = 'ANALITICA'
+     AND NOT l.desativada AND NOT COALESCE(l.nao_soma, false)
+),
+mov AS (
+  SELECT al.codigo, al.descricao, al.redutora, fm.mes, fm.valor AS v
+    FROM fat_realizado_mensal fm JOIN alvo al ON al.m = fm.linha_id
+   WHERE fm.tenant_id = (SELECT id FROM t) AND fm.ano = (SELECT ano FROM cfg)
+  UNION ALL
+  SELECT al.codigo, al.descricao, al.redutora, fm.mes, fm.valor * cl.sinal
+    FROM fat_realizado_mensal fm
+    JOIN cl ON cl.conta_id = fm.conta_id
+    JOIN alvo al ON al.m = cl.linha_id
+   WHERE fm.tenant_id = (SELECT id FROM t) AND fm.linha_id IS NULL AND fm.ano = (SELECT ano FROM cfg)
+)
+SELECT codigo, descricao, redutora,
+       round(sum(v))                                  AS total_ano,
+       round(sum(v) / NULLIF(count(DISTINCT mes), 0)) AS media_mes,
+       round(sum(v) FILTER (WHERE mes = 1))           AS jan,
+       round(sum(v) FILTER (WHERE mes = 2))           AS fev,
+       round(sum(v) FILTER (WHERE mes = 3))           AS mar,
+       round(sum(v) FILTER (WHERE mes = 4))           AS abr
+  FROM mov
+ GROUP BY codigo, descricao, redutora
+ ORDER BY abs(sum(v)) DESC;
+
+
 -- ══════════════ 3) Conta amarrada a mais de uma linha do relatório ══════════════
 -- Fonte clássica de dupla contagem — e o risco direto de criar a matriz de
 -- receita (R1/R2/S1/S2) sem tirar a amarração antiga. Esperado: zero linhas.
