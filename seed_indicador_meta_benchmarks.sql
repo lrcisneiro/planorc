@@ -32,7 +32,7 @@
 DO $$
 DECLARE
   -- ══════════════ CONFIGURE AQUI ══════════════
-  v_rel_codigo   text    := 'DRE';    -- relatório onde os indicadores foram criados
+  v_rel_codigo   text    := 'DREGER'; -- relatório onde os indicadores foram criados
   v_sobrescrever boolean := false;    -- true = reescreve as metas já cadastradas destes indicadores
   -- ════════════ fim da configuração ════════════
 
@@ -124,6 +124,6 @@ SELECT rl.codigo, rl.descricao,
   FROM indicador_meta m
   JOIN relatorio_linha rl ON rl.id = m.linha_id
   JOIN relatorio r ON r.id = rl.relatorio_id
- WHERE r.codigo = 'DRE'                 -- ajuste
+ WHERE r.codigo = 'DREGER'
    AND m.ano IS NULL AND m.empresa_id IS NULL
  ORDER BY rl.ordem;

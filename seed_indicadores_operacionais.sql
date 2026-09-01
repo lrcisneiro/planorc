@@ -24,16 +24,23 @@
 -- ── Antes de configurar, descubra os códigos do seu DRE: ──
 --   SELECT rl.codigo, rl.descricao, rl.tipo_linha, rl.natureza, rl.ordem
 --     FROM relatorio_linha rl JOIN relatorio r ON r.id = rl.relatorio_id
---    WHERE r.codigo = 'DRE'          -- ajuste
+--    WHERE r.codigo = 'DREGER'
 --    ORDER BY rl.ordem;
 
 DO $$
 DECLARE
   -- ══════════════ CONFIGURE AQUI ══════════════
-  v_rel_codigo      text   := 'DRE';          -- código do relatório (tabela relatorio)
-  v_cod_receita     text   := 'REC';          -- linha de RECEITA TOTAL já existente
-  v_cod_margem      text   := 'MB';           -- linha de MARGEM BRUTA já existente ('' = não criar LERM/MBP)
-  v_cods_custo      text[] := ARRAY['DP01'];  -- linhas que compõem o CUSTO DE PESSOAS fully loaded
+  v_rel_codigo      text   := 'DREGER';       -- código do relatório (tabela relatorio)
+  -- RECEITA: o LER usa a LÍQUIDA (imposto sobre venda nunca entra — ver D0 do
+  -- docs/DESIGN_indicadores_executivo.md). Duas formas de informar:
+  --   a) v_cod_receita = código de uma linha de receita líquida já existente; ou
+  --   b) v_cod_receita = '' → o seed cria a linha RECLIQ = bruta − |deduções|
+  --      a partir das duas configurações abaixo.
+  v_cod_receita     text   := '';             -- '' = derivar (RECLIQ)
+  v_cod_receita_bru text   := '1';            -- receita BRUTA (somável)
+  v_cods_deducao    text[] := ARRAY['130'];   -- impostos sobre venda
+  v_cod_margem      text   := 'Lmqedmuuc';    -- linha de margem ('' = não criar LERM/MBP)
+  v_cods_custo      text[] := ARRAY['201','202','203'];  -- CUSTO DE PESSOAS fully loaded
                                               -- (salários, encargos, benefícios, PJ, bônus, treinamentos)
   v_custo_negativo  boolean := true;          -- true = despesa é negativa no DRE (padrão: valor = crédito − débito)
   v_sobrescrever    boolean := false;         -- true = atualiza linhas do seed que já existam (use ao reajustar fórmula)
@@ -46,6 +53,7 @@ DECLARE
   v_tenant  uuid;  v_rel uuid;  v_rel_nome text;
   v_pai     uuid;  v_pai_nivel int;  v_ordem int;
   v_expr_cp text;  v_soma text := '';
+  v_rec     text;  v_expr_rec text := '';  v_ded text := '';
   v_master  uuid;  v_existe boolean;
   r record;  c text;  i int;
   v_criados text := '';  v_pulados text := '';
@@ -58,8 +66,25 @@ BEGIN
   IF v_rel IS NULL THEN RAISE EXCEPTION 'Relatório % não encontrado (confira v_rel_codigo)', v_rel_codigo; END IF;
 
   -- ── 1) Conferir as linhas que as fórmulas referenciam ──
-  IF NOT EXISTS (SELECT 1 FROM relatorio_linha WHERE relatorio_id = v_rel AND codigo = v_cod_receita) THEN
-    RAISE EXCEPTION 'Linha de receita "%" não existe em %. Rode a query de descoberta no topo do arquivo.', v_cod_receita, v_rel_codigo;
+  IF v_cod_receita <> '' THEN
+    IF NOT EXISTS (SELECT 1 FROM relatorio_linha WHERE relatorio_id = v_rel AND codigo = v_cod_receita) THEN
+      RAISE EXCEPTION 'Linha de receita "%" não existe em %. Rode a query de descoberta no topo do arquivo.', v_cod_receita, v_rel_codigo;
+    END IF;
+    v_rec := v_cod_receita;
+  ELSE
+    -- deriva a líquida: bruta − |deduções|. O abs() protege contra a linha de
+    -- imposto estar gravada como positiva em vez de redutora negativa.
+    IF NOT EXISTS (SELECT 1 FROM relatorio_linha WHERE relatorio_id = v_rel AND codigo = v_cod_receita_bru) THEN
+      RAISE EXCEPTION 'Linha de receita bruta "%" não existe em %.', v_cod_receita_bru, v_rel_codigo;
+    END IF;
+    FOREACH c IN ARRAY v_cods_deducao LOOP
+      IF NOT EXISTS (SELECT 1 FROM relatorio_linha WHERE relatorio_id = v_rel AND codigo = c) THEN
+        RAISE EXCEPTION 'Linha de dedução "%" não existe em %.', c, v_rel_codigo;
+      END IF;
+      v_ded := v_ded || format('-abs([%s])', c);
+    END LOOP;
+    v_rec := 'RECLIQ';
+    v_expr_rec := format('=[%s]%s', v_cod_receita_bru, v_ded);
   END IF;
   IF v_cod_margem <> '' AND NOT EXISTS (SELECT 1 FROM relatorio_linha WHERE relatorio_id = v_rel AND codigo = v_cod_margem) THEN
     RAISE EXCEPTION 'Linha de margem "%" não existe em %. Use '''' para pular LERM/MBP.', v_cod_margem, v_rel_codigo;
@@ -83,14 +108,15 @@ BEGIN
   FOR r IN
     SELECT * FROM (VALUES
       -- codigo, descricao, tipo, expressao, formato, casas, apoio, criar
+      ('RECLIQ',   'Receita líquida (para indicadores)', 'INDICADOR', v_expr_rec,               'MOEDA',      0, true,  v_cod_receita = ''),
       ('CPESSOAS', 'Custo Pessoas (fully loaded)', 'INDICADOR', v_expr_cp,                                        'MOEDA',      0, true,  true),
       ('FTE',      'Headcount médio (FTE)',        'ANALITICA', NULL,                                             'NUMERO',     1, false, true),
-      ('LER',      'LER Bruto',                    'INDICADOR', format('=[%s]/[CPESSOAS]', v_cod_receita),        'NUMERO',     2, true,  true),
+      ('LER',      'LER Bruto',                    'INDICADOR', format('=[%s]/[CPESSOAS]', v_rec),        'NUMERO',     2, true,  true),
       ('LERM',     'LER de Margem',                'INDICADOR', format('=[%s]/[CPESSOAS]', v_cod_margem),         'NUMERO',     2, true,  v_cod_margem <> ''),
-      ('RFTE',     'Receita por FTE (mês)',        'INDICADOR', format('=[%s]/[FTE]', v_cod_receita),             'MOEDA',      0, true,  true),
+      ('RFTE',     'Receita por FTE (mês)',        'INDICADOR', format('=[%s]/[FTE]', v_rec),             'MOEDA',      0, true,  true),
       ('CMP',      'Custo médio por pessoa (mês)', 'INDICADOR', '=[CPESSOAS]/[FTE]',                              'MOEDA',      0, true,  true),
-      ('MBP',      'Margem Bruta %',               'INDICADOR', format('=[%s]/[%s]*100', v_cod_margem, v_cod_receita), 'PERCENTUAL', 1, true, v_cod_margem <> ''),
-      ('PREC',     '% Recorrência',                'INDICADOR', format('=([R1]+[S1])/[%s]*100', v_cod_receita),   'PERCENTUAL', 1, true,  v_criar_matriz)
+      ('MBP',      'Margem Bruta %',               'INDICADOR', format('=[%s]/[%s]*100', v_cod_margem, v_rec), 'PERCENTUAL', 1, true, v_cod_margem <> ''),
+      ('PREC',     '% Recorrência',                'INDICADOR', format('=([R1]+[S1])/[%s]*100', v_rec),   'PERCENTUAL', 1, true,  v_criar_matriz)
     ) AS t(codigo, descricao, tipo, expressao, formato, casas, apoio, criar)
   LOOP
     CONTINUE WHEN NOT r.criar;
@@ -174,6 +200,6 @@ SELECT rl.codigo, rl.descricao, rl.tipo_linha, rl.expressao, rl.formato, rl.casa
        rl.nao_soma, (rl.linha_orc_id IS NOT NULL) AS tem_conta_orcamentaria
   FROM relatorio_linha rl
   JOIN relatorio r ON r.id = rl.relatorio_id
- WHERE r.codigo = 'DRE'   -- ajuste
-   AND rl.codigo IN ('CPESSOAS','FTE','LER','LERM','RFTE','CMP','MBP','PREC','R1','R2','S1','S2')
+ WHERE r.codigo = 'DREGER'
+   AND rl.codigo IN ('RECLIQ','CPESSOAS','FTE','LER','LERM','RFTE','CMP','MBP','PREC','R1','R2','S1','S2')
  ORDER BY rl.ordem;

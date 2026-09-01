@@ -24,9 +24,9 @@
 DO $$
 DECLARE
   -- ══════════════ CONFIGURE AQUI ══════════════
-  v_rel_codigo     text   := 'DRE';
-  v_cod_margem     text   := 'MB';           -- linha de Margem Bruta (obrigatória aqui)
-  v_cods_custo     text[] := ARRAY['DP01'];  -- as MESMAS linhas de folha do seed de indicadores
+  v_rel_codigo     text   := 'DREGER';
+  v_cod_margem     text   := 'Lmqedmuuc';    -- linha de margem (obrigatória aqui)
+  v_cods_custo     text[] := ARRAY['201','202','203'];  -- as MESMAS linhas de folha do seed de indicadores
   v_custo_negativo boolean := true;
   v_areas_diretas  text[] := ARRAY['2','3','5'];  -- Comercial, Serviços, Marketing
   v_areas_apoio    text[] := ARRAY['1','4'];      -- CSC, Diretoria
@@ -127,6 +127,6 @@ SELECT rl.codigo, rl.descricao, rl.expressao, rl.formato,
   FROM relatorio_linha rl
   JOIN relatorio r ON r.id = rl.relatorio_id
   LEFT JOIN indicador_meta m ON m.linha_id = rl.id AND m.ano IS NULL AND m.empresa_id IS NULL
- WHERE r.codigo = 'DRE'                 -- ajuste
+ WHERE r.codigo = 'DREGER'
    AND rl.codigo IN ('FDIR','FAPOIO','DLER','MLER','PESTRUT')
  ORDER BY rl.ordem;

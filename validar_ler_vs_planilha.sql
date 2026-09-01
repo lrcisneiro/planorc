@@ -25,11 +25,11 @@
 -- aqui a receita BRUTA e liste os impostos em `cods_deducao` — a consulta faz a
 -- subtração. Apontar a fórmula direto devolve receita ZERO em todos os meses.
 WITH RECURSIVE cfg AS (
-  SELECT 'DRE'::text            AS rel_codigo,   -- ajuste os 5 abaixo
-         'REC'::text            AS cod_receita,  -- receita BRUTA (somável)
-         ARRAY['IMP']::text[]   AS cods_deducao, -- impostos sobre venda; ARRAY[]::text[] se não houver
-         'MB'::text             AS cod_margem,   -- '' se a margem não for somável
-         ARRAY['DP01']::text[]  AS cods_custo
+  SELECT 'DREGER'::text                     AS rel_codigo,
+         '1'::text                          AS cod_receita,  -- receita BRUTA (somável)
+         ARRAY['130']::text[]               AS cods_deducao, -- impostos sobre venda
+         'Lmqedmuuc'::text                  AS cod_margem,   -- '' se a margem não for somável
+         ARRAY['201','202','203']::text[]   AS cods_custo
 ),
 t AS (SELECT id FROM tenant LIMIT 1),
 rel AS (SELECT r.id FROM relatorio r CROSS JOIN cfg CROSS JOIN t
@@ -142,8 +142,8 @@ SELECT rl.codigo, rl.descricao, rl.tipo_linha, rl.expressao,
        (SELECT count(*) FROM relatorio_linha f WHERE f.pai_id = rl.id) AS filhas
   FROM relatorio_linha rl
   JOIN relatorio r ON r.id = rl.relatorio_id
- WHERE r.codigo = 'DRE'                          -- ajuste
-   AND rl.codigo IN ('REC', 'MB', 'DP01')        -- ajuste: receita, margem, custos
+ WHERE r.codigo = 'DREGER'
+   AND rl.codigo IN ('1', '130', 'Lmqedmuuc', '201', '202', '203')
  ORDER BY rl.ordem;
 
 
@@ -153,9 +153,9 @@ SELECT rl.codigo, rl.descricao, rl.tipo_linha, rl.expressao,
 -- diferença é a que tem total anual próximo da soma das diferenças da
 -- checagem 1 (ex.: ~R$ 500 mil/mês → ~R$ 6,2 mi no ano).
 WITH RECURSIVE cfg AS (
-  SELECT 'DRE'::text AS rel_codigo,   -- ajuste
-         'REC'::text AS cod_receita,
-         2025        AS ano
+  SELECT 'DREGER'::text AS rel_codigo,
+         '1'::text      AS cod_receita,   -- receita BRUTA
+         2025           AS ano
 ),
 t AS (SELECT id FROM tenant LIMIT 1),
 rel AS (SELECT r.id FROM relatorio r CROSS JOIN cfg CROSS JOIN t
@@ -209,8 +209,8 @@ SELECT codigo, descricao, redutora,
 -- ATENÇÃO: linha FORMULA sai com a soma das analíticas abaixo dela, que não é o
 -- que a fórmula calcula — nessas, olhe o valor pela tela.
 WITH RECURSIVE cfg AS (
-  SELECT 'DRE'::text AS rel_codigo,   -- ajuste
-         2025        AS ano
+  SELECT 'DREGER'::text AS rel_codigo,
+         2025           AS ano
 ),
 t AS (SELECT id FROM tenant LIMIT 1),
 rel AS (SELECT r.id FROM relatorio r CROSS JOIN cfg CROSS JOIN t
@@ -282,7 +282,7 @@ SELECT cc.codigo AS conta, cc.descricao,
  WHERE cl.linha_id IN (
          SELECT DISTINCT rl.linha_orc_id
            FROM relatorio_linha rl JOIN relatorio r ON r.id = rl.relatorio_id
-          WHERE r.codigo = 'DRE' AND rl.linha_orc_id IS NOT NULL   -- ajuste
+          WHERE r.codigo = 'DREGER' AND rl.linha_orc_id IS NOT NULL
        )
  GROUP BY cc.codigo, cc.descricao
 HAVING count(*) > 1
