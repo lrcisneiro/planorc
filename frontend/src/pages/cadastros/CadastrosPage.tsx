@@ -172,7 +172,7 @@ function exportarDados(nome: string, headers: string[], rows: (string | number)[
 
 // ─── AddRow inline ───────────────────────────────────────────
 function AddRow({ cols, initial, onSave, onCancel }: {
-  cols: { key: string; placeholder: string; type?: 'text' | 'select'; options?: { value: string; label: string }[] }[]
+  cols: { key: string; placeholder: string; type?: 'text' | 'select'; options?: { value: string; label: string }[]; vazio?: string }[]
   initial?: Record<string, string>
   onSave: (vals: Record<string, string>) => void
   onCancel: () => void
@@ -188,7 +188,7 @@ function AddRow({ cols, initial, onSave, onCancel }: {
         <td key={c.key} style={S.td}>
           {c.type === 'select' ? (
             <select style={S.select} value={vals[c.key]} onChange={e => set(c.key, e.target.value)}>
-              <option value="">— selecione —</option>
+              <option value="">{c.vazio ?? '— selecione —'}</option>
               {(c.options || []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           ) : (
@@ -1989,8 +1989,8 @@ function MetasTab() {
   const COLS = [
     { key: 'linha_id', placeholder: 'Indicador', type: 'select' as const, options: linhas.map(l => ({ value: l.id, label: `${l.rel} · ${l.codigo} · ${l.descricao}` })) },
     { key: 'ano', placeholder: 'Ano (vazio = todos)' },
-    { key: 'empresa_id', placeholder: 'Empresa', type: 'select' as const, options: empresas.map(e => ({ value: e.id, label: `${e.codigo} · ${e.descricao}` })) },
-    { key: 'maior_melhor', placeholder: 'Sentido', type: 'select' as const, options: [{ value: 'S', label: 'Maior é melhor' }, { value: 'N', label: 'Menor é melhor' }] },
+    { key: 'empresa_id', placeholder: 'Empresa', type: 'select' as const, vazio: '— todas as empresas —', options: empresas.map(e => ({ value: e.id, label: `${e.codigo} · ${e.descricao}` })) },
+    { key: 'maior_melhor', placeholder: 'Sentido', type: 'select' as const, vazio: '— maior é melhor (padrão) —', options: [{ value: 'S', label: 'Maior é melhor' }, { value: 'N', label: 'Menor é melhor' }] },
     { key: 'excelente', placeholder: 'Ex: 2,5' },
     { key: 'saudavel', placeholder: 'Ex: 2,0' },
     { key: 'atencao', placeholder: 'Ex: 1,5' },
@@ -2030,9 +2030,10 @@ function MetasTab() {
     <div style={S.card}>
       <Toolbar onAdd={() => { setAdding(true); setErro(null) }} busca={busca} onBusca={setBusca} total={data.length} mostrando={filtered.length} />
       <div style={{ fontSize: 12, color: 'var(--muted)', padding: '4px 16px 10px' }}>
-        Faixas que os cards usam para classificar o indicador. <b>Ano</b> e <b>Empresa</b> vazios valem como regra geral;
-        preenchidos, refinam a regra. <b>Menor é melhor</b> inverte a leitura (churn, DSO, turnover).
-        A meta por empresa só é aplicada quando o dashboard está filtrado em UMA empresa.
+        Faixas que os cards usam para classificar o indicador. <b>Empresa em branco = vale para todas as empresas</b>;
+        escolher uma empresa cria uma exceção só dela. <b>Ano</b> em branco vale para todos os anos.
+        <b>Menor é melhor</b> inverte a leitura (churn, DSO, turnover). A exceção por empresa só entra quando o dashboard
+        está filtrado nessa empresa — no consolidado vale sempre a regra de todas.
       </div>
       {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
       <table style={S.table}>
@@ -2056,8 +2057,8 @@ function MetasTab() {
           ) : (
             <tr key={m.id}>
               <td style={S.td}>{linhaLabel(m.linha_id)}</td>
-              <td style={S.td}>{m.ano ?? 'todos'}</td>
-              <td style={S.td}>{empLabel(m.empresa_id)}</td>
+              <td style={{ ...S.td, color: m.ano ? 'var(--text)' : 'var(--muted)' }}>{m.ano ?? 'todos'}</td>
+              <td style={{ ...S.td, color: m.empresa_id ? 'var(--text)' : 'var(--muted)' }}>{empLabel(m.empresa_id)}</td>
               <td style={S.td}>{m.maior_melhor ? 'maior ↑' : 'menor ↓'}</td>
               <td style={S.tdMono}>{fmtN(m.excelente)}</td>
               <td style={S.tdMono}>{fmtN(m.saudavel)}</td>
