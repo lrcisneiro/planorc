@@ -12,6 +12,10 @@ export type IC = { id: string; label: string; isPct: boolean; desp: boolean; cas
 // Chip de faixa (Excelente/Saudável/Atenção/Crítico) — só aparece quando a linha
 // tem meta cadastrada em Cadastros → Metas de indicadores.
 export function ChipMeta({ valor, meta }: { valor: number; meta?: IndicadorMeta | null }) {
+  // Indicador zerado quase sempre é dado faltando (a linha FTE não lançada, por
+  // ex.), não desempenho crítico — classificar isso seria afirmar o que não se
+  // sabe. Exceção: onde MENOR é melhor (churn, DSO), zero é resultado legítimo.
+  if (!valor && meta?.maior_melhor !== false) return null
   const st = statusMeta(valor, meta)
   if (!st) return null
   const ui = STATUS_UI[st]
