@@ -56,12 +56,12 @@ export async function totaisRelatorio(o: Opts): Promise<Record<string, number>> 
     return raw
   }
 
-  // cenário GLOBAL (respeita o filtro de CC da tela)
-  const rawG = await loadRaw(ccFilter, false)
-  const totG = computeTotais(calc, computeCenario(calc, rawG, periodos), periodos)
-  const out: Record<string, number> = { ...totG }
-
-  // linhas de apoio escopadas → recalcula cada grupo no seu CC
+  // ── linhas de apoio escopadas → um cenário próprio por escopo distinto ──
+  // Precisa vir ANTES do cenário global: o valor escopado é injetado no raw
+  // global, senão uma fórmula que referencia a linha escopada (ex.: dLER =
+  // margem ÷ folha DIRETA) enxergaria o valor sem escopo — número plausível e
+  // errado. É o mesmo desenho do editor (RelatorioEditorPage).
+  const out: Record<string, number> = {}
   const grupos = new Map<string, { cc: string[]; ids: string[] }>()
   for (const l of linhas) {
     const indic = l.tipo_linha === 'INDICADOR' || l.nao_soma   // não soma → pode ter filtro próprio
@@ -77,10 +77,32 @@ export async function totaisRelatorio(o: Opts): Promise<Record<string, number>> 
     let g = grupos.get(sig); if (!g) { g = { cc, ids: [] }; grupos.set(sig, g) }
     g.ids.push(l.id)
   }
+
+  const escopados = new Set<string>()
+  const totEsc: Record<string, number> = {}   // total PRÓPRIO da linha, recalculado no escopo dela
+  const valEsc: Record<string, Record<string, number>> = {}   // valor por período, p/ injetar no global
   for (const g of grupos.values()) {
     const rawSc = await loadRaw(g.cc, true)
-    const totSc = computeTotais(calc, computeCenario(calc, rawSc, periodos), periodos)
-    for (const id of g.ids) out[id] = totSc[id]
+    const cenSc = computeCenario(calc, rawSc, periodos)
+    const tSc = computeTotais(calc, cenSc, periodos)
+    for (const id of g.ids) { escopados.add(id); totEsc[id] = tSc[id]; valEsc[id] = cenSc[id] || {} }
   }
-  return out
+
+  // No cenário global a linha escopada entra como ANALÍTICA lendo o valor já
+  // escopado — assim ela não é reavaliada fora do escopo e quem a referencia
+  // recebe o número certo.
+  const calcGlobal: LinhaCalc[] = escopados.size
+    ? calc.map(l => escopados.has(l.id) ? { ...l, tipo_linha: 'ANALITICA' } : l)
+    : calc
+
+  const rawG = await loadRaw(ccFilter, false)
+  for (const id of escopados) {
+    const porPeriodo = valEsc[id] || {}
+    const dest = (rawG[id] ||= {})
+    for (const pk in porPeriodo) dest[pk] = { valor: porPeriodo[pk] }
+  }
+
+  const totG = computeTotais(calcGlobal, computeCenario(calcGlobal, rawG, periodos), periodos)
+  // o total da própria linha escopada vem do cenário dela (percentual se recalcula, não se soma)
+  return { ...totG, ...totEsc, ...out }
 }

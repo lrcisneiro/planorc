@@ -7,7 +7,7 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 import {
   computeCenario, computeTotais, formatValor, parseNum, pkey,
 } from '../../lib/engine'
-import type { LinhaCalc, RawValues, Computed, Periodo, TipoLinha, Formato } from '../../lib/engine'
+import type { LinhaCalc, RawValues, Computed, Periodo, TipoLinha, Formato, CellRaw } from '../../lib/engine'
 import { taxaOrcada, materializa } from '../../lib/cambio'
 import type { VersaoTaxaRow } from '../../lib/cambio'
 import FormulaCellInput from './FormulaCellInput'
@@ -696,8 +696,21 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const computed = useMemo(() => {
     const out: Record<string, Computed> = {}
     for (const cen of cenariosExpandidos) {
-      out[cen] = computeCenario(linhasCalc, raw[cen] || {}, periodos)
-      if (hasEsc) for (const lid in escSig) { const sc = scopedComputed[`${cen}::${escSig[lid]}`]; if (sc?.[lid]) out[cen][lid] = sc[lid] }
+      let rawCen = raw[cen] || {}
+      if (hasEsc) {
+        // injeta o valor escopado no RAW antes de calcular: assim a fórmula que
+        // referencia a linha escopada (ex.: dLER = margem ÷ folha direta) recebe
+        // o número certo também nas colunas de mês, não só no total.
+        rawCen = { ...rawCen }
+        for (const lid in escSig) {
+          const sc = scopedComputed[`${cen}::${escSig[lid]}`]?.[lid]
+          if (!sc) continue
+          const cells: Record<string, CellRaw> = {}
+          for (const pk in sc) cells[pk] = { valor: sc[pk] }
+          rawCen[lid] = cells
+        }
+      }
+      out[cen] = computeCenario(linhasCalc, rawCen, periodos)
     }
     return out
   }, [linhas, raw, cenariosExpandidos, periodos, scopedComputed, escSig, hasEsc])
