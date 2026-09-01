@@ -10,6 +10,8 @@ import { totaisRelatorio } from '../../lib/relatorioTotais'
 import type { RLData } from '../../lib/relatorioTotais'
 import IndicCard from './IndicCard'
 import type { IC } from './IndicCard'
+import { carregarMetas, resolverMeta } from '../../lib/indicadorMeta'
+import type { IndicadorMeta } from '../../lib/indicadorMeta'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import type { Item, CC } from './DashFiltros'
 
@@ -82,6 +84,7 @@ export default function ExecutivoPage() {
   const [indicCards, setIndicCards] = useState<IC[]>([])
   const [indicSel, setIndicSel] = useState<string[]>(Array.isArray(sv.indicSel) ? sv.indicSel : [])
   const [pickIndic, setPickIndic] = useState(false)
+  const [metas, setMetas] = useState<IndicadorMeta[]>([])   // faixas de status por indicador (v3_079)
   const loadSeq = useRef(0)
   const dashRef = useRef<HTMLDivElement>(null)   // alvo da exportação (PNG/PDF)
 
@@ -97,6 +100,7 @@ export default function ExecutivoPage() {
     supabase.from('relatorio').select('id,codigo,nome').order('codigo').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => p || sv.relId || r.data![0].id) })
     supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => { setVersoes(r.data || []); if (r.data?.length) setVersaoId(p => p || sv.versaoId || r.data![0].id) })
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
+    carregarMetas().then(setMetas)
     supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
     supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo').then(r => setCcs(r.data || []))
   }, [])
@@ -224,7 +228,7 @@ export default function ExecutivoPage() {
         return vis.length > 0 && (
           <>
             <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '20px 0 8px' }}>Indicadores do relatório</div>
-            <div style={S.kpis}>{vis.map(c => <IndicCard key={c.id} c={c} anoPrev={ano - 1} />)}</div>
+            <div style={S.kpis}>{vis.map(c => <IndicCard key={c.id} c={c} anoPrev={ano - 1} meta={resolverMeta(metas, c.id, ano, empresaSel.length === 1 ? empresaSel[0] : null)} />)}</div>
           </>
         )
       })()}

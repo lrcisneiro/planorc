@@ -8,6 +8,9 @@ import type { RLData } from '../../lib/relatorioTotais'
 import { ArrowLeft, RefreshCw, TrendingUp, TrendingDown, ListChecks } from 'lucide-react'
 import { escopoFiltro, FiltrosButton, PeriodoButton, ModalPanel, Checklist, effectiveCcFilter, SalvarCardButton, useCardPreset, useMoedaView, MoedaSelect, ExportarButton } from './DashFiltros'
 import { useUserAccess } from '../../hooks/useUserAccess'
+import { ChipMeta } from './IndicCard'
+import { carregarMetas, resolverMeta, resumoMeta } from '../../lib/indicadorMeta'
+import type { IndicadorMeta } from '../../lib/indicadorMeta'
 import type { Item, CC } from './DashFiltros'
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -53,6 +56,7 @@ export default function IndicadoresPage() {
   const [linhas, setLinhas] = useState<RL[]>([])
   const [sel, setSel] = useState<string[]>([])
   const [pickOpen, setPickOpen] = useState(false)
+  const [metas, setMetas] = useState<IndicadorMeta[]>([])   // faixas de status por indicador (v3_079)
   const [cards, setCards] = useState<Card[] | null>(null)
   const [loading, setLoading] = useState(false); const [erro, setErro] = useState<string | null>(null)
   const loadSeq = useRef(0)
@@ -70,6 +74,7 @@ export default function IndicadoresPage() {
     supabase.from('relatorio').select('id,codigo,nome').order('codigo').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => p || sv.relId || r.data![0].id) })
     supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => { setVersoes(r.data || []); if (r.data?.length) setVersaoId(p => p || sv.versaoId || r.data![0].id) })
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
+    carregarMetas().then(setMetas)
     supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
     supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo').then(r => setCcs(r.data || []))
   }, []) // eslint-disable-line
@@ -158,14 +163,14 @@ export default function IndicadoresPage() {
       {!loading && (!cards || !cards.length) && <div style={S.empty}>Selecione um relatório e ao menos uma linha (botão "Linhas").</div>}
       {!loading && cards && cards.length > 0 && (
         <div style={S.kpis}>
-          {cards.map(c => <Kpi key={c.id} c={c} anoPrev={ano - 1} />)}
+          {cards.map(c => <Kpi key={c.id} c={c} anoPrev={ano - 1} meta={resolverMeta(metas, c.id, ano, empresaSel.length === 1 ? empresaSel[0] : null)} />)}
         </div>
       )}
     </div>
   )
 }
 
-function Kpi({ c, anoPrev }: { c: Card; anoPrev: number }) {
+function Kpi({ c, anoPrev, meta }: { c: Card; anoPrev: number; meta?: IndicadorMeta | null }) {
   const fmt = (v: number) => formatValor(v, c.formato, c.casas)
   const d = c.R - c.O
   // execução: % p/ valores; em pontos (pp) p/ linhas de percentual
@@ -177,8 +182,12 @@ function Kpi({ c, anoPrev }: { c: Card; anoPrev: number }) {
   const arrow = (bom: boolean) => bom ? <TrendingUp size={13} /> : <TrendingDown size={13} />
   return (
     <div style={S.kpi}>
-      <div style={S.lbl}>{c.label}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ ...S.lbl, flex: 1, minWidth: 0 }}>{c.label}</div>
+        <ChipMeta valor={c.R} meta={meta} />
+      </div>
       <div style={S.val}>{fmt(c.R)}</div>
+      {meta && <div style={{ fontSize: 11, color: 'var(--faint)', marginBottom: 6 }}>{resumoMeta(meta, c.casas)}</div>}
       <div style={S.ksub}>
         Orçado {fmt(c.O)} · {c.isPct
           ? <span style={{ color: bomY ? 'var(--green)' : 'var(--red)' }}>{d >= 0 ? '+' : ''}{formatValor(d, 'NUMERO', c.casas)} pp</span>

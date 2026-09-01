@@ -14,6 +14,8 @@ import { TrendingUp, TrendingDown, RefreshCw, ArrowLeft } from 'lucide-react'
 import DrillModal from './DrillModal'
 import IndicCard from './IndicCard'
 import type { IC } from './IndicCard'
+import { carregarMetas, resolverMeta } from '../../lib/indicadorMeta'
+import type { IndicadorMeta } from '../../lib/indicadorMeta'
 import { escopoFiltro, effectiveCcFilter, FiltrosButton, PeriodoButton, SalvarCardButton, useCardPreset, ModalPanel, Checklist, useMoedaView, MoedaSelect, ExportarButton } from './DashFiltros'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { ListChecks } from 'lucide-react'
@@ -170,6 +172,7 @@ export default function DashboardPage() {
   const [indicCards, setIndicCards] = useState<IC[]>([])
   const [indicSel, setIndicSel] = useState<string[]>(Array.isArray(sv.indicSel) ? sv.indicSel : [])   // quais indicadores exibir (vazio = todos)
   const [pickIndic, setPickIndic] = useState(false)
+  const [metas, setMetas] = useState<IndicadorMeta[]>([])   // faixas de status por indicador (v3_079)
   const [filhasMes, setFilhasMes] = useState<any[]>([])
   const [cascata, setCascata] = useState<any[]>([])
   const [porEmpresa, setPorEmpresa] = useState<any[]>([])
@@ -190,6 +193,7 @@ export default function DashboardPage() {
     supabase.from('relatorio').select('id,codigo,nome').order('nome').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => p || sv.relId || r.data![0].id) })
     supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => { setVersoes(r.data || []); if (r.data?.length) setVersaoId(p => p || sv.versaoId || r.data![0].id) })
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
+    carregarMetas().then(setMetas)
     supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
     supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo').then(r => setCcs(r.data || []))
   }, []) // eslint-disable-line
@@ -656,7 +660,7 @@ export default function DashboardPage() {
             <>
               <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '16px 0 8px' }}>Indicadores do relatório</div>
               <div style={S.kpis}>
-                {vis.map(c => <IndicCard key={c.id} c={c} anoPrev={(anosSel.length ? Math.min(...anosSel) : 0) - 1} />)}
+                {vis.map(c => <IndicCard key={c.id} c={c} anoPrev={(anosSel.length ? Math.min(...anosSel) : 0) - 1} meta={resolverMeta(metas, c.id, anosSel.length ? Math.max(...anosSel) : 0, empresaSel.length === 1 ? empresaSel[0] : null)} />)}
               </div>
             </>
           ) })()}

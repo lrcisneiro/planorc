@@ -5,12 +5,13 @@ import { decodeCC, AREA_MAP, DIVISAO_MAP, BU_MAP } from '../../lib/ccDims'
 import { useGrid, GridHead } from '../../lib/grid'
 import type { GCol } from '../../lib/grid'
 import { PAISES, paisNome } from '../../lib/paises'
+import { useCapacidades } from '../../hooks/useCapacidades'
 
 // SheetJS carregado via CDN no index.html
 declare const XLSX: any
 import { Plus, Trash2, Check, X, Upload, AlertCircle, Download, FileDown, Pencil, Copy, Link2 } from 'lucide-react'
 
-type Aba = 'empresas' | 'filiais' | 'cc' | 'planos' | 'contas' | 'estrutura' | 'funcionarios' | 'verbas' | 'versoes' | 'lotes' | 'moedas' | 'cambio' | 'taxaorcada'
+type Aba = 'empresas' | 'filiais' | 'cc' | 'planos' | 'contas' | 'estrutura' | 'funcionarios' | 'verbas' | 'versoes' | 'lotes' | 'moedas' | 'cambio' | 'taxaorcada' | 'metas'
 
 // ─── Styles ──────────────────────────────────────────────────
 const S = {
@@ -1724,6 +1725,7 @@ const ABAS: { id: Aba; label: string }[] = [
   { id: 'moedas',       label: 'Moedas' },
   { id: 'cambio',       label: 'Câmbio' },
   { id: 'taxaorcada',   label: 'Taxa orçada' },
+  { id: 'metas',        label: 'Metas de indicadores' },
 ]
 
 // ─── MoedaTab (slots de moeda: M1=base) ─────────────────────
@@ -1950,8 +1952,135 @@ function TaxaOrcadaTab() {
   )
 }
 
+// ─── MetasTab — faixas de status por indicador (v3_079) ─────
+// Cadastro do que os cards de indicador usam para dizer se o número está bom:
+// faixas Excelente/Saudável/Atenção e a referência de mercado que as justifica.
+// Ano e Empresa vazios = regra geral; preenchidos, refinam (o card resolve do
+// mais específico para o mais genérico — ver lib/indicadorMeta.ts).
+function MetasTab() {
+  const [data, setData] = useState<any[]>([])
+  const [linhas, setLinhas] = useState<any[]>([])
+  const [empresas, setEmpresas] = useState<any[]>([])
+  const [adding, setAdding] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [busca, setBusca] = useState('')
+  const [erro, setErro] = useState<string | null>(null)
+
+  const load = async () => {
+    try {
+      const rels = await fetchAll(() => supabase.from('relatorio').select('id,codigo,nome').order('codigo'))
+      const relById: Record<string, any> = {}; rels.forEach(r => { relById[r.id] = r })
+      // só as linhas que viram card: INDICADOR ou linha de apoio (nao_soma)
+      const ls = await fetchAll(() => supabase.from('relatorio_linha').select('id,codigo,descricao,tipo_linha,nao_soma,relatorio_id').order('codigo'))
+      setLinhas(ls.filter(l => l.tipo_linha === 'INDICADOR' || l.nao_soma)
+        .map(l => ({ ...l, rel: relById[l.relatorio_id]?.codigo || '?' }))
+        .sort((a, b) => `${a.rel} ${a.codigo}`.localeCompare(`${b.rel} ${b.codigo}`)))
+      setEmpresas(await fetchAll(() => supabase.from('empresa').select('id,codigo,descricao').order('codigo')))
+      setData(await fetchAll(() => supabase.from('indicador_meta').select('*').order('linha_id').order('ano')))
+    } catch (e: any) { setErro(String(e)) }
+  }
+  useEffect(() => { load() }, [])
+
+  const linhaLabel = (id: string) => { const l = linhas.find(x => x.id === id); return l ? `${l.rel} · ${l.codigo} · ${l.descricao}` : '—' }
+  const empLabel = (id: string | null) => { if (!id) return 'todas'; const e = empresas.find(x => x.id === id); return e ? e.codigo : '?' }
+  const num = (v: string) => { const n = parseFloat((v || '').replace(',', '.')); return isFinite(n) ? n : null }
+  const fmtN = (v: any) => v == null ? '—' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 4 })
+
+  const COLS = [
+    { key: 'linha_id', placeholder: 'Indicador', type: 'select' as const, options: linhas.map(l => ({ value: l.id, label: `${l.rel} · ${l.codigo} · ${l.descricao}` })) },
+    { key: 'ano', placeholder: 'Ano (vazio = todos)' },
+    { key: 'empresa_id', placeholder: 'Empresa', type: 'select' as const, options: empresas.map(e => ({ value: e.id, label: `${e.codigo} · ${e.descricao}` })) },
+    { key: 'maior_melhor', placeholder: 'Sentido', type: 'select' as const, options: [{ value: 'S', label: 'Maior é melhor' }, { value: 'N', label: 'Menor é melhor' }] },
+    { key: 'excelente', placeholder: 'Ex: 2,5' },
+    { key: 'saudavel', placeholder: 'Ex: 2,0' },
+    { key: 'atencao', placeholder: 'Ex: 1,5' },
+    { key: 'benchmark_ref', placeholder: 'Ex: Crabtree ≥2,0x' },
+    { key: 'comentario', placeholder: 'Nota (aparece no tooltip)' },
+  ]
+
+  const save = async (v: Record<string, string>, id?: string) => {
+    if (!v.linha_id) { setErro('Escolha o indicador.'); return }
+    if (!v.excelente && !v.saudavel && !v.atencao) { setErro('Informe ao menos uma faixa (excelente, saudável ou atenção).'); return }
+    setErro(null)
+    const payload = {
+      linha_id: v.linha_id,
+      ano: v.ano ? Number(v.ano) : null,
+      empresa_id: v.empresa_id || null,
+      maior_melhor: v.maior_melhor !== 'N',
+      excelente: num(v.excelente), saudavel: num(v.saudavel), atencao: num(v.atencao),
+      benchmark_ref: v.benchmark_ref?.trim() || null,
+      comentario: v.comentario?.trim() || null,
+    }
+    const { error } = id
+      ? await supabase.from('indicador_meta').update(payload).eq('id', id)
+      : await supabase.from('indicador_meta').insert({ tenant_id: TENANT_ID, ...payload })
+    if (error) { setErro(error.message.includes('duplicate') ? 'Já existe meta para esse indicador nesse ano/empresa.' : error.message); return }
+    setAdding(false); setEditId(null); load()
+  }
+
+  const del = async (id: string) => {
+    if (!confirm('Excluir esta meta?')) return
+    const { error } = await supabase.from('indicador_meta').delete().eq('id', id)
+    if (error) setErro(error.message); else load()
+  }
+
+  const filtered = filtraBusca(data, busca, m => `${linhaLabel(m.linha_id)} ${m.ano ?? ''} ${empLabel(m.empresa_id)} ${m.benchmark_ref ?? ''}`)
+
+  return (
+    <div style={S.card}>
+      <Toolbar onAdd={() => { setAdding(true); setErro(null) }} busca={busca} onBusca={setBusca} total={data.length} mostrando={filtered.length} />
+      <div style={{ fontSize: 12, color: 'var(--muted)', padding: '4px 16px 10px' }}>
+        Faixas que os cards usam para classificar o indicador. <b>Ano</b> e <b>Empresa</b> vazios valem como regra geral;
+        preenchidos, refinam a regra. <b>Menor é melhor</b> inverte a leitura (churn, DSO, turnover).
+        A meta por empresa só é aplicada quando o dashboard está filtrado em UMA empresa.
+      </div>
+      {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
+      <table style={S.table}>
+        <thead><tr>
+          <th style={S.th}>Indicador</th><th style={S.th}>Ano</th><th style={S.th}>Empresa</th><th style={S.th}>Sentido</th>
+          <th style={S.th}>Excelente</th><th style={S.th}>Saudável</th><th style={S.th}>Atenção</th>
+          <th style={S.th}>Benchmark</th><th style={S.th}>Nota</th><th style={S.th}></th>
+        </tr></thead>
+        <tbody>
+          {adding && <AddRow cols={COLS} initial={{ maior_melhor: 'S' }} onSave={save} onCancel={() => setAdding(false)} />}
+          {filtered.map(m => editId === m.id ? (
+            <AddRow key={m.id} cols={COLS} onSave={vv => save(vv, m.id)} onCancel={() => setEditId(null)}
+              initial={{
+                linha_id: m.linha_id, ano: m.ano ? String(m.ano) : '', empresa_id: m.empresa_id || '',
+                maior_melhor: m.maior_melhor ? 'S' : 'N',
+                excelente: m.excelente != null ? String(m.excelente) : '',
+                saudavel: m.saudavel != null ? String(m.saudavel) : '',
+                atencao: m.atencao != null ? String(m.atencao) : '',
+                benchmark_ref: m.benchmark_ref || '', comentario: m.comentario || '',
+              }} />
+          ) : (
+            <tr key={m.id}>
+              <td style={S.td}>{linhaLabel(m.linha_id)}</td>
+              <td style={S.td}>{m.ano ?? 'todos'}</td>
+              <td style={S.td}>{empLabel(m.empresa_id)}</td>
+              <td style={S.td}>{m.maior_melhor ? 'maior ↑' : 'menor ↓'}</td>
+              <td style={S.tdMono}>{fmtN(m.excelente)}</td>
+              <td style={S.tdMono}>{fmtN(m.saudavel)}</td>
+              <td style={S.tdMono}>{fmtN(m.atencao)}</td>
+              <td style={S.td}>{m.benchmark_ref || '—'}</td>
+              <td style={S.td}>{m.comentario || '—'}</td>
+              <td style={{ ...S.td, whiteSpace: 'nowrap' }}>
+                <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(m.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
+                <button style={S.btnDel} title="Excluir" onClick={() => del(m.id)}><Trash2 size={14} /></button>
+              </td>
+            </tr>
+          ))}
+          {!filtered.length && !adding && <tr><td colSpan={10} style={S.empty}>Nenhuma meta cadastrada. Sem meta, o card mostra o valor sem chip de status.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export default function CadastrosPage() {
   const [aba, setAba] = useState<Aba>('empresas')
+  const { can } = useCapacidades()
+  const abas = ABAS.filter(a => a.id !== 'metas' || can('indicador.meta'))
 
   return (
     <div style={S.page}>
@@ -1960,7 +2089,7 @@ export default function CadastrosPage() {
         <p style={S.subtitle}>Empresas · Filiais · Centro de Custo · Conta Contábil · Funcionários · Verbas</p>
       </div>
       <div style={S.tabs}>
-        {ABAS.map(a => (
+        {abas.map(a => (
           <button key={a.id} style={S.tab(aba === a.id)} onClick={() => setAba(a.id)}>{a.label}</button>
         ))}
       </div>
@@ -1977,6 +2106,7 @@ export default function CadastrosPage() {
       {aba === 'moedas'       && <MoedaTab />}
       {aba === 'cambio'       && <CambioTab />}
       {aba === 'taxaorcada'   && <TaxaOrcadaTab />}
+      {aba === 'metas'        && can('indicador.meta') && <MetasTab />}
     </div>
   )
 }
