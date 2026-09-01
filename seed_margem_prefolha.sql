@@ -26,6 +26,9 @@
 -- é 204 "Terceiros Externos", que entra no CPV.
 --
 -- IDEMPOTENTE. Rode depois de seed_indicadores_folha_direta.sql.
+-- Este é o ÚLTIMO da sequência: ele reaponta LERM e MBP, que os seeds
+-- anteriores criam apontando para v_cod_margem. Se reexecutar algum deles com
+-- v_sobrescrever = true, rode este de novo em seguida.
 -- ============================================================
 
 DO $$

@@ -19,6 +19,11 @@
 -- "Indicadores" da Visão Executiva. Confira o LER com validar_ler_vs_planilha.sql.
 --
 -- IDEMPOTENTE. Rode no SQL editor do Supabase.
+--
+-- ⚠ ORDEM: se você já rodou seed_margem_prefolha.sql, rodar ESTE arquivo com
+-- v_sobrescrever = true DESFAZ o reapontamento de LERM e MBP — as duas voltam a
+-- usar v_cod_margem (que no DREGER é o EBITDA). Nesse caso, rode
+-- seed_margem_prefolha.sql de novo logo depois para reapontar.
 -- ============================================================
 
 -- ── Antes de configurar, descubra os códigos do seu DRE: ──
