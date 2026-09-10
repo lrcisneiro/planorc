@@ -103,7 +103,12 @@ def resolver_entrada(arg: str | None, perfil: dict, workdir: str) -> str:
     if src.lower().endswith('.zip'):
         os.makedirs(workdir, exist_ok=True)
         with zipfile.ZipFile(src) as z:
-            membros = [n for n in z.namelist() if n.lower().endswith('.csv')]
+            # ignora o lixo que o Finder põe no zip (__MACOSX/._arquivo.csv, 212 bytes):
+            # também termina em .csv e entraria no lugar do arquivo de verdade
+            membros = [n for n in z.namelist()
+                       if n.lower().endswith('.csv')
+                       and not n.startswith('__MACOSX/')
+                       and not os.path.basename(n).startswith('._')]
             if not membros:
                 sair(f'{src}: o zip não tem nenhum .csv dentro.')
             print(f'descompactando {membros[0]} de {os.path.basename(src)}…')
