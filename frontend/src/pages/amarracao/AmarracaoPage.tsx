@@ -28,10 +28,12 @@ type RL = { id: string; codigo: string; descricao: string; linha_orc_id: string 
 type Link = { id: string; conta_id: string; linha_id: string; sinal: number; conta_contabil?: any }
 
 // Monta a árvore na ordem do relatório (pai → filhos por 'ordem'), com profundidade p/ indentação.
-function buildTree(all: RL[], paiId: string | null = null, depth = 0): { l: RL; depth: number }[] {
-  return all.filter(x => (x.pai_id || null) === paiId)
+// `vistos` protege contra ciclo em pai_id (dado corrompido): sem ele a recursão
+// estoura a pilha e a página inteira desmonta, sem erro visível na tela.
+function buildTree(all: RL[], paiId: string | null = null, depth = 0, vistos: Set<string> = new Set()): { l: RL; depth: number }[] {
+  return all.filter(x => (x.pai_id || null) === paiId && !vistos.has(x.id))
     .sort((a, b) => (a.ordem ?? 9999) - (b.ordem ?? 9999))
-    .flatMap(x => [{ l: x, depth }, ...buildTree(all, x.id, depth + 1)])
+    .flatMap(x => { vistos.add(x.id); return [{ l: x, depth }, ...buildTree(all, x.id, depth + 1, vistos)] })
 }
 
 async function fetchAll(q: () => any): Promise<any[]> {
@@ -135,7 +137,9 @@ export default function AmarracaoPage() {
     return true
   }
   const childrenByPai: Record<string, Conta[]> = {}; contas.forEach(c => { const p = c.pai_id || '_'; (childrenByPai[p] = childrenByPai[p] || []).push(c) })
-  const descAnalit = (id: string): Conta[] => { const out: Conta[] = []; const st = [...(childrenByPai[id] || [])]; while (st.length) { const n = st.pop()!; if (isSint(n)) (childrenByPai[n.id] || []).forEach(x => st.push(x)); else out.push(n) } return out }
+  // `vistos` é obrigatório: um ciclo em pai_id (ex.: raiz importada com pai errado)
+  // faria este while rodar para sempre e congelar a aba durante o render.
+  const descAnalit = (id: string): Conta[] => { const out: Conta[] = []; const vistos = new Set<string>([id]); const st = [...(childrenByPai[id] || [])]; while (st.length) { const n = st.pop()!; if (vistos.has(n.id)) continue; vistos.add(n.id); if (isSint(n)) (childrenByPai[n.id] || []).forEach(x => st.push(x)); else out.push(n) } return out }
   const selecionaveis = (c: Conta) => descAnalit(c.id).filter(passa)   // analíticas filhas que passam nos filtros
   const contasF = contas.filter(c => passa(c) && (!cb || c.codigo.toLowerCase().includes(cb) || c.descricao.toLowerCase().includes(cb))).slice(0, 500)
   const toggleGrupo = (g: string) => setGrupos(prev => { const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n })
@@ -153,7 +157,7 @@ export default function AmarracaoPage() {
   let visible = ordered
   if (lb) {
     const keep = new Set<string>()
-    linhas.forEach(l => { if (`${l.codigo} ${l.descricao}`.toLowerCase().includes(lb)) { let cur: RL | undefined = l; while (cur) { keep.add(cur.id); cur = cur.pai_id ? byId[cur.pai_id] : undefined } } })
+    linhas.forEach(l => { if (`${l.codigo} ${l.descricao}`.toLowerCase().includes(lb)) { let cur: RL | undefined = l; while (cur && !keep.has(cur.id)) { keep.add(cur.id); cur = cur.pai_id ? byId[cur.pai_id] : undefined } } })
     visible = ordered.filter(o => keep.has(o.l.id))
   }
 
