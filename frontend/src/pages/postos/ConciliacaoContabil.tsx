@@ -16,7 +16,7 @@ import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare } from 'lu
 // começa com um código de verba da competência veio da folha.
 
 export type ContabilParams = {
-  ano: number; mes: number
+  ano: number; mes: number; versaoId: string
   empresaSel: string[]; filialFilter: string[] | null; ccFilter: string[] | null
 }
 type Row = { conta_id: string; conta_cod: string; conta_desc: string; plano_cod: string | null; verba_cod: string | null; verba_desc: string | null; origem: 'FOLHA' | 'OUTRAS'; razao: number; folha: number }

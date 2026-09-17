@@ -15,11 +15,11 @@ import { ArrowLeftRight, UserMinus, UserPlus } from 'lucide-react'
 // manual por enquanto, de propósito: mexer em posto é ato de orçamento.
 
 export type QuadroParams = {
-  ano: number; mes: number
+  ano: number; mes: number; versaoId: string
   empresaSel: string[]; filialFilter: string[] | null; ccFilter: string[] | null
 }
 type SemPosto = { chave: string; matricula: string; nome: string; postoCod: string; motivo: string; filial_id: string | null; cc_id: string | null; valor: number }
-type SemReal  = { id: string; codigo: string; nome: string; filial_id: string | null; cc_id: string | null; salario: number }
+type SemReal  = { id: string; codigo: string; nome: string; filial_id: string | null; cc_id: string | null; orcado: number; semSalario: boolean }
 
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const MOTIVO: Record<string, string> = { nao_existe: 'posto não existe', fora_vigencia: 'fora de vigência', filial_diverge: 'filial diverge' }
@@ -58,7 +58,7 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
       // a URL estoura e o GET falha. Empresa e filial são catálogos pequenos e
       // continuam no servidor; o CC é filtrado aqui, depois de ler.
       const ccSet = p.ccFilter ? new Set(p.ccFilter) : null
-      const [folhaRaw, postos, ccs, fils] = await Promise.all([
+      const [folhaRaw, postos, ccs, fils, orcRaw] = await Promise.all([
         pageAll(() => {
           let q = supabase.from('fat_folha').select('posto_id,matricula,nome,valor,dims,filial_id,cc_id')
             .eq('tipo', 'REALIZADO').eq('ano', p.ano).eq('mes', p.mes)
@@ -69,6 +69,10 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
         pageAll(() => supabase.from('posto').select('id,codigo,nome,empresa_id,filial_id,cc_id,salario_base,ini_ano,ini_mes,fim_ano,fim_mes')),
         pageAll(() => supabase.from('centro_custo').select('id,codigo')),
         pageAll(() => supabase.from('filial').select('id,codigo')),
+        // quanto o posto CUSTAVA no orçado do mês — encargos e benefícios inclusos.
+        // O salário do cadastro sozinho subestima e não é o que deixou de ser gasto.
+        p.versaoId ? pageAll(() => supabase.from('fat_folha').select('posto_id,valor')
+          .eq('tipo', 'ORCADO').eq('versao_id', p.versaoId).eq('ano', p.ano).eq('mes', p.mes)) : Promise.resolve([]),
       ])
       if (!vivo) return
       const folha = ccSet ? (folhaRaw as any[]).filter(l => l.cc_id && ccSet.has(l.cc_id)) : folhaRaw
@@ -100,9 +104,12 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
         const fim = x.fim_ano ? x.fim_ano * 12 + (x.fim_mes || 12) : null
         return (!ini || per >= ini) && (!fim || per <= fim)
       }
+      const orcPorPosto = new Map<string, number>()
+      for (const o of orcRaw as any[]) { if (o.posto_id) orcPorPosto.set(o.posto_id, (orcPorPosto.get(o.posto_id) || 0) + (Number(o.valor) || 0)) }
       setSemReal((postos as any[]).filter(x => vig(x) && escopoOk(x) && !comPosto.has(x.id))
-        .map(x => ({ id: x.id, codigo: x.codigo, nome: x.nome || '', filial_id: x.filial_id, cc_id: x.cc_id, salario: Number(x.salario_base) || 0 }))
-        .sort((a, b) => b.salario - a.salario))
+        .map(x => ({ id: x.id, codigo: x.codigo, nome: x.nome || '', filial_id: x.filial_id, cc_id: x.cc_id,
+                     orcado: orcPorPosto.get(x.id) || 0, semSalario: !(Number(x.salario_base) > 0) }))
+        .sort((a, b) => b.orcado - a.orcado))
       } catch (e: any) {
         // sem isto o bloco ficava em "Carregando…" para sempre, sem dizer o motivo
         if (vivo) setErro(e?.message || String(e))
@@ -111,7 +118,7 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
       }
     })()
     return () => { vivo = false }
-  }, [p.ano, p.mes, p.empresaSel, p.filialFilter, p.ccFilter])
+  }, [p.ano, p.mes, p.versaoId, p.empresaSel, p.filialFilter, p.ccFilter])
 
   // Pareamento sugerido: mesma filial + mesmo CC. Só sugestão — nomes e valores
   // divergem legitimamente numa troca (salário diferente, mês parcial).
@@ -128,7 +135,7 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
   const postosPareados = useMemo(() => new Set(Object.values(paresPorPessoa).flat().map(s => s.id)), [paresPorPessoa])
 
   const totA = semPosto.reduce((s, x) => s + x.valor, 0)
-  const totB = semReal.reduce((s, x) => s + x.salario, 0)
+  const totB = semReal.reduce((s, x) => s + x.orcado, 0)
 
   if (loading) return <div style={S.empty}>Carregando movimentação de quadro…</div>
   if (erro) return <div style={{ ...S.wrap, ...S.empty, color: 'var(--red)' }}>Movimentação de quadro não carregou: {erro}</div>
@@ -174,19 +181,21 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
 
         <div style={S.card}>
           <div style={S.cardT}><UserMinus size={14} style={{ color: 'var(--blue)' }} /> Posto orçado sem realizado no mês
-            <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontWeight: 400 }}>{semReal.length} · R$ {money(totB)} de salário</span></div>
+            <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontWeight: 400 }}>{semReal.length} · R$ {money(totB)} orçados no mês</span></div>
           {!semReal.length ? <div style={S.empty}>Nenhum — todo posto vigente teve custo no mês.</div> : (
             <table style={S.table}>
-              <thead><tr><th style={S.th}>Posto</th><th style={S.th}>Filial/CC</th><th style={S.th}>Leitura</th><th style={{ ...S.th, textAlign: 'right' }}>Salário</th></tr></thead>
+              <thead><tr><th style={S.th}>Posto</th><th style={S.th}>Filial/CC</th><th style={S.th}>Leitura</th><th style={{ ...S.th, textAlign: 'right' }}>Orçado no mês</th></tr></thead>
               <tbody>
                 {semReal.map(x => (
                   <tr key={x.id}>
                     <td style={S.td}><span style={S.mono}>{x.codigo}</span> {x.nome}</td>
                     <td style={{ ...S.td, ...S.mono }}>{filCod[x.filial_id || ''] || '—'}/{ccCod[x.cc_id || ''] || '—'}</td>
-                    <td style={S.td}>{postosPareados.has(x.id)
-                      ? <span style={tag('var(--violet)', 'rgba(139,92,246,0.16)')}>possível troca</span>
-                      : <span style={tag('var(--blue)', 'rgba(59,130,246,0.14)')}>vaga sem custo</span>}</td>
-                    <td style={{ ...S.td, textAlign: 'right' }}>{money(x.salario)}</td>
+                    <td style={S.td}>{x.semSalario
+                      ? <span title="posto cadastrado com salario_base = 0: o motor calcula custo zero, então ele não entra no orçado" style={tag('var(--orange)', 'rgba(251,146,60,0.14)')}>sem salário no cadastro</span>
+                      : postosPareados.has(x.id)
+                        ? <span style={tag('var(--violet)', 'rgba(139,92,246,0.16)')}>possível troca</span>
+                        : <span style={tag('var(--blue)', 'rgba(59,130,246,0.14)')}>vaga sem custo</span>}</td>
+                    <td style={{ ...S.td, textAlign: 'right' }}>{money(x.orcado)}</td>
                   </tr>
                 ))}
               </tbody>

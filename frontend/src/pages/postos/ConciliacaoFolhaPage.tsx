@@ -93,12 +93,12 @@ export default function ConciliacaoFolhaPage() {
     if (!compSel) return null
     const [a, m] = compSel.split('-').map(Number)
     return {
-      ano: a, mes: m,
+      ano: a, mes: m, versaoId: versaoSel,
       empresaSel: escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSee) ?? [],
       filialFilter: escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSee),
       ccFilter: escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee),
     }
-  }, [compSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, filiais, empresas, ccs, acesso.loading]) // eslint-disable-line
+  }, [compSel, versaoSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, filiais, empresas, ccs, acesso.loading]) // eslint-disable-line
 
   return (
     <div style={S.page}>
