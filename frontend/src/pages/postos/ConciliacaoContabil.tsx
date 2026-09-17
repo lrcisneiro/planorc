@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
 import { ConciliacaoQuadro } from './ConciliacaoQuadro'
 import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare } from 'lucide-react'
@@ -63,6 +64,10 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   const [drill, setDrill] = useState<Record<string, Pessoa[] | Lanc[]>>({})
   const [editNota, setEditNota] = useState<string | null>(null)
   const [txtNota, setTxtNota] = useState('')
+  // CLT = conta que a contabilização da folha alimenta. Conta com folha e SEM razão
+  // de origem folha é o outro mundo (PJ pago por NF, lote de contas a pagar): não
+  // concilia por verba e polui a leitura do CLT. Some por escolha, nunca em silêncio.
+  const [soCLT, setSoCLT] = useLocalPref('planorc_concil_so_clt', true)
 
   const escopo = useMemo(() => ({
     p_ano: p.ano, p_mes: p.mes,
@@ -109,10 +114,17 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     }).sort((a, b) => a.cod.localeCompare(b.cod))
   }, [rows, tol])
 
-  const tot = useMemo(() => contas.reduce((s, c) => ({
+  // guarda: se o filtro esconderia TUDO, não esconde nada — é o sintoma de razão
+  // ausente (competência não importada / filtro de escopo cortando), e sumir com a
+  // tabela inteira esconderia justamente a pista.
+  const naoCLT = useMemo(() => contas.filter(c => c.razao === 0 && c.folha !== 0), [contas])
+  const escondendo = soCLT && naoCLT.length > 0 && naoCLT.length < contas.length
+  const visiveis = escondendo ? contas.filter(c => !(c.razao === 0 && c.folha !== 0)) : contas
+
+  const tot = useMemo(() => visiveis.reduce((s, c) => ({
     razao: s.razao + c.razao, folha: s.folha + c.folha, outras: s.outras + c.outras,
     pend: s.pend + c.foraTol.length + (Math.abs(c.outras) > tol && !notas[chave(c.id, null)] ? 1 : 0),
-  }), { razao: 0, folha: 0, outras: 0, pend: 0 }), [contas, tol, notas])
+  }), { razao: 0, folha: 0, outras: 0, pend: 0 }), [visiveis, tol, notas])
 
   const salvarTolerancia = async () => {
     const v = Number(tolTxt.replace(/\./g, '').replace(',', '.'))
@@ -205,10 +217,24 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
             onChange={e => setTolTxt(e.target.value)} onBlur={salvarTolerancia}
             onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
         </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--text-mid)', cursor: 'pointer', paddingBottom: 8 }}
+          title="Esconde as contas em que a folha tem valor mas a contabilização da folha não lançou nada — o caso do PJ, que chega por nota fiscal em outro lote e não concilia por verba.">
+          <input type="checkbox" checked={soCLT} onChange={e => setSoCLT(e.target.checked)} /> Só CLT
+        </label>
         <span style={{ fontSize: 12, color: 'var(--muted)', paddingBottom: 8 }}>
-          Abaixo disso a verba conta como conciliada — rateio e arredondamento não são divergência.
+          Abaixo da tolerância a verba conta como conciliada — rateio e arredondamento não são divergência.
         </span>
       </div>
+
+      {escondendo && (
+        <div style={{ fontSize: 12, color: 'var(--blue)', margin: '-4px 0 12px' }}>
+          {naoCLT.length} conta(s) ocultas por "Só CLT" — R$ {money(naoCLT.reduce((s, c) => s + c.folha, 0))} de folha sem contabilização pela folha
+          ({naoCLT.map(c => c.cod).join(', ')}). É o PJ: chega por nota fiscal, em outro lote.
+        </div>
+      )}
+      {soCLT && naoCLT.length > 0 && naoCLT.length === contas.length && (
+        <div style={S.erro}><AlertCircle size={16} /> Nenhuma conta tem razão de origem folha — o filtro "Só CLT" esconderia tudo, então está inativo. Confira se o razão da competência foi importado e se os filtros de escopo não estão cortando o lado contábil.</div>
+      )}
 
       <div style={S.card}>
         <table style={S.table}>
@@ -221,7 +247,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
             <th style={S.th}>Status</th>
           </tr></thead>
           <tbody>
-            {contas.map(c => {
+            {visiveis.map(c => {
               const kc = `c:${c.id}`; const abertoC = aberto.has(kc)
               const temResiduo = Math.abs(c.outras) > tol
               const st = c.foraTol.length ? DIF : temResiduo ? RES : OK
