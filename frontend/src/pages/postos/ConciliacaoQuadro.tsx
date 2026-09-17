@@ -46,26 +46,32 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
   const [ccCod, setCcCod] = useState<Record<string, string>>({})
   const [filCod, setFilCod] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
 
   useEffect(() => {
     let vivo = true
     ;(async () => {
-      setLoading(true)
+      setLoading(true); setErro(null)
+      try {
       const per = p.ano * 12 + p.mes
-      const [folha, postos, ccs, fils] = await Promise.all([
+      // O escopo de CC pode ter centenas de ids; como .in() vai na QUERY STRING,
+      // a URL estoura e o GET falha. Empresa e filial são catálogos pequenos e
+      // continuam no servidor; o CC é filtrado aqui, depois de ler.
+      const ccSet = p.ccFilter ? new Set(p.ccFilter) : null
+      const [folhaRaw, postos, ccs, fils] = await Promise.all([
         pageAll(() => {
           let q = supabase.from('fat_folha').select('posto_id,matricula,nome,valor,dims,filial_id,cc_id')
             .eq('tipo', 'REALIZADO').eq('ano', p.ano).eq('mes', p.mes)
           if (p.empresaSel.length) q = q.in('empresa_id', p.empresaSel)
           if (p.filialFilter) q = q.in('filial_id', p.filialFilter)
-          if (p.ccFilter) q = q.in('cc_id', p.ccFilter)
           return q
         }),
         pageAll(() => supabase.from('posto').select('id,codigo,nome,empresa_id,filial_id,cc_id,salario,ini_ano,ini_mes,fim_ano,fim_mes')),
-        supabase.from('centro_custo').select('id,codigo').then(r => r.data || []),
-        supabase.from('filial').select('id,codigo').then(r => r.data || []),
+        pageAll(() => supabase.from('centro_custo').select('id,codigo')),
+        pageAll(() => supabase.from('filial').select('id,codigo')),
       ])
       if (!vivo) return
+      const folha = ccSet ? (folhaRaw as any[]).filter(l => l.cc_id && ccSet.has(l.cc_id)) : folhaRaw
       setCcCod(Object.fromEntries((ccs as any[]).map(c => [c.id, c.codigo])))
       setFilCod(Object.fromEntries((fils as any[]).map(f => [f.id, f.codigo])))
 
@@ -97,7 +103,12 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
       setSemReal((postos as any[]).filter(x => vig(x) && escopoOk(x) && !comPosto.has(x.id))
         .map(x => ({ id: x.id, codigo: x.codigo, nome: x.nome || '', filial_id: x.filial_id, cc_id: x.cc_id, salario: Number(x.salario) || 0 }))
         .sort((a, b) => b.salario - a.salario))
-      setLoading(false)
+      } catch (e: any) {
+        // sem isto o bloco ficava em "Carregando…" para sempre, sem dizer o motivo
+        if (vivo) setErro(e?.message || String(e))
+      } finally {
+        if (vivo) setLoading(false)
+      }
     })()
     return () => { vivo = false }
   }, [p.ano, p.mes, p.empresaSel, p.filialFilter, p.ccFilter])
@@ -120,6 +131,7 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
   const totB = semReal.reduce((s, x) => s + x.salario, 0)
 
   if (loading) return <div style={S.empty}>Carregando movimentação de quadro…</div>
+  if (erro) return <div style={{ ...S.wrap, ...S.empty, color: 'var(--red)' }}>Movimentação de quadro não carregou: {erro}</div>
   if (!semPosto.length && !semReal.length) return null
 
   return (
