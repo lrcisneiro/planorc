@@ -19,7 +19,7 @@ export type ContabilParams = {
   ano: number; mes: number
   empresaSel: string[]; filialFilter: string[] | null; ccFilter: string[] | null
 }
-type Row = { conta_id: string; conta_cod: string; conta_desc: string; verba_cod: string | null; verba_desc: string | null; origem: 'FOLHA' | 'OUTRAS'; razao: number; folha: number }
+type Row = { conta_id: string; conta_cod: string; conta_desc: string; plano_cod: string | null; verba_cod: string | null; verba_desc: string | null; origem: 'FOLHA' | 'OUTRAS'; razao: number; folha: number }
 type Nota = { id: string; conta_id: string; verba_cod: string | null; motivo: string }
 type Pessoa = { matricula: string; nome: string; valor: number }
 type Lanc = { data: string | null; documento: string | null; historico: string | null; lote: string | null; cc_cod: string | null; valor: number }
@@ -99,9 +99,9 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
 
   // agrupa por conta: as verbas (parcela da folha) e a linha única de resíduo
   const contas = useMemo(() => {
-    const m = new Map<string, { id: string; cod: string; desc: string; verbas: Row[]; outras: number }>()
+    const m = new Map<string, { id: string; cod: string; desc: string; plano: string; verbas: Row[]; outras: number }>()
     for (const r of rows) {
-      const g = m.get(r.conta_id) || { id: r.conta_id, cod: r.conta_cod, desc: r.conta_desc, verbas: [], outras: 0 }
+      const g = m.get(r.conta_id) || { id: r.conta_id, cod: r.conta_cod, desc: r.conta_desc, plano: r.plano_cod || '', verbas: [], outras: 0 }
       if (r.origem === 'OUTRAS') g.outras += Number(r.razao) || 0
       else g.verbas.push({ ...r, razao: Number(r.razao) || 0, folha: Number(r.folha) || 0 })
       m.set(r.conta_id, g)
@@ -120,6 +120,14 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   const naoCLT = useMemo(() => contas.filter(c => c.razao === 0 && c.folha !== 0), [contas])
   const escondendo = soCLT && naoCLT.length > 0 && naoCLT.length < contas.length
   const visiveis = escondendo ? contas.filter(c => !(c.razao === 0 && c.folha !== 0)) : contas
+
+  // o mesmo código em planos diferentes são contas diferentes (multi-ERP): sem o
+  // plano no rótulo a tela mostraria duas linhas idênticas com valores distintos
+  const repetidas = useMemo(() => {
+    const n = new Map<string, number>()
+    contas.forEach(c => n.set(c.cod, (n.get(c.cod) || 0) + 1))
+    return new Set([...n.entries()].filter(([, q]) => q > 1).map(([k]) => k))
+  }, [contas])
 
   const tot = useMemo(() => visiveis.reduce((s, c) => ({
     razao: s.razao + c.razao, folha: s.folha + c.folha, outras: s.outras + c.outras,
@@ -255,7 +263,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
               return (
                 <Fragment key={c.id}>
                   <tr onClick={() => setAberto(prev => { const n = new Set(prev); n.has(kc) ? n.delete(kc) : n.add(kc); return n })}>
-                    <td style={S.gh}>{abertoC ? <ChevronDown size={13} /> : <ChevronRight size={13} />} <span style={S.mono}>{c.cod}</span> {c.desc}</td>
+                    <td style={S.gh}>{abertoC ? <ChevronDown size={13} /> : <ChevronRight size={13} />} <span style={S.mono}>{c.cod}</span> {c.desc}{repetidas.has(c.cod) && c.plano ? <span style={{ ...S.mono, fontSize: 11, marginLeft: 6 }}>· plano {c.plano}</span> : null}</td>
                     <td style={{ ...S.gh, textAlign: 'right' }}>{money(c.razao)}</td>
                     <td style={{ ...S.gh, textAlign: 'right' }}>{money(c.folha)}</td>
                     <td style={{ ...S.gh, textAlign: 'right', color: Math.abs(c.dif) > tol ? 'var(--orange)' : 'var(--muted)' }}>{money(c.dif)}</td>
