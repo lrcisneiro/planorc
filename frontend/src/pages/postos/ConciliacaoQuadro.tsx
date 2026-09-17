@@ -194,7 +194,7 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
                       ? <span title="posto cadastrado com salario_base = 0: o motor calcula custo zero, então ele não entra no orçado" style={tag('var(--orange)', 'rgba(251,146,60,0.14)')}>sem salário no cadastro</span>
                       : postosPareados.has(x.id)
                         ? <span style={tag('var(--violet)', 'rgba(139,92,246,0.16)')}>possível troca</span>
-                        : <span style={tag('var(--blue)', 'rgba(59,130,246,0.14)')}>vaga sem custo</span>}</td>
+                        : <span style={tag('var(--blue)', 'rgba(59,130,246,0.14)')}>{x.orcado ? 'orçado, não pago' : 'sem custo dos dois lados'}</span>}</td>
                     <td style={{ ...S.td, textAlign: 'right' }}>{money(x.orcado)}</td>
                   </tr>
                 ))}
