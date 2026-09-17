@@ -5,9 +5,12 @@ import { PostosPills, passoLabel } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro, useMoedaView, MoedaSelect } from '../dashboard/DashFiltros'
 import { ConciliacaoFolha } from './ConciliacaoFolha'
+import { ConciliacaoContabil } from './ConciliacaoContabil'
 import { usePostoCtx } from '../../lib/postoCtx'
+import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
 import type { ConcilParams } from './ConciliacaoFolha'
+import type { ContabilParams } from './ConciliacaoContabil'
 
 // Página AVULSA de conciliação de folha (a partir dos Postos): escolhe versão +
 // competência + escopo e compara TODAS as contas (Orçado motor × Realizado folha)
@@ -27,8 +30,18 @@ const S: Record<string, CSSProperties> = {
   empty: { padding: '30px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12 },
 }
 
+// Duas perguntas diferentes sobre a mesma folha, no mesmo lugar:
+//   orcado   — o que planejamos × o que a folha pagou (por posto)
+//   contabil — o que a contabilidade lançou × o que a folha pagou (por funcionário)
+// A segunda é a que destrava a área: ela orça na conta contábil e recebe o
+// realizado agregado, sem conseguir ver quem compõe o número.
+type Aba = 'orcado' | 'contabil'
+
+const tab = (a: boolean): CSSProperties => ({ padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: a ? 'default' : 'pointer', borderRadius: 8, border: '1px solid ' + (a ? 'var(--violet)' : 'var(--border)'), background: a ? 'rgba(139,92,246,0.16)' : 'var(--panel)', color: a ? 'var(--violet)' : 'var(--text-mid)' })
+
 export default function ConciliacaoFolhaPage() {
   const acesso = useUserAccess()
+  const [abaSel, setAbaSel] = useLocalPref<Aba>('planorc_concil_aba', 'orcado')
   const { moedas, slot: moedaSlot, setSlot: setMoedaSlot } = useMoedaView()
   const [versoes, setVersoes] = useState<any[]>([])
   const [versaoSel, setVersaoSel] = usePostoCtx('versaoId', '')
@@ -75,23 +88,42 @@ export default function ConciliacaoFolhaPage() {
     }
   }, [versaoSel, compSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, filiais, empresas, ccs, versoes, acesso.loading, moedaSlot]) // eslint-disable-line
 
+  // a aba contábil não depende de versão: compara dois realizados, não o orçado
+  const paramsContabil = useMemo<ContabilParams | null>(() => {
+    if (!compSel) return null
+    const [a, m] = compSel.split('-').map(Number)
+    return {
+      ano: a, mes: m,
+      empresaSel: escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSee) ?? [],
+      filialFilter: escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSee),
+      ccFilter: escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee),
+    }
+  }, [compSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, filiais, empresas, ccs, acesso.loading]) // eslint-disable-line
+
   return (
     <div style={S.page}>
       <div style={S.top}>
         <div>
           <h1 style={S.title}>Conciliação de folha</h1>
-          <p style={S.sub}>Orçado (postos aplicados) × Realizado (folha) por posto, na versão e competência escolhidas — todas as contas. Para conciliar uma linha específica, use o botão <b>Conciliação Folha</b> no razão da DRE.</p>
+          <p style={S.sub}>{abaSel === 'orcado'
+            ? <>Orçado (postos aplicados) × Realizado (folha) por posto, na versão e competência escolhidas — todas as contas. Para conciliar uma linha específica, use o botão <b>Conciliação Folha</b> no razão da DRE.</>
+            : <>Realizado contábil (razão) × Realizado da folha, por conta → verba → funcionário. Separa o que a contabilização da folha lançou do que entrou na mesma conta por outra origem (fatura paga direto, ajuste de competência, NF de PJ) — só a primeira parcela tem de bater.</>}</p>
         </div>
         <PostosPills />
       </div>
 
+      <div style={{ display: 'flex', gap: 8, margin: '18px 0 0' }}>
+        <button style={tab(abaSel === 'orcado')} onClick={() => setAbaSel('orcado')}>Orçado × Folha</button>
+        <button style={tab(abaSel === 'contabil')} onClick={() => setAbaSel('contabil')}>Contábil × Folha</button>
+      </div>
+
       <div style={S.bar}>
-        <div style={S.fld}><span style={S.lbl}>Versão (orçado)</span>
+        {abaSel === 'orcado' && <div style={S.fld}><span style={S.lbl}>Versão (orçado)</span>
           <select style={S.sel} value={versaoSel} onChange={e => setVersaoSel(e.target.value)}>
             {!versoes.length && <option value="">—</option>}
             {versoes.map((v: any) => <option key={v.id} value={v.id}>{v.codigo}</option>)}
           </select>
-        </div>
+        </div>}
         <div style={S.fld}><span style={S.lbl}>Competência (realizado)</span>
           <select style={S.sel} value={compSel} onChange={e => setCompSel(e.target.value)}>
             {!comps.length && <option value="">—</option>}
@@ -103,13 +135,15 @@ export default function ConciliacaoFolhaPage() {
             empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel}
             areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         </div>
-        {moedas.length > 1 && <div style={S.fld}><span style={S.lbl}>Moeda</span>
+        {abaSel === 'orcado' && moedas.length > 1 && <div style={S.fld}><span style={S.lbl}>Moeda</span>
           <MoedaSelect moedas={moedas} slot={moedaSlot} setSlot={setMoedaSlot} /></div>}
       </div>
 
       {!comps.length ? <div style={S.empty}>Nenhuma folha importada ainda. Vá em <b>{passoLabel('/postos/folha')}</b> e importe o realizado antes de conciliar.</div>
-        : params ? <ConciliacaoFolha params={params} />
-        : <div style={S.empty}>Selecione a versão e a competência.</div>}
+        : abaSel === 'contabil'
+          ? (paramsContabil ? <ConciliacaoContabil params={paramsContabil} podeConfigurar={acesso.isAdmin} /> : <div style={S.empty}>Selecione a competência.</div>)
+          : params ? <ConciliacaoFolha params={params} />
+          : <div style={S.empty}>Selecione a versão e a competência.</div>}
     </div>
   )
 }
