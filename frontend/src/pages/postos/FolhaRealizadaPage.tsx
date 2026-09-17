@@ -209,8 +209,21 @@ export default function FolhaRealizadaPage() {
         return { valor: vals[1] as number, val_m2: vals[2] ?? null, val_m3: vals[3] ?? null }
       }
       let semTaxa = 0
-      const ct = await pageAll(() => supabase.from('conta_contabil').select('id,codigo'))
+      // Conta contábil é única por PLANO, não por código: dois ERPs podem repetir o
+      // mesmo código. O import do razão resolve por (plano da empresa | código) — este
+      // precisa resolver igual, senão o mesmo código vira conta_id diferente nos dois
+      // lados e a conciliação contábil × folha não cruza nada (os dois lados zeram).
+      const ct = await pageAll(() => supabase.from('conta_contabil').select('id,codigo,plano_id'))
+      const contaPorPlano = new Map(ct.map((c: any) => [`${c.plano_id}|${String(c.codigo).trim()}`, c.id]))
+      const ep = await pageAll(() => supabase.from('empresa').select('id,plano_id'))
+      const planoDaEmpresa = new Map(ep.map((e: any) => [e.id, e.plano_id]))
+      // fallback por código: tenant de plano único e linha sem empresa resolvida
       const contaByCod = new Map(ct.map((c: any) => [String(c.codigo).trim(), c.id]))
+      const achaConta = (cod: string, empresaId: string | null) => {
+        if (!cod) return null
+        const pl = empresaId ? planoDaEmpresa.get(empresaId) : null
+        return (pl ? contaPorPlano.get(`${pl}|${cod}`) : null) || contaByCod.get(cod) || null
+      }
       const co = await pageAll(() => supabase.from('conta_orcamentaria').select('id,codigo'))
       const itemByCod = new Map(co.map((c: any) => [String(c.codigo).trim(), c.id]))
 
@@ -271,7 +284,7 @@ export default function FolhaRealizadaPage() {
         }
         comps.add(`${ano}|${mes}`)
         if (empCod && !empresa_id) semEmpresa.add(empCod)
-        const conta_id = contaByCod.get((r.conta_deb || '').trim()) || null
+        const conta_id = achaConta((r.conta_deb || '').trim(), empresa_id)
         if (!conta_id) semConta++
         const item_orc_id = item_orc_cod ? (itemByCod.get(item_orc_cod) || null) : null
         if (item_orc_cod && !item_orc_id) semItem++
