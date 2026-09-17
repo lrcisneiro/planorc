@@ -66,7 +66,7 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
           if (p.filialFilter) q = q.in('filial_id', p.filialFilter)
           return q
         }),
-        pageAll(() => supabase.from('posto').select('id,codigo,nome,empresa_id,filial_id,cc_id,salario,ini_ano,ini_mes,fim_ano,fim_mes')),
+        pageAll(() => supabase.from('posto').select('id,codigo,nome,empresa_id,filial_id,cc_id,salario_base,ini_ano,ini_mes,fim_ano,fim_mes')),
         pageAll(() => supabase.from('centro_custo').select('id,codigo')),
         pageAll(() => supabase.from('filial').select('id,codigo')),
       ])
@@ -101,7 +101,7 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
         return (!ini || per >= ini) && (!fim || per <= fim)
       }
       setSemReal((postos as any[]).filter(x => vig(x) && escopoOk(x) && !comPosto.has(x.id))
-        .map(x => ({ id: x.id, codigo: x.codigo, nome: x.nome || '', filial_id: x.filial_id, cc_id: x.cc_id, salario: Number(x.salario) || 0 }))
+        .map(x => ({ id: x.id, codigo: x.codigo, nome: x.nome || '', filial_id: x.filial_id, cc_id: x.cc_id, salario: Number(x.salario_base) || 0 }))
         .sort((a, b) => b.salario - a.salario))
       } catch (e: any) {
         // sem isto o bloco ficava em "Carregando…" para sempre, sem dizer o motivo
