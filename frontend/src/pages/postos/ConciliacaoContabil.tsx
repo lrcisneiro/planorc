@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
+import { ConciliacaoQuadro } from './ConciliacaoQuadro'
 import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare } from 'lucide-react'
 
 // Conciliação CONTÁBIL × FOLHA (camada 2). Responde, em três níveis:
@@ -309,6 +310,8 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
           </tbody>
         </table>
       </div>
+
+      <ConciliacaoQuadro params={p} />
     </div>
   )
 }

@@ -240,18 +240,30 @@ export default function FolhaRealizadaPage() {
         const postoCod = (r.posto_codigo || '').trim()
         let posto_id: string | null = null
         let po: any = null
+        let motivoPosto: string | null = null
         if (postoCod) {
+          // NUNCA descartar a linha por causa do posto: posto é vaga ORÇADA, e quem
+          // entrou fora do plano não tem posto porque não foi orçado — isso é o desvio
+          // que a área precisa ver, não erro de arquivo. Descartar aqui sumia com
+          // dinheiro real (rescisão de quem saiu, salário de quem entrou) justamente
+          // da ferramenta que existe para explicar dinheiro. Grava com posto_id nulo
+          // e o motivo em dims; a conciliação mostra e o gestor decide.
           po = postoByCod.get(postoCod)
-          if (!po) { errosPosto.push(`${postoCod}: posto não existe`); continue }        // rejeita a linha
-          const ini = po.ini_ano ? po.ini_ano * 12 + (po.ini_mes || 1) : null
-          const fim = po.fim_ano ? po.fim_ano * 12 + (po.fim_mes || 12) : null
           const per = ano * 12 + mes
-          if ((ini && per < ini) || (fim && per > fim)) { errosPosto.push(`${postoCod}: fora de vigência em ${mes}/${ano}`); continue }
-          // filial diverge → rejeita (filial é estável, não muda com redirect/rateio)
-          if (fil && po.filial_id && fil.id !== po.filial_id) { errosPosto.push(`${postoCod}: filial ${filial} ≠ cadastro do posto`); continue }
-          posto_id = po.id
-          // empresa diverge → só aviso (redirect ITEM_CONTABIL / rateio no ERP mudam legitimamente)
-          if (empresa_id && po.empresa_id && empresa_id !== po.empresa_id) incoerentes.add(postoCod)
+          const ini = po?.ini_ano ? po.ini_ano * 12 + (po.ini_mes || 1) : null
+          const fim = po?.fim_ano ? po.fim_ano * 12 + (po.fim_mes || 12) : null
+          if (!po) motivoPosto = 'nao_existe'
+          else if ((ini && per < ini) || (fim && per > fim)) motivoPosto = 'fora_vigencia'
+          else if (fil && po.filial_id && fil.id !== po.filial_id) motivoPosto = 'filial_diverge'
+          if (motivoPosto) {
+            errosPosto.push(`${postoCod}: ${motivoPosto === 'nao_existe' ? 'posto não existe' : motivoPosto === 'fora_vigencia' ? `fora de vigência em ${mes}/${ano}` : `filial ${filial} ≠ cadastro`}`)
+            semPosto++
+            po = null    // sem posto não há rateio de posto a aplicar
+          } else {
+            posto_id = po.id
+            // empresa diverge → só aviso (redirect ITEM_CONTABIL / rateio no ERP mudam legitimamente)
+            if (empresa_id && po.empresa_id && empresa_id !== po.empresa_id) incoerentes.add(postoCod)
+          }
         } else {
           po = postoByCod.get(`${filial}-${(r.matricula || '').trim()}`) || null
           posto_id = po?.id || null
@@ -270,6 +282,8 @@ export default function FolhaRealizadaPage() {
           conta_deb_cod: (r.conta_deb || '').trim() || null, conta_cred_cod: (r.conta_cred || '').trim() || null, conta_id,
           item_orc_cod: item_orc_cod || null, item_orc_desc: (r.item_orc_desc || '').trim() || null, item_orc_id,
           competencia: (r.competencia || '').trim() || null, origem: 'FOLHA', tipo: 'REALIZADO',
+          // guarda por que não amarrou — é o que distingue substituição de aumento de quadro
+          dims: motivoPosto ? { posto_cod: postoCod, posto_erro: motivoPosto } : {},
         }
         const valorNum = num(r.valor)
         const filId = fil ? fil.id : (po?.filial_id || null)
@@ -358,7 +372,7 @@ export default function FolhaRealizadaPage() {
             {info.semItemDrop > 0 && <div style={{ color: 'var(--muted)' }}>{info.semItemDrop} linha(s) sem item orçamentário (ativo/passivo) ignoradas — não entram na conciliação.</div>}
             {info.semItem > 0 && <div style={{ color: 'var(--orange)' }}>{info.semItem} com item orçamentário (IT_CONTAB_DB) que não existe em conta_orcamentaria — cadastre o código pra conciliar.</div>}
             {info.semEmpresa.length > 0 && <div style={{ color: 'var(--orange)' }}>Empresa não cadastrada (código do de-para/redirect): <b>{info.semEmpresa.join(', ')}</b> — essas linhas ficaram sem empresa. Cadastre a empresa com esse código pra que o redirect (ITEM_CONTABIL) valha.</div>}
-            {info.errosPosto.length > 0 && <div style={{ color: 'var(--red)' }}>⚠ {info.errosPosto.length} linha(s) rejeitada(s) por posto_codigo inválido: {info.errosPosto.slice(0, 8).join(' · ')}{info.errosPosto.length > 8 ? '…' : ''}</div>}
+            {info.errosPosto.length > 0 && <div style={{ color: 'var(--orange)' }}>{info.errosPosto.length} linha(s) <b>gravadas sem posto</b> (o valor entra na conciliação; falta a amarração): {info.errosPosto.slice(0, 8).join(' · ')}{info.errosPosto.length > 8 ? '…' : ''} — veja em <b>Conciliação → Contábil × Folha → Quadro</b>.</div>}
             {info.incoerentes.length > 0 && <div style={{ color: 'var(--orange)' }}>posto_codigo com empresa/filial diferente do cadastro (ok se for redirect/rateio): <b>{info.incoerentes.slice(0, 12).join(', ')}</b>{info.incoerentes.length > 12 ? '…' : ''}</div>}
             {info.rateadas > 0 && <div style={{ color: 'var(--muted)' }}>{info.rateadas} linha(s) com <b>rateio=S</b> expandidas nos destinos do rateio do posto (materializadas no fat_folha).</div>}
             {info.semTaxa > 0 && <div style={{ color: 'var(--orange)' }}>{info.semTaxa} linha(s) puladas por falta de cotação de câmbio da competência — cadastre a taxa em <b>Cadastros → Câmbio</b> e reimporte.</div>}
