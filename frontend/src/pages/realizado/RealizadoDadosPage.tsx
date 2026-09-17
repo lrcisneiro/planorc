@@ -297,21 +297,25 @@ export default function RealizadoDadosPage() {
     if (!files.length) return
     setImpBusy(true); setImpLog([]); setImpProg('Carregando cadastros…')
     try {
-      const [{ data: contas }, { data: emps }, { data: fis }, { data: cc }] = await Promise.all([
-        supabase.from('conta_contabil').select('id,codigo,plano_id,natureza'),
-        supabase.from('empresa').select('id,codigo,plano_id'),
-        supabase.from('filial').select('id,codigo'),
-        supabase.from('centro_custo').select('id,codigo'),
+      // pageAll obrigatório: o PostgREST corta em 1000 SEM erro. São 1.699 contas
+      // (dois planos povoados) e o corte deixava ~700 de fora — a linha do razão
+      // caía em "conta não encontrada" e era ignorada. Pior: sem .order() o corte é
+      // arbitrário, então o mesmo arquivo podia importar diferente a cada tentativa.
+      const [contas, emps, fis, cc] = await Promise.all([
+        pageAll(() => supabase.from('conta_contabil').select('id,codigo,plano_id,natureza')),
+        pageAll(() => supabase.from('empresa').select('id,codigo,plano_id')),
+        pageAll(() => supabase.from('filial').select('id,codigo')),
+        pageAll(() => supabase.from('centro_custo').select('id,codigo')),
       ])
       const norm = (s: string) => s.replace(/\s+/g, '').toUpperCase()
-      const contaMap: Record<string, string> = {}; (contas || []).forEach((c: any) => { contaMap[`${c.plano_id}|${norm(c.codigo)}`] = c.id })
-      const contaNat: Record<string, string> = {}; (contas || []).forEach((c: any) => { contaNat[c.id] = c.natureza || '' })
+      const contaMap: Record<string, string> = {}; contas.forEach((c: any) => { contaMap[`${c.plano_id}|${norm(c.codigo)}`] = c.id })
+      const contaNat: Record<string, string> = {}; contas.forEach((c: any) => { contaNat[c.id] = c.natureza || '' })
       const ccObrig = (cid: string | undefined) => cid != null && (contaNat[cid] === 'RECEITA' || contaNat[cid] === 'DESPESA')   // CC obrigatório
       const ccFaltando = new Map<string, number>()   // código do CC faltando → nº de lançamentos (conta receita/despesa)
-      const empMap: Record<string, string> = {}; (emps || []).forEach((e: any) => { empMap[norm(e.codigo)] = e.id })
-      const empPlano: Record<string, string> = {}; (emps || []).forEach((e: any) => { empPlano[e.id] = e.plano_id })
-      const filMap: Record<string, string> = {}; (fis || []).forEach((f: any) => { filMap[norm(f.codigo)] = f.id })
-      const ccMap: Record<string, string> = {}; (cc || []).forEach((c: any) => { ccMap[norm(c.codigo)] = c.id })
+      const empMap: Record<string, string> = {}; emps.forEach((e: any) => { empMap[norm(e.codigo)] = e.id })
+      const empPlano: Record<string, string> = {}; emps.forEach((e: any) => { empPlano[e.id] = e.plano_id })
+      const filMap: Record<string, string> = {}; fis.forEach((f: any) => { filMap[norm(f.codigo)] = f.id })
+      const ccMap: Record<string, string> = {}; cc.forEach((c: any) => { ccMap[norm(c.codigo)] = c.id })
       const empSelCod = empresas.find(e => e.id === empresaId)?.codigo || ''
 
       // MULTIMOEDA: materializa val_m1(=valor)/val_m2/val_m3 na moeda do arquivo, pela
