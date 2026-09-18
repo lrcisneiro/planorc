@@ -135,7 +135,15 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
   const postosPareados = useMemo(() => new Set(Object.values(paresPorPessoa).flat().map(s => s.id)), [paresPorPessoa])
 
   const totA = semPosto.reduce((s, x) => s + x.valor, 0)
-  const totB = semReal.reduce((s, x) => s + x.orcado, 0)
+  // "orçado sem realizado" tem de ter orçado: posto vigente com custo zero não
+  // pertence a esta lista — não há dinheiro planejado que tenha deixado de sair.
+  // Ele continua sendo um achado (cadastro sem salário), mas em nota separada.
+  const comOrc = useMemo(() => semReal.filter(x => x.orcado > 0), [semReal])
+  const semOrc = useMemo(() => semReal.filter(x => !(x.orcado > 0)), [semReal])
+  // versão sem Aplicar zera tudo; aí a lista por vigência ainda informa, desde que diga o motivo
+  const semAplicar = semReal.length > 0 && comOrc.length === 0
+  const listaB = semAplicar ? semReal : comOrc
+  const totB = listaB.reduce((s, x) => s + x.orcado, 0)
 
   if (loading) return <div style={S.empty}>Carregando movimentação de quadro…</div>
   if (erro) return <div style={{ ...S.wrap, ...S.empty, color: 'var(--red)' }}>Movimentação de quadro não carregou: {erro}</div>
@@ -181,12 +189,13 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
 
         <div style={S.card}>
           <div style={S.cardT}><UserMinus size={14} style={{ color: 'var(--blue)' }} /> Posto orçado sem realizado no mês
-            <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontWeight: 400 }}>{semReal.length} · R$ {money(totB)} orçados no mês</span></div>
-          {!semReal.length ? <div style={S.empty}>Nenhum — todo posto vigente teve custo no mês.</div> : (
+            <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontWeight: 400 }}>{listaB.length} · R$ {money(totB)} orçados no mês</span></div>
+          {semAplicar && <div style={{ ...S.empty, color: 'var(--orange)' }}>Nenhum destes tem orçado na versão escolhida — provavelmente o <b>Aplicar no orçado</b> não rodou nela. A lista abaixo vem da vigência do cadastro.</div>}
+          {!listaB.length ? <div style={S.empty}>Nenhum — todo posto com orçado no mês teve custo na folha.</div> : (
             <table style={S.table}>
               <thead><tr><th style={S.th}>Posto</th><th style={S.th}>Filial/CC</th><th style={S.th}>Leitura</th><th style={{ ...S.th, textAlign: 'right' }}>Orçado no mês</th></tr></thead>
               <tbody>
-                {semReal.map(x => (
+                {listaB.map(x => (
                   <tr key={x.id}>
                     <td style={S.td}><span style={S.mono}>{x.codigo}</span> {x.nome}</td>
                     <td style={{ ...S.td, ...S.mono }}>{filCod[x.filial_id || ''] || '—'}/{ccCod[x.cc_id || ''] || '—'}</td>
@@ -200,6 +209,14 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
                 ))}
               </tbody>
             </table>
+          )}
+          {!semAplicar && !!semOrc.length && (
+            <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+              <b style={{ color: 'var(--orange)' }}>{semOrc.length} posto(s) vigentes sem orçado nem realizado</b> — cadastro com
+              salário zero, então o motor calcula custo zero e eles não entram no orçamento. Não movem número nenhum;
+              o conserto é preencher o salário ou encerrar a vigência de quem já saiu.
+              <div style={{ marginTop: 4, ...S.mono }}>{semOrc.map(x => x.codigo).join(' · ')}</div>
+            </div>
           )}
         </div>
       </div>
