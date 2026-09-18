@@ -10,7 +10,7 @@ import { fimDoMes, taxaRealizada, materializa } from '../../lib/cambio'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
-import { Upload, CheckCircle2, AlertCircle, ChevronDown, ChevronRight, Search, X, FileDown } from 'lucide-react'
+import { Upload, CheckCircle2, AlertCircle, ChevronDown, ChevronRight, Search, X, FileDown, Trash2 } from 'lucide-react'
 
 // Folha realizada (F5.2, pill 3) — importa fat_folha do folha_realizada.csv e lista
 // o realizado da FOLHA por posto/competência. Base da conciliação Orçado × Realizado.
@@ -142,6 +142,24 @@ export default function FolhaRealizadaPage() {
       .then(data => setRows(data.map((r: any) => ({ ...r, valor: Number(r.valor) || 0 }))))
       .catch(e => setErro('Erro ao carregar a folha: ' + (e?.message || e)))
   }, [compSel, info])
+
+  // Apagar a competência SEM importar nada. Até aqui o único delete morava dentro
+  // do modo "Substituir", então quem importou o mês errado (ou quis simplesmente
+  // zerar e recomeçar) não tinha saída pela tela.
+  const [excluindo, setExcluindo] = useState(false)
+  const excluirCompetencia = async () => {
+    if (!compSel) return
+    const [a, m] = compSel.split('-').map(Number)
+    const total = rows.reduce((s, r: any) => s + (Number(r.valor) || 0), 0)
+    const rotulo = `${MESES[m - 1]}/${a}`
+    if (!confirm(`Apagar TODO o realizado da folha de ${rotulo}?\n\n${rows.length.toLocaleString('pt-BR')} lançamento(s) · R$ ${total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\nNão afeta o orçado (tipo ORCADO), os postos nem o razão. Não tem desfazer: para voltar, reimporte o arquivo.`)) return
+    setExcluindo(true); setErro(null)
+    try {
+      const { error } = await supabase.from('fat_folha').delete().eq('tipo', 'REALIZADO').eq('ano', a).eq('mes', m)
+      if (error) { setErro('Erro ao excluir: ' + error.message); return }
+      setInfo(null); setRows([]); await loadComps()
+    } finally { setExcluindo(false) }
+  }
 
   const filtrados = useMemo(() => {
     const empF = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSee)
@@ -373,6 +391,9 @@ export default function FolhaRealizadaPage() {
           <option value="incremental">Adicionar (incremental)</option>
         </select>}
         {editavel && <button style={S.btn} disabled={importando} onClick={() => fileRef.current?.click()}><Upload size={14} /> {importando ? 'Importando…' : 'Importar folha (CSV/XLSX)'}</button>}
+        {editavel && !!rows.length && <button style={{ ...S.btn, color: 'var(--red)', borderColor: 'rgba(248,113,113,0.35)' }} disabled={excluindo || importando}
+          title="Apaga o realizado da folha desta competência. Não toca no orçado, nos postos nem no razão."
+          onClick={excluirCompetencia}><Trash2 size={14} /> {excluindo ? 'Excluindo…' : 'Excluir competência'}</button>}
         <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = '' }} />
       </div>
 
