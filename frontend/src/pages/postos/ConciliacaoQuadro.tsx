@@ -66,7 +66,7 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
           if (p.filialFilter) q = q.in('filial_id', p.filialFilter)
           return q
         }),
-        pageAll(() => supabase.from('posto').select('id,codigo,nome,empresa_id,filial_id,cc_id,salario_base,ini_ano,ini_mes,fim_ano,fim_mes')),
+        pageAll(() => supabase.from('posto').select('id,codigo,nome,ativo,empresa_id,filial_id,cc_id,salario_base,ini_ano,ini_mes,fim_ano,fim_mes')),
         pageAll(() => supabase.from('centro_custo').select('id,codigo')),
         pageAll(() => supabase.from('filial').select('id,codigo')),
         // quanto o posto CUSTAVA no orçado do mês — encargos e benefícios inclusos.
@@ -95,7 +95,11 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
       // B) postos vigentes no mês que não tiveram realizado
       // Vigência do cadastro, não fat_folha ORCADO: assim a lista existe mesmo que
       // o Aplicar ainda não tenha rodado na versão.
+      // posto INATIVO não entra no orçado (o Aplicar usa p.ativo !== false), então
+      // cobrar realizado dele é cobrar por algo que ninguém orçou. Vigência sozinha
+      // não resolve: o posto desativado costuma ficar com fim_ano nulo e passaria sempre.
       const escopoOk = (x: any) =>
+        x.ativo !== false &&
         (!p.empresaSel.length || p.empresaSel.includes(x.empresa_id)) &&
         (!p.filialFilter || (x.filial_id && p.filialFilter.includes(x.filial_id))) &&
         (!p.ccFilter || (x.cc_id && p.ccFilter.includes(x.cc_id)))
