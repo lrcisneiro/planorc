@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
-import { ArrowLeftRight, UserMinus, UserPlus } from 'lucide-react'
+import { ArrowLeftRight, CheckCircle2, UserMinus, UserPlus } from 'lucide-react'
 
 // Movimentação de quadro do mês — o que explica admissão, demissão e troca.
 //
@@ -151,7 +151,16 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
 
   if (loading) return <div style={S.empty}>Carregando movimentação de quadro…</div>
   if (erro) return <div style={{ ...S.wrap, ...S.empty, color: 'var(--red)' }}>Movimentação de quadro não carregou: {erro}</div>
-  if (!semPosto.length && !semReal.length) return null
+  // Nada a mostrar é RESULTADO, não ausência de tela: sumir é indistinguível de
+  // quebrar, e logo depois de um ajuste no código isso vira falso alarme.
+  if (!semPosto.length && !semReal.length) return (
+    <div style={S.wrap}>
+      <div style={S.head}><span style={S.h}>Quadro — o que mudou no mês</span></div>
+      <div style={{ ...S.card, ...S.empty, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--green)' }}>
+        <CheckCircle2 size={15} /> Nada a conciliar no quadro: todo custo da folha caiu em posto orçado, e todo posto ativo com orçado teve custo no mês.
+      </div>
+    </div>
+  )
 
   return (
     <div style={S.wrap}>
