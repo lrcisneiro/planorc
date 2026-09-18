@@ -6,6 +6,13 @@ import { ArrowLeftRight, CheckCircle2, UserMinus, UserPlus } from 'lucide-react'
 
 // Movimentação de quadro do mês — o que explica admissão, demissão e troca.
 //
+// O lado do "planejado" sai do ORÇADO (fat_folha tipo=ORCADO), não do cadastro de
+// postos. Uma vez aplicado, o orçado já embute as decisões: o Aplicar descarta
+// posto inativo, o motor aplica vigência mês a mês e ignora custo zero. Comparar
+// contra o cadastro seria medir o estado de hoje contra um orçamento aprovado
+// antes — e esconderia justamente o posto que foi orçado e depois desativado, que
+// é a redução de quadro.
+//
 // Nenhuma das três situações se identifica olhando UMA lista. Elas aparecem no
 // cruzamento de duas:
 //   posto sem realizado  +  pessoa sem posto (mesma filial/CC, valor parecido) → SUBSTITUIÇÃO
@@ -19,7 +26,7 @@ export type QuadroParams = {
   empresaSel: string[]; filialFilter: string[] | null; ccFilter: string[] | null
 }
 type SemPosto = { chave: string; matricula: string; nome: string; postoCod: string; motivo: string; filial_id: string | null; cc_id: string | null; valor: number }
-type SemReal  = { id: string; codigo: string; nome: string; filial_id: string | null; cc_id: string | null; orcado: number; semSalario: boolean }
+type SemReal  = { id: string; codigo: string; nome: string; matricula: string; filial_id: string | null; cc_id: string | null; orcado: number }
 
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const MOTIVO: Record<string, string> = { nao_existe: 'posto não existe', fora_vigencia: 'fora de vigência', filial_diverge: 'filial diverge' }
@@ -47,42 +54,40 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
   const [filCod, setFilCod] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
+  const [semOrcado, setSemOrcado] = useState(false)
 
   useEffect(() => {
     let vivo = true
     ;(async () => {
       setLoading(true); setErro(null)
       try {
-      const per = p.ano * 12 + p.mes
       // O escopo de CC pode ter centenas de ids; como .in() vai na QUERY STRING,
       // a URL estoura e o GET falha. Empresa e filial são catálogos pequenos e
       // continuam no servidor; o CC é filtrado aqui, depois de ler.
       const ccSet = p.ccFilter ? new Set(p.ccFilter) : null
-      const [folhaRaw, postos, ccs, fils, orcRaw] = await Promise.all([
-        pageAll(() => {
-          let q = supabase.from('fat_folha').select('posto_id,matricula,nome,valor,dims,filial_id,cc_id')
-            .eq('tipo', 'REALIZADO').eq('ano', p.ano).eq('mes', p.mes)
-          if (p.empresaSel.length) q = q.in('empresa_id', p.empresaSel)
-          if (p.filialFilter) q = q.in('filial_id', p.filialFilter)
-          return q
-        }),
-        pageAll(() => supabase.from('posto').select('id,codigo,nome,ativo,empresa_id,filial_id,cc_id,salario_base,ini_ano,ini_mes,fim_ano,fim_mes')),
+      const escopoQuery = (q: any) => {
+        if (p.empresaSel.length) q = q.in('empresa_id', p.empresaSel)
+        if (p.filialFilter) q = q.in('filial_id', p.filialFilter)
+        return q
+      }
+      const noCc = (l: any) => !ccSet || (l.cc_id && ccSet.has(l.cc_id))
+      const [realRaw, orcRaw, ccs, fils] = await Promise.all([
+        pageAll(() => escopoQuery(supabase.from('fat_folha').select('posto_id,matricula,nome,valor,dims,filial_id,cc_id')
+          .eq('tipo', 'REALIZADO').eq('ano', p.ano).eq('mes', p.mes))),
+        p.versaoId ? pageAll(() => escopoQuery(supabase.from('fat_folha').select('posto_id,matricula,nome,valor,filial_id,cc_id')
+          .eq('tipo', 'ORCADO').eq('versao_id', p.versaoId).eq('ano', p.ano).eq('mes', p.mes))) : Promise.resolve([]),
         pageAll(() => supabase.from('centro_custo').select('id,codigo')),
         pageAll(() => supabase.from('filial').select('id,codigo')),
-        // quanto o posto CUSTAVA no orçado do mês — encargos e benefícios inclusos.
-        // O salário do cadastro sozinho subestima e não é o que deixou de ser gasto.
-        p.versaoId ? pageAll(() => supabase.from('fat_folha').select('posto_id,valor')
-          .eq('tipo', 'ORCADO').eq('versao_id', p.versaoId).eq('ano', p.ano).eq('mes', p.mes)) : Promise.resolve([]),
       ])
       if (!vivo) return
-      const folha = ccSet ? (folhaRaw as any[]).filter(l => l.cc_id && ccSet.has(l.cc_id)) : folhaRaw
       setCcCod(Object.fromEntries((ccs as any[]).map(c => [c.id, c.codigo])))
       setFilCod(Object.fromEntries((fils as any[]).map(f => [f.id, f.codigo])))
+      setSemOrcado(!(orcRaw as any[]).length)
 
       // A) pessoas com realizado e sem posto amarrado
       const m = new Map<string, SemPosto>()
       const comPosto = new Set<string>()
-      for (const l of folha as any[]) {
+      for (const l of (realRaw as any[]).filter(noCc)) {
         if (l.posto_id) { comPosto.add(l.posto_id); continue }
         const d = l.dims || {}
         const k = `${d.posto_cod || ''}|${l.matricula || l.nome || '?'}`
@@ -92,28 +97,24 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
       }
       setSemPosto([...m.values()].sort((a, b) => b.valor - a.valor))
 
-      // B) postos vigentes no mês que não tiveram realizado
-      // Vigência do cadastro, não fat_folha ORCADO: assim a lista existe mesmo que
-      // o Aplicar ainda não tenha rodado na versão.
-      // posto INATIVO não entra no orçado (o Aplicar usa p.ativo !== false), então
-      // cobrar realizado dele é cobrar por algo que ninguém orçou. Vigência sozinha
-      // não resolve: o posto desativado costuma ficar com fim_ano nulo e passaria sempre.
-      const escopoOk = (x: any) =>
-        x.ativo !== false &&
-        (!p.empresaSel.length || p.empresaSel.includes(x.empresa_id)) &&
-        (!p.filialFilter || (x.filial_id && p.filialFilter.includes(x.filial_id))) &&
-        (!p.ccFilter || (x.cc_id && p.ccFilter.includes(x.cc_id)))
-      const vig = (x: any) => {
-        const ini = x.ini_ano ? x.ini_ano * 12 + (x.ini_mes || 1) : null
-        const fim = x.fim_ano ? x.fim_ano * 12 + (x.fim_mes || 12) : null
-        return (!ini || per >= ini) && (!fim || per <= fim)
+      // B) postos ORÇADOS no mês que não tiveram realizado — dinheiro planejado
+      // que deixou de sair. Sai do próprio orçado, que já carrega nome/filial/CC.
+      const orc = new Map<string, SemReal>()
+      for (const o of (orcRaw as any[]).filter(noCc)) {
+        if (!o.posto_id || comPosto.has(o.posto_id)) continue
+        const g = orc.get(o.posto_id) || { id: o.posto_id, codigo: '', nome: o.nome || '', matricula: o.matricula || '', filial_id: o.filial_id, cc_id: o.cc_id, orcado: 0 }
+        g.orcado += Number(o.valor) || 0
+        orc.set(o.posto_id, g)
       }
-      const orcPorPosto = new Map<string, number>()
-      for (const o of orcRaw as any[]) { if (o.posto_id) orcPorPosto.set(o.posto_id, (orcPorPosto.get(o.posto_id) || 0) + (Number(o.valor) || 0)) }
-      setSemReal((postos as any[]).filter(x => vig(x) && escopoOk(x) && !comPosto.has(x.id))
-        .map(x => ({ id: x.id, codigo: x.codigo, nome: x.nome || '', filial_id: x.filial_id, cc_id: x.cc_id,
-                     orcado: orcPorPosto.get(x.id) || 0, semSalario: !(Number(x.salario_base) > 0) }))
-        .sort((a, b) => b.orcado - a.orcado))
+      const lista = [...orc.values()].filter(x => x.orcado > 0).sort((a, b) => b.orcado - a.orcado)
+      // o código do posto não está no orçado: busca só os que vão aparecer
+      const ids = lista.map(x => x.id)
+      for (let i = 0; i < ids.length; i += 300) {
+        const { data } = await supabase.from('posto').select('id,codigo').in('id', ids.slice(i, i + 300))
+        ;(data || []).forEach((r: any) => { const t = lista.find(x => x.id === r.id); if (t) t.codigo = r.codigo })
+      }
+      if (!vivo) return
+      setSemReal(lista)
       } catch (e: any) {
         // sem isto o bloco ficava em "Carregando…" para sempre, sem dizer o motivo
         if (vivo) setErro(e?.message || String(e))
@@ -142,17 +143,21 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
   // "orçado sem realizado" tem de ter orçado: posto vigente com custo zero não
   // pertence a esta lista — não há dinheiro planejado que tenha deixado de sair.
   // Ele continua sendo um achado (cadastro sem salário), mas em nota separada.
-  const comOrc = useMemo(() => semReal.filter(x => x.orcado > 0), [semReal])
-  const semOrc = useMemo(() => semReal.filter(x => !(x.orcado > 0)), [semReal])
-  // versão sem Aplicar zera tudo; aí a lista por vigência ainda informa, desde que diga o motivo
-  const semAplicar = semReal.length > 0 && comOrc.length === 0
-  const listaB = semAplicar ? semReal : comOrc
-  const totB = listaB.reduce((s, x) => s + x.orcado, 0)
+  const totB = semReal.reduce((s, x) => s + x.orcado, 0)
 
   if (loading) return <div style={S.empty}>Carregando movimentação de quadro…</div>
   if (erro) return <div style={{ ...S.wrap, ...S.empty, color: 'var(--red)' }}>Movimentação de quadro não carregou: {erro}</div>
   // Nada a mostrar é RESULTADO, não ausência de tela: sumir é indistinguível de
   // quebrar, e logo depois de um ajuste no código isso vira falso alarme.
+  if (semOrcado && !semPosto.length) return (
+    <div style={S.wrap}>
+      <div style={S.head}><span style={S.h}>Quadro — o que mudou no mês</span></div>
+      <div style={{ ...S.card, ...S.empty, color: 'var(--orange)' }}>
+        Esta versão não tem orçado de folha nesta competência — o <b>Aplicar no orçado</b> provavelmente não rodou nela.
+        Sem orçado não há o que comparar: não confunda com "nada mudou".
+      </div>
+    </div>
+  )
   if (!semPosto.length && !semReal.length) return (
     <div style={S.wrap}>
       <div style={S.head}><span style={S.h}>Quadro — o que mudou no mês</span></div>
@@ -202,34 +207,23 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
 
         <div style={S.card}>
           <div style={S.cardT}><UserMinus size={14} style={{ color: 'var(--blue)' }} /> Posto orçado sem realizado no mês
-            <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontWeight: 400 }}>{listaB.length} · R$ {money(totB)} orçados no mês</span></div>
-          {semAplicar && <div style={{ ...S.empty, color: 'var(--orange)' }}>Nenhum destes tem orçado na versão escolhida — provavelmente o <b>Aplicar no orçado</b> não rodou nela. A lista abaixo vem da vigência do cadastro.</div>}
-          {!listaB.length ? <div style={S.empty}>Nenhum — todo posto com orçado no mês teve custo na folha.</div> : (
+            <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontWeight: 400 }}>{semReal.length} · R$ {money(totB)} orçados no mês</span></div>
+          {!semReal.length ? <div style={S.empty}>Nenhum — todo posto com orçado no mês teve custo na folha.</div> : (
             <table style={S.table}>
               <thead><tr><th style={S.th}>Posto</th><th style={S.th}>Filial/CC</th><th style={S.th}>Leitura</th><th style={{ ...S.th, textAlign: 'right' }}>Orçado no mês</th></tr></thead>
               <tbody>
-                {listaB.map(x => (
+                {semReal.map(x => (
                   <tr key={x.id}>
                     <td style={S.td}><span style={S.mono}>{x.codigo}</span> {x.nome}</td>
                     <td style={{ ...S.td, ...S.mono }}>{filCod[x.filial_id || ''] || '—'}/{ccCod[x.cc_id || ''] || '—'}</td>
-                    <td style={S.td}>{x.semSalario
-                      ? <span title="posto cadastrado com salario_base = 0: o motor calcula custo zero, então ele não entra no orçado" style={tag('var(--orange)', 'rgba(251,146,60,0.14)')}>sem salário no cadastro</span>
-                      : postosPareados.has(x.id)
-                        ? <span style={tag('var(--violet)', 'rgba(139,92,246,0.16)')}>possível troca</span>
-                        : <span style={tag('var(--blue)', 'rgba(59,130,246,0.14)')}>{x.orcado ? 'orçado, não pago' : 'sem custo dos dois lados'}</span>}</td>
+                    <td style={S.td}>{postosPareados.has(x.id)
+                      ? <span style={tag('var(--violet)', 'rgba(139,92,246,0.16)')}>possível troca</span>
+                      : <span style={tag('var(--blue)', 'rgba(59,130,246,0.14)')}>orçado, não pago</span>}</td>
                     <td style={{ ...S.td, textAlign: 'right' }}>{money(x.orcado)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          )}
-          {!semAplicar && !!semOrc.length && (
-            <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-              <b style={{ color: 'var(--orange)' }}>{semOrc.length} posto(s) vigentes sem orçado nem realizado</b> — cadastro com
-              salário zero, então o motor calcula custo zero e eles não entram no orçamento. Não movem número nenhum;
-              o conserto é preencher o salário ou encerrar a vigência de quem já saiu.
-              <div style={{ marginTop: 4, ...S.mono }}>{semOrc.map(x => x.codigo).join(' · ')}</div>
-            </div>
           )}
         </div>
       </div>
