@@ -67,6 +67,11 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
   // 'posto' = por posto (headcount, filtra pela ORIGEM); 'rateado' = gerencial (orçado rateado, filtra pelo DESTINO)
   const [modo, setModo] = useLocalPref<'posto' | 'rateado'>('planorc_concil_modo', 'posto')
   const [soDiverg, setSoDiverg] = useState(false)   // filtro rápido: só postos com realizado fora da origem
+  // Matrícula sem posto cadastrado: ligado, a conciliação é só sobre o que foi
+  // orçado (leitura de orçamento). Desligado, cada matrícula sem posto vira UMA
+  // linha nomeada — um balde único agregado por verba não permite conciliar nada,
+  // porque a pergunta seguinte é sempre "quem?".
+  const [soOrcados, setSoOrcados] = useLocalPref('planorc_concil_so_orcados', true)
   const [dimBreak, setDimBreak] = useState<Record<string, DimCell[]>>({})   // posto → células (empresa×filial×CC) orç×real
   const [modalDim, setModalDim] = useState<Linha | null>(null)   // posto aberto no modal comparativo de dimensões
   // multimoeda: lê a coluna do slot em exibição; símbolo p/ os KPIs
@@ -98,7 +103,7 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
           return q
         })
         const realRows = await pageAll(() => {
-          let q = supabase.from('fat_folha').select('posto_id,empresa_id,filial_id,cc_id,ano,mes,valor,val_m2,val_m3,val_m4,val_m5,verba_cod,verba_desc,tipo_verba,conta_id,item_orc_id').eq('tipo', 'REALIZADO').in('ano', anos).in('mes', mesesNums)
+          let q = supabase.from('fat_folha').select('posto_id,matricula,nome,empresa_id,filial_id,cc_id,ano,mes,valor,val_m2,val_m3,val_m4,val_m5,verba_cod,verba_desc,tipo_verba,conta_id,item_orc_id').eq('tipo', 'REALIZADO').in('ano', anos).in('mes', mesesNums)
           if (p.contaIds) q = q.in('conta_id', p.contaIds)
           return q
         })
@@ -156,6 +161,7 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
           cell[field] += val
         }
         // ORÇADO por posto + detalhe por verba
+        const semInfo: Record<string, { matricula: string; nome: string; emp: string | null; fil: string | null; cc: string | null }> = {}
         const orcById: Record<string, number> = {}, orcTmp: Record<string, Record<string, VerbaReal>> = {}
         for (const r of orcRows) {
           if (!inPer(r)) continue
@@ -198,11 +204,16 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
           // descontos de funcionário (INSS retido, IRRF…) são RETENÇÃO, não custo do
           // empregador — e o orçado (motor) não os modela. Fora do realizado da conciliação.
           if ((r.tipo_verba || '').startsWith('Desconto')) continue
-          const pid = r.posto_id || '(sem posto)'
+          const semPosto = !r.posto_id
+          if (semPosto && soOrcados) continue
+          const pid = r.posto_id || `sem:${(r.matricula || '').trim() || (r.nome || '?').trim()}`
           const po = postoById[r.posto_id]
           // realizado vem JÁ distribuído do ERP: modo posto filtra pela ORIGEM; rateado pelo DESTINO (linha da folha)
-          if (modo === 'posto') { if (!passa(po?.empresa_id, po?.filial_id, po?.cc_id)) continue }
+          // sem posto não há origem para filtrar: usa a própria linha, nos dois modos —
+          // senão a pessoa sumiria do modo posto sem aviso sempre que houvesse filtro.
+          if (modo === 'posto' && !semPosto) { if (!passa(po?.empresa_id, po?.filial_id, po?.cc_id)) continue }
           else { if (!passa(r.empresa_id, r.filial_id, r.cc_id)) continue }
+          if (semPosto) semInfo[pid] ||= { matricula: (r.matricula || '').trim(), nome: (r.nome || '').trim(), emp: r.empresa_id, fil: r.filial_id, cc: r.cc_id }
           // divergência = realizado caiu FORA do footprint do orçado (origem ∪ destinos do
           // rateio). Um posto rateado cujo realizado bate os destinos NÃO é divergente.
           if (modo === 'posto' && po && !footprint(pid).has(`${r.empresa_id}|${r.filial_id}|${r.cc_id}`)) {
@@ -227,15 +238,28 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
         ])] as string[]
         if (itemsUsed.length) { const { data } = await supabase.from('conta_orcamentaria').select('id,codigo,descricao').in('id', itemsUsed); setContaOrc(Object.fromEntries((data || []).map((c: any) => [c.id, c]))) } else setContaOrc({})
 
+        // códigos de empresa/filial/CC das linhas sem posto (o posto é quem traz isso
+        // nas demais; aqui vem da própria folha)
+        const idsSem = { emp: new Set<string>(), fil: new Set<string>(), cc: new Set<string>() }
+        for (const k in semInfo) { const i = semInfo[k]; if (i.emp) idsSem.emp.add(i.emp); if (i.fil) idsSem.fil.add(i.fil); if (i.cc) idsSem.cc.add(i.cc) }
+        const cod: Record<string, Record<string, string>> = { emp: {}, fil: {}, cc: {} }
+        await Promise.all(([['emp', 'empresa'], ['fil', 'filial'], ['cc', 'centro_custo']] as const).map(async ([k, tb]) => {
+          const ids = [...idsSem[k]]; if (!ids.length) return
+          const { data } = await supabase.from(tb).select('id,codigo').in('id', ids)
+          ;(data || []).forEach((x: any) => { cod[k][x.id] = x.codigo })
+        }))
+
         const merge: Linha[] = [...new Set([...Object.keys(orcById), ...Object.keys(realById)])].map(pid => {
           const q = postoById[pid]
+          const sp = semInfo[pid]
           return {
-            key: pid, posto_id: pid === '(sem posto)' ? null : pid,
-            codigo: q?.codigo || (pid === '(sem posto)' ? '—' : '?'),
-            nome: q?.nome || (pid === '(sem posto)' ? 'Sem posto (matrícula não casada)' : 'Vaga'),
-            matricula: q?.matricula || '', cargo: q?.cargo?.nome || '',
-            empCod: q?.empresa?.codigo || '', filCod: q?.filial?.codigo || '',
-            ccCod: q?.centro_custo?.codigo || '', ccDesc: q?.centro_custo?.descricao || '',
+            key: pid, posto_id: sp ? null : pid,
+            codigo: q?.codigo || (sp ? (sp.matricula || '—') : '?'),
+            nome: q?.nome || (sp ? (sp.nome || 'Sem posto') : 'Vaga'),
+            matricula: q?.matricula || sp?.matricula || '', cargo: q?.cargo?.nome || (sp ? 'sem posto cadastrado' : ''),
+            empCod: q?.empresa?.codigo || (sp?.emp ? cod.emp[sp.emp] || '' : ''),
+            filCod: q?.filial?.codigo || (sp?.fil ? cod.fil[sp.fil] || '' : ''),
+            ccCod: q?.centro_custo?.codigo || (sp?.cc ? cod.cc[sp.cc] || '' : ''), ccDesc: q?.centro_custo?.descricao || '',
             orcado: orcById[pid] || 0, realizado: realById[pid] || 0,
             divergDims: [...(divergById[pid] || [])],
           }
@@ -246,7 +270,7 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
       } catch (e: any) { setErro(e?.message || String(e)) }
       finally { setLoading(false) }
     })()
-  }, [modo, slot, p.versaoId, JSON.stringify(p.meses), JSON.stringify(p.masterIds), JSON.stringify(p.contaIds), JSON.stringify(p.empresaSel), JSON.stringify(p.filialFilter), JSON.stringify(p.ccFilter), JSON.stringify(p.contaToItem)]) // eslint-disable-line
+  }, [modo, slot, soOrcados, p.versaoId, JSON.stringify(p.meses), JSON.stringify(p.masterIds), JSON.stringify(p.contaIds), JSON.stringify(p.empresaSel), JSON.stringify(p.filialFilter), JSON.stringify(p.ccFilter), JSON.stringify(p.contaToItem)]) // eslint-disable-line
 
   const nDiverg = useMemo(() => linhas.filter(l => l.divergDims.length > 0).length, [linhas])
   useEffect(() => { if (nDiverg === 0 && soDiverg) setSoDiverg(false) }, [nDiverg]) // eslint-disable-line
@@ -356,6 +380,12 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
             <option value="posto">Por posto (headcount)</option>
             <option value="rateado">Rateado (gerencial)</option>
           </select>
+        </div>
+        <div style={S.fld}><span style={S.lbl}>Escopo</span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-mid)', cursor: 'pointer', padding: '7px 0' }}
+            title="Ligado: concilia só o que foi orçado. Desligado: acrescenta as matrículas da folha que não casaram com nenhum posto, cada uma na sua linha, com nome.">
+            <input type="checkbox" checked={soOrcados} onChange={e => setSoOrcados(e.target.checked)} /> Só postos orçados
+          </label>
         </div>
         <div style={S.fld}><span style={S.lbl}>Buscar</span>
           <div style={{ position: 'relative' }}>
