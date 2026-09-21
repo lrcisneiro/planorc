@@ -4,74 +4,68 @@
 -- Caso: o Aplicar rodou na versão errada e somou-se ao orçado que já existia ali
 -- (digitado ou vindo de formulário), duplicando a folha.
 --
--- O que ele remove é exatamente o que o Aplicar cria, e nada mais:
---   fat_orcado  origem = 'POSTO'                  (o orçado por conta)
---   fat_folha   tipo   = 'ORCADO'                 (o paralelo por verba)
--- Lançamento MANUAL e de FORMULARIO não são tocados — é o mesmo recorte que o
--- próprio Aplicar usa para limpar antes de reinserir.
+-- Remove exatamente o que o Aplicar cria, e nada mais:
+--   fat_orcado  origem = 'POSTO'     (o orçado por conta)
+--   fat_folha   tipo   = 'ORCADO'    (o paralelo por verba)
+-- MANUAL e FORMULARIO não são tocados — mesmo recorte que o próprio Aplicar usa
+-- para limpar antes de reinserir.
 --
--- SEGURANÇA: duas etapas. Com v_confirmar = false só relata. Leia e volte.
+-- COMO USAR no SQL Editor do Supabase (que NÃO mostra RAISE NOTICE — por isso
+-- tudo aqui é SELECT):
+--   1. troque o código da versão nos três lugares marcados «VERSÃO»
+--   2. selecione e rode o PASSO 1; leia as duas tabelas
+--   3. só então selecione e rode o PASSO 2
 --
 -- ATENÇÃO: se a versão DEVIA ter orçado de posto, isto o remove por inteiro —
 -- rode o "Aplicar no orçado" de novo depois, na versão certa.
 -- ============================================================
 
-DO $$
-DECLARE
-  -- ══════════════ CONFIGURE AQUI ══════════════
-  v_versao_cod text    := 'BASELINE_2027';  -- código da versão a limpar
-  v_confirmar  boolean := false;            -- false = só relatório; true = apaga
-  -- ════════════ fim da configuração ════════════
+-- ════════════════════════════════════════════════════════════
+-- PASSO 1 — RELATÓRIO (não altera nada)
+-- ════════════════════════════════════════════════════════════
 
-  v_tenant uuid; v_versao uuid;
-  n_orc int; v_orc numeric; n_folha int; v_folha numeric;
-  n_outros int; v_outros numeric; r record;
-BEGIN
-  SELECT id INTO v_tenant FROM tenant LIMIT 1;
-  SELECT id INTO v_versao FROM versao_orcamento WHERE tenant_id = v_tenant AND codigo = v_versao_cod;
-  IF v_versao IS NULL THEN RAISE EXCEPTION 'Versão "%" não existe', v_versao_cod; END IF;
+-- 1a) o que sai e o que fica
+SELECT
+  (SELECT codigo FROM versao_orcamento WHERE codigo = 'Orçado')                            AS versao,  -- «VERSÃO»
+  (SELECT count(*) FROM fat_orcado f JOIN versao_orcamento v ON v.id = f.versao_id
+    WHERE v.codigo = 'Orçado' AND f.origem = 'POSTO')                                      AS sai_orcado_linhas,
+  (SELECT coalesce(sum(f.valor), 0) FROM fat_orcado f JOIN versao_orcamento v ON v.id = f.versao_id
+    WHERE v.codigo = 'Orçado' AND f.origem = 'POSTO')                                      AS sai_orcado_valor,
+  (SELECT count(*) FROM fat_folha f JOIN versao_orcamento v ON v.id = f.versao_id
+    WHERE v.codigo = 'Orçado' AND f.tipo = 'ORCADO')                                       AS sai_folha_linhas,
+  (SELECT count(*) FROM fat_orcado f JOIN versao_orcamento v ON v.id = f.versao_id
+    WHERE v.codigo = 'Orçado' AND f.origem <> 'POSTO')                                     AS fica_linhas,
+  (SELECT coalesce(sum(f.valor), 0) FROM fat_orcado f JOIN versao_orcamento v ON v.id = f.versao_id
+    WHERE v.codigo = 'Orçado' AND f.origem <> 'POSTO')                                     AS fica_valor;
 
-  SELECT count(*), coalesce(sum(valor), 0) INTO n_orc, v_orc
-    FROM fat_orcado WHERE versao_id = v_versao AND origem = 'POSTO';
-  SELECT count(*), coalesce(sum(valor), 0) INTO n_outros, v_outros
-    FROM fat_orcado WHERE versao_id = v_versao AND origem <> 'POSTO';
-  SELECT count(*), coalesce(sum(valor), 0) INTO n_folha, v_folha
-    FROM fat_folha WHERE versao_id = v_versao AND tipo = 'ORCADO';
+-- 1b) A PROVA DA DUPLICAÇÃO: contas com orçado de POSTO **e** de outra origem.
+--     Vazio aqui = não há duplicação; nesse caso NÃO rode o passo 2, você estaria
+--     apagando o único orçado de folha da versão.
+SELECT co.codigo AS conta, co.descricao,
+       sum(f.valor) FILTER (WHERE f.origem =  'POSTO') AS por_posto,
+       sum(f.valor) FILTER (WHERE f.origem <> 'POSTO') AS outras_origens
+  FROM fat_orcado f
+  JOIN versao_orcamento   v  ON v.id = f.versao_id
+  JOIN conta_orcamentaria co ON co.id = f.linha_id
+ WHERE v.codigo = 'Orçado'                                                                 -- «VERSÃO»
+ GROUP BY co.codigo, co.descricao
+HAVING count(*) FILTER (WHERE f.origem =  'POSTO') > 0
+   AND count(*) FILTER (WHERE f.origem <> 'POSTO') > 0
+ ORDER BY 3 DESC NULLS LAST;
 
-  RAISE NOTICE '── Versão % ──', v_versao_cod;
-  RAISE NOTICE 'SAI  · fat_orcado origem POSTO : % linha(s) · R$ %', n_orc, round(v_orc, 2);
-  RAISE NOTICE 'SAI  · fat_folha  tipo ORCADO  : % linha(s) · R$ %', n_folha, round(v_folha, 2);
-  RAISE NOTICE 'FICA · fat_orcado MANUAL/FORMULARIO : % linha(s) · R$ %', n_outros, round(v_outros, 2);
-
-  -- quem é a duplicata: conta que tem POSTO e também outra origem
-  FOR r IN
-    SELECT co.codigo, sum(f.valor) FILTER (WHERE f.origem = 'POSTO')  AS posto,
-                      sum(f.valor) FILTER (WHERE f.origem <> 'POSTO') AS outros
-      FROM fat_orcado f JOIN conta_orcamentaria co ON co.id = f.linha_id
-     WHERE f.versao_id = v_versao
-     GROUP BY co.codigo
-    HAVING count(*) FILTER (WHERE f.origem = 'POSTO') > 0
-       AND count(*) FILTER (WHERE f.origem <> 'POSTO') > 0
-     ORDER BY 2 DESC NULLS LAST LIMIT 10
-  LOOP
-    RAISE NOTICE '   duplicada na conta %: POSTO R$ % · outras origens R$ %', r.codigo, round(r.posto, 2), round(r.outros, 2);
-  END LOOP;
-
-  IF NOT v_confirmar THEN
-    RAISE NOTICE '>> Nada foi apagado. Confira acima e rode de novo com v_confirmar = true.';
-    RETURN;
-  END IF;
-
-  DELETE FROM fat_orcado WHERE versao_id = v_versao AND origem = 'POSTO';
-  DELETE FROM fat_folha  WHERE versao_id = v_versao AND tipo   = 'ORCADO';
-  RAISE NOTICE '>> Removido o orçado de origem POSTO da versão %. MANUAL e FORMULARIO intactos.', v_versao_cod;
-END $$;
-
--- ── Panorama de TODAS as versões (não é o resultado do expurgo) ──
--- O bloco acima age só na versão configurada; este SELECT mostra o quadro geral
--- para você ver onde mais existe orçado de origem POSTO. O relatório do expurgo
--- sai nos NOTICE (no Supabase: aba de mensagens, não em "Results").
+-- 1c) panorama de TODAS as versões — onde mais existe orçado de origem POSTO
 SELECT v.codigo AS versao, f.origem, count(*) AS linhas, sum(f.valor) AS valor
   FROM fat_orcado f JOIN versao_orcamento v ON v.id = f.versao_id
  GROUP BY v.codigo, f.origem
  ORDER BY v.codigo, f.origem;
+
+
+-- ════════════════════════════════════════════════════════════
+-- PASSO 2 — EXPURGO
+-- Descomente as duas linhas abaixo e rode SÓ elas. Sem desfazer.
+-- ════════════════════════════════════════════════════════════
+
+-- DELETE FROM fat_orcado WHERE origem = 'POSTO'
+--   AND versao_id = (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado');   -- «VERSÃO»
+-- DELETE FROM fat_folha  WHERE tipo   = 'ORCADO'
+--   AND versao_id = (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado');   -- «VERSÃO»
