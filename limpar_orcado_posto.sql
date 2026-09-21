@@ -67,7 +67,10 @@ BEGIN
   RAISE NOTICE '>> Removido o orçado de origem POSTO da versão %. MANUAL e FORMULARIO intactos.', v_versao_cod;
 END $$;
 
--- ── Conferência: o orçado da versão por origem ──
+-- ── Panorama de TODAS as versões (não é o resultado do expurgo) ──
+-- O bloco acima age só na versão configurada; este SELECT mostra o quadro geral
+-- para você ver onde mais existe orçado de origem POSTO. O relatório do expurgo
+-- sai nos NOTICE (no Supabase: aba de mensagens, não em "Results").
 SELECT v.codigo AS versao, f.origem, count(*) AS linhas, sum(f.valor) AS valor
   FROM fat_orcado f JOIN versao_orcamento v ON v.id = f.versao_id
  GROUP BY v.codigo, f.origem
