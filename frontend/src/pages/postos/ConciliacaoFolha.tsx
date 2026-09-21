@@ -261,7 +261,7 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
             filCod: q?.filial?.codigo || (sp?.fil ? cod.fil[sp.fil] || '' : ''),
             ccCod: q?.centro_custo?.codigo || (sp?.cc ? cod.cc[sp.cc] || '' : ''), ccDesc: q?.centro_custo?.descricao || '',
             orcado: orcById[pid] || 0, realizado: realById[pid] || 0,
-            divergDims: [...(divergById[pid] || [])],
+            divergDims: sp ? ['sem posto'] : [...(divergById[pid] || [])],
           }
         })
         const dimByPosto: Record<string, DimCell[]> = {}
@@ -320,9 +320,12 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
       <tr style={{ cursor: 'pointer' }} onClick={() => setAberto(s => { const n = new Set(s); n.has(l.key) ? n.delete(l.key) : n.add(l.key); return n })}>
         <td style={{ ...S.td, ...S.mono }}>{open ? <ChevronDown size={12} style={{ verticalAlign: -2 }} /> : <ChevronRight size={12} style={{ verticalAlign: -2 }} />} {l.codigo}</td>
         <td style={S.td}>{l.nome}
-          {l.divergDims.length > 0 && <span onClick={e => { e.stopPropagation(); setModalDim(l) }}
-            title={`Realizado em ${l.divergDims.join(' / ')} diferente da origem do posto. Clique para comparar empresa×filial×CC orçado × realizado.`}
-            style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: 'var(--orange)', background: 'rgba(251,146,60,0.14)', border: '1px solid rgba(251,146,60,0.4)', borderRadius: 4, padding: '1px 6px', whiteSpace: 'nowrap', cursor: 'pointer' }}>≠ {l.divergDims.join('/')}</span>}
+          {!l.posto_id
+            ? <span title="A folha pagou esta matrícula e nenhum posto foi encontrado para ela: admissão fora do plano, substituição em posto existente ou matrícula divergente entre o cadastro e a folha. Não há orçado a comparar."
+                style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: 'var(--red)', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.4)', borderRadius: 4, padding: '1px 6px', whiteSpace: 'nowrap' }}>≠ sem posto relacionado</span>
+            : l.divergDims.length > 0 && <span onClick={e => { e.stopPropagation(); setModalDim(l) }}
+              title={`Realizado em ${l.divergDims.join(' / ')} diferente da origem do posto. Clique para comparar empresa×filial×CC orçado × realizado.`}
+              style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: 'var(--orange)', background: 'rgba(251,146,60,0.14)', border: '1px solid rgba(251,146,60,0.4)', borderRadius: 4, padding: '1px 6px', whiteSpace: 'nowrap', cursor: 'pointer' }}>≠ {l.divergDims.join('/')}</span>}
         </td>
         <td style={{ ...S.td, color: 'var(--muted)' }}>{l.empCod || '—'} · {l.filCod || '—'} · {l.ccCod || '—'}</td>
         <td style={{ ...S.td, textAlign: 'right' }}>{money(l.orcado)}</td>
