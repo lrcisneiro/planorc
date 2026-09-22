@@ -18,8 +18,8 @@ import { AlertCircle, Download, Upload, Trash2, Search, CheckCircle2 } from 'luc
 declare const XLSX: any
 
 type Row = {
-  id: string; empresa_cod: string; filial_cod: string | null; matricula: string; nome: string | null
-  cpf: string | null; fornecedor_cod: string; fornecedor_loja: string; cnpj: string | null
+  id: string; empresa_cod: string; filial_cod: string | null; matricula: string; matricula_folha: string | null
+  nome: string | null; cpf: string | null; fornecedor_cod: string; fornecedor_loja: string; cnpj: string | null
   nome_fantasia: string | null; ativo: boolean
 }
 
@@ -29,13 +29,15 @@ const DE_PARA: Record<string, string> = {
   EMPRESA: 'empresa_cod', EMPRESA_COD: 'empresa_cod',
   FILIAL: 'filial_cod', FILIAL_COD: 'filial_cod',
   CODIGO: 'matricula', MATRICULA: 'matricula',
+  // a matrícula do SRA, quando o export a trouxer: é o elo confiável com a folha
+  MATRICULA_FOLHA: 'matricula_folha', MATRICULA_SRA: 'matricula_folha', MAT_FOLHA: 'matricula_folha',
   NOME: 'nome', CPF: 'cpf',
   COD_FORNECEDOR: 'fornecedor_cod', FORNECEDOR_COD: 'fornecedor_cod',
   LOJA: 'fornecedor_loja', FORNECEDOR_LOJA: 'fornecedor_loja',
   CNPJ_FORNECEDOR: 'cnpj', CNPJ: 'cnpj',
   NOME_FANTASIA: 'nome_fantasia', FANTASIA: 'nome_fantasia',
 }
-const COLS_EXPORT = ['empresa_cod', 'filial_cod', 'matricula', 'nome', 'cpf', 'fornecedor_cod', 'fornecedor_loja', 'cnpj', 'nome_fantasia']
+const COLS_EXPORT = ['empresa_cod', 'filial_cod', 'matricula', 'matricula_folha', 'nome', 'cpf', 'fornecedor_cod', 'fornecedor_loja', 'cnpj', 'nome_fantasia']
 
 const norm = (s: any) => String(s ?? '').trim()
 // célula numérica come o zero à esquerda: 000076 volta como 76 (ou "76.0")
@@ -70,7 +72,7 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
     setLoading(true)
     // cresce com o quadro de PJ — passa de 1000 sem avisar
     const d = await pageAll(() => supabase.from('posto_fornecedor')
-      .select('id,empresa_cod,filial_cod,matricula,nome,cpf,fornecedor_cod,fornecedor_loja,cnpj,nome_fantasia,ativo')
+      .select('id,empresa_cod,filial_cod,matricula,matricula_folha,nome,cpf,fornecedor_cod,fornecedor_loja,cnpj,nome_fantasia,ativo')
       .order('matricula'))
     setRows(d as Row[]); setLoading(false)
   }
@@ -79,7 +81,7 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
   const shown = useMemo(() => {
     const q = busca.trim().toLowerCase()
     if (!q) return rows
-    return rows.filter(r => [r.matricula, r.nome, r.fornecedor_cod, r.nome_fantasia, r.cnpj]
+    return rows.filter(r => [r.matricula, r.matricula_folha, r.nome, r.fornecedor_cod, r.nome_fantasia, r.cnpj]
       .some(v => String(v || '').toLowerCase().includes(q)))
   }, [rows, busca])
 
@@ -118,7 +120,8 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
         const col = DE_PARA[k.trim().toUpperCase()]
         if (col) r[col] = v
       }
-      r.matricula      = zfill(r.matricula, 6)
+      r.matricula       = zfill(r.matricula, 6)
+      r.matricula_folha = r.matricula_folha ? zfill(r.matricula_folha, 6) : null
       r.fornecedor_cod = zfill(r.fornecedor_cod, 6)
       r.fornecedor_loja = r.fornecedor_loja ? zfill(r.fornecedor_loja, 2) : ''
       r.empresa_cod    = r.empresa_cod ? zfill(r.empresa_cod, 2) : ''
@@ -192,6 +195,8 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
         colunas <code>EMPRESA, CODIGO, NOME, CPF, COD_FORNECEDOR, LOJA, CNPJ_FORNECEDOR, NOME_FANTASIA</code>.
         Quem vem sem fornecedor é CLT e é descartado: só o PJ chega ao razão por nota fiscal.
         É o <b>nome fantasia</b> que casa com o histórico do lançamento — sem ele a linha entra, mas não amarra.
+        Se o export puder trazer também a <b>matrícula do SRA</b> (coluna <code>MATRICULA_FOLHA</code>), use: o código do
+        participante do RD0 <i>não</i> é a matrícula da folha, e sem ela o elo com a pessoa é tentado por nome.
       </div>
       {erro && <div style={S.erro}><AlertCircle size={14} /> {erro}</div>}
       {aviso && <div style={S.ok}><CheckCircle2 size={14} /> {aviso}</div>}
@@ -199,7 +204,7 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
       <div style={{ overflowX: 'auto', marginTop: 12 }}>
         <table style={S.table}>
           <thead><tr>
-            <th style={S.th}>Empresa</th><th style={S.th}>Matrícula</th><th style={S.th}>Nome</th>
+            <th style={S.th}>Empresa</th><th style={S.th}>Matrícula</th><th style={S.th} title="Matrícula do SRA — o elo com a folha. Vazia, o vínculo é tentado por nome.">Mat. folha</th><th style={S.th}>Nome</th>
             <th style={S.th}>Fornecedor</th><th style={S.th}>Nome fantasia</th><th style={S.th}>CNPJ</th>
           </tr></thead>
           <tbody>
@@ -207,13 +212,14 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
               <tr key={r.id}>
                 <td style={S.mono}>{r.empresa_cod || '—'}</td>
                 <td style={S.mono}>{r.matricula}</td>
+                <td style={{ ...S.mono, color: r.matricula_folha ? 'var(--green)' : 'var(--muted)' }}>{r.matricula_folha || 'por nome'}</td>
                 <td style={S.td}>{r.nome || '—'}</td>
                 <td style={S.mono}>{r.fornecedor_cod}{r.fornecedor_loja ? `/${r.fornecedor_loja}` : ''}</td>
                 <td style={{ ...S.td, color: r.nome_fantasia ? 'var(--text)' : 'var(--orange)' }}>{r.nome_fantasia || 'sem fantasia — não amarra'}</td>
                 <td style={S.mono}>{r.cnpj || '—'}</td>
               </tr>
             ))}
-            {!shown.length && <tr><td colSpan={6} style={S.empty}>
+            {!shown.length && <tr><td colSpan={7} style={S.empty}>
               {loading ? 'Carregando…' : busca ? 'Nada com esse termo.' : 'Nenhuma amarração ainda — importe o export RD0 × SA2 para o PJ ganhar nome na conciliação.'}
             </td></tr>}
           </tbody>

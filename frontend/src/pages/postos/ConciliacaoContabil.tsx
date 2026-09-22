@@ -1,35 +1,40 @@
 import { useEffect, useMemo, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
-import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
 import { ConciliacaoQuadro } from './ConciliacaoQuadro'
 import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare } from 'lucide-react'
 
-// Conciliação CONTÁBIL × FOLHA (camada 2). Responde, em três níveis:
-//   1. a conta bate?  — razão separado em "veio da folha" × "outras origens"
-//   2. qual verba explica? — dentro da parcela da folha, verba a verba
-//   3. quem? — a folha aberta por funcionário; é a resposta que a área quer
-// O resíduo (outras origens) não vem da folha, mas nem por isso é anônimo: a
-// maior parte dele é PJ, que chega por nota fiscal com o histórico
-// "<FORNECEDOR>-<PARTICIPANTE>". Havendo de-para carregado (Estrutura →
-// Fornecedores), o resíduo abre POR PESSOA (v3_083); o que sobra depois disso é
-// fatura de empresa ou ajuste de competência, e aí sim pede justificativa escrita.
-// A classificação vem do banco (v3_080): lançamento do razão cujo histórico
-// começa com um código de verba da competência veio da folha.
+// Conciliação CONTÁBIL × FOLHA (camada 2): o que a contabilidade lançou contra o
+// que a folha pagou. O razão de cada conta vem em TRÊS parcelas (v3_084), porque
+// o dinheiro da folha chega à contabilidade por estradas diferentes:
+//
+//   FOLHA   contabilização da folha × folha das verbas que ela lança     → por verba
+//   PJ      nota fiscal com dono    × folha das verbas que ela não lança → por pessoa
+//   OUTRAS  razão sem dono          × nada                               → justificativa
+//
+// O PJ não é contabilizado pela folha, mas PASSA por ela: é calculado lá, vira
+// pedido de compra, casa com a NF e só então é lançado. Por isso concilia como o
+// CLT — muda o grão (pessoa, não verba) e a estrada, não a pergunta.
 
 export type ContabilParams = {
   ano: number; mes: number; versaoId: string
   empresaSel: string[]; filialFilter: string[] | null; ccFilter: string[] | null
 }
-type Row = { conta_id: string; conta_cod: string; conta_desc: string; plano_cod: string | null; verba_cod: string | null; verba_desc: string | null; origem: 'FOLHA' | 'OUTRAS'; razao: number; folha: number }
+type Origem = 'FOLHA' | 'PJ' | 'OUTRAS'
+type Row = { conta_id: string; conta_cod: string; conta_desc: string; plano_cod: string | null; verba_cod: string | null; verba_desc: string | null; origem: Origem; razao: number; folha: number }
 type Nota = { id: string; conta_id: string; verba_cod: string | null; motivo: string }
 type Pessoa = { matricula: string; nome: string; valor: number }
 type Lanc = { data: string | null; documento: string | null; historico: string | null; lote: string | null; cc_cod: string | null; valor: number }
-type PJ = { status: 'CASADO' | 'AMBIGUO' | 'SEM_DEPARA'; matricula: string | null; nome: string | null; fornecedor_cod: string | null; nome_fantasia: string | null; cc_cod: string | null; lancamentos: number; valor: number }
+type PJ = {
+  status: 'CASADO' | 'SEM_NF' | 'SEM_FOLHA' | 'AMBIGUO' | 'SEM_DEPARA'
+  matricula: string | null; nome: string | null; fornecedor_cod: string | null; nome_fantasia: string | null
+  cc_cod: string | null; lancamentos: number; razao: number; folha: number
+}
 
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const chave = (contaId: string, verba: string | null) => `${contaId}|${verba || ''}`
+const PJ_NOTA = '#PJ'   // sentinela da justificativa da parcela PJ (a tabela guarda verba_cod texto)
 
 const S: Record<string, CSSProperties> = {
   kpis:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, margin: '0 0 16px' },
@@ -53,16 +58,19 @@ const S: Record<string, CSSProperties> = {
   nota:  { display: 'flex', gap: 6, alignItems: 'center', padding: '6px 8px 10px 30px', fontSize: 12.5 },
 }
 const chip = (cor: string, fundo: string): CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 8px', borderRadius: 99, fontSize: 10, fontWeight: 700, color: cor, background: fundo, whiteSpace: 'nowrap' })
-const OK = chip('var(--green)', 'rgba(52,211,153,0.14)')
+const OK  = chip('var(--green)', 'rgba(52,211,153,0.14)')
 const DIF = chip('var(--orange)', 'rgba(251,146,60,0.14)')
 const RES = chip('var(--blue)', 'rgba(59,130,246,0.14)')
-const PJ_ST: Record<PJ['status'], { txt: string; est: CSSProperties }> = {
-  CASADO:     { txt: 'casado',      est: OK },
-  AMBIGUO:    { txt: 'ambíguo',     est: DIF },
-  SEM_DEPARA: { txt: 'sem de-para', est: RES },
+
+// As cinco respostas do PJ. As quatro primeiras são a lista que o gestor procura.
+const PJ_ST: Record<PJ['status'], { txt: string; est: CSSProperties; ajuda: string }> = {
+  SEM_NF:     { txt: 'sem NF',      est: DIF, ajuda: 'a folha calculou e nenhuma nota chegou no mês' },
+  SEM_FOLHA:  { txt: 'sem folha',   est: DIF, ajuda: 'a NF tem dono, mas o dono não tem folha nesta conta neste mês' },
+  AMBIGUO:    { txt: 'ambíguo',     est: DIF, ajuda: 'o histórico casou com mais de um fornecedor' },
+  SEM_DEPARA: { txt: 'sem de-para', est: RES, ajuda: 'a NF não casou com ninguém — falta amarração em Estrutura → Fornecedores (PJ)' },
+  CASADO:     { txt: 'conciliado',  est: OK,  ajuda: 'a NF tem dono e o dono tem folha — compare os dois valores' },
 }
-const ORDEM_ST: PJ['status'][] = ['CASADO', 'AMBIGUO', 'SEM_DEPARA']
-const segm = (a: boolean): CSSProperties => ({ padding: '3px 10px', fontSize: 11.5, fontWeight: 600, cursor: a ? 'default' : 'pointer', borderRadius: 6, border: '1px solid ' + (a ? 'var(--violet)' : 'var(--border)'), background: a ? 'rgba(139,92,246,0.16)' : 'var(--panel)', color: a ? 'var(--violet)' : 'var(--text-mid)' })
+const ORDEM_ST: PJ['status'][] = ['SEM_NF', 'SEM_FOLHA', 'AMBIGUO', 'SEM_DEPARA', 'CASADO']
 
 export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: ContabilParams; podeConfigurar: boolean }) {
   const [rows, setRows] = useState<Row[]>([])
@@ -72,29 +80,15 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [aberto, setAberto] = useState<Set<string>>(new Set())
-  const [drill, setDrill] = useState<Record<string, Pessoa[] | Lanc[]>>({})
+  const [drill, setDrill] = useState<Record<string, Pessoa[] | Lanc[] | PJ[]>>({})
   const [editNota, setEditNota] = useState<string | null>(null)
   const [txtNota, setTxtNota] = useState('')
-  // CLT = conta que a contabilização da folha alimenta. Conta com folha e SEM razão
-  // de origem folha é o outro mundo (PJ pago por NF, lote de contas a pagar): não
-  // concilia por verba e polui a leitura do CLT. Some por escolha, nunca em silêncio.
-  const [soCLT, setSoCLT] = useLocalPref('planorc_concil_so_clt', true)
-  // O de-para de fornecedores é o que transforma o resíduo em gente. Sem ele
-  // carregado não há o que escolher: resta a lista crua de lançamentos.
-  const [temDepara, setTemDepara] = useState(false)
-  const [vistaPref, setVistaPref] = useLocalPref<'pessoa' | 'lanc'>('planorc_concil_outras_vista', 'pessoa')
-  const vista = temDepara ? vistaPref : 'lanc'
 
   const escopo = useMemo(() => ({
     p_ano: p.ano, p_mes: p.mes,
     p_empresas: p.empresaSel.length ? p.empresaSel : null,
     p_filiais: p.filialFilter, p_ccs: p.ccFilter,
   }), [p.ano, p.mes, p.empresaSel, p.filialFilter, p.ccFilter])
-
-  useEffect(() => {
-    supabase.from('posto_fornecedor').select('id', { count: 'exact', head: true })
-      .then(r => setTemDepara(!!r.count))
-  }, [])
 
   useEffect(() => {
     let vivo = true
@@ -118,29 +112,25 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     return () => { vivo = false }
   }, [escopo]) // eslint-disable-line
 
-  // agrupa por conta: as verbas (parcela da folha) e a linha única de resíduo
+  // agrupa por conta: as verbas (CLT), a parcela do PJ e o resíduo sem dono
   const contas = useMemo(() => {
-    const m = new Map<string, { id: string; cod: string; desc: string; plano: string; verbas: Row[]; outras: number }>()
+    const m = new Map<string, { id: string; cod: string; desc: string; plano: string; verbas: Row[]; pjRazao: number; pjFolha: number; outras: number }>()
     for (const r of rows) {
-      const g = m.get(r.conta_id) || { id: r.conta_id, cod: r.conta_cod, desc: r.conta_desc, plano: r.plano_cod || '', verbas: [], outras: 0 }
+      const g = m.get(r.conta_id) || { id: r.conta_id, cod: r.conta_cod, desc: r.conta_desc, plano: r.plano_cod || '', verbas: [], pjRazao: 0, pjFolha: 0, outras: 0 }
       if (r.origem === 'OUTRAS') g.outras += Number(r.razao) || 0
+      else if (r.origem === 'PJ') { g.pjRazao += Number(r.razao) || 0; g.pjFolha += Number(r.folha) || 0 }
       else g.verbas.push({ ...r, razao: Number(r.razao) || 0, folha: Number(r.folha) || 0 })
       m.set(r.conta_id, g)
     }
     return [...m.values()].map(g => {
-      const razao = g.verbas.reduce((s, v) => s + v.razao, 0)
-      const folha = g.verbas.reduce((s, v) => s + v.folha, 0)
+      const temPJ = g.pjRazao !== 0 || g.pjFolha !== 0
+      const pjDif = g.pjRazao - g.pjFolha
+      const razao = g.verbas.reduce((s, v) => s + v.razao, 0) + g.pjRazao
+      const folha = g.verbas.reduce((s, v) => s + v.folha, 0) + g.pjFolha
       const foraTol = g.verbas.filter(v => Math.abs(v.razao - v.folha) > tol)
-      return { ...g, razao, folha, dif: razao - folha, foraTol }
+      return { ...g, temPJ, pjDif, pjFora: temPJ && Math.abs(pjDif) > tol, razao, folha, dif: razao - folha, foraTol }
     }).sort((a, b) => a.cod.localeCompare(b.cod))
   }, [rows, tol])
-
-  // guarda: se o filtro esconderia TUDO, não esconde nada — é o sintoma de razão
-  // ausente (competência não importada / filtro de escopo cortando), e sumir com a
-  // tabela inteira esconderia justamente a pista.
-  const naoCLT = useMemo(() => contas.filter(c => c.razao === 0 && c.folha !== 0), [contas])
-  const escondendo = soCLT && naoCLT.length > 0 && naoCLT.length < contas.length
-  const visiveis = escondendo ? contas.filter(c => !(c.razao === 0 && c.folha !== 0)) : contas
 
   // o mesmo código em planos diferentes são contas diferentes (multi-ERP): sem o
   // plano no rótulo a tela mostraria duas linhas idênticas com valores distintos
@@ -150,10 +140,12 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     return new Set([...n.entries()].filter(([, q]) => q > 1).map(([k]) => k))
   }, [contas])
 
-  const tot = useMemo(() => visiveis.reduce((s, c) => ({
+  const tot = useMemo(() => contas.reduce((s, c) => ({
     razao: s.razao + c.razao, folha: s.folha + c.folha, outras: s.outras + c.outras,
-    pend: s.pend + c.foraTol.length + (Math.abs(c.outras) > tol && !notas[chave(c.id, null)] ? 1 : 0),
-  }), { razao: 0, folha: 0, outras: 0, pend: 0 }), [visiveis, tol, notas])
+    pend: s.pend + c.foraTol.length
+        + (c.pjFora && !notas[chave(c.id, PJ_NOTA)] ? 1 : 0)
+        + (Math.abs(c.outras) > tol && !notas[chave(c.id, null)] ? 1 : 0),
+  }), { razao: 0, folha: 0, outras: 0, pend: 0 }), [contas, tol, notas])
 
   const salvarTolerancia = async () => {
     const v = Number(tolTxt.replace(/\./g, '').replace(',', '.'))
@@ -163,12 +155,12 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     setTol(v); setTolTxt(money(v))
   }
 
-  const toggle = async (k: string, carregar: () => Promise<Pessoa[] | Lanc[]>) => {
+  const toggle = async (k: string, carregar: () => Promise<Pessoa[] | Lanc[] | PJ[]>) => {
     setAberto(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
     if (!drill[k]) { const d = await carregar(); setDrill(prev => ({ ...prev, [k]: d })) }
   }
-  // nível 3: a folha por funcionário — o razão não tem matrícula, e não precisa:
-  // se a verba fecha no nível 2, esta lista É a composição do número contábil.
+  // nível 3 do CLT: a folha por funcionário — o razão não tem matrícula, e não
+  // precisa: se a verba fecha no nível 2, esta lista É a composição do número.
   const pessoasDaVerba = async (contaId: string, verba: string): Promise<Pessoa[]> => {
     const linhas = await pageAll(() => {
       let q = supabase.from('fat_folha').select('matricula,nome,valor')
@@ -186,27 +178,13 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     })
     return [...m.values()].sort((a, b) => b.valor - a.valor)
   }
-  // carrega sem mexer no aberto/fechado — as duas vistas do resíduo dividem a
-  // mesma linha expandida, então abrir e trocar de vista são ações separadas
-  const garantir = async (k: string, carregar: () => Promise<any[]>) => {
-    if (drill[k]) return
-    const d = await carregar()
-    setDrill(prev => prev[k] ? prev : { ...prev, [k]: d })
-  }
-  const abrirOutras = (contaId: string) => {
-    const k = `o:${contaId}`; const abrindo = !aberto.has(k)
-    setAberto(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
-    if (abrindo) carregarVista(contaId, vista)
-  }
-  const carregarVista = (contaId: string, v: 'pessoa' | 'lanc') => v === 'pessoa'
-    ? garantir(`pj:${contaId}`, () => pjDaConta(contaId))
-    : garantir(`o:${contaId}`, () => lancamentosOutras(contaId))
-
-  const pjDaConta = async (contaId: string): Promise<PJ[]> => {
+  // nível 3 do PJ: folha × NF por pessoa, com a divergência já calculada
+  const pessoasPJ = async (contaId: string): Promise<PJ[]> => {
     const { data, error } = await supabase.rpc('conciliacao_pj_detalhe', { ...escopo, p_conta: contaId })
     if (error) { setErro(error.message); return [] }
-    return ((data || []) as PJ[]).map(x => ({ ...x, valor: Number(x.valor) || 0 }))
-      .sort((a, b) => ORDEM_ST.indexOf(a.status) - ORDEM_ST.indexOf(b.status) || b.valor - a.valor)
+    return ((data || []) as PJ[])
+      .map(x => ({ ...x, razao: Number(x.razao) || 0, folha: Number(x.folha) || 0 }))
+      .sort((a, b) => ORDEM_ST.indexOf(a.status) - ORDEM_ST.indexOf(b.status) || Math.abs(b.razao - b.folha) - Math.abs(a.razao - a.folha))
   }
   const lancamentosOutras = async (contaId: string): Promise<Lanc[]> => {
     const { data, error } = await supabase.rpc('conciliacao_folha_outras', { ...escopo, p_conta: contaId })
@@ -225,78 +203,6 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     if (r.error) { setErro(r.error.message); return }
     if (r.data) setNotas(prev => ({ ...prev, [k]: r.data as Nota }))
     setEditNota(null); setTxtNota('')
-  }
-
-  // O resíduo em duas leituras: quem é (PJ, via de-para) e o que foi lançado.
-  // A primeira só existe com o de-para carregado; a segunda é o chão de sempre.
-  const DrillOutras = ({ contaId }: { contaId: string }) => {
-    const pj = (drill[`pj:${contaId}`] as PJ[]) || null
-    const lanc = (drill[`o:${contaId}`] as Lanc[]) || null
-    const tot = pj ? pj.reduce((a, x) => a + x.valor, 0) : 0
-    const comDono = pj ? pj.filter(x => x.status === 'CASADO').reduce((a, x) => a + x.valor, 0) : 0
-    return (
-      <>
-        {temDepara && (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', margin: '0 0 8px' }}>
-            <button style={segm(vista === 'pessoa')} onClick={() => { setVistaPref('pessoa'); carregarVista(contaId, 'pessoa') }}>Por pessoa (PJ)</button>
-            <button style={segm(vista === 'lanc')}   onClick={() => { setVistaPref('lanc');   carregarVista(contaId, 'lanc') }}>Lançamentos</button>
-            {vista === 'pessoa' && pj && tot !== 0 && (
-              <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                {Math.round(100 * comDono / tot)}% com dono · R$ {money(comDono)} de R$ {money(tot)}
-              </span>
-            )}
-          </div>
-        )}
-        {vista === 'pessoa' ? (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead><tr>
-              <th style={S.dh}>Status</th><th style={S.dh}>Matrícula</th><th style={S.dh}>Nome</th>
-              <th style={S.dh}>Fornecedor</th><th style={S.dh}>Nome fantasia</th><th style={S.dh}>CC</th>
-              <th style={{ ...S.dh, textAlign: 'right' }}>Lanç.</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th>
-            </tr></thead>
-            <tbody>
-              {(pj || []).map((x, i) => (
-                <tr key={i}>
-                  <td style={S.dt}><span style={PJ_ST[x.status].est}>● {PJ_ST[x.status].txt}</span></td>
-                  <td style={{ ...S.dt, ...S.mono }}>{x.matricula || ''}</td>
-                  <td style={S.dt}>{x.nome || ''}</td>
-                  <td style={{ ...S.dt, ...S.mono }}>{x.fornecedor_cod || ''}</td>
-                  {/* sem de-para, o "fantasia" é o texto que o histórico trouxe e não
-                      casou — é exatamente o que precisa ser procurado no ERP */}
-                  <td style={{ ...S.dt, color: x.status === 'CASADO' ? 'var(--text)' : 'var(--muted)', fontStyle: x.status === 'CASADO' ? 'normal' : 'italic' }}>{x.nome_fantasia || ''}</td>
-                  <td style={{ ...S.dt, ...S.mono }}>{x.cc_cod || ''}</td>
-                  <td style={{ ...S.dt, textAlign: 'right' }}>{x.lancamentos}</td>
-                  <td style={{ ...S.dt, textAlign: 'right' }}>{money(x.valor)}</td>
-                </tr>
-              ))}
-              {!pj && <tr><td colSpan={8} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
-              {pj && !pj.length && <tr><td colSpan={8} style={{ ...S.dt, color: 'var(--muted)' }}>Nenhum lançamento de outra origem neste escopo.</td></tr>}
-            </tbody>
-          </table>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead><tr><th style={S.dh}>Data</th><th style={S.dh}>Documento</th><th style={S.dh}>Histórico</th><th style={S.dh}>Lote</th><th style={S.dh}>CC</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
-            <tbody>
-              {(lanc || []).map((x, i) => (
-                <tr key={i}>
-                  <td style={S.dt}>{x.data || ''}</td><td style={{ ...S.dt, ...S.mono }}>{x.documento || ''}</td>
-                  <td style={S.dt}>{x.historico || ''}</td><td style={{ ...S.dt, ...S.mono }}>{x.lote || ''}</td>
-                  <td style={{ ...S.dt, ...S.mono }}>{x.cc_cod || ''}</td>
-                  <td style={{ ...S.dt, textAlign: 'right' }}>{money(Number(x.valor) || 0)}</td>
-                </tr>
-              ))}
-              {!lanc && <tr><td colSpan={6} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
-              {lanc && !lanc.length && <tr><td colSpan={6} style={{ ...S.dt, color: 'var(--muted)' }}>Nenhum lançamento de outra origem neste escopo.</td></tr>}
-            </tbody>
-          </table>
-        )}
-        {!temDepara && (
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>
-            Boa parte disto costuma ser PJ. Carregue o de-para em <b>Estrutura → Fornecedores (PJ)</b> e este bloco passa a abrir por pessoa.
-          </div>
-        )}
-      </>
-    )
   }
 
   const BlocoNota = ({ contaId, verba, valorRef }: { contaId: string; verba: string | null; valorRef: number }) => {
@@ -320,6 +226,47 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     )
   }
 
+  const TabelaPJ = ({ contaId }: { contaId: string }) => {
+    const d = drill[`pj:${contaId}`] as PJ[] | undefined
+    if (!d) return <div style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</div>
+    if (!d.length) return <div style={{ ...S.dt, color: 'var(--muted)' }}>Nenhuma pessoa nesta parcela, dentro do escopo.</div>
+    return (
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <thead><tr>
+          <th style={S.dh}>Status</th><th style={S.dh}>Matrícula</th><th style={S.dh}>Nome</th>
+          <th style={S.dh}>Fornecedor</th><th style={S.dh}>CC</th>
+          <th style={{ ...S.dh, textAlign: 'right' }}>NF</th>
+          <th style={{ ...S.dh, textAlign: 'right' }}>Razão</th>
+          <th style={{ ...S.dh, textAlign: 'right' }}>Folha</th>
+          <th style={{ ...S.dh, textAlign: 'right' }}>Diferença</th>
+        </tr></thead>
+        <tbody>
+          {d.map((x, i) => {
+            const dif = x.razao - x.folha; const fora = Math.abs(dif) > tol
+            const st = PJ_ST[x.status]
+            return (
+              <tr key={i}>
+                <td style={S.dt} title={st?.ajuda}><span style={st?.est || RES}>● {st?.txt || x.status}</span></td>
+                <td style={{ ...S.dt, ...S.mono }}>{x.matricula || ''}</td>
+                <td style={S.dt}>{x.nome || ''}</td>
+                {/* sem amarração, o "fornecedor" é o texto que o histórico trouxe
+                    e não casou — é exatamente o que procurar no ERP */}
+                <td style={{ ...S.dt, color: x.fornecedor_cod ? 'var(--text-mid)' : 'var(--muted)', fontStyle: x.fornecedor_cod ? 'normal' : 'italic' }}>
+                  {x.fornecedor_cod ? `${x.fornecedor_cod} · ${x.nome_fantasia || ''}` : (x.nome_fantasia || '')}
+                </td>
+                <td style={{ ...S.dt, ...S.mono }}>{x.cc_cod || ''}</td>
+                <td style={{ ...S.dt, textAlign: 'right', color: 'var(--muted)' }}>{x.lancamentos || ''}</td>
+                <td style={{ ...S.dt, textAlign: 'right' }}>{money(x.razao)}</td>
+                <td style={{ ...S.dt, textAlign: 'right' }}>{money(x.folha)}</td>
+                <td style={{ ...S.dt, textAlign: 'right', color: fora ? 'var(--orange)' : 'var(--muted)' }}>{money(dif)}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    )
+  }
+
   if (loading) return <div style={S.empty}>Carregando conciliação…</div>
   if (erro) return <div style={S.erro}><AlertCircle size={16} /> {erro}</div>
   if (!contas.length) return <div style={S.empty}>Nenhuma folha com conta contábil resolvida nesta competência e escopo.</div>
@@ -327,10 +274,10 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   return (
     <div>
       <div style={S.kpis}>
-        <div style={S.kpi}><div style={S.kpiL}>Razão · origem folha</div><div style={S.kpiV}>{money(tot.razao)}</div><div style={S.kpiS}>o que a contabilização da folha lançou</div></div>
-        <div style={S.kpi}><div style={S.kpiL}>Folha analítica</div><div style={S.kpiV}>{money(tot.folha)}</div><div style={S.kpiS}>o mesmo dinheiro, por funcionário</div></div>
+        <div style={S.kpi}><div style={S.kpiL}>Razão · com contrapartida</div><div style={S.kpiV}>{money(tot.razao)}</div><div style={S.kpiS}>contabilização da folha + NF com dono</div></div>
+        <div style={S.kpi}><div style={S.kpiL}>Folha analítica</div><div style={S.kpiV}>{money(tot.folha)}</div><div style={S.kpiS}>o mesmo dinheiro, por pessoa</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Diferença</div><div style={{ ...S.kpiV, color: Math.abs(tot.razao - tot.folha) > tol ? 'var(--orange)' : 'var(--green)' }}>{money(tot.razao - tot.folha)}</div><div style={S.kpiS}>tolerância R$ {money(tol)}</div></div>
-        <div style={S.kpi}><div style={S.kpiL}>Outras origens</div><div style={{ ...S.kpiV, color: 'var(--blue)' }}>{money(tot.outras)}</div><div style={S.kpiS}>{tot.pend ? `${tot.pend} ponto(s) a explicar` : 'tudo justificado'}</div></div>
+        <div style={S.kpi}><div style={S.kpiL}>Razão sem dono</div><div style={{ ...S.kpiV, color: 'var(--blue)' }}>{money(tot.outras)}</div><div style={S.kpiS}>{tot.pend ? `${tot.pend} ponto(s) a explicar` : 'tudo justificado'}</div></div>
       </div>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', margin: '0 0 12px' }}>
@@ -340,42 +287,30 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
             onChange={e => setTolTxt(e.target.value)} onBlur={salvarTolerancia}
             onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--text-mid)', cursor: 'pointer', paddingBottom: 8 }}
-          title="Esconde as contas em que a folha tem valor mas a contabilização da folha não lançou nada — o caso do PJ, que chega por nota fiscal em outro lote e não concilia por verba.">
-          <input type="checkbox" checked={soCLT} onChange={e => setSoCLT(e.target.checked)} /> Só CLT
-        </label>
         <span style={{ fontSize: 12, color: 'var(--muted)', paddingBottom: 8 }}>
-          Abaixo da tolerância a verba conta como conciliada — rateio e arredondamento não são divergência.
+          Abaixo da tolerância a linha conta como conciliada — rateio e arredondamento não são divergência.
         </span>
       </div>
-
-      {escondendo && (
-        <div style={{ fontSize: 12, color: 'var(--blue)', margin: '-4px 0 12px' }}>
-          {naoCLT.length} conta(s) ocultas por "Só CLT" — R$ {money(naoCLT.reduce((s, c) => s + c.folha, 0))} de folha sem contabilização pela folha
-          ({naoCLT.map(c => c.cod).join(', ')}). É o PJ: chega por nota fiscal, em outro lote —
-          {temDepara ? ' desmarque para abrir o razão dele por pessoa.' : ' carregue o de-para em Estrutura → Fornecedores (PJ) para ele ganhar nome.'}
-        </div>
-      )}
-      {soCLT && naoCLT.length > 0 && naoCLT.length === contas.length && (
-        <div style={S.erro}><AlertCircle size={16} /> Nenhuma conta tem razão de origem folha — o filtro "Só CLT" esconderia tudo, então está inativo. Confira se o razão da competência foi importado e se os filtros de escopo não estão cortando o lado contábil.</div>
-      )}
 
       <div style={S.card}>
         <table style={S.table}>
           <thead><tr>
-            <th style={S.th}>Conta / verba</th>
-            <th style={{ ...S.th, textAlign: 'right' }}>Razão (folha)</th>
+            <th style={S.th}>Conta / verba / pessoa</th>
+            <th style={{ ...S.th, textAlign: 'right' }}>Razão</th>
             <th style={{ ...S.th, textAlign: 'right' }}>Folha</th>
             <th style={{ ...S.th, textAlign: 'right' }}>Diferença</th>
-            <th style={{ ...S.th, textAlign: 'right' }}>Outras origens</th>
+            <th style={{ ...S.th, textAlign: 'right' }}>Sem dono</th>
             <th style={S.th}>Status</th>
           </tr></thead>
           <tbody>
-            {visiveis.map(c => {
+            {contas.map(c => {
               const kc = `c:${c.id}`; const abertoC = aberto.has(kc)
               const temResiduo = Math.abs(c.outras) > tol
-              const st = c.foraTol.length ? DIF : temResiduo ? RES : OK
-              const stTxt = c.foraTol.length ? `${c.foraTol.length} verba(s)` : temResiduo ? 'só resíduo' : 'conciliada'
+              const pend = c.foraTol.length + (c.pjFora ? 1 : 0)
+              const st = pend ? DIF : temResiduo ? RES : OK
+              const stTxt = pend
+                ? [c.foraTol.length ? `${c.foraTol.length} verba(s)` : '', c.pjFora ? 'PJ' : ''].filter(Boolean).join(' + ')
+                : temResiduo ? 'só sem dono' : 'conciliada'
               return (
                 <Fragment key={c.id}>
                   <tr onClick={() => setAberto(prev => { const n = new Set(prev); n.has(kc) ? n.delete(kc) : n.add(kc); return n })}>
@@ -387,6 +322,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                     <td style={S.gh}><span style={st}>● {stTxt}</span></td>
                   </tr>
 
+                  {/* CLT — o que a contabilização da folha lançou, verba a verba */}
                   {abertoC && c.verbas.sort((a, b) => b.folha - a.folha).map(v => {
                     const dif = v.razao - v.folha; const fora = Math.abs(dif) > tol
                     const kv = `v:${c.id}:${v.verba_cod}`
@@ -422,12 +358,37 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                     )
                   })}
 
+                  {/* PJ — a folha que a contabilização não lança, contra a NF */}
+                  {abertoC && c.temPJ && (
+                    <Fragment>
+                      <tr>
+                        <td style={{ ...S.td, paddingLeft: 30, cursor: 'pointer' }}
+                          onClick={() => toggle(`pj:${c.id}`, () => pessoasPJ(c.id))}
+                          title="O PJ não é contabilizado pela folha: é calculado lá, vira pedido de compra e chega ao razão como nota fiscal. Concilia por pessoa.">
+                          {aberto.has(`pj:${c.id}`) ? <ChevronDown size={12} /> : <ChevronRight size={12} />} PJ — nota fiscal, por pessoa
+                        </td>
+                        <td style={{ ...S.td, textAlign: 'right' }}>{money(c.pjRazao)}</td>
+                        <td style={{ ...S.td, textAlign: 'right' }}>{money(c.pjFolha)}</td>
+                        <td style={{ ...S.td, textAlign: 'right', color: c.pjFora ? 'var(--orange)' : 'var(--muted)' }}>{money(c.pjDif)}</td>
+                        <td style={S.td}></td>
+                        <td style={S.td}>{c.pjFora ? <span style={DIF}>● fora</span> : <Check size={13} style={{ color: 'var(--green)' }} />}</td>
+                      </tr>
+                      {aberto.has(`pj:${c.id}`) && (
+                        <tr><td colSpan={6} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
+                          <TabelaPJ contaId={c.id} />
+                        </td></tr>
+                      )}
+                      {c.pjFora && <tr><td colSpan={6} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={PJ_NOTA} valorRef={c.pjDif} /></td></tr>}
+                    </Fragment>
+                  )}
+
+                  {/* o que não veio da folha nem casou com pessoa */}
                   {abertoC && !!c.outras && (
                     <Fragment>
                       <tr>
                         <td style={{ ...S.td, paddingLeft: 30, cursor: 'pointer', color: 'var(--blue)' }}
-                          onClick={() => abrirOutras(c.id)}>
-                          {aberto.has(`o:${c.id}`) ? <ChevronDown size={12} /> : <ChevronRight size={12} />} outras origens — não veio da folha
+                          onClick={() => toggle(`o:${c.id}`, () => lancamentosOutras(c.id))}>
+                          {aberto.has(`o:${c.id}`) ? <ChevronDown size={12} /> : <ChevronRight size={12} />} sem dono — nem folha, nem pessoa
                         </td>
                         <td style={S.td}></td><td style={S.td}></td><td style={S.td}></td>
                         <td style={{ ...S.td, textAlign: 'right', color: 'var(--blue)' }}>{money(c.outras)}</td>
@@ -435,7 +396,20 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                       </tr>
                       {aberto.has(`o:${c.id}`) && (
                         <tr><td colSpan={6} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
-                          <DrillOutras contaId={c.id} />
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                            <thead><tr><th style={S.dh}>Data</th><th style={S.dh}>Documento</th><th style={S.dh}>Histórico</th><th style={S.dh}>Lote</th><th style={S.dh}>CC</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
+                            <tbody>
+                              {((drill[`o:${c.id}`] as Lanc[]) || []).map((x, i) => (
+                                <tr key={i}>
+                                  <td style={S.dt}>{x.data || ''}</td><td style={{ ...S.dt, ...S.mono }}>{x.documento || ''}</td>
+                                  <td style={S.dt}>{x.historico || ''}</td><td style={{ ...S.dt, ...S.mono }}>{x.lote || ''}</td>
+                                  <td style={{ ...S.dt, ...S.mono }}>{x.cc_cod || ''}</td>
+                                  <td style={{ ...S.dt, textAlign: 'right' }}>{money(Number(x.valor) || 0)}</td>
+                                </tr>
+                              ))}
+                              {!((drill[`o:${c.id}`] as Lanc[]) || []).length && <tr><td colSpan={6} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
+                            </tbody>
+                          </table>
                         </td></tr>
                       )}
                       <tr><td colSpan={6} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={null} valorRef={c.outras} /></td></tr>

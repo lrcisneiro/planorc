@@ -107,7 +107,7 @@ export default function ConciliacaoFolhaPage() {
           <h1 style={S.title}>Conciliação de folha</h1>
           <p style={S.sub}>{abaSel === 'orcado'
             ? <>Orçado (postos aplicados) × Realizado (folha) por posto, na versão e competência escolhidas — todas as contas. Para conciliar uma linha específica, use o botão <b>Conciliação Folha</b> no razão da DRE.</>
-            : <>Realizado contábil (razão) × Realizado da folha, por conta → verba → funcionário. Separa o que a contabilização da folha lançou do que entrou na mesma conta por outra origem (fatura paga direto, ajuste de competência, NF de PJ) — só a primeira parcela tem de bater.</>}</p>
+            : <>Realizado contábil (razão) × Realizado da folha. O razão de cada conta vem em três parcelas, cada uma com o seu par na folha: o que a <b>contabilização da folha</b> lançou (concilia por verba), o <b>PJ</b> que chega por nota fiscal (concilia por pessoa) e o que ficou <b>sem dono</b> — só este pede justificativa.</>}</p>
         </div>
         <PostosPills />
       </div>
