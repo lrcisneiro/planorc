@@ -195,8 +195,9 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
         colunas <code>EMPRESA, CODIGO, NOME, CPF, COD_FORNECEDOR, LOJA, CNPJ_FORNECEDOR, NOME_FANTASIA</code>.
         Quem vem sem fornecedor é CLT e é descartado: só o PJ chega ao razão por nota fiscal.
         É o <b>nome fantasia</b> que casa com o histórico do lançamento — sem ele a linha entra, mas não amarra.
-        Se o export puder trazer também a <b>matrícula do SRA</b> (coluna <code>MATRICULA_FOLHA</code>), use: o código do
-        participante do RD0 <i>não</i> é a matrícula da folha, e sem ela o elo com a pessoa é tentado por nome.
+        Para o PJ conciliar por pessoa, traga também <b><code>FILIAL</code></b> e <b><code>MATRICULA_FOLHA</code></b> (a matrícula do SRA):
+        o código do participante do RD0 <i>não</i> é a matrícula da folha, e a matrícula sozinha não identifica ninguém —
+        a 900000 é três pessoas diferentes. A chave que fecha é <b>filial + matrícula</b>. Sem elas, o elo é tentado por nome.
       </div>
       {erro && <div style={S.erro}><AlertCircle size={14} /> {erro}</div>}
       {aviso && <div style={S.ok}><CheckCircle2 size={14} /> {aviso}</div>}
@@ -204,7 +205,9 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
       <div style={{ overflowX: 'auto', marginTop: 12 }}>
         <table style={S.table}>
           <thead><tr>
-            <th style={S.th}>Empresa</th><th style={S.th}>Matrícula</th><th style={S.th} title="Matrícula do SRA — o elo com a folha. Vazia, o vínculo é tentado por nome.">Mat. folha</th><th style={S.th}>Nome</th>
+            <th style={S.th}>Empresa</th><th style={S.th}>Matrícula</th>
+            <th style={S.th} title="Filial + matrícula do SRA é a chave que identifica a pessoa na folha. Faltando qualquer uma, o vínculo é tentado por nome.">Filial · mat. folha</th>
+            <th style={S.th}>Nome</th>
             <th style={S.th}>Fornecedor</th><th style={S.th}>Nome fantasia</th><th style={S.th}>CNPJ</th>
           </tr></thead>
           <tbody>
@@ -212,7 +215,9 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
               <tr key={r.id}>
                 <td style={S.mono}>{r.empresa_cod || '—'}</td>
                 <td style={S.mono}>{r.matricula}</td>
-                <td style={{ ...S.mono, color: r.matricula_folha ? 'var(--green)' : 'var(--muted)' }}>{r.matricula_folha || 'por nome'}</td>
+                <td style={{ ...S.mono, color: r.matricula_folha && r.filial_cod ? 'var(--green)' : 'var(--muted)' }}>
+                  {r.matricula_folha ? `${r.filial_cod || '????'}-${r.matricula_folha}` : 'por nome'}
+                </td>
                 <td style={S.td}>{r.nome || '—'}</td>
                 <td style={S.mono}>{r.fornecedor_cod}{r.fornecedor_loja ? `/${r.fornecedor_loja}` : ''}</td>
                 <td style={{ ...S.td, color: r.nome_fantasia ? 'var(--text)' : 'var(--orange)' }}>{r.nome_fantasia || 'sem fantasia — não amarra'}</td>

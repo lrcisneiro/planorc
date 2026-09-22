@@ -21,11 +21,18 @@
 --
 -- ⚠ O ELO COM A PESSOA É FRÁGIL — ver planorc_pj_vinculo(). O código do
 -- participante (RD0) NÃO é a matrícula da folha: a mesma pessoa é 000212 no RD0
--- e 900031 no SRA. E a matrícula sozinha nem identifica alguém — 112 das 168
--- matrículas de ago/2026 existem em mais de uma empresa. Por isso a pessoa aqui
--- é sempre o par (empresa, matrícula), e enquanto o export não trouxer a
--- matrícula da folha o vínculo é por nome e cobre só parte. A coluna
--- matricula_folha existe para receber a resposta certa sem mexer em mais nada.
+-- e 900031 no SRA. Enquanto o export não trouxer a matrícula do SRA o vínculo é
+-- por nome e cobre só parte; matricula_folha existe para receber a resposta
+-- certa sem mexer em mais nada.
+--
+-- ⚠ E A MATRÍCULA SOZINHA NÃO IDENTIFICA NINGUÉM. Medido em ago/2026:
+--     matrícula            168 chaves ·  69 apontam para mais de uma pessoa
+--     empresa + matrícula  577 chaves ·  94 apontam para mais de uma pessoa
+--     filial  + matrícula  331 chaves ·   0
+-- A matrícula 900000 é três pessoas diferentes. A única chave que fecha é
+-- FILIAL + MATRÍCULA — a mesma do posto_codigo ('2001-900000'). Por isso o
+-- de-para precisa da filial junto com a matrícula do SRA, e a pessoa aqui é
+-- sempre esse par.
 -- ============================================================
 
 -- Rede de segurança: a primeira versão da v3_083 criou a chave única por
@@ -57,7 +64,7 @@ CREATE INDEX IF NOT EXISTS ix_posto_fornecedor_matf ON posto_fornecedor (tenant_
 -- de fora. Errar o dono é pior do que deixar sem dono — o valor aparece como
 -- divergência e alguém olha, em vez de somar na conta de quem não é.
 CREATE OR REPLACE FUNCTION planorc_pj_vinculo(p_ano int, p_mes int)
-RETURNS TABLE (matricula text, empresa_id uuid, matricula_folha text)
+RETURNS TABLE (matricula text, filial_id uuid, matricula_folha text)
 LANGUAGE sql STABLE AS $$
   WITH pf AS (
     SELECT * FROM posto_fornecedor
@@ -65,39 +72,49 @@ LANGUAGE sql STABLE AS $$
        AND (ini_ano IS NULL OR (p_ano * 100 + p_mes) >= (ini_ano * 100 + coalesce(ini_mes, 1)))
        AND (fim_ano IS NULL OR (p_ano * 100 + p_mes) <= (fim_ano * 100 + coalesce(fim_mes, 12)))
   ),
-  -- a pessoa da folha é o par (empresa, matrícula): a matrícula sozinha repete
+  -- a pessoa da folha é o par (filial, matrícula) — ver o aviso do cabeçalho
   pess AS (
-    SELECT ff.empresa_id, ff.matricula, planorc_norm_txt(max(ff.nome)) AS nm
+    SELECT ff.filial_id, ff.matricula, planorc_norm_txt(max(ff.nome)) AS nm
       FROM fat_folha ff
      WHERE ff.tenant_id = current_tenant_id() AND ff.tipo = 'REALIZADO'
        AND ff.ano = p_ano AND ff.mes = p_mes AND coalesce(ff.matricula, '') <> ''
      GROUP BY 1, 2
   ),
+  -- a filial do de-para resolvida uma vez; NULL quando o export não a traz
+  pf_res AS (
+    SELECT pf.matricula, pf.matricula_folha, pf.nome_norm,
+           (SELECT fl.id FROM filial fl
+             WHERE fl.tenant_id = current_tenant_id() AND fl.codigo = pf.filial_cod) AS filial_id
+      FROM pf
+  ),
   cand AS (
-    -- 1. matricula_folha preenchida: autoritativa
-    SELECT pf.matricula, p.empresa_id, p.matricula AS matricula_folha, 1 AS fonte
-      FROM pf JOIN pess p ON p.matricula = pf.matricula_folha
-     WHERE coalesce(pf.matricula_folha, '') <> ''
+    -- 1. matrícula do SRA: autoritativa. Com filial, casa exato; sem filial,
+    --    alcança todas as homônimas e a guarda de unicidade abaixo derruba.
+    SELECT r.matricula, p.filial_id, p.matricula AS matricula_folha
+      FROM pf_res r JOIN pess p
+        ON p.matricula = r.matricula_folha
+       AND (r.filial_id IS NULL OR p.filial_id = r.filial_id)
+     WHERE coalesce(r.matricula_folha, '') <> ''
      GROUP BY 1, 2, 3
     UNION ALL
-    -- 2. nome por prefixo, para quem não tem a coluna preenchida
-    SELECT pf.matricula, p.empresa_id, p.matricula, 2
-      FROM pf JOIN pess p
-        ON pf.nome_norm <> '' AND (pf.nome_norm LIKE p.nm || '%' OR p.nm LIKE pf.nome_norm || '%')
-     WHERE coalesce(pf.matricula_folha, '') = ''
+    -- 2. nome por prefixo, para quem não tem a matrícula do SRA
+    SELECT r.matricula, p.filial_id, p.matricula
+      FROM pf_res r JOIN pess p
+        ON r.nome_norm <> '' AND (r.nome_norm LIKE p.nm || '%' OR p.nm LIKE r.nome_norm || '%')
+     WHERE coalesce(r.matricula_folha, '') = ''
      GROUP BY 1, 2, 3
   ),
   -- um para um nos DOIS sentidos: participante que alcança duas pessoas, ou
   -- pessoa reivindicada por dois participantes, fica de fora. Errar o dono é
   -- pior do que deixar sem dono — sem dono vira divergência e alguém olha.
   um_para_um AS (
-    SELECT c.matricula, c.empresa_id, c.matricula_folha FROM cand c
+    SELECT c.matricula, c.filial_id, c.matricula_folha FROM cand c
      WHERE (SELECT count(*) FROM cand x WHERE x.matricula = c.matricula) = 1
        AND (SELECT count(*) FROM cand y
              WHERE y.matricula_folha = c.matricula_folha
-               AND y.empresa_id IS NOT DISTINCT FROM c.empresa_id) = 1
+               AND y.filial_id IS NOT DISTINCT FROM c.filial_id) = 1
   )
-  SELECT matricula, empresa_id, matricula_folha FROM um_para_um
+  SELECT matricula, filial_id, matricula_folha FROM um_para_um
 $$;
 
 -- ── Nível 1: a conta, nas três parcelas ──
@@ -253,13 +270,13 @@ AS $$
            max(nome_fantasia) AS nome_fantasia,
            CASE WHEN count(DISTINCT cc_cod) = 1 THEN max(cc_cod) END AS cc_cod,
            count(*)::bigint AS lancamentos, sum(v)::numeric AS razao,
-           (SELECT vi.empresa_id      FROM vinc vi WHERE vi.matricula = max(nf.matricula)) AS mat_emp,
+           (SELECT vi.filial_id       FROM vinc vi WHERE vi.matricula = max(nf.matricula)) AS mat_fil,
            (SELECT vi.matricula_folha FROM vinc vi WHERE vi.matricula = max(nf.matricula)) AS mat_folha
       FROM nf
      GROUP BY status, CASE WHEN status = 'CASADO' THEN 'm:' || matricula ELSE 'f:' || coalesce(nome_fantasia, '') END
   ),
   fol AS (
-    SELECT ff.empresa_id, ff.matricula, max(ff.nome) AS nome,
+    SELECT ff.filial_id, ff.matricula, max(ff.nome) AS nome,
            CASE WHEN count(DISTINCT cc.codigo) = 1 THEN max(cc.codigo) END AS cc_cod,
            sum(ff.valor)::numeric AS folha
       FROM fat_folha ff
@@ -270,7 +287,7 @@ AS $$
        AND (p_empresas IS NULL OR ff.empresa_id = ANY(p_empresas))
        AND (p_filiais  IS NULL OR ff.filial_id  = ANY(p_filiais))
        AND (p_ccs      IS NULL OR ff.cc_id      = ANY(p_ccs))
-     GROUP BY ff.empresa_id, ff.matricula
+     GROUP BY ff.filial_id, ff.matricula
   )
   SELECT CASE WHEN n.status IS NULL                      THEN 'SEM_NF'
               WHEN n.status = 'CASADO' AND f.matricula IS NULL THEN 'SEM_FOLHA'
@@ -288,7 +305,7 @@ AS $$
     -- de um lado atravessa o join intacto
     FULL JOIN fol f ON n.status = 'CASADO'
                    AND f.matricula = n.mat_folha
-                   AND f.empresa_id IS NOT DISTINCT FROM n.mat_emp
+                   AND f.filial_id IS NOT DISTINCT FROM n.mat_fil
    ORDER BY 1, greatest(abs(coalesce(n.razao, 0)), abs(coalesce(f.folha, 0))) DESC;
 $$;
 
