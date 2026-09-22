@@ -54,6 +54,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_posto_fornecedor
 ALTER TABLE posto_fornecedor ADD COLUMN IF NOT EXISTS matricula_folha text;
 CREATE INDEX IF NOT EXISTS ix_posto_fornecedor_matf ON posto_fornecedor (tenant_id, matricula_folha);
 
+-- DROP antes de cada CREATE: mudar as colunas de retorno de uma função não é
+-- permitido no CREATE OR REPLACE, e aqui todas mudam. Vale também para quem
+-- pulou a v3_082 (que acrescentou plano_cod) — esta migration a substitui.
+DROP FUNCTION IF EXISTS planorc_pj_vinculo(int, int);
+DROP FUNCTION IF EXISTS conciliacao_folha_contabil(int, int, uuid[], uuid[], uuid[]);
+DROP FUNCTION IF EXISTS conciliacao_pj_detalhe(int, int, uuid, uuid[], uuid[], uuid[]);
+DROP FUNCTION IF EXISTS conciliacao_folha_outras(int, int, uuid, uuid[], uuid[], uuid[]);
+
 -- ── Participante do de-para → pessoa da folha ──
 -- Duas fontes, nesta ordem:
 --   1. matricula_folha preenchida — autoritativa, veio do ERP
@@ -63,7 +71,7 @@ CREATE INDEX IF NOT EXISTS ix_posto_fornecedor_matf ON posto_fornecedor (tenant_
 -- alcança duas pessoas, ou uma pessoa reivindicada por dois participantes, fica
 -- de fora. Errar o dono é pior do que deixar sem dono — o valor aparece como
 -- divergência e alguém olha, em vez de somar na conta de quem não é.
-CREATE OR REPLACE FUNCTION planorc_pj_vinculo(p_ano int, p_mes int)
+CREATE FUNCTION planorc_pj_vinculo(p_ano int, p_mes int)
 RETURNS TABLE (matricula text, filial_id uuid, matricula_folha text)
 LANGUAGE sql STABLE AS $$
   WITH pf AS (
@@ -118,7 +126,7 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- ── Nível 1: a conta, nas três parcelas ──
-CREATE OR REPLACE FUNCTION conciliacao_folha_contabil(
+CREATE FUNCTION conciliacao_folha_contabil(
   p_ano int, p_mes int,
   p_empresas uuid[] DEFAULT NULL,
   p_filiais  uuid[] DEFAULT NULL,
@@ -220,8 +228,6 @@ $$;
 --   SEM_FOLHA   a NF tem dono, mas o dono não tem folha nesta conta neste mês
 --   AMBIGUO     o histórico casou com mais de um fornecedor
 --   SEM_DEPARA  a NF não casou com ninguém — falta amarração
-DROP FUNCTION IF EXISTS conciliacao_pj_detalhe(int, int, uuid, uuid[], uuid[], uuid[]);
-
 CREATE FUNCTION conciliacao_pj_detalhe(
   p_ano int, p_mes int, p_conta uuid,
   p_empresas uuid[] DEFAULT NULL, p_filiais uuid[] DEFAULT NULL, p_ccs uuid[] DEFAULT NULL
@@ -313,7 +319,7 @@ $$;
 -- Com o de-para carregado, a NF atribuída migrou para a parcela PJ; deixá-la
 -- aqui também mostraria o mesmo dinheiro duas vezes. Sem de-para, nada casa e a
 -- lista continua sendo a de antes.
-CREATE OR REPLACE FUNCTION conciliacao_folha_outras(
+CREATE FUNCTION conciliacao_folha_outras(
   p_ano int, p_mes int, p_conta uuid,
   p_empresas uuid[] DEFAULT NULL,
   p_filiais  uuid[] DEFAULT NULL,
