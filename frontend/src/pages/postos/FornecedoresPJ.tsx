@@ -28,14 +28,17 @@ type Row = {
 const DE_PARA: Record<string, string> = {
   EMPRESA: 'empresa_cod', EMPRESA_COD: 'empresa_cod',
   FILIAL: 'filial_cod', FILIAL_COD: 'filial_cod',
-  CODIGO: 'matricula', MATRICULA: 'matricula',
-  // a matrícula do SRA, quando o export a trouxer: é o elo confiável com a folha
-  MATRICULA_FOLHA: 'matricula_folha', MATRICULA_SRA: 'matricula_folha', MAT_FOLHA: 'matricula_folha',
-  NOME: 'nome', CPF: 'cpf',
-  COD_FORNECEDOR: 'fornecedor_cod', FORNECEDOR_COD: 'fornecedor_cod',
-  LOJA: 'fornecedor_loja', FORNECEDOR_LOJA: 'fornecedor_loja',
-  CNPJ_FORNECEDOR: 'cnpj', CNPJ: 'cnpj',
-  NOME_FANTASIA: 'nome_fantasia', FANTASIA: 'nome_fantasia',
+  CODIGO: 'matricula', MATRICULA: 'matricula', RD0_CODIGO: 'matricula',
+  NOME: 'nome', RD0_NOME: 'nome',
+  CPF: 'cpf', RD0_CPF: 'cpf',
+  COD_FORNECEDOR: 'fornecedor_cod', FORNECEDOR_COD: 'fornecedor_cod', RD0_COD_FORNECEDOR: 'fornecedor_cod',
+  LOJA: 'fornecedor_loja', FORNECEDOR_LOJA: 'fornecedor_loja', RD0_LOJA: 'fornecedor_loja',
+  CNPJ: 'cnpj', CNPJ_FORNECEDOR: 'cnpj', SA2_CNPJ_FORNECEDOR: 'cnpj',
+  FANTASIA: 'nome_fantasia', NOME_FANTASIA: 'nome_fantasia', SA2_NOME_FANTASIA: 'nome_fantasia',
+  // o par do SRA — a chave que identifica a pessoa na folha
+  MATRICULA_FOLHA: 'matricula_folha', MATRICULA_SRA: 'matricula_folha', MAT_FOLHA: 'matricula_folha', SRA_MATRICULA: 'matricula_folha',
+  SRA_FILIAL: 'filial_sra',
+  // RD0_FILIAL fica de fora de propósito: vem vazia e não é a filial da folha
 }
 const COLS_EXPORT = ['empresa_cod', 'filial_cod', 'matricula', 'matricula_folha', 'nome', 'cpf', 'fornecedor_cod', 'fornecedor_loja', 'cnpj', 'nome_fantasia']
 
@@ -125,7 +128,12 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
       r.fornecedor_cod = zfill(r.fornecedor_cod, 6)
       r.fornecedor_loja = r.fornecedor_loja ? zfill(r.fornecedor_loja, 2) : ''
       r.empresa_cod    = r.empresa_cod ? zfill(r.empresa_cod, 2) : ''
-      r.filial_cod     = norm(r.filial_cod) || null
+      // a filial da folha é EMPRESA + filial do SRA: o export traz '20' e '01',
+      // e tanto a folha quanto o cadastro de filial usam '2001'
+      const fs = norm(r.filial_sra)
+      if (fs) r.filial_cod = (r.empresa_cod && fs.length <= 2) ? r.empresa_cod + zfill(fs, 2) : fs
+      r.filial_cod = norm(r.filial_cod) || null
+      delete r.filial_sra
       for (const c of ['nome', 'cpf', 'cnpj', 'nome_fantasia']) r[c] = norm(r[c]) || null
       // sem fornecedor = CLT: contabiliza pela folha e nunca aparece como NF
       if (!r.matricula || r.matricula === '000000') { semMatricula++; continue }
@@ -136,6 +144,11 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
     }
     const payload = [...vistos.values()]
     if (!payload.length) { setErro(`Nenhuma linha com fornecedor amarrado (${semFornecedor} sem fornecedor, ${semMatricula} sem matrícula).`); return }
+
+    // a filial tem de existir no cadastro, senão a chave não alcança a folha —
+    // melhor dizer isso na hora do que deixar a conciliação silenciosamente vazia
+    const cadastradas = new Set((await pageAll(() => supabase.from('filial').select('codigo'))).map((f: any) => String(f.codigo)))
+    const filiaisRuins = [...new Set(payload.map(r => r.filial_cod).filter(f => f && !cadastradas.has(f)))]
 
     if (substituir && !confirm(`Substituir a lista inteira? Os ${rows.length} registros atuais serão apagados e trocados pelos ${payload.length} da planilha.`)) return
     setLoading(true)
@@ -148,11 +161,14 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
         .upsert(payload.slice(i, i + 500), { onConflict: 'tenant_id,empresa_cod,matricula,fornecedor_cod,fornecedor_loja' })
       if (error) { setErro('Import: ' + error.message); setLoading(false); return }
     }
-    const notas = [`${payload.length} amarração(ões) gravadas`]
+    const comChave = payload.filter(r => r.matricula_folha && r.filial_cod).length
+    const notas = [`${payload.length} amarração(ões) gravadas`, `${comChave} com filial + matrícula da folha`]
+    if (comChave < payload.length) notas.push(`${payload.length - comChave} dependem do vínculo por nome`)
     if (semFornecedor) notas.push(`${semFornecedor} sem fornecedor (CLT — contabiliza pela folha)`)
     if (dup) notas.push(`${dup} duplicada(s) na planilha, mantida a primeira`)
     if (semMatricula) notas.push(`${semMatricula} sem matrícula`)
     setAviso(notas.join(' · '))
+    if (filiaisRuins.length) setErro(`Filial não cadastrada: ${filiaisRuins.join(', ')}. Estas linhas entraram, mas a chave não alcança a folha — confira o cadastro de filiais.`)
     await load()
   }
 
@@ -195,9 +211,10 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
         colunas <code>EMPRESA, CODIGO, NOME, CPF, COD_FORNECEDOR, LOJA, CNPJ_FORNECEDOR, NOME_FANTASIA</code>.
         Quem vem sem fornecedor é CLT e é descartado: só o PJ chega ao razão por nota fiscal.
         É o <b>nome fantasia</b> que casa com o histórico do lançamento — sem ele a linha entra, mas não amarra.
-        Para o PJ conciliar por pessoa, traga também <b><code>FILIAL</code></b> e <b><code>MATRICULA_FOLHA</code></b> (a matrícula do SRA):
+        Para o PJ conciliar por pessoa, o export precisa trazer <b><code>SRA_MATRICULA</code></b> e <b><code>SRA_FILIAL</code></b>:
         o código do participante do RD0 <i>não</i> é a matrícula da folha, e a matrícula sozinha não identifica ninguém —
-        a 900000 é três pessoas diferentes. A chave que fecha é <b>filial + matrícula</b>. Sem elas, o elo é tentado por nome.
+        a 900000 é três pessoas diferentes. A filial da folha é montada como <b>EMPRESA + SRA_FILIAL</b> (20 + 01 → 2001).
+        Sem esse par, o elo é tentado por nome e cobre menos.
       </div>
       {erro && <div style={S.erro}><AlertCircle size={14} /> {erro}</div>}
       {aviso && <div style={S.ok}><CheckCircle2 size={14} /> {aviso}</div>}
