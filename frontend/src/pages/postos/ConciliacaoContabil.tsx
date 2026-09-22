@@ -10,8 +10,11 @@ import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare } from 'lu
 //   1. a conta bate?  — razão separado em "veio da folha" × "outras origens"
 //   2. qual verba explica? — dentro da parcela da folha, verba a verba
 //   3. quem? — a folha aberta por funcionário; é a resposta que a área quer
-// O resíduo (outras origens) nunca terá funcionário: é fatura paga direto,
-// ajuste de competência, NF de PJ. Esse pede justificativa escrita.
+// O resíduo (outras origens) não vem da folha, mas nem por isso é anônimo: a
+// maior parte dele é PJ, que chega por nota fiscal com o histórico
+// "<FORNECEDOR>-<PARTICIPANTE>". Havendo de-para carregado (Estrutura →
+// Fornecedores), o resíduo abre POR PESSOA (v3_083); o que sobra depois disso é
+// fatura de empresa ou ajuste de competência, e aí sim pede justificativa escrita.
 // A classificação vem do banco (v3_080): lançamento do razão cujo histórico
 // começa com um código de verba da competência veio da folha.
 
@@ -23,6 +26,7 @@ type Row = { conta_id: string; conta_cod: string; conta_desc: string; plano_cod:
 type Nota = { id: string; conta_id: string; verba_cod: string | null; motivo: string }
 type Pessoa = { matricula: string; nome: string; valor: number }
 type Lanc = { data: string | null; documento: string | null; historico: string | null; lote: string | null; cc_cod: string | null; valor: number }
+type PJ = { status: 'CASADO' | 'AMBIGUO' | 'SEM_DEPARA'; matricula: string | null; nome: string | null; fornecedor_cod: string | null; nome_fantasia: string | null; cc_cod: string | null; lancamentos: number; valor: number }
 
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const chave = (contaId: string, verba: string | null) => `${contaId}|${verba || ''}`
@@ -52,6 +56,13 @@ const chip = (cor: string, fundo: string): CSSProperties => ({ display: 'inline-
 const OK = chip('var(--green)', 'rgba(52,211,153,0.14)')
 const DIF = chip('var(--orange)', 'rgba(251,146,60,0.14)')
 const RES = chip('var(--blue)', 'rgba(59,130,246,0.14)')
+const PJ_ST: Record<PJ['status'], { txt: string; est: CSSProperties }> = {
+  CASADO:     { txt: 'casado',      est: OK },
+  AMBIGUO:    { txt: 'ambíguo',     est: DIF },
+  SEM_DEPARA: { txt: 'sem de-para', est: RES },
+}
+const ORDEM_ST: PJ['status'][] = ['CASADO', 'AMBIGUO', 'SEM_DEPARA']
+const segm = (a: boolean): CSSProperties => ({ padding: '3px 10px', fontSize: 11.5, fontWeight: 600, cursor: a ? 'default' : 'pointer', borderRadius: 6, border: '1px solid ' + (a ? 'var(--violet)' : 'var(--border)'), background: a ? 'rgba(139,92,246,0.16)' : 'var(--panel)', color: a ? 'var(--violet)' : 'var(--text-mid)' })
 
 export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: ContabilParams; podeConfigurar: boolean }) {
   const [rows, setRows] = useState<Row[]>([])
@@ -68,12 +79,22 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   // de origem folha é o outro mundo (PJ pago por NF, lote de contas a pagar): não
   // concilia por verba e polui a leitura do CLT. Some por escolha, nunca em silêncio.
   const [soCLT, setSoCLT] = useLocalPref('planorc_concil_so_clt', true)
+  // O de-para de fornecedores é o que transforma o resíduo em gente. Sem ele
+  // carregado não há o que escolher: resta a lista crua de lançamentos.
+  const [temDepara, setTemDepara] = useState(false)
+  const [vistaPref, setVistaPref] = useLocalPref<'pessoa' | 'lanc'>('planorc_concil_outras_vista', 'pessoa')
+  const vista = temDepara ? vistaPref : 'lanc'
 
   const escopo = useMemo(() => ({
     p_ano: p.ano, p_mes: p.mes,
     p_empresas: p.empresaSel.length ? p.empresaSel : null,
     p_filiais: p.filialFilter, p_ccs: p.ccFilter,
   }), [p.ano, p.mes, p.empresaSel, p.filialFilter, p.ccFilter])
+
+  useEffect(() => {
+    supabase.from('posto_fornecedor').select('id', { count: 'exact', head: true })
+      .then(r => setTemDepara(!!r.count))
+  }, [])
 
   useEffect(() => {
     let vivo = true
@@ -165,6 +186,28 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     })
     return [...m.values()].sort((a, b) => b.valor - a.valor)
   }
+  // carrega sem mexer no aberto/fechado — as duas vistas do resíduo dividem a
+  // mesma linha expandida, então abrir e trocar de vista são ações separadas
+  const garantir = async (k: string, carregar: () => Promise<any[]>) => {
+    if (drill[k]) return
+    const d = await carregar()
+    setDrill(prev => prev[k] ? prev : { ...prev, [k]: d })
+  }
+  const abrirOutras = (contaId: string) => {
+    const k = `o:${contaId}`; const abrindo = !aberto.has(k)
+    setAberto(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
+    if (abrindo) carregarVista(contaId, vista)
+  }
+  const carregarVista = (contaId: string, v: 'pessoa' | 'lanc') => v === 'pessoa'
+    ? garantir(`pj:${contaId}`, () => pjDaConta(contaId))
+    : garantir(`o:${contaId}`, () => lancamentosOutras(contaId))
+
+  const pjDaConta = async (contaId: string): Promise<PJ[]> => {
+    const { data, error } = await supabase.rpc('conciliacao_pj_detalhe', { ...escopo, p_conta: contaId })
+    if (error) { setErro(error.message); return [] }
+    return ((data || []) as PJ[]).map(x => ({ ...x, valor: Number(x.valor) || 0 }))
+      .sort((a, b) => ORDEM_ST.indexOf(a.status) - ORDEM_ST.indexOf(b.status) || b.valor - a.valor)
+  }
   const lancamentosOutras = async (contaId: string): Promise<Lanc[]> => {
     const { data, error } = await supabase.rpc('conciliacao_folha_outras', { ...escopo, p_conta: contaId })
     if (error) { setErro(error.message); return [] }
@@ -182,6 +225,78 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     if (r.error) { setErro(r.error.message); return }
     if (r.data) setNotas(prev => ({ ...prev, [k]: r.data as Nota }))
     setEditNota(null); setTxtNota('')
+  }
+
+  // O resíduo em duas leituras: quem é (PJ, via de-para) e o que foi lançado.
+  // A primeira só existe com o de-para carregado; a segunda é o chão de sempre.
+  const DrillOutras = ({ contaId }: { contaId: string }) => {
+    const pj = (drill[`pj:${contaId}`] as PJ[]) || null
+    const lanc = (drill[`o:${contaId}`] as Lanc[]) || null
+    const tot = pj ? pj.reduce((a, x) => a + x.valor, 0) : 0
+    const comDono = pj ? pj.filter(x => x.status === 'CASADO').reduce((a, x) => a + x.valor, 0) : 0
+    return (
+      <>
+        {temDepara && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', margin: '0 0 8px' }}>
+            <button style={segm(vista === 'pessoa')} onClick={() => { setVistaPref('pessoa'); carregarVista(contaId, 'pessoa') }}>Por pessoa (PJ)</button>
+            <button style={segm(vista === 'lanc')}   onClick={() => { setVistaPref('lanc');   carregarVista(contaId, 'lanc') }}>Lançamentos</button>
+            {vista === 'pessoa' && pj && tot !== 0 && (
+              <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                {Math.round(100 * comDono / tot)}% com dono · R$ {money(comDono)} de R$ {money(tot)}
+              </span>
+            )}
+          </div>
+        )}
+        {vista === 'pessoa' ? (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead><tr>
+              <th style={S.dh}>Status</th><th style={S.dh}>Matrícula</th><th style={S.dh}>Nome</th>
+              <th style={S.dh}>Fornecedor</th><th style={S.dh}>Nome fantasia</th><th style={S.dh}>CC</th>
+              <th style={{ ...S.dh, textAlign: 'right' }}>Lanç.</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th>
+            </tr></thead>
+            <tbody>
+              {(pj || []).map((x, i) => (
+                <tr key={i}>
+                  <td style={S.dt}><span style={PJ_ST[x.status].est}>● {PJ_ST[x.status].txt}</span></td>
+                  <td style={{ ...S.dt, ...S.mono }}>{x.matricula || ''}</td>
+                  <td style={S.dt}>{x.nome || ''}</td>
+                  <td style={{ ...S.dt, ...S.mono }}>{x.fornecedor_cod || ''}</td>
+                  {/* sem de-para, o "fantasia" é o texto que o histórico trouxe e não
+                      casou — é exatamente o que precisa ser procurado no ERP */}
+                  <td style={{ ...S.dt, color: x.status === 'CASADO' ? 'var(--text)' : 'var(--muted)', fontStyle: x.status === 'CASADO' ? 'normal' : 'italic' }}>{x.nome_fantasia || ''}</td>
+                  <td style={{ ...S.dt, ...S.mono }}>{x.cc_cod || ''}</td>
+                  <td style={{ ...S.dt, textAlign: 'right' }}>{x.lancamentos}</td>
+                  <td style={{ ...S.dt, textAlign: 'right' }}>{money(x.valor)}</td>
+                </tr>
+              ))}
+              {!pj && <tr><td colSpan={8} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
+              {pj && !pj.length && <tr><td colSpan={8} style={{ ...S.dt, color: 'var(--muted)' }}>Nenhum lançamento de outra origem neste escopo.</td></tr>}
+            </tbody>
+          </table>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead><tr><th style={S.dh}>Data</th><th style={S.dh}>Documento</th><th style={S.dh}>Histórico</th><th style={S.dh}>Lote</th><th style={S.dh}>CC</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
+            <tbody>
+              {(lanc || []).map((x, i) => (
+                <tr key={i}>
+                  <td style={S.dt}>{x.data || ''}</td><td style={{ ...S.dt, ...S.mono }}>{x.documento || ''}</td>
+                  <td style={S.dt}>{x.historico || ''}</td><td style={{ ...S.dt, ...S.mono }}>{x.lote || ''}</td>
+                  <td style={{ ...S.dt, ...S.mono }}>{x.cc_cod || ''}</td>
+                  <td style={{ ...S.dt, textAlign: 'right' }}>{money(Number(x.valor) || 0)}</td>
+                </tr>
+              ))}
+              {!lanc && <tr><td colSpan={6} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
+              {lanc && !lanc.length && <tr><td colSpan={6} style={{ ...S.dt, color: 'var(--muted)' }}>Nenhum lançamento de outra origem neste escopo.</td></tr>}
+            </tbody>
+          </table>
+        )}
+        {!temDepara && (
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>
+            Boa parte disto costuma ser PJ. Carregue o de-para em <b>Estrutura → Fornecedores (PJ)</b> e este bloco passa a abrir por pessoa.
+          </div>
+        )}
+      </>
+    )
   }
 
   const BlocoNota = ({ contaId, verba, valorRef }: { contaId: string; verba: string | null; valorRef: number }) => {
@@ -237,7 +352,8 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
       {escondendo && (
         <div style={{ fontSize: 12, color: 'var(--blue)', margin: '-4px 0 12px' }}>
           {naoCLT.length} conta(s) ocultas por "Só CLT" — R$ {money(naoCLT.reduce((s, c) => s + c.folha, 0))} de folha sem contabilização pela folha
-          ({naoCLT.map(c => c.cod).join(', ')}). É o PJ: chega por nota fiscal, em outro lote.
+          ({naoCLT.map(c => c.cod).join(', ')}). É o PJ: chega por nota fiscal, em outro lote —
+          {temDepara ? ' desmarque para abrir o razão dele por pessoa.' : ' carregue o de-para em Estrutura → Fornecedores (PJ) para ele ganhar nome.'}
         </div>
       )}
       {soCLT && naoCLT.length > 0 && naoCLT.length === contas.length && (
@@ -310,7 +426,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                     <Fragment>
                       <tr>
                         <td style={{ ...S.td, paddingLeft: 30, cursor: 'pointer', color: 'var(--blue)' }}
-                          onClick={() => toggle(`o:${c.id}`, () => lancamentosOutras(c.id))}>
+                          onClick={() => abrirOutras(c.id)}>
                           {aberto.has(`o:${c.id}`) ? <ChevronDown size={12} /> : <ChevronRight size={12} />} outras origens — não veio da folha
                         </td>
                         <td style={S.td}></td><td style={S.td}></td><td style={S.td}></td>
@@ -319,20 +435,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                       </tr>
                       {aberto.has(`o:${c.id}`) && (
                         <tr><td colSpan={6} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
-                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                            <thead><tr><th style={S.dh}>Data</th><th style={S.dh}>Documento</th><th style={S.dh}>Histórico</th><th style={S.dh}>Lote</th><th style={S.dh}>CC</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
-                            <tbody>
-                              {((drill[`o:${c.id}`] as Lanc[]) || []).map((x, i) => (
-                                <tr key={i}>
-                                  <td style={S.dt}>{x.data || ''}</td><td style={{ ...S.dt, ...S.mono }}>{x.documento || ''}</td>
-                                  <td style={S.dt}>{x.historico || ''}</td><td style={{ ...S.dt, ...S.mono }}>{x.lote || ''}</td>
-                                  <td style={{ ...S.dt, ...S.mono }}>{x.cc_cod || ''}</td>
-                                  <td style={{ ...S.dt, textAlign: 'right' }}>{money(Number(x.valor) || 0)}</td>
-                                </tr>
-                              ))}
-                              {!((drill[`o:${c.id}`] as Lanc[]) || []).length && <tr><td colSpan={6} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
-                            </tbody>
-                          </table>
+                          <DrillOutras contaId={c.id} />
                         </td></tr>
                       )}
                       <tr><td colSpan={6} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={null} valorRef={c.outras} /></td></tr>

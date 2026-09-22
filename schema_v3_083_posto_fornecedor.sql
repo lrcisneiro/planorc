@@ -59,13 +59,16 @@ $$;
 CREATE TABLE IF NOT EXISTS posto_fornecedor (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id       uuid NOT NULL REFERENCES tenant ON DELETE CASCADE,
-  empresa_cod     text,                       -- empresa do ERP no RD0 ('20','21','25','28')
+  -- empresa_cod e fornecedor_loja são NOT NULL DEFAULT '' de propósito: a chave
+  -- única precisa ser de COLUNAS, não de expressão (coalesce), senão o upsert do
+  -- PostgREST não a enxerga e a reimportação do de-para viraria erro de duplicado.
+  empresa_cod     text NOT NULL DEFAULT '',   -- empresa do ERP no RD0 ('20','21','25','28')
   filial_cod      text,
   matricula       text NOT NULL,              -- matrícula do SRA, a mesma do posto e da folha
   nome            text,
   cpf             text,
   fornecedor_cod  text NOT NULL,
-  fornecedor_loja text,                       -- SA2 é chaveado por COD + LOJA
+  fornecedor_loja text NOT NULL DEFAULT '',   -- SA2 é chaveado por COD + LOJA
   cnpj            text,
   nome_fantasia   text,
   -- as colunas de busca são geradas: normalizar na consulta impediria usar índice
@@ -77,7 +80,7 @@ CREATE TABLE IF NOT EXISTS posto_fornecedor (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_posto_fornecedor
-  ON posto_fornecedor (tenant_id, coalesce(empresa_cod, ''), matricula, fornecedor_cod, coalesce(fornecedor_loja, ''));
+  ON posto_fornecedor (tenant_id, empresa_cod, matricula, fornecedor_cod, fornecedor_loja);
 CREATE INDEX IF NOT EXISTS ix_posto_fornecedor_fant ON posto_fornecedor (tenant_id, fant_norm);
 CREATE INDEX IF NOT EXISTS ix_posto_fornecedor_nome ON posto_fornecedor (tenant_id, nome_norm);
 CREATE INDEX IF NOT EXISTS ix_posto_fornecedor_mat  ON posto_fornecedor (tenant_id, matricula);

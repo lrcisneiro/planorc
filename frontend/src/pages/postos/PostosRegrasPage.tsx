@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { PostosPills } from './PostosPills'
+import { FornecedoresPJ } from './FornecedoresPJ'
 import { usePostoCtx } from '../../lib/postoCtx'
 import { pageAll } from '../../lib/pageAll'
 import { useCapacidades } from '../../hooks/useCapacidades'
@@ -37,7 +38,7 @@ function downloadSheet(filename: string, aoa: any[][]) {
 //    verbas/regras · cargos · sindicatos · premissas de dissídio (versão×sindicato).
 //    Ref.: docs/DESIGN_posto_trabalho.md (P1, passo 2).
 
-type Aba = 'verbas' | 'cargos' | 'sindicatos' | 'dissidio'
+type Aba = 'verbas' | 'cargos' | 'sindicatos' | 'dissidio' | 'fornecedores'
 
 const TIPO_CALCULO: { value: string; label: string }[] = [
   { value: 'BASE',          label: 'Base (salário)' },
@@ -450,6 +451,7 @@ export default function PostosRegrasPage() {
     { id: 'cargos',     label: 'Cargos' },
     { id: 'sindicatos', label: 'Sindicatos' },
     { id: 'dissidio',   label: 'Dissídio' },
+    { id: 'fornecedores', label: 'Fornecedores (PJ)' },
   ]
 
   return (
@@ -458,7 +460,7 @@ export default function PostosRegrasPage() {
         <div>
           <h1 style={S.title}>Estrutura de Postos <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)' }}>· regras de cálculo da folha</span>
             {!cap.loading && !editavel && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--orange)', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.30)', borderRadius: 99, padding: '2px 8px', marginLeft: 8, verticalAlign: 'middle' }}>somente leitura</span>}</h1>
-          <p style={S.subtitle}>Catálogos que o motor usa ao orçar por posto: rubricas (verbas), cargos, sindicatos e o dissídio por versão.</p>
+          <p style={S.subtitle}>Catálogos que o motor usa ao orçar por posto: rubricas (verbas), cargos, sindicatos, o dissídio por versão — e o de-para que dá nome ao PJ na conciliação.</p>
         </div>
         <PostosPills />
       </div>
@@ -471,6 +473,7 @@ export default function PostosRegrasPage() {
       {aba === 'cargos'     && <CargosTab editavel={editavel} />}
       {aba === 'sindicatos' && <SindicatosTab editavel={editavel} />}
       {aba === 'dissidio'   && <DissidioTab editavel={editavel} />}
+      {aba === 'fornecedores' && <FornecedoresPJ editavel={editavel} />}
     </div>
   )
 }
