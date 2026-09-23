@@ -49,7 +49,11 @@ type Outro = {
   lancamentos: number; valor: number
 }
 type OutroLanc = { empresa_cod: string | null; filial_cod: string | null; data: string | null; documento: string | null; historico: string | null; lote: string | null; cc_cod: string | null; valor: number }
-type Lado = { lado: string; empresa_cod: string | null; filial_cod: string | null; conta_cod: string; conta_desc: string; ref: string | null; cc_cod: string | null; data: string | null; documento: string | null; historico: string | null; valor: number }
+type Lado = {
+  empresa_cod: string | null; filial_cod: string | null; cc_cod: string | null
+  folha_ref: string | null; razao_ref: string | null; historico: string | null
+  lancamentos: number; folha: number; razao: number
+}
 type SemDono = { conta_id: string; conta_cod: string; conta_desc: string; empresa_cod: string | null; filial_cod: string | null; data: string | null; documento: string | null; historico: string | null; lote: string | null; cc_cod: string | null; valor: number }
 type Nota = { id: string; conta_id: string; verba_cod: string | null; motivo: string }
 
@@ -654,19 +658,33 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                   {aberto.has(kp) && (
                     <tr><td colSpan={8} style={{ padding: '4px 12px 10px 30px', background: 'var(--bg-soft)' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                        <thead><tr><th style={S.dh}>Lado</th><th style={S.dh}>Conta</th><th style={S.dh}>Verba / fornecedor</th><th style={S.dh}>Empresa · filial · CC</th><th style={S.dh}>Documento</th><th style={S.dh}>Histórico</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
+                        <thead><tr>
+                          <th style={S.dh}>Empresa · filial · CC</th>
+                          <th style={S.dh}>Folha (conta · verba)</th>
+                          <th style={{ ...S.dh, textAlign: 'right' }}>Folha</th>
+                          <th style={S.dh}>Razão (conta · doc)</th>
+                          <th style={{ ...S.dh, textAlign: 'right' }}>Razão</th>
+                          <th style={{ ...S.dh, textAlign: 'right' }}>Diferença</th>
+                          <th style={S.dh}>Histórico</th>
+                        </tr></thead>
                         <tbody>
-                          {((drill[kp] as Lado[]) || []).map((x, j) => (
-                            <tr key={j}>
-                              <td style={S.dt}><span style={x.lado === 'FOLHA' ? RES : OK}>{x.lado}</span></td>
-                              <td style={{ ...S.dt, ...S.mono }}>{x.conta_cod}</td>
-                              <td style={S.dt}>{x.ref || ''}</td>
-                              <td style={{ ...S.dt, ...S.mono }}>{lugar(x.empresa_cod, x.filial_cod, x.cc_cod)}</td>
-                              <td style={{ ...S.dt, ...S.mono }}>{x.documento || ''}</td>
-                              <td style={S.dt}>{x.historico || ''}</td>
-                              <td style={{ ...S.dt, textAlign: 'right' }}>{money(Number(x.valor) || 0)}</td>
-                            </tr>
-                          ))}
+                          {((drill[kp] as Lado[]) || []).map((x, j) => {
+                            const fo = Number(x.folha) || 0, rz = Number(x.razao) || 0
+                            const d = rz - fo; const fora = Math.abs(d) > tol
+                            return (
+                              <tr key={j}>
+                                <td style={{ ...S.dt, ...S.mono }}>{lugar(x.empresa_cod, x.filial_cod, x.cc_cod)}</td>
+                                {/* traço = aquele lado não tem nada nesta empresa,
+                                    que é a divergência mais fácil de deixar passar */}
+                                <td style={{ ...S.dt, ...S.mono, color: x.folha_ref ? 'var(--muted)' : 'var(--faint)' }}>{x.folha_ref || '—'}</td>
+                                <td style={{ ...S.dt, textAlign: 'right' }}>{fo ? money(fo) : '—'}</td>
+                                <td style={{ ...S.dt, ...S.mono, color: x.razao_ref ? 'var(--muted)' : 'var(--faint)' }}>{x.razao_ref || '—'}</td>
+                                <td style={{ ...S.dt, textAlign: 'right' }}>{rz ? money(rz) : '—'}</td>
+                                <td style={{ ...S.dt, textAlign: 'right', color: fora ? 'var(--orange)' : 'var(--muted)' }}>{money(d)}</td>
+                                <td style={S.dt}>{x.historico || ''}</td>
+                              </tr>
+                            )
+                          })}
                           {!drill[kp] && <tr><td colSpan={8} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
                         </tbody>
                       </table>
