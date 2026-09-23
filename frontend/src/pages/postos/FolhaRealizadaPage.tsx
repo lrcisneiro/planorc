@@ -83,7 +83,7 @@ const S: Record<string, CSSProperties> = {
   empty: { padding: '40px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 },
 }
 
-type FolhaRow = { posto_id: string | null; matricula: string; nome: string; empresa_id: string; filial_id: string | null; cc_id: string | null; verba_cod: string; verba_desc: string; tipo_verba: string; valor: number }
+type FolhaRow = { posto_id: string | null; matricula: string; nome: string; empresa_id: string; filial_id: string | null; cc_id: string | null; verba_cod: string; verba_desc: string; tipo_verba: string; valor: number; lote: string | null }
 
 export default function FolhaRealizadaPage() {
   const acesso = useUserAccess()
@@ -106,6 +106,9 @@ export default function FolhaRealizadaPage() {
   const [postoDim, setPostoDim] = useState<Map<string, { codigo: string; nome: string | null; empresa_id: string; filial_id: string | null; cc_id: string | null }>>(new Map())
   const [busca, setBusca] = useState('')
   const [modoImport, setModoImport] = useLocalPref<'full' | 'incremental'>('planorc_folha_modo_import', 'full')
+  // a competência vem de mais de um arquivo (export do ERP + folha confidencial).
+  // O lote diz qual é qual, para "substituir" trocar só o dele.
+  const [lote, setLote] = useLocalPref('planorc_folha_lote', 'FOLHA')
   const [moedaArq, setMoedaArq] = useLocalPref<number>('planorc_folha_moeda_arq', 1)   // slot da moeda do arquivo
   const [moedas, setMoedas] = useState<any[]>([])   // slots ativos (p/ o seletor de moeda)
   const [importando, setImportando] = useState(false)
@@ -138,7 +141,7 @@ export default function FolhaRealizadaPage() {
   useEffect(() => {
     if (!compSel) { setRows([]); return }
     const [a, m] = compSel.split('-').map(Number)
-    pageAll(() => supabase.from('fat_folha').select('posto_id,matricula,nome,empresa_id,filial_id,cc_id,verba_cod,verba_desc,tipo_verba,valor').eq('tipo', 'REALIZADO').eq('ano', a).eq('mes', m))
+    pageAll(() => supabase.from('fat_folha').select('posto_id,matricula,nome,empresa_id,filial_id,cc_id,verba_cod,verba_desc,tipo_verba,valor,lote').eq('tipo', 'REALIZADO').eq('ano', a).eq('mes', m))
       .then(data => setRows(data.map((r: any) => ({ ...r, valor: Number(r.valor) || 0 }))))
       .catch(e => setErro('Erro ao carregar a folha: ' + (e?.message || e)))
   }, [compSel, info])
@@ -150,12 +153,20 @@ export default function FolhaRealizadaPage() {
   const excluirCompetencia = async () => {
     if (!compSel) return
     const [a, m] = compSel.split('-').map(Number)
-    const total = rows.reduce((s, r: any) => s + (Number(r.valor) || 0), 0)
+    const lt = lote.trim().toUpperCase() || 'FOLHA'
+    const doLote = rows.filter((r: any) => (r.lote || 'FOLHA') === lt)
+    if (!doLote.length) { setErro(`Não há lançamento do lote ${lt} nesta competência.`); return }
+    const total = doLote.reduce((s, r: any) => s + (Number(r.valor) || 0), 0)
     const rotulo = `${MESES[m - 1]}/${a}`
-    if (!confirm(`Apagar TODO o realizado da folha de ${rotulo}?\n\n${rows.length.toLocaleString('pt-BR')} lançamento(s) · R$ ${total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\nNão afeta o orçado (tipo ORCADO), os postos nem o razão. Não tem desfazer: para voltar, reimporte o arquivo.`)) return
+    const outros = rows.length - doLote.length
+    if (!confirm(`Apagar o lote ${lt} de ${rotulo}?\n\n${doLote.length.toLocaleString('pt-BR')} lançamento(s) · R$ ${total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+      + (outros ? `\n\nOs ${outros.toLocaleString('pt-BR')} lançamento(s) dos outros lotes desta competência ficam.` : '')
+      + `\n\nNão afeta o orçado, os postos nem o razão. Não tem desfazer: para voltar, reimporte o arquivo.`)) return
     setExcluindo(true); setErro(null)
     try {
-      const { error } = await supabase.from('fat_folha').delete().eq('tipo', 'REALIZADO').eq('ano', a).eq('mes', m)
+      let q = supabase.from('fat_folha').delete().eq('tipo', 'REALIZADO').eq('ano', a).eq('mes', m)
+      q = lt === 'FOLHA' ? q.or('lote.eq.FOLHA,lote.is.null') : q.eq('lote', lt)
+      const { error } = await q
       if (error) { setErro('Erro ao excluir: ' + error.message); return }
       setInfo(null); setRows([]); await loadComps()
     } finally { setExcluindo(false) }
@@ -186,6 +197,18 @@ export default function FolhaRealizadaPage() {
     }
     return [...m.values()].sort((a, b) => (b.prov - b.desc) - (a.prov - a.desc))
   }, [filtrados])
+  // o que já está carregado nesta competência, por lote: é o que diz se a folha
+  // confidencial ainda está lá depois de uma reimportação da folha do ERP
+  const porLote = useMemo(() => {
+    const m = new Map<string, { n: number; valor: number }>()
+    rows.forEach((r: any) => {
+      const k = r.lote || 'FOLHA'
+      const g = m.get(k) || { n: 0, valor: 0 }
+      g.n++; g.valor += Number(r.valor) || 0; m.set(k, g)
+    })
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [rows])
+
   const tot = useMemo(() => grupos.reduce((s, g) => ({ prov: s.prov + g.prov, desc: s.desc + g.desc, n: s.n + 1 }), { prov: 0, desc: 0, n: 0 }), [grupos])
 
   const onFile = async (file: File) => {
@@ -313,6 +336,7 @@ export default function FolhaRealizadaPage() {
           conta_deb_cod: (r.conta_deb || '').trim() || null, conta_cred_cod: (r.conta_cred || '').trim() || null, conta_id,
           item_orc_cod: item_orc_cod || null, item_orc_desc: (r.item_orc_desc || '').trim() || null, item_orc_id,
           competencia: (r.competencia || '').trim() || null, origem: 'FOLHA', tipo: 'REALIZADO',
+          lote: lote.trim().toUpperCase() || 'FOLHA',
           // guarda por que não amarrou — é o que distingue substituição de aumento de quadro
           dims: motivoPosto ? { posto_cod: postoCod, posto_erro: motivoPosto } : {},
         }
@@ -338,7 +362,19 @@ export default function FolhaRealizadaPage() {
       // FULL: substitui a competência (apaga o realizado dela e recarrega). INCREMENTAL:
       // só empilha (não apaga) — p/ somar o confidencial sobre o export do ERP.
       if (modoImport === 'full') {
-        for (const c of comps) { const [a, m] = c.split('|').map(Number); const { error } = await supabase.from('fat_folha').delete().eq('tipo', 'REALIZADO').eq('ano', a).eq('mes', m); if (error) { setErro('Erro ao limpar competência: ' + error.message); return } }
+        // só o lote que está entrando: a folha confidencial da mesma competência
+        // fica onde está. Antes isto apagava a competência inteira.
+        const lt = lote.trim().toUpperCase() || 'FOLHA'
+        for (const c of comps) {
+          const [a, m] = c.split('|').map(Number)
+          let q = supabase.from('fat_folha').delete().eq('tipo', 'REALIZADO').eq('ano', a).eq('mes', m)
+          // linha gravada antes do lote existir tem lote nulo, e é do ERP: se
+          // ficasse de fora do "substituir", a reimportação dobraria a
+          // competência em vez de trocá-la
+          q = lt === 'FOLHA' ? q.or('lote.eq.FOLHA,lote.is.null') : q.eq('lote', lt)
+          const { error } = await q
+          if (error) { setErro('Erro ao limpar o lote: ' + error.message); return }
+        }
       }
       for (let i = 0; i < payload.length; i += 500) { const { error } = await supabase.from('fat_folha').insert(payload.slice(i, i + 500)); if (error) { setErro('Erro ao gravar (parcial): ' + error.message); return } }
       const compLabel = [...comps].map(c => { const [a, m] = c.split('|'); return `${MESES[+m - 1]}/${a}` }).join(', ')
@@ -365,6 +401,11 @@ export default function FolhaRealizadaPage() {
             {!comps.length && <option value="">—</option>}
             {comps.map(c => { const [a, m] = c.split('-'); return <option key={c} value={c}>{MESES[+m - 1]}/{a}</option> })}
           </select>
+          {porLote.length > 0 && (
+            <span style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+              {porLote.map(([k, v]) => `${k} ${v.n.toLocaleString('pt-BR')}`).join(' · ')}
+            </span>
+          )}
         </div>
         <div style={S.fld}><span style={S.lbl}>Filtros</span>
           <FiltrosButton empresas={acesso.filterList('empresa', empresas)} filiais={acesso.filterList('filial', filiais)} ccs={acesso.filterList('centro_custo', ccs as any) as any}
@@ -385,15 +426,20 @@ export default function FolhaRealizadaPage() {
           title="Moeda em que os valores DESTE arquivo estão. Converte para os demais slots na importação (câmbio real da competência).">
           {moedas.map((m: any) => <option key={m.slot} value={m.slot}>Moeda: {m.codigo}</option>)}
         </select>}
+        {editavel && <select style={S.sel} value={lote} onChange={e => setLote(e.target.value)}
+          title="De qual arquivo esta importação vem. Uma competência pode ter mais de um: o export do ERP e a folha confidencial (sócios), que não passa pela folha normal.">
+          <option value="FOLHA">Lote: folha do ERP</option>
+          <option value="CONFIDENCIAL">Lote: folha confidencial</option>
+        </select>}
         {editavel && <select style={S.sel} value={modoImport} onChange={e => setModoImport(e.target.value as any)}
-          title="Full: apaga o realizado da competência e recarrega. Incremental: só adiciona (empilha o confidencial sobre o export do ERP).">
-          <option value="full">Substituir competência (full)</option>
-          <option value="incremental">Adicionar (incremental)</option>
+          title="Substituir: apaga só ESTE lote na competência e recarrega — os outros lotes ficam. Adicionar: empilha sem apagar nada.">
+          <option value="full">Substituir este lote</option>
+          <option value="incremental">Adicionar (sem apagar)</option>
         </select>}
         {editavel && <button style={S.btn} disabled={importando} onClick={() => fileRef.current?.click()}><Upload size={14} /> {importando ? 'Importando…' : 'Importar folha (CSV/XLSX)'}</button>}
         {editavel && !!rows.length && <button style={{ ...S.btn, color: 'var(--red)', borderColor: 'rgba(248,113,113,0.35)' }} disabled={excluindo || importando}
-          title="Apaga o realizado da folha desta competência. Não toca no orçado, nos postos nem no razão."
-          onClick={excluirCompetencia}><Trash2 size={14} /> {excluindo ? 'Excluindo…' : 'Excluir competência'}</button>}
+          title="Apaga o lote selecionado ao lado, nesta competência. Os outros lotes ficam. Não toca no orçado, nos postos nem no razão."
+          onClick={excluirCompetencia}><Trash2 size={14} /> {excluindo ? 'Excluindo…' : 'Excluir este lote'}</button>}
         <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = '' }} />
       </div>
 
