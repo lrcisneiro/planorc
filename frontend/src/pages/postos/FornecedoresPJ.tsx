@@ -4,22 +4,28 @@ import { supabase, TENANT_ID } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
 import { AlertCircle, Download, Upload, Trash2, Search, CheckCircle2 } from 'lucide-react'
 
-// De-para participante × fornecedor (v3_083) — a ponte que dá nome ao PJ.
+// De-para pessoa × fornecedor (v3_083/086) — a ponte que dá nome ao terceiro.
 //
-// O PJ não passa pela contabilização da folha: chega ao razão como nota fiscal,
-// num lote de contas a pagar, com o histórico "<FORNECEDOR>-<PARTICIPANTE>".
-// Sem esta tabela ele é uma massa anônima em "outras origens"; com ela, cada
-// lançamento ganha matrícula e a conciliação por pessoa fecha.
+// O terceiro não passa pela contabilização da folha: chega ao razão como nota
+// fiscal, num lote de contas a pagar. Sem esta tabela ele é uma massa anônima;
+// com ela, cada lançamento ganha matrícula e a conciliação por pessoa fecha.
 //
-// A planilha importada é o export cru do Protheus (RD0 × SA2) — sem conversor
-// intermediário, porque as colunas já vêm limpas. Quem não tem fornecedor
-// amarrado é CLT (contabiliza pela folha) e não entra aqui.
+// Duas formas de contratação, e o histórico do razão as distingue:
+//   PJ puro    traz o NOME FANTASIA do fornecedor — é a chave
+//   Cooperado  traz "<COOPERATIVA>-<NOME DO FUNCIONÁRIO>", e quem decide é o
+//              nome do funcionário: o fornecedor é a cooperativa, dividida por
+//              todos os cooperados, e não identifica ninguém sozinho
+//
+// A planilha é o export cru do Protheus (SRA × Fornecedores) — sem conversor,
+// porque as colunas já vêm limpas. Quem não tem fornecedor é CLT (contabiliza
+// pela folha) e não entra aqui.
 
 declare const XLSX: any
 
 type Row = {
-  id: string; empresa_cod: string; filial_cod: string | null; matricula: string; matricula_folha: string | null
-  nome: string | null; cpf: string | null; fornecedor_cod: string; fornecedor_loja: string; cnpj: string | null
+  id: string; empresa_cod: string; filial_cod: string; matricula: string | null; matricula_folha: string
+  nome: string | null; nome_sra: string | null; cpf: string | null
+  fornecedor_cod: string; fornecedor_loja: string; cnpj: string | null
   nome_fantasia: string | null; ativo: boolean
 }
 
@@ -28,8 +34,11 @@ type Row = {
 const DE_PARA: Record<string, string> = {
   EMPRESA: 'empresa_cod', EMPRESA_COD: 'empresa_cod',
   FILIAL: 'filial_cod', FILIAL_COD: 'filial_cod',
-  CODIGO: 'matricula', MATRICULA: 'matricula', RD0_CODIGO: 'matricula',
+  CODIGO: 'matricula', RD0_CODIGO: 'matricula',
   NOME: 'nome', RD0_NOME: 'nome',
+  // a identidade da FOLHA — a chave, presente inclusive para o cooperado, que
+  // não existe no RD0 porque o fornecedor dele é a cooperativa
+  MATRICULA: 'matricula_folha', NOME_SRA: 'nome_sra',
   CPF: 'cpf', RD0_CPF: 'cpf',
   COD_FORNECEDOR: 'fornecedor_cod', FORNECEDOR_COD: 'fornecedor_cod', RD0_COD_FORNECEDOR: 'fornecedor_cod',
   LOJA: 'fornecedor_loja', FORNECEDOR_LOJA: 'fornecedor_loja', RD0_LOJA: 'fornecedor_loja',
@@ -37,15 +46,16 @@ const DE_PARA: Record<string, string> = {
   FANTASIA: 'nome_fantasia', NOME_FANTASIA: 'nome_fantasia', SA2_NOME_FANTASIA: 'nome_fantasia',
   // o par do SRA — a chave que identifica a pessoa na folha
   MATRICULA_FOLHA: 'matricula_folha', MATRICULA_SRA: 'matricula_folha', MAT_FOLHA: 'matricula_folha', SRA_MATRICULA: 'matricula_folha',
-  SRA_FILIAL: 'filial_sra',
+  SRA_FILIAL: 'filial_sra', FILIAL_SRA: 'filial_sra', SRA_NOME: 'nome_sra',
   // RD0_FILIAL fica de fora de propósito: vem vazia e não é a filial da folha
 }
-const COLS_EXPORT = ['empresa_cod', 'filial_cod', 'matricula', 'matricula_folha', 'nome', 'cpf', 'fornecedor_cod', 'fornecedor_loja', 'cnpj', 'nome_fantasia']
+const COLS_EXPORT = ['empresa_cod', 'filial_cod', 'matricula_folha', 'nome_sra', 'matricula', 'nome', 'cpf', 'fornecedor_cod', 'fornecedor_loja', 'cnpj', 'nome_fantasia']
 
-const norm = (s: any) => String(s ?? '').trim()
+// o export traz 'NULL' como texto e campos preenchidos com espaços à direita
+const norm = (s: any) => { const t = String(s ?? '').trim(); return t.toUpperCase() === 'NULL' ? '' : t }
 // célula numérica come o zero à esquerda: 000076 volta como 76 (ou "76.0")
 const zfill = (v: any, n: number) => { const s = norm(v).split('.')[0]; return s ? s.padStart(n, '0') : '' }
-const chaveDe = (r: any) => `${r.empresa_cod}|${r.matricula}|${r.fornecedor_cod}|${r.fornecedor_loja}`
+const chaveDe = (r: any) => `${r.empresa_cod}|${r.filial_cod}|${r.matricula_folha}|${r.fornecedor_cod}|${r.fornecedor_loja}`
 
 const S: Record<string, CSSProperties> = {
   card:    { background: 'var(--panel)', borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden' },
@@ -75,7 +85,7 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
     setLoading(true)
     // cresce com o quadro de PJ — passa de 1000 sem avisar
     const d = await pageAll(() => supabase.from('posto_fornecedor')
-      .select('id,empresa_cod,filial_cod,matricula,matricula_folha,nome,cpf,fornecedor_cod,fornecedor_loja,cnpj,nome_fantasia,ativo')
+      .select('id,empresa_cod,filial_cod,matricula,matricula_folha,nome,nome_sra,cpf,fornecedor_cod,fornecedor_loja,cnpj,nome_fantasia,ativo')
       .order('matricula'))
     setRows(d as Row[]); setLoading(false)
   }
@@ -84,7 +94,7 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
   const shown = useMemo(() => {
     const q = busca.trim().toLowerCase()
     if (!q) return rows
-    return rows.filter(r => [r.matricula, r.matricula_folha, r.nome, r.fornecedor_cod, r.nome_fantasia, r.cnpj]
+    return rows.filter(r => [r.matricula, r.matricula_folha, r.nome, r.nome_sra, r.fornecedor_cod, r.nome_fantasia, r.cnpj]
       .some(v => String(v || '').toLowerCase().includes(q)))
   }, [rows, busca])
 
@@ -110,8 +120,8 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
     if (!brutos.length) { setErro('Planilha vazia.'); return }
 
     const cab = Object.keys(brutos[0]).map(k => k.trim().toUpperCase())
-    if (!cab.some(k => DE_PARA[k] === 'matricula') || !cab.some(k => DE_PARA[k] === 'fornecedor_cod')) {
-      setErro(`Cabeçalho não reconhecido. Esperado o export RD0 × SA2 (EMPRESA, CODIGO, NOME, COD_FORNECEDOR, LOJA, NOME_FANTASIA). Veio: ${cab.join(', ')}`)
+    if (!cab.some(k => DE_PARA[k] === 'matricula_folha') || !cab.some(k => DE_PARA[k] === 'fornecedor_cod')) {
+      setErro(`Cabeçalho não reconhecido. Esperado o export SRA × Fornecedores (EMPRESA, FILIAL_SRA, MATRICULA, NOME_SRA, COD_FORNECEDOR, LOJA, NOME_FANTASIA). Veio: ${cab.join(', ')}`)
       return
     }
 
@@ -123,8 +133,8 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
         const col = DE_PARA[k.trim().toUpperCase()]
         if (col) r[col] = v
       }
-      r.matricula       = zfill(r.matricula, 6)
-      r.matricula_folha = r.matricula_folha ? zfill(r.matricula_folha, 6) : null
+      r.matricula       = norm(r.matricula) ? zfill(r.matricula, 6) : null
+      r.matricula_folha = zfill(r.matricula_folha, 6)
       r.fornecedor_cod = zfill(r.fornecedor_cod, 6)
       r.fornecedor_loja = r.fornecedor_loja ? zfill(r.fornecedor_loja, 2) : ''
       r.empresa_cod    = r.empresa_cod ? zfill(r.empresa_cod, 2) : ''
@@ -132,11 +142,11 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
       // e tanto a folha quanto o cadastro de filial usam '2001'
       const fs = norm(r.filial_sra)
       if (fs) r.filial_cod = (r.empresa_cod && fs.length <= 2) ? r.empresa_cod + zfill(fs, 2) : fs
-      r.filial_cod = norm(r.filial_cod) || null
+      r.filial_cod = norm(r.filial_cod)
       delete r.filial_sra
-      for (const c of ['nome', 'cpf', 'cnpj', 'nome_fantasia']) r[c] = norm(r[c]) || null
+      for (const c of ['nome', 'nome_sra', 'cpf', 'cnpj', 'nome_fantasia']) r[c] = norm(r[c]) || null
       // sem fornecedor = CLT: contabiliza pela folha e nunca aparece como NF
-      if (!r.matricula || r.matricula === '000000') { semMatricula++; continue }
+      if (!r.matricula_folha || r.matricula_folha === '000000') { semMatricula++; continue }
       if (!r.fornecedor_cod) { semFornecedor++; continue }
       const k = chaveDe(r)
       if (vistos.has(k)) { dup++; continue }
@@ -158,12 +168,14 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
     }
     for (let i = 0; i < payload.length; i += 500) {
       const { error } = await supabase.from('posto_fornecedor')
-        .upsert(payload.slice(i, i + 500), { onConflict: 'tenant_id,empresa_cod,matricula,fornecedor_cod,fornecedor_loja' })
+        .upsert(payload.slice(i, i + 500), { onConflict: 'tenant_id,empresa_cod,filial_cod,matricula_folha,fornecedor_cod,fornecedor_loja' })
       if (error) { setErro('Import: ' + error.message); setLoading(false); return }
     }
-    const comChave = payload.filter(r => r.matricula_folha && r.filial_cod).length
-    const notas = [`${payload.length} amarração(ões) gravadas`, `${comChave} com filial + matrícula da folha`]
-    if (comChave < payload.length) notas.push(`${payload.length - comChave} dependem do vínculo por nome`)
+    const coop = payload.filter(r => /COOPERATIV/i.test(r.nome_fantasia || '')).length
+    const notas = [`${payload.length} amarração(ões) gravadas`]
+    if (coop) notas.push(`${coop} cooperado(s) — casam pelo nome do funcionário, não pelo fornecedor`)
+    const semNome = payload.filter(r => !r.nome_sra && !r.nome).length
+    if (semNome) notas.push(`${semNome} sem nome nenhum — não amarram`)
     if (semFornecedor) notas.push(`${semFornecedor} sem fornecedor (CLT — contabiliza pela folha)`)
     if (dup) notas.push(`${dup} duplicada(s) na planilha, mantida a primeira`)
     if (semMatricula) notas.push(`${semMatricula} sem matrícula`)
@@ -207,14 +219,13 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
       </div>
 
       <div style={S.hint}>
-        Importe o export do Protheus que cruza <b>participantes (RD0)</b> com <b>fornecedores (SA2)</b> —
-        colunas <code>EMPRESA, CODIGO, NOME, CPF, COD_FORNECEDOR, LOJA, CNPJ_FORNECEDOR, NOME_FANTASIA</code>.
-        Quem vem sem fornecedor é CLT e é descartado: só o PJ chega ao razão por nota fiscal.
-        É o <b>nome fantasia</b> que casa com o histórico do lançamento — sem ele a linha entra, mas não amarra.
-        Para o PJ conciliar por pessoa, o export precisa trazer <b><code>SRA_MATRICULA</code></b> e <b><code>SRA_FILIAL</code></b>:
-        o código do participante do RD0 <i>não</i> é a matrícula da folha, e a matrícula sozinha não identifica ninguém —
-        a 900000 é três pessoas diferentes. A filial da folha é montada como <b>EMPRESA + SRA_FILIAL</b> (20 + 01 → 2001).
-        Sem esse par, o elo é tentado por nome e cobre menos.
+        Importe o export do Protheus <b>SRA × Fornecedores</b> — colunas <code>EMPRESA, FILIAL_SRA, MATRICULA, NOME_SRA,
+        RD0_CODIGO, RD0_NOME, CPF, COD_FORNECEDOR, LOJA, CNPJ_FORNECEDOR, NOME_FANTASIA</code>.
+        Quem vem sem fornecedor é CLT e é descartado: só o terceiro chega ao razão por nota fiscal.
+        A chave é <b>FILIAL_SRA + MATRICULA</b> (a filial é montada como <b>EMPRESA + FILIAL_SRA</b>: 20 + 01 → 2001) —
+        matrícula sozinha não identifica ninguém, a 900000 é três pessoas diferentes.
+        O <b>cooperado</b> não tem RD0 e é normal: o fornecedor dele é a cooperativa, e quem o identifica no
+        histórico é o <b><code>NOME_SRA</code></b>, depois do traço.
       </div>
       {erro && <div style={S.erro}><AlertCircle size={14} /> {erro}</div>}
       {aviso && <div style={S.ok}><CheckCircle2 size={14} /> {aviso}</div>}
@@ -222,26 +233,25 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
       <div style={{ overflowX: 'auto', marginTop: 12 }}>
         <table style={S.table}>
           <thead><tr>
-            <th style={S.th}>Empresa</th><th style={S.th}>Matrícula</th>
-            <th style={S.th} title="Filial + matrícula do SRA é a chave que identifica a pessoa na folha. Faltando qualquer uma, o vínculo é tentado por nome.">Filial · mat. folha</th>
-            <th style={S.th}>Nome</th>
+            <th style={S.th}>Empresa</th>
+            <th style={S.th} title="Filial + matrícula do SRA: a chave que identifica a pessoa na folha.">Filial · matrícula</th>
+            <th style={S.th}>Nome (folha)</th>
             <th style={S.th}>Fornecedor</th><th style={S.th}>Nome fantasia</th><th style={S.th}>CNPJ</th>
           </tr></thead>
           <tbody>
             {shown.slice(0, 500).map(r => (
               <tr key={r.id}>
                 <td style={S.mono}>{r.empresa_cod || '—'}</td>
-                <td style={S.mono}>{r.matricula}</td>
                 <td style={{ ...S.mono, color: r.matricula_folha && r.filial_cod ? 'var(--green)' : 'var(--muted)' }}>
-                  {r.matricula_folha ? `${r.filial_cod || '????'}-${r.matricula_folha}` : 'por nome'}
+                  {r.matricula_folha ? `${r.filial_cod || '??'}-${r.matricula_folha}` : 'sem chave'}
                 </td>
-                <td style={S.td}>{r.nome || '—'}</td>
+                <td style={S.td}>{r.nome_sra || r.nome || '—'}</td>
                 <td style={S.mono}>{r.fornecedor_cod}{r.fornecedor_loja ? `/${r.fornecedor_loja}` : ''}</td>
                 <td style={{ ...S.td, color: r.nome_fantasia ? 'var(--text)' : 'var(--orange)' }}>{r.nome_fantasia || 'sem fantasia — não amarra'}</td>
                 <td style={S.mono}>{r.cnpj || '—'}</td>
               </tr>
             ))}
-            {!shown.length && <tr><td colSpan={7} style={S.empty}>
+            {!shown.length && <tr><td colSpan={6} style={S.empty}>
               {loading ? 'Carregando…' : busca ? 'Nada com esse termo.' : 'Nenhuma amarração ainda — importe o export RD0 × SA2 para o PJ ganhar nome na conciliação.'}
             </td></tr>}
           </tbody>
