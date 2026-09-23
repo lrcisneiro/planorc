@@ -33,7 +33,7 @@ type Patrim = { conta_cod: string; conta_desc: string; natureza: string; razao: 
 type ItemRazao = { linha_id: string; razao_item: number }
 type ItemFora = { conta_cod: string; conta_desc: string; motivo: string; lancamentos: number; valor: number }
 type Hit = { conta_id: string; verba_cod: string; matricula: string; nome: string; cc_cod: string | null; valor: number }
-type PessoaFolha = { filial_id: string; filial_cod: string | null; empresa_cod: string | null; matricula: string; nome: string; valor: number }
+type PessoaFolha = { filial_id: string; filial_cod: string | null; empresa_cod: string | null; matricula: string; nome: string; origem: string; valor: number }
 type Terc = {
   status: 'CASADO' | 'SEM_NF' | 'SEM_FOLHA' | 'AMBIGUO' | 'SEM_DEPARA'
   via: 'DEPARA' | 'NOME' | null
@@ -714,7 +714,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                           De quem é <b style={{ color: 'var(--text)' }}>{txt}</b>? A amarração fica gravada como manual — a próxima
                           importação do de-para não a apaga, e o mesmo texto casa sozinho nos meses seguintes.
                         </div>
-                        <input autoFocus style={{ ...S.inp, width: 320 }} value={buscaP} placeholder="nome ou matrícula da pessoa na folha…"
+                        <input autoFocus style={{ ...S.inp, width: 320 }} value={buscaP} placeholder="nome ou matrícula — da folha ou do posto…"
                           onChange={e => setBuscaP(e.target.value)} />
                         <div style={{ marginTop: 6 }}>
                           {cand.map(pe => (
@@ -724,10 +724,15 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                               <span style={S.mono}>{pe.filial_cod || '??'}-{pe.matricula}</span>
                               <span style={{ flex: 1 }}>{pe.nome}</span>
-                              <span style={{ color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>folha {money(Number(pe.valor) || 0)}</span>
+                              {/* quem só existe como posto ainda não tem folha no mês —
+                                  é o caso do prestador novo e do sócio cuja folha vem
+                                  no arquivo confidencial */}
+                              <span style={{ color: pe.origem === 'POSTO' ? 'var(--orange)' : 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>
+                                {pe.origem === 'POSTO' ? 'posto, sem folha no mês' : `folha ${money(Number(pe.valor) || 0)}`}
+                              </span>
                             </div>
                           ))}
-                          {!!q && !cand.length && <div style={{ fontSize: 12, color: 'var(--muted)', padding: '4px 8px' }}>Ninguém com esse nome na folha desta competência.</div>}
+                          {!!q && !cand.length && <div style={{ fontSize: 12, color: 'var(--muted)', padding: '4px 8px' }}>Ninguém com esse nome na folha nem nos postos desta competência.</div>}
                         </div>
                       </td></tr>
                     )}
