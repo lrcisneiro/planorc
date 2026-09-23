@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
-import { AlertCircle, Download, Upload, Trash2, Search, CheckCircle2 } from 'lucide-react'
+import { AlertCircle, Download, Upload, Trash2, Search, CheckCircle2, Pencil, Save, X, Eye, EyeOff } from 'lucide-react'
 
 // De-para pessoa × fornecedor (v3_083/086) — a ponte que dá nome ao terceiro.
 //
@@ -70,6 +70,8 @@ const S: Record<string, CSSProperties> = {
   ok:      { display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(52,211,153,0.10)', border: '1px solid rgba(52,211,153,0.30)', borderRadius: 8, padding: '10px 14px', margin: '12px 16px 0', color: 'var(--green)', fontSize: 13 },
   hint:    { fontSize: 12, color: 'var(--muted)', padding: '10px 16px 0', lineHeight: 1.5 },
   empty:   { padding: '40px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 },
+  inputEd: { padding: '4px 8px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 6, outline: 'none', background: 'var(--panel)', color: 'var(--text)' },
+  icone:   { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--border-strong)', padding: 3, borderRadius: 4, display: 'inline-flex', alignItems: 'center' },
 }
 
 export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
@@ -79,6 +81,8 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
   const [aviso, setAviso] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
   const [substituir, setSubstituir] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editTxt, setEditTxt] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
@@ -190,6 +194,33 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
     await load()
   }
 
+  // O apelido é a única coisa editável: o resto vem do ERP e a reimportação
+  // sobrescreve. Editar aqui o que o export traz seria trabalho perdido.
+  const salvarApelido = async (r: Row) => {
+    const v = editTxt.trim() || null
+    const { error } = await supabase.from('posto_fornecedor').update({ apelido: v }).eq('id', r.id)
+    if (error) { setErro(error.message); return }
+    setRows(rs => rs.map(x => x.id === r.id ? { ...x, apelido: v } : x))
+    setEditId(null); setErro(null)
+  }
+  // Desativar em vez de apagar: a linha para de casar mas continua visível, e dá
+  // para voltar atrás. Apagar uma linha do ERP não adianta muito — a próxima
+  // importação a traz de volta.
+  const alternarAtivo = async (r: Row) => {
+    const { error } = await supabase.from('posto_fornecedor').update({ ativo: !r.ativo }).eq('id', r.id)
+    if (error) { setErro(error.message); return }
+    setRows(rs => rs.map(x => x.id === r.id ? { ...x, ativo: !r.ativo } : x))
+  }
+  const excluirLinha = async (r: Row) => {
+    const quem = r.apelido || r.nome_fantasia || r.nome_sra || r.matricula_folha
+    if (!confirm(`Excluir a amarração de "${quem}"?`
+      + (r.origem === 'ERP' ? '\n\nEsta linha veio do ERP: a próxima importação do de-para a traz de volta. Para tirá-la de vez, use Desativar.' : '')
+      + '\n\nNão tem desfazer.')) return
+    const { error } = await supabase.from('posto_fornecedor').delete().eq('id', r.id)
+    if (error) { setErro(error.message); return }
+    setRows(rs => rs.filter(x => x.id !== r.id)); setErro(null)
+  }
+
   const limpar = async () => {
     if (!confirm(`Apagar TODAS as ${rows.length} amarrações, inclusive as feitas à mão? O terceiro volta a aparecer sem nome na conciliação.`)) return
     const { error } = await supabase.from('posto_fornecedor').delete().eq('tenant_id', TENANT_ID)
@@ -246,24 +277,47 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
             <th style={S.th}>Nome (folha)</th>
             <th style={S.th} title="Amarração feita à mão na conferência: um texto do histórico que o ERP não resolve, apontado para a pessoa. A reimportação não a apaga.">Apelido</th>
             <th style={S.th}>Fornecedor</th><th style={S.th}>Nome fantasia</th><th style={S.th}>CNPJ</th>
+            {editavel && <th style={{ ...S.th, width: 92 }} />}
           </tr></thead>
           <tbody>
             {shown.slice(0, 500).map(r => (
-              <tr key={r.id}>
+              <tr key={r.id} style={r.ativo ? undefined : { opacity: 0.45 }}>
                 <td style={S.mono}>{r.empresa_cod || '—'}</td>
                 <td style={{ ...S.mono, color: r.matricula_folha && r.filial_cod ? 'var(--green)' : 'var(--muted)' }}>
                   {r.matricula_folha ? `${r.filial_cod || '??'}-${r.matricula_folha}` : 'sem chave'}
                 </td>
                 <td style={S.td}>{r.nome_sra || r.nome || '—'}</td>
-                <td style={S.td}>{r.apelido
-                  ? <span style={{ color: 'var(--violet)' }} title="amarrado à mão na conferência">{r.apelido}</span>
-                  : <span style={{ color: 'var(--faint)' }}>—</span>}</td>
+                <td style={S.td}>{editId === r.id
+                  ? <input autoFocus style={{ ...S.inputEd, width: 180 }} value={editTxt}
+                      onChange={e => setEditTxt(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') salvarApelido(r); if (e.key === 'Escape') setEditId(null) }} />
+                  : r.apelido
+                    ? <span style={{ color: 'var(--violet)' }} title="amarrado à mão na conferência">{r.apelido}</span>
+                    : <span style={{ color: 'var(--faint)' }}>—</span>}</td>
                 <td style={S.mono}>{r.fornecedor_cod}{r.fornecedor_loja ? `/${r.fornecedor_loja}` : ''}</td>
                 <td style={{ ...S.td, color: r.nome_fantasia ? 'var(--text)' : 'var(--orange)' }}>{r.nome_fantasia || 'sem fantasia — não amarra'}</td>
                 <td style={S.mono}>{r.cnpj || '—'}</td>
+                {editavel && <td style={{ ...S.td, whiteSpace: 'nowrap' }}>
+                  {editId === r.id ? (
+                    <>
+                      <button style={{ ...S.icone, color: 'var(--green)' }} onClick={() => salvarApelido(r)} title="Salvar"><Save size={15} /></button>
+                      <button style={S.icone} onClick={() => setEditId(null)} title="Cancelar"><X size={15} /></button>
+                    </>
+                  ) : (
+                    <>
+                      <button style={S.icone} onClick={() => { setEditId(r.id); setEditTxt(r.apelido || '') }}
+                        title="Editar o apelido — o texto do histórico que aponta para esta pessoa"><Pencil size={15} /></button>
+                      <button style={S.icone} onClick={() => alternarAtivo(r)}
+                        title={r.ativo ? 'Desativar: para de casar, mas continua aqui e dá para voltar' : 'Reativar'}>
+                        {r.ativo ? <Eye size={15} /> : <EyeOff size={15} />}
+                      </button>
+                      <button style={{ ...S.icone, color: 'var(--red)' }} onClick={() => excluirLinha(r)} title="Excluir"><Trash2 size={15} /></button>
+                    </>
+                  )}
+                </td>}
               </tr>
             ))}
-            {!shown.length && <tr><td colSpan={7} style={S.empty}>
+            {!shown.length && <tr><td colSpan={editavel ? 8 : 7} style={S.empty}>
               {loading ? 'Carregando…' : busca ? 'Nada com esse termo.' : 'Nenhuma amarração ainda — importe o export RD0 × SA2 para o PJ ganhar nome na conciliação.'}
             </td></tr>}
           </tbody>
