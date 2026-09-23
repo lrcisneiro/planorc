@@ -26,7 +26,7 @@ type Row = {
   id: string; empresa_cod: string; filial_cod: string; matricula: string | null; matricula_folha: string
   nome: string | null; nome_sra: string | null; cpf: string | null
   fornecedor_cod: string; fornecedor_loja: string; cnpj: string | null
-  nome_fantasia: string | null; ativo: boolean
+  nome_fantasia: string | null; apelido: string | null; origem: string; ativo: boolean
 }
 
 // Aceita tanto o cabeçalho do export do ERP quanto o nome da coluna do Planorc,
@@ -49,7 +49,7 @@ const DE_PARA: Record<string, string> = {
   SRA_FILIAL: 'filial_sra', FILIAL_SRA: 'filial_sra', SRA_NOME: 'nome_sra',
   // RD0_FILIAL fica de fora de propósito: vem vazia e não é a filial da folha
 }
-const COLS_EXPORT = ['empresa_cod', 'filial_cod', 'matricula_folha', 'nome_sra', 'matricula', 'nome', 'cpf', 'fornecedor_cod', 'fornecedor_loja', 'cnpj', 'nome_fantasia']
+const COLS_EXPORT = ['empresa_cod', 'filial_cod', 'matricula_folha', 'nome_sra', 'matricula', 'nome', 'cpf', 'fornecedor_cod', 'fornecedor_loja', 'cnpj', 'nome_fantasia', 'apelido', 'origem']
 
 // o export traz 'NULL' como texto e campos preenchidos com espaços à direita
 const norm = (s: any) => { const t = String(s ?? '').trim(); return t.toUpperCase() === 'NULL' ? '' : t }
@@ -85,7 +85,7 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
     setLoading(true)
     // cresce com o quadro de PJ — passa de 1000 sem avisar
     const d = await pageAll(() => supabase.from('posto_fornecedor')
-      .select('id,empresa_cod,filial_cod,matricula,matricula_folha,nome,nome_sra,cpf,fornecedor_cod,fornecedor_loja,cnpj,nome_fantasia,ativo')
+      .select('id,empresa_cod,filial_cod,matricula,matricula_folha,nome,nome_sra,cpf,fornecedor_cod,fornecedor_loja,cnpj,nome_fantasia,apelido,origem,ativo')
       .order('matricula'))
     setRows(d as Row[]); setLoading(false)
   }
@@ -94,7 +94,7 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
   const shown = useMemo(() => {
     const q = busca.trim().toLowerCase()
     if (!q) return rows
-    return rows.filter(r => [r.matricula, r.matricula_folha, r.nome, r.nome_sra, r.fornecedor_cod, r.nome_fantasia, r.cnpj]
+    return rows.filter(r => [r.matricula, r.matricula_folha, r.nome, r.nome_sra, r.fornecedor_cod, r.nome_fantasia, r.apelido, r.cnpj]
       .some(v => String(v || '').toLowerCase().includes(q)))
   }, [rows, busca])
 
@@ -160,10 +160,16 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
     const cadastradas = new Set((await pageAll(() => supabase.from('filial').select('codigo'))).map((f: any) => String(f.codigo)))
     const filiaisRuins = [...new Set(payload.map(r => r.filial_cod).filter(f => f && !cadastradas.has(f)))]
 
-    if (substituir && !confirm(`Substituir a lista inteira? Os ${rows.length} registros atuais serão apagados e trocados pelos ${payload.length} da planilha.`)) return
+    const manuais = rows.filter(r => r.origem === 'MANUAL').length
+    if (substituir && !confirm(
+      `Substituir a lista do ERP? ${rows.length - manuais} registro(s) importado(s) serão trocados pelos ${payload.length} da planilha.` +
+      (manuais ? `\n\nAs ${manuais} amarração(ões) feitas à mão na conferência são preservadas.` : ''))) return
     setLoading(true)
     if (substituir) {
-      const { error } = await supabase.from('posto_fornecedor').delete().eq('tenant_id', TENANT_ID)
+      // só o que veio do ERP: a amarração feita à mão na conferência sobrevive.
+      // Sem este filtro, a primeira reimportação levaria embora todo o trabalho
+      // de conciliação do mês, e em silêncio.
+      const { error } = await supabase.from('posto_fornecedor').delete().eq('tenant_id', TENANT_ID).eq('origem', 'ERP')
       if (error) { setErro('Ao limpar: ' + error.message); setLoading(false); return }
     }
     for (let i = 0; i < payload.length; i += 500) {
@@ -185,7 +191,7 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
   }
 
   const limpar = async () => {
-    if (!confirm(`Apagar as ${rows.length} amarrações? O PJ volta a aparecer sem nome na conciliação.`)) return
+    if (!confirm(`Apagar TODAS as ${rows.length} amarrações, inclusive as feitas à mão? O terceiro volta a aparecer sem nome na conciliação.`)) return
     const { error } = await supabase.from('posto_fornecedor').delete().eq('tenant_id', TENANT_ID)
     if (error) { setErro(error.message); return }
     setAviso(null); load()
@@ -197,6 +203,8 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 12, color: 'var(--muted)' }}>
             {shown.length}{busca ? ` de ${rows.length}` : ''} {shown.length === 1 ? 'amarração' : 'amarrações'}
+            {(() => { const m = rows.filter(r => r.origem === 'MANUAL').length
+              return m ? <span style={{ color: 'var(--violet)' }}> · {m} à mão</span> : null })()}
           </span>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <Search size={14} style={{ position: 'absolute', left: 8, color: 'var(--muted)' }} />
@@ -236,6 +244,7 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
             <th style={S.th}>Empresa</th>
             <th style={S.th} title="Filial + matrícula do SRA: a chave que identifica a pessoa na folha.">Filial · matrícula</th>
             <th style={S.th}>Nome (folha)</th>
+            <th style={S.th} title="Amarração feita à mão na conferência: um texto do histórico que o ERP não resolve, apontado para a pessoa. A reimportação não a apaga.">Apelido</th>
             <th style={S.th}>Fornecedor</th><th style={S.th}>Nome fantasia</th><th style={S.th}>CNPJ</th>
           </tr></thead>
           <tbody>
@@ -246,12 +255,15 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
                   {r.matricula_folha ? `${r.filial_cod || '??'}-${r.matricula_folha}` : 'sem chave'}
                 </td>
                 <td style={S.td}>{r.nome_sra || r.nome || '—'}</td>
+                <td style={S.td}>{r.apelido
+                  ? <span style={{ color: 'var(--violet)' }} title="amarrado à mão na conferência">{r.apelido}</span>
+                  : <span style={{ color: 'var(--faint)' }}>—</span>}</td>
                 <td style={S.mono}>{r.fornecedor_cod}{r.fornecedor_loja ? `/${r.fornecedor_loja}` : ''}</td>
                 <td style={{ ...S.td, color: r.nome_fantasia ? 'var(--text)' : 'var(--orange)' }}>{r.nome_fantasia || 'sem fantasia — não amarra'}</td>
                 <td style={S.mono}>{r.cnpj || '—'}</td>
               </tr>
             ))}
-            {!shown.length && <tr><td colSpan={6} style={S.empty}>
+            {!shown.length && <tr><td colSpan={7} style={S.empty}>
               {loading ? 'Carregando…' : busca ? 'Nada com esse termo.' : 'Nenhuma amarração ainda — importe o export RD0 × SA2 para o PJ ganhar nome na conciliação.'}
             </td></tr>}
           </tbody>

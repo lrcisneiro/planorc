@@ -30,6 +30,7 @@ type CLT = {
   verba_cod: string; verba_desc: string | null; razao: number; folha: number
 }
 type Patrim = { conta_cod: string; conta_desc: string; natureza: string; razao: number; folha: number }
+type PessoaFolha = { filial_id: string; filial_cod: string | null; empresa_cod: string | null; matricula: string; nome: string; valor: number }
 type Terc = {
   status: 'CASADO' | 'SEM_NF' | 'SEM_FOLHA' | 'AMBIGUO' | 'SEM_DEPARA'
   via: 'DEPARA' | 'NOME' | null
@@ -89,6 +90,12 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   const [clt, setClt] = useState<CLT[]>([])
   const [outros, setOutros] = useState<Record<string, Outro>>({})
   const [patrim, setPatrim] = useState<Patrim[]>([])
+  // amarração manual: o gestor diz de quem é o texto órfão, e isso vira uma
+  // linha de de-para com origem MANUAL — que a reimportação não apaga
+  const [amarrando, setAmarrando] = useState<string | null>(null)
+  const [pessoasFolha, setPessoasFolha] = useState<PessoaFolha[]>([])
+  const [buscaP, setBuscaP] = useState('')
+  const [salvandoAm, setSalvandoAm] = useState(false)
   const [terc, setTerc] = useState<Terc[]>([])
   const [rels, setRels] = useState<any[]>([])
   const [relSel, setRelSel] = useLocalPref('planorc_concil_relatorio', '')
@@ -215,6 +222,29 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   const totC = useMemo(() => contasClt.reduce((s, c) => ({ razao: s.razao + c.razao, folha: s.folha + c.folha, outros: s.outros + c.outros }), { razao: 0, folha: 0, outros: 0 }), [contasClt])
   const totT = useMemo(() => pessoas.reduce((s, t) => ({ razao: s.razao + t.razao, folha: s.folha + t.folha }), { razao: 0, folha: 0 }), [pessoas])
   const totSemDono = useMemo(() => semDono.reduce((s, t) => s + t.razao, 0), [semDono])
+
+  const abrirAmarrar = async (texto: string) => {
+    setAmarrando(texto); setBuscaP('')
+    if (!pessoasFolha.length) {
+      const { data } = await supabase.rpc('conciliacao_pessoas_folha', escopo)
+      setPessoasFolha((data || []) as PessoaFolha[])
+    }
+  }
+  const amarrar = async (texto: string, pe: PessoaFolha) => {
+    setSalvandoAm(true)
+    const { error } = await supabase.from('posto_fornecedor').insert({
+      tenant_id: TENANT_ID, origem: 'MANUAL',
+      empresa_cod: pe.empresa_cod || '', filial_cod: pe.filial_cod || '',
+      matricula_folha: pe.matricula, nome_sra: pe.nome,
+      apelido: texto, fornecedor_cod: '', fornecedor_loja: '',
+    })
+    setSalvandoAm(false)
+    if (error) { setErro('Ao amarrar: ' + error.message); return }
+    setAmarrando(null)
+    // recarrega para a linha sair do resíduo e aparecer conciliada
+    const t = await supabase.rpc('conciliacao_terceiros', { ...escopo, p_relatorio_id: relSel })
+    if (!t.error) setTerc(((t.data || []) as Terc[]).map(x => ({ ...x, razao: Number(x.razao) || 0, folha: Number(x.folha) || 0 })))
+  }
 
   const salvarTolerancia = async () => {
     const v = Number(tolTxt.replace(/\./g, '').replace(',', '.'))
@@ -518,27 +548,64 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
               <th style={{ ...S.th, textAlign: 'right' }}>Lançamentos</th>
               <th style={{ ...S.th, textAlign: 'right' }}>Valor</th>
               <th style={S.th}>Status</th>
+              <th style={S.th} />
             </tr></thead>
             <tbody>
-              {semDono.sort((a, b) => b.razao - a.razao).map((t, i) => (
-                <tr key={i}>
-                  <td style={S.td}><span style={{ fontStyle: 'italic', color: 'var(--text-mid)' }}>{t.nome_fantasia || '—'}</span></td>
-                  <td style={{ ...S.td, textAlign: 'right', color: 'var(--muted)' }}>{t.lancamentos}</td>
-                  <td style={{ ...S.td, textAlign: 'right' }}>{money(t.razao)}</td>
-                  <td style={S.td} title={ST[t.status]?.ajuda}><span style={ST[t.status]?.est || RES}>● {ST[t.status]?.txt}</span></td>
-                </tr>
-              ))}
+              {semDono.sort((a, b) => b.razao - a.razao).map((t, i) => {
+                const txt = t.nome_fantasia || ''
+                const q = buscaP.trim().toLowerCase()
+                const cand = q ? pessoasFolha.filter(pe => (pe.nome || '').toLowerCase().includes(q) || pe.matricula.includes(q)).slice(0, 8) : []
+                return (
+                  <Fragment key={i}>
+                    <tr>
+                      <td style={S.td}><span style={{ fontStyle: 'italic', color: 'var(--text-mid)' }}>{txt || '—'}</span></td>
+                      <td style={{ ...S.td, textAlign: 'right', color: 'var(--muted)' }}>{t.lancamentos}</td>
+                      <td style={{ ...S.td, textAlign: 'right' }}>{money(t.razao)}</td>
+                      <td style={S.td} title={ST[t.status]?.ajuda}><span style={ST[t.status]?.est || RES}>● {ST[t.status]?.txt}</span></td>
+                      <td style={S.td}>
+                        {txt && (amarrando === txt
+                          ? <button style={{ ...S.inp, padding: '3px 8px', fontSize: 11.5, cursor: 'pointer' }} onClick={() => setAmarrando(null)}>cancelar</button>
+                          : <button style={{ ...S.inp, padding: '3px 8px', fontSize: 11.5, cursor: 'pointer', color: 'var(--violet)', fontWeight: 600 }}
+                              onClick={() => abrirAmarrar(txt)}>amarrar a uma pessoa</button>)}
+                      </td>
+                    </tr>
+                    {amarrando === txt && (
+                      <tr><td colSpan={5} style={{ padding: '8px 12px 12px 30px', background: 'var(--bg-soft)' }}>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+                          De quem é <b style={{ color: 'var(--text)' }}>{txt}</b>? A amarração fica gravada como manual — a próxima
+                          importação do de-para não a apaga, e o mesmo texto casa sozinho nos meses seguintes.
+                        </div>
+                        <input autoFocus style={{ ...S.inp, width: 320 }} value={buscaP} placeholder="nome ou matrícula da pessoa na folha…"
+                          onChange={e => setBuscaP(e.target.value)} />
+                        <div style={{ marginTop: 6 }}>
+                          {cand.map(pe => (
+                            <div key={pe.filial_id + pe.matricula} onClick={() => !salvandoAm && amarrar(txt, pe)}
+                              style={{ padding: '4px 8px', fontSize: 12.5, cursor: 'pointer', borderRadius: 6, display: 'flex', gap: 10 }}
+                              onMouseEnter={e => (e.currentTarget.style.background = 'var(--panel-2)')}
+                              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                              <span style={S.mono}>{pe.filial_cod || '??'}-{pe.matricula}</span>
+                              <span style={{ flex: 1 }}>{pe.nome}</span>
+                              <span style={{ color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>folha {money(Number(pe.valor) || 0)}</span>
+                            </div>
+                          ))}
+                          {!!q && !cand.length && <div style={{ fontSize: 12, color: 'var(--muted)', padding: '4px 8px' }}>Ninguém com esse nome na folha desta competência.</div>}
+                        </div>
+                      </td></tr>
+                    )}
+                  </Fragment>
+                )
+              })}
               <tr>
                 <td style={{ ...S.td, cursor: 'pointer', color: 'var(--blue)' }}
                   onClick={() => toggle('sd', () => rpc('conciliacao_terceiros_outras', { ...escopo, p_relatorio_id: relSel }))}>
                   {aberto.has('sd') ? <ChevronDown size={12} /> : <ChevronRight size={12} />} ver os lançamentos, com a conta de cada um
                 </td>
-                <td style={S.td}></td>
+                <td style={S.td}></td><td style={S.td}></td>
                 <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{money(totSemDono)}</td>
                 <td style={S.td}></td>
               </tr>
               {aberto.has('sd') && (
-                <tr><td colSpan={4} style={{ padding: '4px 12px 10px 30px', background: 'var(--bg-soft)' }}>
+                <tr><td colSpan={5} style={{ padding: '4px 12px 10px 30px', background: 'var(--bg-soft)' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead><tr><th style={S.dh}>Conta</th><th style={S.dh}>Data</th><th style={S.dh}>Documento</th><th style={S.dh}>Histórico</th><th style={S.dh}>Lote</th><th style={S.dh}>CC</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
                     <tbody>
