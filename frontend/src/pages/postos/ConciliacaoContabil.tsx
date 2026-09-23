@@ -169,6 +169,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
       setTol(v); setTolTxt(money(v))
       setLoading(false)
     })()
+    setPessoasFolha([])
     return () => { vivo = false }
   }, [escopo, relSel]) // eslint-disable-line
 
@@ -264,10 +265,11 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
 
   const abrirAmarrar = async (texto: string) => {
     setAmarrando(texto); setBuscaP('')
-    if (!pessoasFolha.length) {
-      const { data } = await supabase.rpc('conciliacao_pessoas_folha', escopo)
-      setPessoasFolha((data || []) as PessoaFolha[])
-    }
+    // busca sempre: a lista depende da competência e do escopo, e guardá-la
+    // entre aberturas fazia a tela mostrar o recorte anterior sem avisar
+    const { data, error } = await supabase.rpc('conciliacao_pessoas_folha', escopo)
+    if (error) { setErro('Ao carregar as pessoas: ' + error.message); return }
+    setPessoasFolha((data || []) as PessoaFolha[])
   }
   const amarrar = async (texto: string, pe: PessoaFolha) => {
     setSalvandoAm(true)
