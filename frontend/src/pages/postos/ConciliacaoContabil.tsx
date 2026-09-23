@@ -232,14 +232,26 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   }
   const amarrar = async (texto: string, pe: PessoaFolha) => {
     setSalvandoAm(true)
+    // A chave única é (tenant, empresa, filial, matrícula, fornecedor, loja) e
+    // precisa ser de colunas planas por causa do upsert do import. Para a mesma
+    // pessoa poder ter DOIS apelidos — acontece: o prestador fatura por mais de
+    // um nome — o par fornecedor/loja recebe um marcador derivado do texto.
+    // 'MANUAL' também deixa a procedência óbvia na tela de Fornecedores.
+    const slug = Array.from(texto.toUpperCase()).reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7)
+      .toString(36).toUpperCase().slice(0, 6)
     const { error } = await supabase.from('posto_fornecedor').insert({
       tenant_id: TENANT_ID, origem: 'MANUAL',
       empresa_cod: pe.empresa_cod || '', filial_cod: pe.filial_cod || '',
       matricula_folha: pe.matricula, nome_sra: pe.nome,
-      apelido: texto, fornecedor_cod: '', fornecedor_loja: '',
+      apelido: texto, fornecedor_cod: 'MANUAL', fornecedor_loja: slug,
     })
     setSalvandoAm(false)
-    if (error) { setErro('Ao amarrar: ' + error.message); return }
+    if (error) {
+      setErro(error.code === '23505'
+        ? `"${texto}" já está amarrado a esta pessoa.`
+        : 'Ao amarrar: ' + error.message)
+      return
+    }
     setAmarrando(null)
     // recarrega para a linha sair do resíduo e aparecer conciliada
     const t = await supabase.rpc('conciliacao_terceiros', { ...escopo, p_relatorio_id: relSel })
