@@ -33,7 +33,7 @@ type Patrim = { conta_cod: string; conta_desc: string; natureza: string; razao: 
 type ItemRazao = { linha_id: string; razao_item: number }
 type ItemFora = { conta_cod: string; conta_desc: string; motivo: string; lancamentos: number; valor: number }
 type Hit = { conta_id: string; verba_cod: string; matricula: string; nome: string; cc_cod: string | null; valor: number }
-type TercTotal = { linha_id: string | null; linha_cod: string | null; linha_desc: string | null; linha_ordem: number | null; razao_item: number; razao_bloco: number }
+type TercTotal = { linha_id: string | null; linha_cod: string | null; linha_desc: string | null; linha_ordem: number | null; razao_item: number; razao_bloco: number; item_completo: boolean }
 type TercFora = { conta_cod: string; conta_desc: string; motivo: string; lancamentos: number; valor: number }
 type Cand = { filial_cod: string | null; matricula_folha: string; nome: string | null; fornecedor_cod: string | null; nome_fantasia: string | null; apelido: string | null; origem: string; ativo: boolean; casou_por: string }
 type PessoaFolha = { filial_id: string; filial_cod: string | null; empresa_cod: string | null; matricula: string; nome: string; origem: string; valor: number }
@@ -637,7 +637,9 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                   <div key={k} style={{ whiteSpace: 'nowrap' }}>
                     <b style={{ color: 'var(--text)' }}>{it.linha_desc || 'Sem item orçamentário'}</b>
                     <span style={{ color: 'var(--muted)' }}> · bloco </span>{money(it.razao_bloco)}
-                    <span style={{ color: 'var(--muted)' }}> · DRE </span>{money(it.razao_item)}
+                    {/* "DRE" só quando o terceiro cobre o item inteiro; senão o
+                        resto do item está no bloco de CLT e o rótulo mentiria */}
+                    <span style={{ color: 'var(--muted)' }}>{it.item_completo ? ' · DRE ' : ' · parte de terceiro '}</span>{money(it.razao_item)}
                     {Math.abs(d) > tol
                       ? <span style={{ color: 'var(--orange)', cursor: 'pointer' }}
                           onClick={() => toggle(k, () => rpc('conciliacao_terceiros_fora', { ...escopo, p_relatorio_id: relSel, p_linha_id: it.linha_id }))}>
@@ -653,8 +655,9 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
         {tercTot.filter(it => aberto.has(`tf:${it.linha_id || 'sem'}`)).map(it => (
           <div key={it.linha_id || 'sem'} style={{ padding: '8px 14px 12px', background: 'var(--bg-soft)', borderBottom: '1px solid var(--border)' }}>
             <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>
-              <b style={{ color: 'var(--text)' }}>{it.linha_desc || 'Sem item orçamentário'}</b> — o que a DRE conta neste item
-              e o bloco de terceiros não: lançamento que veio da contabilização da folha, ou conta do item que não é de terceiro.
+              <b style={{ color: 'var(--text)' }}>{it.linha_desc || 'Sem item orçamentário'}</b> — o que este item tem
+              nas contas de terceiro e o bloco não mostra: lançamento que veio da contabilização da folha.
+              O que está em conta de CLT não entra aqui — tem dono no outro bloco.
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead><tr><th style={S.dh}>Conta</th><th style={S.dh}>Por quê</th><th style={{ ...S.dh, textAlign: 'right' }}>Lanç.</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
