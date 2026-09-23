@@ -41,7 +41,11 @@ type Terc = {
   lancamentos: number; razao: number; folha: number
 }
 type Pessoa = { matricula: string; nome: string; cc_cod: string | null; valor: number }
-type Outro = { conta_id: string; lancamentos: number; valor: number }
+type Outro = {
+  conta_id: string; conta_cod: string; conta_desc: string; plano_cod: string | null
+  linha_id: string | null; linha_cod: string | null; linha_desc: string | null; linha_ordem: number | null
+  lancamentos: number; valor: number
+}
 type OutroLanc = { data: string | null; documento: string | null; historico: string | null; lote: string | null; cc_cod: string | null; valor: number }
 type Lado = { lado: string; conta_cod: string; conta_desc: string; ref: string | null; cc_cod: string | null; data: string | null; documento: string | null; historico: string | null; valor: number }
 type SemDono = { conta_id: string; conta_cod: string; conta_desc: string; data: string | null; documento: string | null; historico: string | null; lote: string | null; cc_cod: string | null; valor: number }
@@ -134,7 +138,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
       setLoading(true); setErro(null); setAviso(null); setAberto(new Set()); setDrill({})
       const [c, o, t, pt, ir, n, tt] = await Promise.all([
         supabase.rpc('conciliacao_clt', { ...escopo, p_relatorio_id: relSel }),
-        supabase.rpc('conciliacao_clt_outros', escopo),
+        supabase.rpc('conciliacao_clt_outros', { ...escopo, p_relatorio_id: relSel }),
         supabase.rpc('conciliacao_terceiros', { ...escopo, p_relatorio_id: relSel }),
         supabase.rpc('conciliacao_patrimoniais', escopo),
         supabase.rpc('conciliacao_item_razao', { ...escopo, p_relatorio_id: relSel }),
@@ -182,6 +186,12 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
       const g = m.get(r.conta_id) || { id: r.conta_id, cod: r.conta_cod, desc: r.conta_desc, plano: r.plano_cod || '', verbas: [] }
       g.verbas.push(r); m.set(r.conta_id, g)
     }
+    // conta que no recorte só tem "outros" não vem da conciliação — mas entra na
+    // DRE, então tem de entrar aqui também, senão o total do item fica curto e a
+    // diferença contra a DRE não tem explicação visível
+    for (const o of Object.values(outros)) {
+      if (!m.has(o.conta_id)) m.set(o.conta_id, { id: o.conta_id, cod: o.conta_cod, desc: o.conta_desc, plano: o.plano_cod || '', verbas: [] })
+    }
     return [...m.values()].map(g => {
       const razao = g.verbas.reduce((s, v) => s + v.razao, 0)
       const folha = g.verbas.reduce((s, v) => s + v.folha, 0)
@@ -197,7 +207,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   const itens = useMemo(() => {
     const m = new Map<string, { id: string; cod: string; desc: string; ordem: number; contas: typeof contasClt }>()
     for (const c of contasClt) {
-      const r = clt.find(x => x.conta_id === c.id)
+      const r = clt.find(x => x.conta_id === c.id) || outros[c.id]
       const id = r?.linha_id || '__sem__'
       const g = m.get(id) || {
         id, cod: r?.linha_cod || '', desc: r?.linha_desc || 'Sem item orçamentário',
@@ -432,6 +442,13 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                                 </tr>
                               ))}
                               {!drill[`if:${it.id}`] && <tr><td colSpan={4} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
+                              {/* lista vazia com diferença existindo é sintoma, não
+                                  resultado: melhor dizer do que deixar procurar */}
+                              {drill[`if:${it.id}`] && !drill[`if:${it.id}`].length && (
+                                <tr><td colSpan={4} style={{ ...S.dt, color: 'var(--orange)' }}>
+                                  A diferença de {money(foraItem)} não foi classificada — isto é um defeito da conferência, não do seu dado. Me avise.
+                                </td></tr>
+                              )}
                             </tbody>
                           </table>
                         </td></tr>
