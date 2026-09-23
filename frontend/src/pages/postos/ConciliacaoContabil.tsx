@@ -33,6 +33,8 @@ type Patrim = { conta_cod: string; conta_desc: string; natureza: string; razao: 
 type ItemRazao = { linha_id: string; razao_item: number }
 type ItemFora = { conta_cod: string; conta_desc: string; motivo: string; lancamentos: number; valor: number }
 type Hit = { conta_id: string; verba_cod: string; matricula: string; nome: string; cc_cod: string | null; valor: number }
+type TercTotal = { razao_contas: number; contas: number }
+type TercFora = { conta_cod: string; conta_desc: string; motivo: string; lancamentos: number; valor: number }
 type Cand = { filial_cod: string | null; matricula_folha: string; nome: string | null; fornecedor_cod: string | null; nome_fantasia: string | null; apelido: string | null; origem: string; ativo: boolean; casou_por: string }
 type PessoaFolha = { filial_id: string; filial_cod: string | null; empresa_cod: string | null; matricula: string; nome: string; origem: string; valor: number }
 type Terc = {
@@ -108,6 +110,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   const [outros, setOutros] = useState<Record<string, Outro>>({})
   const [patrim, setPatrim] = useState<Patrim[]>([])
   const [itemRz, setItemRz] = useState<Record<string, ItemRazao>>({})
+  const [tercTot, setTercTot] = useState<TercTotal | null>(null)
   // busca por pessoa: no terceiro ela é a própria linha (filtra local); no CLT
   // só existe no último nível, então quem responde é o banco
   const [busca, setBusca] = useState('')
@@ -152,12 +155,13 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     let vivo = true
     ;(async () => {
       setLoading(true); setErro(null); setAviso(null); setAberto(new Set()); setDrill({})
-      const [c, o, t, pt, ir, n, tt] = await Promise.all([
+      const [c, o, t, pt, ir, tz, n, tt] = await Promise.all([
         supabase.rpc('conciliacao_clt', { ...escopo, p_relatorio_id: relSel }),
         supabase.rpc('conciliacao_clt_outros', { ...escopo, p_relatorio_id: relSel }),
         supabase.rpc('conciliacao_terceiros', { ...escopo, p_relatorio_id: relSel }),
         supabase.rpc('conciliacao_patrimoniais', escopo),
         supabase.rpc('conciliacao_item_razao', { ...escopo, p_relatorio_id: relSel }),
+        supabase.rpc('conciliacao_terceiros_total', { ...escopo, p_relatorio_id: relSel }),
         supabase.from('conciliacao_folha_nota').select('id,conta_id,verba_cod,motivo').eq('ano', p.ano).eq('mes', p.mes),
         supabase.from('tenant').select('conciliacao_tolerancia').eq('id', TENANT_ID).maybeSingle(),
       ])
@@ -171,6 +175,8 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
       const im: Record<string, ItemRazao> = {}
       ;((ir.data || []) as ItemRazao[]).forEach(x => { im[x.linha_id] = { ...x, razao_item: Number(x.razao_item) || 0 } })
       setItemRz(im)
+      const tzr = ((tz.data || []) as TercTotal[])[0]
+      setTercTot(tzr ? { razao_contas: Number(tzr.razao_contas) || 0, contas: tzr.contas } : null)
       setTerc(((t.data || []) as Terc[]).map(x => ({ ...x, razao: Number(x.razao) || 0, folha: Number(x.folha) || 0 })))
       const map: Record<string, Nota> = {}
       ;((n.data || []) as Nota[]).forEach(x => { map[chave(x.conta_id, x.verba_cod)] = x })
@@ -619,7 +625,47 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
         <div style={S.head}>
           <h2 style={S.h2}>Terceiros</h2>
           <span style={S.hsub}>A folha calcula e a nota fiscal paga. Nota tem dono, então compara por pessoa — a conta de cada lado costuma ser diferente, e aparece no detalhe.</span>
+          {tercTot && (() => {
+            // o mesmo amarre do CLT: o que o bloco mostra contra o razão das
+            // contas de terceiro na DRE. Diferença ≠ 0 é lançamento fora dos dois
+            // blocos, e a lista abaixo diz qual.
+            const noBloco = totT.razao + totSemDono
+            const d = tercTot.razao_contas - noBloco
+            return (
+              <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                <span style={{ color: 'var(--muted)' }}>no bloco </span>{money(noBloco)}
+                <span style={{ color: 'var(--muted)' }}> · contas na DRE </span>{money(tercTot.razao_contas)}
+                {Math.abs(d) > tol
+                  ? <span style={{ color: 'var(--orange)', cursor: 'pointer' }}
+                      onClick={() => toggle('tf', () => rpc('conciliacao_terceiros_fora', { ...escopo, p_relatorio_id: relSel }))}>
+                      {' · '}fora {money(d)} ▸
+                    </span>
+                  : <span style={{ color: 'var(--green)' }}> · fecha</span>}
+              </span>
+            )
+          })()}
         </div>
+        {aberto.has('tf') && (
+          <div style={{ padding: '8px 14px 12px', background: 'var(--bg-soft)', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>
+              Razão que entrou numa conta de terceiro mas veio da contabilização da folha — o bloco só olha nota fiscal.
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead><tr><th style={S.dh}>Conta</th><th style={S.dh}>Por quê</th><th style={{ ...S.dh, textAlign: 'right' }}>Lanç.</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
+              <tbody>
+                {((drill['tf'] as TercFora[]) || []).map((x, i) => (
+                  <tr key={i}>
+                    <td style={S.dt}><span style={S.mono}>{x.conta_cod}</span> {x.conta_desc}</td>
+                    <td style={{ ...S.dt, color: 'var(--muted)' }}>{x.motivo}</td>
+                    <td style={{ ...S.dt, textAlign: 'right', color: 'var(--muted)' }}>{x.lancamentos}</td>
+                    <td style={{ ...S.dt, textAlign: 'right' }}>{money(Number(x.valor) || 0)}</td>
+                  </tr>
+                ))}
+                {!drill['tf'] && <tr><td colSpan={4} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
         <table style={S.table}>
           <thead><tr>
             <th style={{ ...S.th, cursor: 'pointer' }} onClick={() => sortClick('nome')}>Pessoa{seta('nome')}</th>
