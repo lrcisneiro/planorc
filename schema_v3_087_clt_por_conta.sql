@@ -29,6 +29,68 @@
 -- sem perguntar para onde vai o que ficou de fora.
 -- ============================================================
 
+-- ── A PARTIÇÃO, que é o que faltava ──
+-- Toda conta que a folha usa pertence a exatamente UM dos dois blocos, e o que
+-- decide é: a contabilização da folha lança um DÉBITO nela?
+--   sim → conta de CLT. Compara verba a verba, e o que entrou por fora vira a
+--         coluna "outros" da própria conta.
+--   não → conta de terceiro. Concilia por pessoa; o que não casa vai para o
+--         bloco de resíduo.
+-- Sem essa partição as duas coisas aconteciam: 11022006 (adiantamento) tinha
+-- verba lançada E verba não lançada, entrava nos dois lados e o mesmo dinheiro
+-- aparecia duas vezes. O débito é o que importa porque a folha analítica É o
+-- débito — a contrapartida de passivo (conta_cred_cod) fica fora dos dois.
+CREATE OR REPLACE FUNCTION planorc_concil_contas_clt(p_ano int, p_mes int)
+RETURNS TABLE (conta_id uuid)
+LANGUAGE sql STABLE AS $$
+  WITH verbas AS (
+    SELECT DISTINCT btrim(coalesce(ff.verba_cod, '')) AS v FROM fat_folha ff
+     WHERE ff.tenant_id = current_tenant_id() AND ff.tipo = 'REALIZADO'
+       AND ff.ano = p_ano AND ff.mes = p_mes AND btrim(coalesce(ff.verba_cod, '')) <> ''
+  ),
+  cred AS (
+    SELECT DISTINCT ccred.id AS conta_id, btrim(coalesce(ff.verba_cod, '')) AS v
+      FROM fat_folha ff
+      JOIN conta_contabil cdeb  ON cdeb.id = ff.conta_id
+      JOIN conta_contabil ccred ON ccred.tenant_id = cdeb.tenant_id
+                               AND ccred.plano_id IS NOT DISTINCT FROM cdeb.plano_id
+                               AND ccred.codigo = btrim(ff.conta_cred_cod)
+     WHERE ff.tenant_id = current_tenant_id() AND ff.tipo = 'REALIZADO'
+       AND ff.ano = p_ano AND ff.mes = p_mes AND coalesce(ff.conta_cred_cod, '') <> ''
+  )
+  SELECT DISTINCT fr.conta_id FROM fat_realizado fr
+   WHERE fr.tenant_id = current_tenant_id() AND fr.ano = p_ano AND fr.mes = p_mes
+     AND btrim(split_part(coalesce(fr.historico, ''), '-', 1)) IN (SELECT v FROM verbas)
+     AND NOT EXISTS (SELECT 1 FROM cred
+                      WHERE cred.conta_id = fr.conta_id
+                        AND cred.v = btrim(split_part(coalesce(fr.historico, ''), '-', 1)))
+$$;
+
+-- ── O universo do terceiro é o complemento ──
+-- Semente: conta com folha que NÃO é de CLT. Mais as irmãs de DRE dela, porque
+-- a nota costuma cair em conta vizinha (41021001 aponta a folha, 41021002 recebe
+-- a nota). Conta com folha que não esteja amarrada em linha nenhuma entra assim
+-- mesmo — sumir em silêncio é pior que aparecer sozinha.
+CREATE OR REPLACE FUNCTION planorc_concil_contas(p_ano int, p_mes int, p_relatorio_id uuid)
+RETURNS TABLE (conta_id uuid)
+LANGUAGE sql STABLE AS $$
+  WITH com_folha AS (
+    SELECT DISTINCT ff.conta_id FROM fat_folha ff
+     WHERE ff.tenant_id = current_tenant_id() AND ff.tipo = 'REALIZADO'
+       AND ff.ano = p_ano AND ff.mes = p_mes AND ff.conta_id IS NOT NULL
+       AND ff.conta_id NOT IN (SELECT conta_id FROM planorc_concil_contas_clt(p_ano, p_mes))
+  ),
+  cl AS (
+    SELECT c.conta_id, c.linha_id FROM conta_linha c
+      JOIN relatorio_linha rl ON rl.id = c.linha_id
+     WHERE c.tenant_id = current_tenant_id() AND rl.relatorio_id = p_relatorio_id
+  ),
+  linhas AS (SELECT DISTINCT cl.linha_id FROM cl JOIN com_folha f ON f.conta_id = cl.conta_id)
+  SELECT conta_id FROM cl WHERE linha_id IN (SELECT linha_id FROM linhas)
+  UNION
+  SELECT conta_id FROM com_folha
+$$;
+
 -- ── CLT: conta → verba, com os DOIS lados ──
 CREATE OR REPLACE FUNCTION conciliacao_clt(
   p_ano int, p_mes int,
@@ -44,8 +106,15 @@ AS $$
      WHERE ff.tenant_id = current_tenant_id() AND ff.tipo = 'REALIZADO'
        AND ff.ano = p_ano AND ff.mes = p_mes AND btrim(coalesce(ff.verba_cod, '')) <> ''
   ),
-  -- a contabilização lança nos dois lados com o mesmo histórico; só o débito
-  -- tem o que conciliar, e quem diz qual é o crédito é a própria folha
+  -- a conta é de CLT; dentro dela TODA verba da folha entra na comparação,
+  -- inclusive a que a contabilização não lançou — que aparece com razão zerado,
+  -- e é exatamente a divergência a investigar
+  contas_clt AS MATERIALIZED (SELECT conta_id FROM planorc_concil_contas_clt(p_ano, p_mes)),
+  -- a contabilização lança nos dois lados com o MESMO histórico. A conta entra
+  -- na tela pelo débito, mas dentro dela ainda há linhas de crédito de outras
+  -- verbas (21012001 é débito da 515 e crédito da 001) — e essas têm de sair,
+  -- senão o razão da conta despenca contra a folha. Quem diz qual é crédito é a
+  -- própria folha, em conta_cred_cod.
   cred AS (
     SELECT DISTINCT ccred.id AS conta_id, btrim(coalesce(ff.verba_cod, '')) AS v
       FROM fat_folha ff
@@ -61,6 +130,7 @@ AS $$
            sum(-fr.valor)::numeric AS valor
       FROM fat_realizado fr
      WHERE fr.tenant_id = current_tenant_id() AND fr.ano = p_ano AND fr.mes = p_mes
+       AND fr.conta_id IN (SELECT conta_id FROM contas_clt)
        AND btrim(split_part(coalesce(fr.historico, ''), '-', 1)) IN (SELECT v FROM verbas)
        AND NOT EXISTS (SELECT 1 FROM cred
                         WHERE cred.conta_id = fr.conta_id
@@ -70,10 +140,6 @@ AS $$
        AND (p_ccs      IS NULL OR fr.cc_id      = ANY(p_ccs))
      GROUP BY 1, 2
   ),
-  -- CONTA de CLT: aquela em que a contabilização da folha lança alguma coisa.
-  -- Dentro dela, toda verba da folha entra na comparação — a que ela não lançou
-  -- aparece com razão zerado, que é exatamente a divergência a investigar.
-  contas_clt AS (SELECT DISTINCT conta_id FROM rz),
   fo AS (
     SELECT ff.conta_id, btrim(coalesce(ff.verba_cod, '')) AS verba_cod,
            max(ff.verba_desc) AS verba_desc, sum(ff.valor)::numeric AS valor
@@ -81,6 +147,9 @@ AS $$
      WHERE ff.tenant_id = current_tenant_id() AND ff.tipo = 'REALIZADO'
        AND ff.ano = p_ano AND ff.mes = p_mes
        AND ff.conta_id IN (SELECT conta_id FROM contas_clt)
+       AND NOT EXISTS (SELECT 1 FROM cred
+                        WHERE cred.conta_id = ff.conta_id
+                          AND cred.v = btrim(coalesce(ff.verba_cod, '')))
        AND (p_empresas IS NULL OR ff.empresa_id = ANY(p_empresas))
        AND (p_filiais  IS NULL OR ff.filial_id  = ANY(p_filiais))
        AND (p_ccs      IS NULL OR ff.cc_id      = ANY(p_ccs))
@@ -93,6 +162,7 @@ AS $$
     FULL JOIN fo f ON f.conta_id = r.conta_id AND f.verba_cod = r.verba_cod
     JOIN conta_contabil cc ON cc.id = coalesce(r.conta_id, f.conta_id)
     LEFT JOIN plano_contas pc ON pc.id = cc.plano_id
+   WHERE coalesce(r.valor, 0) <> 0 OR coalesce(f.valor, 0) <> 0
    ORDER BY cc.codigo, pc.codigo, coalesce(r.verba_cod, f.verba_cod);
 $$;
 
@@ -115,11 +185,7 @@ AS $$
   -- conta em que a contabilização da folha lança: é CLT, e a folha dela pertence
   -- ao outro bloco. Sem este corte por CONTA, um adiantamento de salário de um
   -- CLT vinha parar aqui como "prestador sem nota fiscal".
-  contas_clt AS (
-    SELECT DISTINCT fr.conta_id FROM fat_realizado fr
-     WHERE fr.tenant_id = current_tenant_id() AND fr.ano = p_ano AND fr.mes = p_mes
-       AND btrim(split_part(coalesce(fr.historico, ''), '-', 1)) IN (SELECT v FROM verbas)
-  ),
+  contas_clt AS (SELECT conta_id FROM planorc_concil_contas_clt(p_ano, p_mes)),
   atr AS MATERIALIZED (SELECT * FROM planorc_pj_atribui(p_ano, p_mes, p_relatorio_id, p_empresas, p_filiais, p_ccs)),
   nf AS (
     SELECT a.status, a.via, a.filial_id, a.matricula, a.fornecedor_cod,
@@ -173,11 +239,7 @@ AS $$
      WHERE ff.tenant_id = current_tenant_id() AND ff.tipo = 'REALIZADO'
        AND ff.ano = p_ano AND ff.mes = p_mes AND btrim(coalesce(ff.verba_cod, '')) <> ''
   ),
-  contas_clt AS (
-    SELECT DISTINCT fr.conta_id FROM fat_realizado fr
-     WHERE fr.tenant_id = current_tenant_id() AND fr.ano = p_ano AND fr.mes = p_mes
-       AND btrim(split_part(coalesce(fr.historico, ''), '-', 1)) IN (SELECT v FROM verbas)
-  )
+  contas_clt AS (SELECT conta_id FROM planorc_concil_contas_clt(p_ano, p_mes))
   SELECT 'RAZÃO', cc2.codigo, cc2.descricao, a.fornecedor_cod, ccu.codigo,
          a.data, a.documento, a.historico, a.valor
     FROM planorc_pj_atribui(p_ano, p_mes, p_relatorio_id, p_empresas, p_filiais, p_ccs) a

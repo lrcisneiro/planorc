@@ -33,6 +33,8 @@ type Terc = {
   lancamentos: number; razao: number; folha: number
 }
 type Pessoa = { matricula: string; nome: string; cc_cod: string | null; valor: number }
+type Outro = { conta_id: string; lancamentos: number; valor: number }
+type OutroLanc = { data: string | null; documento: string | null; historico: string | null; lote: string | null; cc_cod: string | null; valor: number }
 type Lado = { lado: string; conta_cod: string; conta_desc: string; ref: string | null; cc_cod: string | null; data: string | null; documento: string | null; historico: string | null; valor: number }
 type SemDono = { conta_id: string; conta_cod: string; conta_desc: string; data: string | null; documento: string | null; historico: string | null; lote: string | null; cc_cod: string | null; valor: number }
 type Nota = { id: string; conta_id: string; verba_cod: string | null; motivo: string }
@@ -80,6 +82,7 @@ const ORDEM: Terc['status'][] = ['SEM_NF', 'SEM_FOLHA', 'AMBIGUO', 'CASADO', 'SE
 
 export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: ContabilParams; podeConfigurar: boolean }) {
   const [clt, setClt] = useState<CLT[]>([])
+  const [outros, setOutros] = useState<Record<string, Outro>>({})
   const [terc, setTerc] = useState<Terc[]>([])
   const [rels, setRels] = useState<any[]>([])
   const [relSel, setRelSel] = useLocalPref('planorc_concil_relatorio', '')
@@ -113,8 +116,9 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     let vivo = true
     ;(async () => {
       setLoading(true); setErro(null); setAviso(null); setAberto(new Set()); setDrill({})
-      const [c, t, n, tt] = await Promise.all([
+      const [c, o, t, n, tt] = await Promise.all([
         supabase.rpc('conciliacao_clt', escopo),
+        supabase.rpc('conciliacao_clt_outros', escopo),
         supabase.rpc('conciliacao_terceiros', { ...escopo, p_relatorio_id: relSel }),
         supabase.from('conciliacao_folha_nota').select('id,conta_id,verba_cod,motivo').eq('ano', p.ano).eq('mes', p.mes),
         supabase.from('tenant').select('conciliacao_tolerancia').eq('id', TENANT_ID).maybeSingle(),
@@ -122,6 +126,9 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
       if (!vivo) return
       if (c.error || t.error) { setErro((c.error || t.error)!.message); setClt([]); setTerc([]); setLoading(false); return }
       setClt(((c.data || []) as CLT[]).map(x => ({ ...x, razao: Number(x.razao) || 0, folha: Number(x.folha) || 0 })))
+      const om: Record<string, Outro> = {}
+      ;((o.data || []) as Outro[]).forEach(x => { om[x.conta_id] = { ...x, valor: Number(x.valor) || 0 } })
+      setOutros(om)
       setTerc(((t.data || []) as Terc[]).map(x => ({ ...x, razao: Number(x.razao) || 0, folha: Number(x.folha) || 0 })))
       const map: Record<string, Nota> = {}
       ;((n.data || []) as Nota[]).forEach(x => { map[chave(x.conta_id, x.verba_cod)] = x })
@@ -156,9 +163,11 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     return [...m.values()].map(g => {
       const razao = g.verbas.reduce((s, v) => s + v.razao, 0)
       const folha = g.verbas.reduce((s, v) => s + v.folha, 0)
-      return { ...g, razao, folha, dif: razao - folha, fora: g.verbas.filter(v => Math.abs(v.razao - v.folha) > tol) }
+      const o = outros[g.id]
+      return { ...g, razao, folha, dif: razao - folha, outros: o?.valor || 0, outrosN: o?.lancamentos || 0,
+               fora: g.verbas.filter(v => Math.abs(v.razao - v.folha) > tol) }
     }).sort((a, b) => a.cod.localeCompare(b.cod))
-  }, [clt, tol])
+  }, [clt, tol, outros])
 
   const repetidas = useMemo(() => {
     const n = new Map<string, number>()
@@ -170,7 +179,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     .sort((a, b) => ORDEM.indexOf(a.status) - ORDEM.indexOf(b.status) || Math.abs(b.razao - b.folha) - Math.abs(a.razao - a.folha)), [terc])
   const semDono = useMemo(() => terc.filter(t => t.status === 'SEM_DEPARA' || t.status === 'AMBIGUO'), [terc])
 
-  const totC = useMemo(() => contasClt.reduce((s, c) => ({ razao: s.razao + c.razao, folha: s.folha + c.folha }), { razao: 0, folha: 0 }), [contasClt])
+  const totC = useMemo(() => contasClt.reduce((s, c) => ({ razao: s.razao + c.razao, folha: s.folha + c.folha, outros: s.outros + c.outros }), { razao: 0, folha: 0, outros: 0 }), [contasClt])
   const totT = useMemo(() => pessoas.reduce((s, t) => ({ razao: s.razao + t.razao, folha: s.folha + t.folha }), { razao: 0, folha: 0 }), [pessoas])
   const totSemDono = useMemo(() => semDono.reduce((s, t) => s + t.razao, 0), [semDono])
 
@@ -234,7 +243,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   return (
     <div>
       <div style={S.kpis}>
-        <div style={S.kpi}><div style={S.kpiL}>CLT · diferença</div><div style={{ ...S.kpiV, color: Math.abs(difC) > tol ? 'var(--orange)' : 'var(--green)' }}>{money(difC)}</div><div style={S.kpiS}>razão {money(totC.razao)} · folha {money(totC.folha)}</div></div>
+        <div style={S.kpi}><div style={S.kpiL}>CLT · diferença</div><div style={{ ...S.kpiV, color: Math.abs(difC) > tol ? 'var(--orange)' : 'var(--green)' }}>{money(difC)}</div><div style={S.kpiS}>razão {money(totC.razao)} · folha {money(totC.folha)}{totC.outros ? ` · outros ${money(totC.outros)}` : ''}</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Terceiros · diferença</div><div style={{ ...S.kpiV, color: Math.abs(difT) > tol ? 'var(--orange)' : 'var(--green)' }}>{money(difT)}</div><div style={S.kpiS}>razão {money(totT.razao)} · folha {money(totT.folha)}</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Outros lançamentos</div><div style={{ ...S.kpiV, color: 'var(--blue)' }}>{money(totSemDono)}</div><div style={S.kpiS}>{semDono.length} histórico(s) sem folha e sem pessoa</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Conciliados</div><div style={S.kpiV}>{pessoas.filter(t => t.status === 'CASADO').length}</div><div style={S.kpiS}>de {pessoas.length} pessoas no terceiro</div></div>
@@ -265,7 +274,8 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
       <div style={S.card}>
         <div style={S.head}>
           <h2 style={S.h2}>CLT</h2>
-          <span style={S.hsub}>A folha contabiliza. O razão vem consolidado por conta × verba — não tem matrícula, então a comparação para na verba.</span>
+          <span style={S.hsub}>A folha contabiliza. O razão vem consolidado por conta × verba — não tem matrícula, então a comparação para na verba.
+            A coluna <b>outros</b> é o que entrou na conta sem vir da folha (fatura do convênio, encargo à mão): não é divergência dela, e por isso fica fora da diferença.</span>
         </div>
         <table style={S.table}>
           <thead><tr>
@@ -273,6 +283,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
             <th style={{ ...S.th, textAlign: 'right' }}>Razão</th>
             <th style={{ ...S.th, textAlign: 'right' }}>Folha</th>
             <th style={{ ...S.th, textAlign: 'right' }}>Diferença</th>
+            <th style={{ ...S.th, textAlign: 'right' }} title="Razão que entrou nesta conta sem vir da contabilização da folha: fatura do convênio, encargo lançado à mão, ajuste. Não é divergência da folha — por isso fica fora da diferença.">Outros</th>
             <th style={S.th}>Status</th>
           </tr></thead>
           <tbody>
@@ -285,7 +296,8 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                     <td style={{ ...S.gh, textAlign: 'right' }}>{money(c.razao)}</td>
                     <td style={{ ...S.gh, textAlign: 'right' }}>{money(c.folha)}</td>
                     <td style={{ ...S.gh, textAlign: 'right', color: Math.abs(c.dif) > tol ? 'var(--orange)' : 'var(--muted)' }}>{money(c.dif)}</td>
-                    <td style={S.gh}>{c.fora.length ? <span style={DIF}>● {c.fora.length} verba(s)</span> : <span style={OK}>● conciliada</span>}</td>
+                    <td style={{ ...S.gh, textAlign: 'right', color: c.outros ? 'var(--blue)' : 'var(--muted)' }}>{c.outros ? money(c.outros) : '—'}</td>
+                    <td style={S.gh}>{c.fora.length ? <span style={DIF}>● {c.fora.length} verba(s)</span> : c.outros ? <span style={RES}>● só outros</span> : <span style={OK}>● conciliada</span>}</td>
                   </tr>
                   {ab && c.verbas.sort((a, b) => Math.abs(b.razao - b.folha) - Math.abs(a.razao - a.folha)).map(v => {
                     const dif = v.razao - v.folha; const fora = Math.abs(dif) > tol
@@ -301,10 +313,11 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                           <td style={{ ...S.td, textAlign: 'right' }}>{money(v.razao)}</td>
                           <td style={{ ...S.td, textAlign: 'right' }}>{money(v.folha)}</td>
                           <td style={{ ...S.td, textAlign: 'right', color: fora ? 'var(--orange)' : 'var(--muted)' }}>{money(dif)}</td>
+                          <td style={S.td}></td>
                           <td style={S.td}>{fora ? <span style={DIF}>● fora</span> : <Check size={13} style={{ color: 'var(--green)' }} />}</td>
                         </tr>
                         {aberto.has(kv) && (
-                          <tr><td colSpan={5} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
+                          <tr><td colSpan={6} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
                             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
                               Composição da folha — o razão do CLT é consolidado e não tem pessoa, então aqui não há o que comparar.
                             </div>
@@ -321,14 +334,46 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                             </table>
                           </td></tr>
                         )}
-                        {fora && <tr><td colSpan={5} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={v.verba_cod} valorRef={dif} /></td></tr>}
+                        {fora && <tr><td colSpan={6} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={v.verba_cod} valorRef={dif} /></td></tr>}
                       </Fragment>
                     )
                   })}
+                  {ab && !!c.outros && (
+                    <Fragment>
+                      <tr>
+                        <td style={{ ...S.td, paddingLeft: 30, cursor: 'pointer', color: 'var(--blue)' }}
+                          onClick={() => toggle(`o:${c.id}`, () => rpc('conciliacao_clt_outros_lanc', { ...escopo, p_conta: c.id }))}>
+                          {aberto.has(`o:${c.id}`) ? <ChevronDown size={12} /> : <ChevronRight size={12} />} outros — não veio da contabilização da folha
+                        </td>
+                        <td style={S.td}></td><td style={S.td}></td><td style={S.td}></td>
+                        <td style={{ ...S.td, textAlign: 'right', color: 'var(--blue)' }}>{money(c.outros)}</td>
+                        <td style={S.td}>{notas[chave(c.id, null)] ? <Check size={13} style={{ color: 'var(--green)' }} /> : <span style={RES}>● explicar</span>}</td>
+                      </tr>
+                      {aberto.has(`o:${c.id}`) && (
+                        <tr><td colSpan={6} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                            <thead><tr><th style={S.dh}>Data</th><th style={S.dh}>Documento</th><th style={S.dh}>Histórico</th><th style={S.dh}>Lote</th><th style={S.dh}>CC</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
+                            <tbody>
+                              {((drill[`o:${c.id}`] as OutroLanc[]) || []).map((x, i) => (
+                                <tr key={i}>
+                                  <td style={S.dt}>{x.data || ''}</td><td style={{ ...S.dt, ...S.mono }}>{x.documento || ''}</td>
+                                  <td style={S.dt}>{x.historico || ''}</td><td style={{ ...S.dt, ...S.mono }}>{x.lote || ''}</td>
+                                  <td style={{ ...S.dt, ...S.mono }}>{x.cc_cod || ''}</td>
+                                  <td style={{ ...S.dt, textAlign: 'right' }}>{money(Number(x.valor) || 0)}</td>
+                                </tr>
+                              ))}
+                              {!drill[`o:${c.id}`] && <tr><td colSpan={6} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
+                            </tbody>
+                          </table>
+                        </td></tr>
+                      )}
+                      <tr><td colSpan={6} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={null} valorRef={c.outros} /></td></tr>
+                    </Fragment>
+                  )}
                 </Fragment>
               )
             })}
-            {!contasClt.length && <tr><td colSpan={5} style={S.empty}>Nenhum lançamento de contabilização da folha nesta competência e escopo.</td></tr>}
+            {!contasClt.length && <tr><td colSpan={6} style={S.empty}>Nenhum lançamento de contabilização da folha nesta competência e escopo.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -409,9 +454,8 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
         <div style={S.card}>
           <div style={S.head}>
             <h2 style={S.h2}>Outros lançamentos</h2>
-            <span style={S.hsub}>Entrou numa conta que a folha usa, mas não veio da contabilização dela nem casou com uma pessoa.
-              Três casos: lançamento direto na contabilidade (encargo à mão, ajuste, estorno), prestador que é empresa e nunca terá pessoa,
-              ou nota de terceiro faltando amarração em <b>Estrutura → Fornecedores (PJ)</b>. Só o último se resolve amarrando; os outros dois pedem justificativa.</span>
+            <span style={S.hsub}>Nota fiscal que entrou numa conta de terceiro e não casou com ninguém. Ou o prestador é empresa e nunca terá pessoa,
+              ou falta amarração em <b>Estrutura → Fornecedores (PJ)</b>. O que é de conta de CLT não vem para cá — fica na coluna <b>outros</b> da própria conta.</span>
           </div>
           <table style={S.table}>
             <thead><tr>
