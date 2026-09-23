@@ -49,6 +49,10 @@
 -- decide, e o fornecedor nem é consultado: se o participante não resolve, a nota
 -- fica sem dono e alguém olha. O fornecedor só manda quando não há participante
 -- — "SERVICOS PRESTADOS INC CP RBKS TECNOLOGI", em que o prestador é a empresa.
+--
+-- O participante é procurado no NOME e também no NOME FANTASIA, porque o de-para
+-- da cooperativa guarda em fantasia o nome que vem depois do nome dela — os
+-- cooperados dividem o mesmo fornecedor, e é a fantasia que os distingue.
 DROP FUNCTION IF EXISTS planorc_pj_casa(text);
 
 CREATE FUNCTION planorc_pj_casa(p_hist text)
@@ -66,7 +70,11 @@ BEGIN
     v_frag := f[substr(v_par, 1, 1)::int];
     v_alvo := substr(v_par, 2, 1);
     CONTINUE WHEN v_frag IS NULL OR length(v_frag) < 5;
-    SELECT count(DISTINCT pf.fornecedor_cod || '|' || coalesce(pf.fornecedor_loja, '')) INTO n
+    -- unicidade da PESSOA, não do fornecedor. Numa cooperativa os participantes
+    -- COMPARTILHAM o mesmo fornecedor: contar fornecedor daria 1 mesmo com dois
+    -- candidatos, e o LIMIT 1 escolheria um deles no escuro. É a mesma armadilha
+    -- que jogou 207 notas no colo de uma pessoa só, um nível abaixo.
+    SELECT count(DISTINCT coalesce(pf.empresa_cod, '') || '|' || pf.matricula) INTO n
       FROM posto_fornecedor pf
      WHERE pf.tenant_id = current_tenant_id() AND pf.ativo
        AND ((v_alvo = 'f' AND (pf.fant_norm LIKE v_frag || '%' OR v_frag LIKE pf.fant_norm || '%') AND pf.fant_norm <> '')
@@ -136,6 +144,26 @@ LANGUAGE sql STABLE AS $$
   SELECT conta_id FROM com_folha
 $$;
 
+-- ── O universo do RESÍDUO é maior que o do terceiro, e de propósito ──
+-- Toda conta que a folha usa entra aqui, mesmo sendo CLT puro: lançamento
+-- direto na contabilidade, que não passou pela folha, tem de aparecer. Foram
+-- R$ 481.542,27 em 382 lançamentos de ago/2026 — encargo lançado à mão, ajuste,
+-- estorno. Some do CLT (não veio da folha) e some do terceiro (a conta não é de
+-- terceiro): sem este universo, desaparecia dos dois e a tela mentia dizendo
+-- "100% conciliado".
+-- O que NÃO se faz aqui é procurar dono: em conta de CLT, casar um histórico
+-- com uma pessoa misturaria os dois modelos. Essas linhas ficam sem dono por
+-- construção, e a saída delas é a justificativa escrita.
+CREATE OR REPLACE FUNCTION planorc_concil_contas_residuo(p_ano int, p_mes int, p_relatorio_id uuid)
+RETURNS TABLE (conta_id uuid)
+LANGUAGE sql STABLE AS $$
+  SELECT conta_id FROM planorc_concil_contas(p_ano, p_mes, p_relatorio_id)
+  UNION
+  SELECT DISTINCT ff.conta_id FROM fat_folha ff
+   WHERE ff.tenant_id = current_tenant_id() AND ff.tipo = 'REALIZADO'
+     AND ff.ano = p_ano AND ff.mes = p_mes AND ff.conta_id IS NOT NULL
+$$;
+
 -- ── A atribuição da nota fiscal a uma pessoa ──
 -- Peça única: as quatro consultas abaixo precisam da MESMA resposta sobre quem é
 -- o dono de cada lançamento, senão o dinheiro aparece duas vezes ou some entre
@@ -161,7 +189,10 @@ CREATE OR REPLACE FUNCTION planorc_pj_atribui(
   filial_id uuid, matricula text, nome text, fornecedor_cod text, nome_fantasia text
 )
 LANGUAGE sql STABLE AS $$
+  -- ct  = onde se PROCURA dono (conta de terceiro e suas irmãs de DRE)
+  -- ctr = o que se OLHA (tudo o que a folha toca) — ver planorc_concil_contas_residuo
   WITH ct AS MATERIALIZED (SELECT conta_id FROM planorc_concil_contas(p_ano, p_mes, p_relatorio_id)),
+  ctr AS MATERIALIZED (SELECT conta_id FROM planorc_concil_contas_residuo(p_ano, p_mes, p_relatorio_id)),
   verbas AS (
     SELECT DISTINCT btrim(coalesce(ff.verba_cod, '')) AS v FROM fat_folha ff
      WHERE ff.tenant_id = current_tenant_id() AND ff.tipo = 'REALIZADO'
@@ -183,7 +214,7 @@ LANGUAGE sql STABLE AS $$
   lan AS (
     SELECT fr.conta_id, fr.cc_id, fr.data, fr.documento, fr.historico, fr.lote,
            (-fr.valor)::numeric AS valor
-      FROM fat_realizado fr JOIN ct ON ct.conta_id = fr.conta_id
+      FROM fat_realizado fr JOIN ctr ON ctr.conta_id = fr.conta_id
      WHERE fr.tenant_id = current_tenant_id()
        AND fr.ano = p_ano AND fr.mes = p_mes
        AND btrim(split_part(coalesce(fr.historico, ''), '-', 1)) NOT IN (SELECT v FROM verbas)
@@ -196,10 +227,15 @@ LANGUAGE sql STABLE AS $$
   -- vez por par (lançamento × pessoa). São 393 mil chamadas de regex — 20s
   -- contra 0,7s. O fragmento tem de ser calculado uma vez por lançamento.
   dp AS MATERIALIZED (
-    SELECT lan.*, m.status AS st, m.matricula AS dp_mat, m.nome AS dp_nome,
+    -- o LEFT JOIN só dispara nas contas de terceiro: fora delas a linha
+    -- atravessa sem dono, que é o comportamento certo para "outros"
+    SELECT lan.*, (lan.conta_id IN (SELECT conta_id FROM ct)) AS pode,
+           m.status AS st, m.matricula AS dp_mat, m.nome AS dp_nome,
            m.fornecedor_cod AS forn, m.nome_fantasia AS fant,
            planorc_pj_frag(lan.historico) AS f
-      FROM lan CROSS JOIN LATERAL planorc_pj_casa(lan.historico) m
+      FROM lan
+      LEFT JOIN LATERAL planorc_pj_casa(lan.historico) m
+             ON lan.conta_id IN (SELECT conta_id FROM ct)
   ),
   -- o fallback tenta o segundo fragmento (o participante) e depois o primeiro
   nd AS (
@@ -211,7 +247,7 @@ LANGUAGE sql STABLE AS $$
         SELECT (array_agg(p.filial_id))[1] AS filial_id, (array_agg(p.matricula))[1] AS matricula,
                (array_agg(p.nome))[1] AS nome, count(*) AS n
           FROM pess p
-         WHERE dp.st <> 'CASADO' AND length(coalesce(dp.f[2], '')) >= 5
+         WHERE dp.pode AND dp.st <> 'CASADO' AND length(coalesce(dp.f[2], '')) >= 5
            AND (p.nm LIKE dp.f[2] || '%' OR dp.f[2] LIKE p.nm || '%')
       ) n2 ON n2.n = 1
       -- f[1] é o FORNECEDOR: só vale quando não há participante, pela mesma
@@ -220,13 +256,14 @@ LANGUAGE sql STABLE AS $$
         SELECT (array_agg(p.filial_id))[1] AS filial_id, (array_agg(p.matricula))[1] AS matricula,
                (array_agg(p.nome))[1] AS nome, count(*) AS n
           FROM pess p
-         WHERE dp.st <> 'CASADO' AND length(coalesce(dp.f[2], '')) < 5
+         WHERE dp.pode AND dp.st <> 'CASADO' AND length(coalesce(dp.f[2], '')) < 5
            AND length(coalesce(dp.f[1], '')) >= 5
            AND (p.nm LIKE dp.f[1] || '%' OR dp.f[1] LIKE p.nm || '%')
       ) n1 ON n1.n = 1
   )
   SELECT x.conta_id, x.cc_id, x.data, x.documento, x.historico, x.lote, x.valor,
-         CASE WHEN x.st = 'CASADO' OR x.nd_mat IS NOT NULL THEN 'CASADO' ELSE x.st END,
+         CASE WHEN x.st = 'CASADO' OR x.nd_mat IS NOT NULL THEN 'CASADO'
+              ELSE coalesce(x.st, 'SEM_DEPARA') END,
          CASE WHEN x.st = 'CASADO' THEN 'DEPARA' WHEN x.nd_mat IS NOT NULL THEN 'NOME' END,
          CASE WHEN x.st = 'CASADO' THEN v.filial_id       ELSE x.nd_fil END,
          CASE WHEN x.st = 'CASADO' THEN v.matricula_folha ELSE x.nd_mat END,

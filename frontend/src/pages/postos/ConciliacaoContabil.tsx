@@ -73,7 +73,7 @@ const ST: Record<Terc['status'], { txt: string; est: CSSProperties; ajuda: strin
   SEM_NF:     { txt: 'sem nota',    est: DIF, ajuda: 'a folha calculou e nenhuma nota chegou no mês' },
   SEM_FOLHA:  { txt: 'sem folha',   est: DIF, ajuda: 'a nota tem dono, mas o dono não tem folha de terceiro neste mês' },
   AMBIGUO:    { txt: 'ambíguo',     est: DIF, ajuda: 'o histórico casou com mais de um fornecedor' },
-  SEM_DEPARA: { txt: 'sem dono',    est: RES, ajuda: 'o histórico não casou com ninguém — falta amarração em Estrutura → Fornecedores (PJ), ou é empresa, não pessoa' },
+  SEM_DEPARA: { txt: 'sem dono',    est: RES, ajuda: 'não veio da folha e não casou com pessoa: lançamento direto na contabilidade, prestador que é empresa, ou nota faltando amarração' },
   CASADO:     { txt: 'conciliado',  est: OK,  ajuda: 'a nota tem dono e o dono tem folha — compare os dois valores' },
 }
 const ORDEM: Terc['status'][] = ['SEM_NF', 'SEM_FOLHA', 'AMBIGUO', 'CASADO', 'SEM_DEPARA']
@@ -236,7 +236,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
       <div style={S.kpis}>
         <div style={S.kpi}><div style={S.kpiL}>CLT · diferença</div><div style={{ ...S.kpiV, color: Math.abs(difC) > tol ? 'var(--orange)' : 'var(--green)' }}>{money(difC)}</div><div style={S.kpiS}>razão {money(totC.razao)} · folha {money(totC.folha)}</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Terceiros · diferença</div><div style={{ ...S.kpiV, color: Math.abs(difT) > tol ? 'var(--orange)' : 'var(--green)' }}>{money(difT)}</div><div style={S.kpiS}>razão {money(totT.razao)} · folha {money(totT.folha)}</div></div>
-        <div style={S.kpi}><div style={S.kpiL}>Nota sem dono</div><div style={{ ...S.kpiV, color: 'var(--blue)' }}>{money(totSemDono)}</div><div style={S.kpiS}>{semDono.length} histórico(s) a identificar</div></div>
+        <div style={S.kpi}><div style={S.kpiL}>Outros lançamentos</div><div style={{ ...S.kpiV, color: 'var(--blue)' }}>{money(totSemDono)}</div><div style={S.kpiS}>{semDono.length} histórico(s) sem folha e sem pessoa</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Conciliados</div><div style={S.kpiV}>{pessoas.filter(t => t.status === 'CASADO').length}</div><div style={S.kpiS}>de {pessoas.length} pessoas no terceiro</div></div>
       </div>
 
@@ -408,8 +408,10 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
       {!!semDono.length && (
         <div style={S.card}>
           <div style={S.head}>
-            <h2 style={S.h2}>Nota sem dono</h2>
-            <span style={S.hsub}>O histórico não casou com ninguém. Ou falta amarração em Estrutura → Fornecedores (PJ), ou o prestador é empresa e nunca terá pessoa — aí a saída é a justificativa escrita.</span>
+            <h2 style={S.h2}>Outros lançamentos</h2>
+            <span style={S.hsub}>Entrou numa conta que a folha usa, mas não veio da contabilização dela nem casou com uma pessoa.
+              Três casos: lançamento direto na contabilidade (encargo à mão, ajuste, estorno), prestador que é empresa e nunca terá pessoa,
+              ou nota de terceiro faltando amarração em <b>Estrutura → Fornecedores (PJ)</b>. Só o último se resolve amarrando; os outros dois pedem justificativa.</span>
           </div>
           <table style={S.table}>
             <thead><tr>
@@ -430,7 +432,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
               <tr>
                 <td style={{ ...S.td, cursor: 'pointer', color: 'var(--blue)' }}
                   onClick={() => toggle('sd', () => rpc('conciliacao_terceiros_outras', { ...escopo, p_relatorio_id: relSel }))}>
-                  {aberto.has('sd') ? <ChevronDown size={12} /> : <ChevronRight size={12} />} ver os lançamentos, por conta
+                  {aberto.has('sd') ? <ChevronDown size={12} /> : <ChevronRight size={12} />} ver os lançamentos, com a conta de cada um
                 </td>
                 <td style={S.td}></td>
                 <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{money(totSemDono)}</td>
