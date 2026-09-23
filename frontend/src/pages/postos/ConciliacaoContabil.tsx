@@ -367,6 +367,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
             <th style={{ ...S.th, textAlign: 'right' }}>Folha</th>
             <th style={{ ...S.th, textAlign: 'right' }}>Diferença</th>
             <th style={{ ...S.th, textAlign: 'right' }} title="Razão que entrou nesta conta sem vir da contabilização da folha: fatura do convênio, encargo lançado à mão, ajuste. Não é divergência da folha — por isso fica fora da diferença.">Outros</th>
+            <th style={{ ...S.th, textAlign: 'right' }} title="Razão + Outros: tudo o que a conferência enxerga nesta linha. É o número a comparar com o item da DRE ao lado.">Total</th>
             <th style={{ ...S.th, textAlign: 'right' }} title="O razão de TODAS as contas amarradas ao item, com o sinal da amarração — o mesmo número que a DRE mostra na linha. A conferência cobre só o que a folha toca; a diferença é conta do item sem folha nenhuma.">Item na DRE</th>
             <th style={S.th}>Status</th>
           </tr></thead>
@@ -391,8 +392,10 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                     <td style={{ ...S.gh, textAlign: 'right', fontWeight: 700, background: 'var(--panel-2)' }}>{money(it.folha)}</td>
                     <td style={{ ...S.gh, textAlign: 'right', fontWeight: 700, background: 'var(--panel-2)', color: Math.abs(difI) > tol ? 'var(--orange)' : 'var(--muted)' }}>{money(difI)}</td>
                     <td style={{ ...S.gh, textAlign: 'right', fontWeight: 700, background: 'var(--panel-2)', color: it.outros ? 'var(--blue)' : 'var(--muted)' }}>{it.outros ? money(it.outros) : '—'}</td>
-                    <td style={{ ...S.gh, textAlign: 'right', fontWeight: 700, background: 'var(--panel-2)' }}
-                      title={rzItem ? `conferido aqui ${money(it.razao + it.outros)} · fora da conferência ${money(foraItem)}` : undefined}>
+                    <td style={{ ...S.gh, textAlign: 'right', fontWeight: 700, background: 'var(--panel-2)' }}>{money(it.razao + it.outros)}</td>
+                    <td style={{ ...S.gh, textAlign: 'right', fontWeight: 700, background: 'var(--panel-2)',
+                                 color: rzItem && Math.abs(foraItem) > tol ? 'var(--blue)' : undefined }}
+                      title={rzItem ? `a DRE conta ${money(foraItem)} a mais neste item — abra a linha para ver o quê` : undefined}>
                       {rzItem ? money(rzItem.razao_item) : '—'}
                     </td>
                     <td style={{ ...S.gh, background: 'var(--panel-2)' }}>{it.fora ? <span style={DIF}>● {it.fora} verba(s)</span> : <span style={OK}>● conciliado</span>}</td>
@@ -404,12 +407,15 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                           onClick={() => toggle(`if:${it.id}`, () => rpc('conciliacao_item_fora', { ...escopo, p_relatorio_id: relSel, p_linha_id: it.id }))}>
                           {aberto.has(`if:${it.id}`) ? <ChevronDown size={12} /> : <ChevronRight size={12} />} o que a DRE conta neste item e a conferência não
                         </td>
-                        <td style={S.td}></td><td style={S.td}></td><td style={S.td}></td>
+                        {/* razão · folha · diferença · outros ficam vazios: esta
+                            linha não é conciliação, é o que a DRE conta a mais */}
+                        <td style={S.td}></td><td style={S.td}></td><td style={S.td}></td><td style={S.td}></td>
+                        <td style={S.td}></td>
                         <td style={{ ...S.td, textAlign: 'right', color: 'var(--blue)' }}>{money(foraItem)}</td>
-                        <td style={S.td}></td><td style={S.td}></td>
+                        <td style={S.td}></td>
                       </tr>
                       {aberto.has(`if:${it.id}`) && (
-                        <tr><td colSpan={7} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
+                        <tr><td colSpan={8} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
                             Nenhum destes é divergência — são parcelas do item que a conferência não tem o que conciliar.
                             Somados ao razão e aos outros, dão o total da DRE.
@@ -442,6 +448,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                     <td style={{ ...S.gh, textAlign: 'right' }}>{money(c.folha)}</td>
                     <td style={{ ...S.gh, textAlign: 'right', color: Math.abs(c.dif) > tol ? 'var(--orange)' : 'var(--muted)' }}>{money(c.dif)}</td>
                     <td style={{ ...S.gh, textAlign: 'right', color: c.outros ? 'var(--blue)' : 'var(--muted)' }}>{c.outros ? money(c.outros) : '—'}</td>
+                    <td style={{ ...S.gh, textAlign: 'right' }}>{money(c.razao + c.outros)}</td>
                     <td style={S.gh}></td>
                     <td style={S.gh}>{c.fora.length ? <span style={DIF}>● {c.fora.length} verba(s)</span> : c.outros ? <span style={RES}>● só outros</span> : <span style={OK}>● conciliada</span>}</td>
                   </tr>
@@ -459,11 +466,11 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                           <td style={{ ...S.td, textAlign: 'right' }}>{money(v.razao)}</td>
                           <td style={{ ...S.td, textAlign: 'right' }}>{money(v.folha)}</td>
                           <td style={{ ...S.td, textAlign: 'right', color: fora ? 'var(--orange)' : 'var(--muted)' }}>{money(dif)}</td>
-                          <td style={S.td}></td><td style={S.td}></td>
+                          <td style={S.td}></td><td style={S.td}></td><td style={S.td}></td>
                           <td style={S.td}>{fora ? <span style={DIF}>● fora</span> : <Check size={13} style={{ color: 'var(--green)' }} />}</td>
                         </tr>
                         {aberto.has(kv) && (
-                          <tr><td colSpan={7} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
+                          <tr><td colSpan={8} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
                             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
                               Composição da folha — o razão do CLT é consolidado e não tem pessoa, então aqui não há o que comparar.
                             </div>
@@ -480,7 +487,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                             </table>
                           </td></tr>
                         )}
-                        {fora && <tr><td colSpan={7} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={v.verba_cod} valorRef={dif} /></td></tr>}
+                        {fora && <tr><td colSpan={8} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={v.verba_cod} valorRef={dif} /></td></tr>}
                       </Fragment>
                     )
                   })}
@@ -493,11 +500,11 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                         </td>
                         <td style={S.td}></td><td style={S.td}></td><td style={S.td}></td>
                         <td style={{ ...S.td, textAlign: 'right', color: 'var(--blue)' }}>{money(c.outros)}</td>
-                        <td style={S.td}></td>
+                        <td style={S.td}></td><td style={S.td}></td>
                         <td style={S.td}>{notas[chave(c.id, null)] ? <Check size={13} style={{ color: 'var(--green)' }} /> : <span style={RES}>● explicar</span>}</td>
                       </tr>
                       {aberto.has(`o:${c.id}`) && (
-                        <tr><td colSpan={7} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
+                        <tr><td colSpan={8} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
                           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                             <thead><tr><th style={S.dh}>Data</th><th style={S.dh}>Documento</th><th style={S.dh}>Histórico</th><th style={S.dh}>Lote</th><th style={S.dh}>CC</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
                             <tbody>
@@ -514,7 +521,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                           </table>
                         </td></tr>
                       )}
-                      <tr><td colSpan={7} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={null} valorRef={c.outros} /></td></tr>
+                      <tr><td colSpan={8} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={null} valorRef={c.outros} /></td></tr>
                     </Fragment>
                   )}
                 </Fragment>
@@ -523,7 +530,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                 </Fragment>
               )
             })}
-            {!contasClt.length && <tr><td colSpan={7} style={S.empty}>Nenhum lançamento de contabilização da folha nesta competência e escopo.</td></tr>}
+            {!contasClt.length && <tr><td colSpan={8} style={S.empty}>Nenhum lançamento de contabilização da folha nesta competência e escopo.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -586,7 +593,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                               <td style={{ ...S.dt, textAlign: 'right' }}>{money(Number(x.valor) || 0)}</td>
                             </tr>
                           ))}
-                          {!drill[kp] && <tr><td colSpan={7} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
+                          {!drill[kp] && <tr><td colSpan={8} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
                         </tbody>
                       </table>
                     </td></tr>
@@ -685,7 +692,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                           <td style={{ ...S.dt, textAlign: 'right' }}>{money(Number(x.valor) || 0)}</td>
                         </tr>
                       ))}
-                      {!drill['sd'] && <tr><td colSpan={7} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
+                      {!drill['sd'] && <tr><td colSpan={8} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
                     </tbody>
                   </table>
                   {/* a justificativa é por conta: o resíduo é o único bloco que ainda pede uma */}
