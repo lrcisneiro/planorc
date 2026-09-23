@@ -33,6 +33,7 @@ type Patrim = { conta_cod: string; conta_desc: string; natureza: string; razao: 
 type ItemRazao = { linha_id: string; razao_item: number }
 type ItemFora = { conta_cod: string; conta_desc: string; motivo: string; lancamentos: number; valor: number }
 type Hit = { conta_id: string; verba_cod: string; matricula: string; nome: string; cc_cod: string | null; valor: number }
+type Cand = { filial_cod: string | null; matricula_folha: string; nome: string | null; fornecedor_cod: string | null; nome_fantasia: string | null; apelido: string | null; origem: string; ativo: boolean; casou_por: string }
 type PessoaFolha = { filial_id: string; filial_cod: string | null; empresa_cod: string | null; matricula: string; nome: string; origem: string; valor: number }
 type Terc = {
   status: 'CASADO' | 'SEM_NF' | 'SEM_FOLHA' | 'AMBIGUO' | 'SEM_DEPARA'
@@ -727,12 +728,44 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                       <td style={{ ...S.td, textAlign: 'right' }}>{money(t.razao)}</td>
                       <td style={S.td} title={ST[t.status]?.ajuda}><span style={ST[t.status]?.est || RES}>● {ST[t.status]?.txt}</span></td>
                       <td style={S.td}>
+                        {/* o ambíguo é o único status que diz o QUE sem dizer POR QUÊ:
+                            ver os candidatos evita a saída errada de apagar o de-para */}
+                        {t.status === 'AMBIGUO' && txt && (
+                          <button style={{ ...S.inp, padding: '3px 8px', fontSize: 11.5, cursor: 'pointer', marginRight: 6 }}
+                            onClick={() => toggle(`cd:${txt}`, () => rpc('conciliacao_pj_candidatos', { p_texto: txt }))}>
+                            {aberto.has(`cd:${txt}`) ? 'ocultar' : 'por que ambíguo?'}
+                          </button>
+                        )}
                         {txt && (amarrando === txt
                           ? <button style={{ ...S.inp, padding: '3px 8px', fontSize: 11.5, cursor: 'pointer' }} onClick={() => setAmarrando(null)}>cancelar</button>
                           : <button style={{ ...S.inp, padding: '3px 8px', fontSize: 11.5, cursor: 'pointer', color: 'var(--violet)', fontWeight: 600 }}
                               onClick={() => abrirAmarrar(txt)}>amarrar a uma pessoa</button>)}
                       </td>
                     </tr>
+                    {aberto.has(`cd:${txt}`) && (
+                      <tr><td colSpan={5} style={{ padding: '6px 12px 10px 30px', background: 'var(--bg-soft)' }}>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+                          <b style={{ color: 'var(--text)' }}>{txt}</b> alcança mais de uma pessoa no de-para, então ninguém é escolhido.
+                          O histórico do Protheus corta em 40 caracteres — quando o pedaço visível não distingue,
+                          nem o de-para nem o apelido resolvem, e a saída é justificar.
+                        </div>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <thead><tr><th style={S.dh}>Filial · matrícula</th><th style={S.dh}>Nome</th><th style={S.dh}>Fornecedor</th><th style={S.dh}>Casou por</th><th style={S.dh}>Origem</th></tr></thead>
+                          <tbody>
+                            {((drill[`cd:${txt}`] as Cand[]) || []).map((c, k) => (
+                              <tr key={k} style={c.ativo ? undefined : { opacity: 0.45 }}>
+                                <td style={{ ...S.dt, ...S.mono }}>{c.filial_cod || '??'}-{c.matricula_folha}</td>
+                                <td style={S.dt}>{c.nome || '—'}</td>
+                                <td style={{ ...S.dt, ...S.mono }}>{c.fornecedor_cod}{c.nome_fantasia ? ` · ${c.nome_fantasia}` : ''}</td>
+                                <td style={{ ...S.dt, color: 'var(--muted)' }}>{c.casou_por}{c.apelido ? ` ("${c.apelido}")` : ''}</td>
+                                <td style={S.dt}>{c.origem === 'MANUAL' ? <span style={{ color: 'var(--violet)' }}>à mão</span> : 'ERP'}{c.ativo ? '' : ' · inativo'}</td>
+                              </tr>
+                            ))}
+                            {!drill[`cd:${txt}`] && <tr><td colSpan={5} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
+                          </tbody>
+                        </table>
+                      </td></tr>
+                    )}
                     {amarrando === txt && (
                       <tr><td colSpan={5} style={{ padding: '8px 12px 12px 30px', background: 'var(--bg-soft)' }}>
                         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
