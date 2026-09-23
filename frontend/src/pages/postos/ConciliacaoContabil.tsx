@@ -37,22 +37,27 @@ type PessoaFolha = { filial_id: string; filial_cod: string | null; empresa_cod: 
 type Terc = {
   status: 'CASADO' | 'SEM_NF' | 'SEM_FOLHA' | 'AMBIGUO' | 'SEM_DEPARA'
   via: 'DEPARA' | 'NOME' | null
-  filial_id: string | null; matricula: string | null; nome: string | null
+  filial_id: string | null; filial_cod: string | null; empresa_cod: string | null
+  matricula: string | null; nome: string | null
   fornecedor_cod: string | null; nome_fantasia: string | null; cc_cod: string | null
   lancamentos: number; razao: number; folha: number
 }
-type Pessoa = { matricula: string; nome: string; cc_cod: string | null; valor: number }
+type Pessoa = { matricula: string; nome: string; empresa_cod: string | null; filial_cod: string | null; cc_cod: string | null; valor: number }
 type Outro = {
   conta_id: string; conta_cod: string; conta_desc: string; plano_cod: string | null
   linha_id: string | null; linha_cod: string | null; linha_desc: string | null; linha_ordem: number | null
   lancamentos: number; valor: number
 }
-type OutroLanc = { data: string | null; documento: string | null; historico: string | null; lote: string | null; cc_cod: string | null; valor: number }
-type Lado = { lado: string; conta_cod: string; conta_desc: string; ref: string | null; cc_cod: string | null; data: string | null; documento: string | null; historico: string | null; valor: number }
-type SemDono = { conta_id: string; conta_cod: string; conta_desc: string; data: string | null; documento: string | null; historico: string | null; lote: string | null; cc_cod: string | null; valor: number }
+type OutroLanc = { empresa_cod: string | null; filial_cod: string | null; data: string | null; documento: string | null; historico: string | null; lote: string | null; cc_cod: string | null; valor: number }
+type Lado = { lado: string; empresa_cod: string | null; filial_cod: string | null; conta_cod: string; conta_desc: string; ref: string | null; cc_cod: string | null; data: string | null; documento: string | null; historico: string | null; valor: number }
+type SemDono = { conta_id: string; conta_cod: string; conta_desc: string; empresa_cod: string | null; filial_cod: string | null; data: string | null; documento: string | null; historico: string | null; lote: string | null; cc_cod: string | null; valor: number }
 type Nota = { id: string; conta_id: string; verba_cod: string | null; motivo: string }
 
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+// a granularidade é sempre empresa · filial · CC. Vazio = mais de um (rateio),
+// e dizer "vários" é mais honesto do que escolher um deles.
+const lugar = (e?: string | null, f?: string | null, c?: string | null) =>
+  [e || 'vários', f || '—', c || 'vários'].join(' · ')
 const chave = (contaId: string, verba: string | null) => `${contaId}|${verba || ''}`
 
 const S: Record<string, CSSProperties> = {
@@ -541,14 +546,14 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                               Composição da folha — o razão do CLT é consolidado e não tem pessoa, então aqui não há o que comparar.
                             </div>
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                              <thead><tr><th style={S.dh}>Matrícula</th><th style={S.dh}>Nome</th><th style={S.dh}>CC</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
+                              <thead><tr><th style={S.dh}>Matrícula</th><th style={S.dh}>Nome</th><th style={S.dh}>Empresa · filial · CC</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
                               <tbody>
                                 {(hits
                                   ? hits.filter(h => h.conta_id === c.id && h.verba_cod === v.verba_cod)
                                   : ((drill[kv] as Pessoa[]) || [])
                                 ).map((x: any, i) => (
                                   <tr key={i}><td style={{ ...S.dt, ...S.mono }}>{x.matricula}</td><td style={S.dt}>{x.nome}</td>
-                                    <td style={{ ...S.dt, ...S.mono }}>{x.cc_cod || ''}</td>
+                                    <td style={{ ...S.dt, ...S.mono }}>{lugar(x.empresa_cod, x.filial_cod, x.cc_cod)}</td>
                                     <td style={{ ...S.dt, textAlign: 'right' }}>{money(Number(x.valor) || 0)}</td></tr>
                                 ))}
                                 {!hits && !drill[kv] && <tr><td colSpan={4} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
@@ -575,13 +580,13 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                       {aberto.has(`o:${c.id}`) && (
                         <tr><td colSpan={8} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
                           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                            <thead><tr><th style={S.dh}>Data</th><th style={S.dh}>Documento</th><th style={S.dh}>Histórico</th><th style={S.dh}>Lote</th><th style={S.dh}>CC</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
+                            <thead><tr><th style={S.dh}>Empresa · filial · CC</th><th style={S.dh}>Data</th><th style={S.dh}>Documento</th><th style={S.dh}>Histórico</th><th style={S.dh}>Lote</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
                             <tbody>
                               {((drill[`o:${c.id}`] as OutroLanc[]) || []).map((x, i) => (
                                 <tr key={i}>
+                                  <td style={{ ...S.dt, ...S.mono }}>{lugar(x.empresa_cod, x.filial_cod, x.cc_cod)}</td>
                                   <td style={S.dt}>{x.data || ''}</td><td style={{ ...S.dt, ...S.mono }}>{x.documento || ''}</td>
                                   <td style={S.dt}>{x.historico || ''}</td><td style={{ ...S.dt, ...S.mono }}>{x.lote || ''}</td>
-                                  <td style={{ ...S.dt, ...S.mono }}>{x.cc_cod || ''}</td>
                                   <td style={{ ...S.dt, textAlign: 'right' }}>{money(Number(x.valor) || 0)}</td>
                                 </tr>
                               ))}
@@ -614,7 +619,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
           <thead><tr>
             <th style={{ ...S.th, cursor: 'pointer' }} onClick={() => sortClick('nome')}>Pessoa{seta('nome')}</th>
             <th style={S.th}>Fornecedor</th>
-            <th style={{ ...S.th, cursor: 'pointer' }} onClick={() => sortClick('cc')}>CC{seta('cc')}</th>
+            <th style={{ ...S.th, cursor: 'pointer' }} onClick={() => sortClick('cc')}>Empresa · filial · CC{seta('cc')}</th>
             <th style={{ ...S.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => sortClick('nf')}>NF{seta('nf')}</th>
             <th style={{ ...S.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => sortClick('razao')}>Razão{seta('razao')}</th>
             <th style={{ ...S.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => sortClick('folha')}>Folha{seta('folha')}</th>
@@ -639,7 +644,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                     <td style={{ ...S.td, color: 'var(--muted)' }}>
                       {t.fornecedor_cod ? `${t.fornecedor_cod} · ${t.nome_fantasia || ''}` : (t.via === 'NOME' ? 'pelo nome no histórico' : '')}
                     </td>
-                    <td style={{ ...S.td, ...S.mono }}>{t.cc_cod || ''}</td>
+                    <td style={{ ...S.td, ...S.mono }}>{lugar(t.empresa_cod, t.filial_cod, t.cc_cod)}</td>
                     <td style={{ ...S.td, textAlign: 'right', color: 'var(--muted)' }}>{t.lancamentos || ''}</td>
                     <td style={{ ...S.td, textAlign: 'right' }}>{money(t.razao)}</td>
                     <td style={{ ...S.td, textAlign: 'right' }}>{money(t.folha)}</td>
@@ -649,14 +654,14 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                   {aberto.has(kp) && (
                     <tr><td colSpan={8} style={{ padding: '4px 12px 10px 30px', background: 'var(--bg-soft)' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                        <thead><tr><th style={S.dh}>Lado</th><th style={S.dh}>Conta</th><th style={S.dh}>Verba / fornecedor</th><th style={S.dh}>CC</th><th style={S.dh}>Documento</th><th style={S.dh}>Histórico</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
+                        <thead><tr><th style={S.dh}>Lado</th><th style={S.dh}>Conta</th><th style={S.dh}>Verba / fornecedor</th><th style={S.dh}>Empresa · filial · CC</th><th style={S.dh}>Documento</th><th style={S.dh}>Histórico</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
                         <tbody>
                           {((drill[kp] as Lado[]) || []).map((x, j) => (
                             <tr key={j}>
                               <td style={S.dt}><span style={x.lado === 'FOLHA' ? RES : OK}>{x.lado}</span></td>
                               <td style={{ ...S.dt, ...S.mono }}>{x.conta_cod}</td>
                               <td style={S.dt}>{x.ref || ''}</td>
-                              <td style={{ ...S.dt, ...S.mono }}>{x.cc_cod || ''}</td>
+                              <td style={{ ...S.dt, ...S.mono }}>{lugar(x.empresa_cod, x.filial_cod, x.cc_cod)}</td>
                               <td style={{ ...S.dt, ...S.mono }}>{x.documento || ''}</td>
                               <td style={S.dt}>{x.historico || ''}</td>
                               <td style={{ ...S.dt, textAlign: 'right' }}>{money(Number(x.valor) || 0)}</td>
@@ -753,16 +758,16 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
               {aberto.has('sd') && (
                 <tr><td colSpan={5} style={{ padding: '4px 12px 10px 30px', background: 'var(--bg-soft)' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead><tr><th style={S.dh}>Conta</th><th style={S.dh}>Data</th><th style={S.dh}>Documento</th><th style={S.dh}>Histórico</th><th style={S.dh}>Lote</th><th style={S.dh}>CC</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
+                    <thead><tr><th style={S.dh}>Conta</th><th style={S.dh}>Empresa · filial · CC</th><th style={S.dh}>Data</th><th style={S.dh}>Documento</th><th style={S.dh}>Histórico</th><th style={S.dh}>Lote</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
                     <tbody>
                       {((drill['sd'] as SemDono[]) || []).map((x, i) => (
                         <tr key={i}>
                           <td style={{ ...S.dt, ...S.mono }}>{x.conta_cod}</td>
+                          <td style={{ ...S.dt, ...S.mono }}>{lugar(x.empresa_cod, x.filial_cod, x.cc_cod)}</td>
                           <td style={S.dt}>{x.data || ''}</td>
                           <td style={{ ...S.dt, ...S.mono }}>{x.documento || ''}</td>
                           <td style={S.dt}>{x.historico || ''}</td>
                           <td style={{ ...S.dt, ...S.mono }}>{x.lote || ''}</td>
-                          <td style={{ ...S.dt, ...S.mono }}>{x.cc_cod || ''}</td>
                           <td style={{ ...S.dt, textAlign: 'right' }}>{money(Number(x.valor) || 0)}</td>
                         </tr>
                       ))}
