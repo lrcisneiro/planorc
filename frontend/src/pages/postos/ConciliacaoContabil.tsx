@@ -24,7 +24,12 @@ export type ContabilParams = {
   ano: number; mes: number; versaoId: string
   empresaSel: string[]; filialFilter: string[] | null; ccFilter: string[] | null
 }
-type CLT = { conta_id: string; conta_cod: string; conta_desc: string; plano_cod: string | null; verba_cod: string; verba_desc: string | null; razao: number; folha: number }
+type CLT = {
+  linha_id: string | null; linha_cod: string | null; linha_desc: string | null; linha_ordem: number | null
+  conta_id: string; conta_cod: string; conta_desc: string; plano_cod: string | null
+  verba_cod: string; verba_desc: string | null; razao: number; folha: number
+}
+type Patrim = { conta_cod: string; conta_desc: string; natureza: string; razao: number; folha: number }
 type Terc = {
   status: 'CASADO' | 'SEM_NF' | 'SEM_FOLHA' | 'AMBIGUO' | 'SEM_DEPARA'
   via: 'DEPARA' | 'NOME' | null
@@ -83,6 +88,7 @@ const ORDEM: Terc['status'][] = ['SEM_NF', 'SEM_FOLHA', 'AMBIGUO', 'CASADO', 'SE
 export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: ContabilParams; podeConfigurar: boolean }) {
   const [clt, setClt] = useState<CLT[]>([])
   const [outros, setOutros] = useState<Record<string, Outro>>({})
+  const [patrim, setPatrim] = useState<Patrim[]>([])
   const [terc, setTerc] = useState<Terc[]>([])
   const [rels, setRels] = useState<any[]>([])
   const [relSel, setRelSel] = useLocalPref('planorc_concil_relatorio', '')
@@ -116,10 +122,11 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     let vivo = true
     ;(async () => {
       setLoading(true); setErro(null); setAviso(null); setAberto(new Set()); setDrill({})
-      const [c, o, t, n, tt] = await Promise.all([
-        supabase.rpc('conciliacao_clt', escopo),
+      const [c, o, t, pt, n, tt] = await Promise.all([
+        supabase.rpc('conciliacao_clt', { ...escopo, p_relatorio_id: relSel }),
         supabase.rpc('conciliacao_clt_outros', escopo),
         supabase.rpc('conciliacao_terceiros', { ...escopo, p_relatorio_id: relSel }),
+        supabase.rpc('conciliacao_patrimoniais', escopo),
         supabase.from('conciliacao_folha_nota').select('id,conta_id,verba_cod,motivo').eq('ano', p.ano).eq('mes', p.mes),
         supabase.from('tenant').select('conciliacao_tolerancia').eq('id', TENANT_ID).maybeSingle(),
       ])
@@ -129,6 +136,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
       const om: Record<string, Outro> = {}
       ;((o.data || []) as Outro[]).forEach(x => { om[x.conta_id] = { ...x, valor: Number(x.valor) || 0 } })
       setOutros(om)
+      setPatrim(((pt.data || []) as Patrim[]).map(x => ({ ...x, razao: Number(x.razao) || 0, folha: Number(x.folha) || 0 })))
       setTerc(((t.data || []) as Terc[]).map(x => ({ ...x, razao: Number(x.razao) || 0, folha: Number(x.folha) || 0 })))
       const map: Record<string, Nota> = {}
       ;((n.data || []) as Nota[]).forEach(x => { map[chave(x.conta_id, x.verba_cod)] = x })
@@ -168,6 +176,31 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                fora: g.verbas.filter(v => Math.abs(v.razao - v.folha) > tol) }
     }).sort((a, b) => a.cod.localeCompare(b.cod))
   }, [clt, tol, outros])
+
+  // o item orçamentário: a linha do relatório em que a conta está amarrada.
+  // Conta de resultado sem amarração cai num grupo próprio em vez de sumir —
+  // é falha de cadastro, e falha de cadastro tem de doer à vista.
+  const itens = useMemo(() => {
+    const m = new Map<string, { id: string; cod: string; desc: string; ordem: number; contas: typeof contasClt }>()
+    for (const c of contasClt) {
+      const r = clt.find(x => x.conta_id === c.id)
+      const id = r?.linha_id || '__sem__'
+      const g = m.get(id) || {
+        id, cod: r?.linha_cod || '', desc: r?.linha_desc || 'Sem item orçamentário',
+        ordem: r?.linha_ordem ?? 99999, contas: [] as typeof contasClt,
+      }
+      g.contas.push(c); m.set(id, g)
+    }
+    return [...m.values()].map(g => ({
+      ...g,
+      razao: g.contas.reduce((s, c) => s + c.razao, 0),
+      folha: g.contas.reduce((s, c) => s + c.folha, 0),
+      outros: g.contas.reduce((s, c) => s + c.outros, 0),
+      fora: g.contas.reduce((s, c) => s + c.fora.length, 0),
+    })).sort((a, b) => a.ordem - b.ordem || a.cod.localeCompare(b.cod))
+  }, [contasClt, clt])
+
+  const totPat = useMemo(() => patrim.reduce((s, p) => ({ razao: s.razao + p.razao, folha: s.folha + p.folha }), { razao: 0, folha: 0 }), [patrim])
 
   const repetidas = useMemo(() => {
     const n = new Map<string, number>()
@@ -274,12 +307,13 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
       <div style={S.card}>
         <div style={S.head}>
           <h2 style={S.h2}>CLT</h2>
-          <span style={S.hsub}>A folha contabiliza. O razão vem consolidado por conta × verba — não tem matrícula, então a comparação para na verba.
-            A coluna <b>outros</b> é o que entrou na conta sem vir da folha (fatura do convênio, encargo à mão): não é divergência dela, e por isso fica fora da diferença.</span>
+          <span style={S.hsub}>Aberto por <b>item orçamentário</b> — a linha do relatório em que cada conta está amarrada. A folha contabiliza e o razão
+            vem consolidado por conta × verba (não tem matrícula), então a comparação para na verba. A coluna <b>outros</b> é o que entrou na conta
+            sem vir da folha (fatura do convênio, encargo à mão): não é divergência dela, e fica fora da diferença.</span>
         </div>
         <table style={S.table}>
           <thead><tr>
-            <th style={S.th}>Conta / verba</th>
+            <th style={S.th}>Item · conta · verba</th>
             <th style={{ ...S.th, textAlign: 'right' }}>Razão</th>
             <th style={{ ...S.th, textAlign: 'right' }}>Folha</th>
             <th style={{ ...S.th, textAlign: 'right' }}>Diferença</th>
@@ -287,12 +321,30 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
             <th style={S.th}>Status</th>
           </tr></thead>
           <tbody>
-            {contasClt.map(c => {
+            {itens.map(it => {
+              const ki = `i:${it.id}`; const abI = aberto.has(ki)
+              const difI = it.razao - it.folha
+              return (
+                <Fragment key={it.id}>
+                  <tr onClick={() => setAberto(prev => { const n = new Set(prev); n.has(ki) ? n.delete(ki) : n.add(ki); return n })}>
+                    <td style={{ ...S.gh, fontWeight: 700, background: 'var(--panel-2)' }}>
+                      {abI ? <ChevronDown size={14} /> : <ChevronRight size={14} />} {it.desc}
+                      <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8, fontSize: 11.5 }}>
+                        {it.contas.length} conta{it.contas.length > 1 ? 's' : ''}
+                      </span>
+                    </td>
+                    <td style={{ ...S.gh, textAlign: 'right', fontWeight: 700, background: 'var(--panel-2)' }}>{money(it.razao)}</td>
+                    <td style={{ ...S.gh, textAlign: 'right', fontWeight: 700, background: 'var(--panel-2)' }}>{money(it.folha)}</td>
+                    <td style={{ ...S.gh, textAlign: 'right', fontWeight: 700, background: 'var(--panel-2)', color: Math.abs(difI) > tol ? 'var(--orange)' : 'var(--muted)' }}>{money(difI)}</td>
+                    <td style={{ ...S.gh, textAlign: 'right', fontWeight: 700, background: 'var(--panel-2)', color: it.outros ? 'var(--blue)' : 'var(--muted)' }}>{it.outros ? money(it.outros) : '—'}</td>
+                    <td style={{ ...S.gh, background: 'var(--panel-2)' }}>{it.fora ? <span style={DIF}>● {it.fora} verba(s)</span> : <span style={OK}>● conciliado</span>}</td>
+                  </tr>
+                  {abI && it.contas.map(c => {
               const kc = `c:${c.id}`; const ab = aberto.has(kc)
               return (
                 <Fragment key={c.id}>
                   <tr onClick={() => setAberto(prev => { const n = new Set(prev); n.has(kc) ? n.delete(kc) : n.add(kc); return n })}>
-                    <td style={S.gh}>{ab ? <ChevronDown size={13} /> : <ChevronRight size={13} />} <span style={S.mono}>{c.cod}</span> {c.desc}{repetidas.has(c.cod) && c.plano ? <span style={{ ...S.mono, fontSize: 11, marginLeft: 6 }}>· plano {c.plano}</span> : null}</td>
+                    <td style={{ ...S.gh, paddingLeft: 30 }}>{ab ? <ChevronDown size={13} /> : <ChevronRight size={13} />} <span style={S.mono}>{c.cod}</span> {c.desc}{repetidas.has(c.cod) && c.plano ? <span style={{ ...S.mono, fontSize: 11, marginLeft: 6 }}>· plano {c.plano}</span> : null}</td>
                     <td style={{ ...S.gh, textAlign: 'right' }}>{money(c.razao)}</td>
                     <td style={{ ...S.gh, textAlign: 'right' }}>{money(c.folha)}</td>
                     <td style={{ ...S.gh, textAlign: 'right', color: Math.abs(c.dif) > tol ? 'var(--orange)' : 'var(--muted)' }}>{money(c.dif)}</td>
@@ -370,6 +422,9 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                       <tr><td colSpan={6} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={null} valorRef={c.outros} /></td></tr>
                     </Fragment>
                   )}
+                </Fragment>
+              )
+            })}
                 </Fragment>
               )
             })}
@@ -514,6 +569,45 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* ─── o que saiu da conferência, para não sumir ─── */}
+      {!!patrim.length && (
+        <div style={S.card}>
+          <div style={{ ...S.head, cursor: 'pointer', borderBottom: aberto.has('pat') ? '1px solid var(--border)' : 'none' }}
+            onClick={() => setAberto(prev => { const n = new Set(prev); n.has('pat') ? n.delete('pat') : n.add('pat'); return n })}>
+            {aberto.has('pat') ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            <h2 style={{ ...S.h2, fontWeight: 600, color: 'var(--text-mid)' }}>Contas patrimoniais · fora da conferência</h2>
+            <span style={S.hsub}>
+              Provisão de férias, salários a pagar, adiantamento. É folha de verdade, mas não é resultado —
+              a conferência valida resultado. Fica aqui para não sumir da vista.
+            </span>
+            <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: 'var(--text-mid)', whiteSpace: 'nowrap' }}>
+              {patrim.length} contas · folha {money(totPat.folha)}
+            </span>
+          </div>
+          {aberto.has('pat') && (
+            <table style={S.table}>
+              <thead><tr>
+                <th style={S.th}>Conta</th><th style={S.th}>Natureza</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Razão</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Folha</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Diferença</th>
+              </tr></thead>
+              <tbody>
+                {patrim.map((x, i) => (
+                  <tr key={i}>
+                    <td style={S.td}><span style={S.mono}>{x.conta_cod}</span> {x.conta_desc}</td>
+                    <td style={{ ...S.td, color: 'var(--muted)' }}>{x.natureza}</td>
+                    <td style={{ ...S.td, textAlign: 'right' }}>{money(x.razao)}</td>
+                    <td style={{ ...S.td, textAlign: 'right' }}>{money(x.folha)}</td>
+                    <td style={{ ...S.td, textAlign: 'right', color: 'var(--muted)' }}>{money(x.razao - x.folha)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 
