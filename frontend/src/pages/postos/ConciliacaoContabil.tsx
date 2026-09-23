@@ -33,7 +33,7 @@ type Patrim = { conta_cod: string; conta_desc: string; natureza: string; razao: 
 type ItemRazao = { linha_id: string; razao_item: number }
 type ItemFora = { conta_cod: string; conta_desc: string; motivo: string; lancamentos: number; valor: number }
 type Hit = { conta_id: string; verba_cod: string; matricula: string; nome: string; cc_cod: string | null; valor: number }
-type TercTotal = { razao_contas: number; contas: number }
+type TercTotal = { linha_id: string | null; linha_cod: string | null; linha_desc: string | null; linha_ordem: number | null; razao_item: number; razao_bloco: number }
 type TercFora = { conta_cod: string; conta_desc: string; motivo: string; lancamentos: number; valor: number }
 type Cand = { filial_cod: string | null; matricula_folha: string; nome: string | null; fornecedor_cod: string | null; nome_fantasia: string | null; apelido: string | null; origem: string; ativo: boolean; casou_por: string }
 type PessoaFolha = { filial_id: string; filial_cod: string | null; empresa_cod: string | null; matricula: string; nome: string; origem: string; valor: number }
@@ -110,7 +110,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   const [outros, setOutros] = useState<Record<string, Outro>>({})
   const [patrim, setPatrim] = useState<Patrim[]>([])
   const [itemRz, setItemRz] = useState<Record<string, ItemRazao>>({})
-  const [tercTot, setTercTot] = useState<TercTotal | null>(null)
+  const [tercTot, setTercTot] = useState<TercTotal[]>([])
   // busca por pessoa: no terceiro ela é a própria linha (filtra local); no CLT
   // só existe no último nível, então quem responde é o banco
   const [busca, setBusca] = useState('')
@@ -175,8 +175,8 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
       const im: Record<string, ItemRazao> = {}
       ;((ir.data || []) as ItemRazao[]).forEach(x => { im[x.linha_id] = { ...x, razao_item: Number(x.razao_item) || 0 } })
       setItemRz(im)
-      const tzr = ((tz.data || []) as TercTotal[])[0]
-      setTercTot(tzr ? { razao_contas: Number(tzr.razao_contas) || 0, contas: tzr.contas } : null)
+      setTercTot(((tz.data || []) as TercTotal[]).map(x => ({
+        ...x, razao_item: Number(x.razao_item) || 0, razao_bloco: Number(x.razao_bloco) || 0 })))
       setTerc(((t.data || []) as Terc[]).map(x => ({ ...x, razao: Number(x.razao) || 0, folha: Number(x.folha) || 0 })))
       const map: Record<string, Nota> = {}
       ;((n.data || []) as Nota[]).forEach(x => { map[chave(x.conta_id, x.verba_cod)] = x })
@@ -625,35 +625,41 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
         <div style={S.head}>
           <h2 style={S.h2}>Terceiros</h2>
           <span style={S.hsub}>A folha calcula e a nota fiscal paga. Nota tem dono, então compara por pessoa — a conta de cada lado costuma ser diferente, e aparece no detalhe.</span>
-          {tercTot && (() => {
-            // o mesmo amarre do CLT: o que o bloco mostra contra o razão das
-            // contas de terceiro na DRE. Diferença ≠ 0 é lançamento fora dos dois
-            // blocos, e a lista abaixo diz qual.
-            const noBloco = totT.razao + totSemDono
-            const d = tercTot.razao_contas - noBloco
-            return (
-              <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', textAlign: 'right' }}>
-                <span style={{ color: 'var(--muted)' }}>no bloco </span>{money(noBloco)}
-                <span style={{ color: 'var(--muted)' }}> · contas na DRE </span>{money(tercTot.razao_contas)}
-                {Math.abs(d) > tol
-                  ? <span style={{ color: 'var(--orange)', cursor: 'pointer' }}
-                      onClick={() => toggle('tf', () => rpc('conciliacao_terceiros_fora', { ...escopo, p_relatorio_id: relSel }))}>
-                      {' · '}fora {money(d)} ▸
-                    </span>
-                  : <span style={{ color: 'var(--green)' }}> · fecha</span>}
-              </span>
-            )
-          })()}
+          {/* uma linha por ITEM: é o item que tem par na DRE. O universo do
+              terceiro pode abranger itens diferentes, e somar todos num número
+              só dava um total sem correspondente no relatório. */}
+          {!!tercTot.length && (
+            <div style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', lineHeight: 1.7 }}>
+              {tercTot.map(it => {
+                const d = it.razao_item - it.razao_bloco
+                const k = `tf:${it.linha_id || 'sem'}`
+                return (
+                  <div key={k} style={{ whiteSpace: 'nowrap' }}>
+                    <b style={{ color: 'var(--text)' }}>{it.linha_desc || 'Sem item orçamentário'}</b>
+                    <span style={{ color: 'var(--muted)' }}> · bloco </span>{money(it.razao_bloco)}
+                    <span style={{ color: 'var(--muted)' }}> · DRE </span>{money(it.razao_item)}
+                    {Math.abs(d) > tol
+                      ? <span style={{ color: 'var(--orange)', cursor: 'pointer' }}
+                          onClick={() => toggle(k, () => rpc('conciliacao_terceiros_fora', { ...escopo, p_relatorio_id: relSel, p_linha_id: it.linha_id }))}>
+                          {' · '}fora {money(d)} ▸
+                        </span>
+                      : <span style={{ color: 'var(--green)' }}> · fecha</span>}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
-        {aberto.has('tf') && (
-          <div style={{ padding: '8px 14px 12px', background: 'var(--bg-soft)', borderBottom: '1px solid var(--border)' }}>
+        {tercTot.filter(it => aberto.has(`tf:${it.linha_id || 'sem'}`)).map(it => (
+          <div key={it.linha_id || 'sem'} style={{ padding: '8px 14px 12px', background: 'var(--bg-soft)', borderBottom: '1px solid var(--border)' }}>
             <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>
-              Razão que entrou numa conta de terceiro mas veio da contabilização da folha — o bloco só olha nota fiscal.
+              <b style={{ color: 'var(--text)' }}>{it.linha_desc || 'Sem item orçamentário'}</b> — o que a DRE conta neste item
+              e o bloco de terceiros não: lançamento que veio da contabilização da folha, ou conta do item que não é de terceiro.
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead><tr><th style={S.dh}>Conta</th><th style={S.dh}>Por quê</th><th style={{ ...S.dh, textAlign: 'right' }}>Lanç.</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
               <tbody>
-                {((drill['tf'] as TercFora[]) || []).map((x, i) => (
+                {((drill[`tf:${it.linha_id || 'sem'}`] as TercFora[]) || []).map((x, i) => (
                   <tr key={i}>
                     <td style={S.dt}><span style={S.mono}>{x.conta_cod}</span> {x.conta_desc}</td>
                     <td style={{ ...S.dt, color: 'var(--muted)' }}>{x.motivo}</td>
@@ -661,11 +667,11 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                     <td style={{ ...S.dt, textAlign: 'right' }}>{money(Number(x.valor) || 0)}</td>
                   </tr>
                 ))}
-                {!drill['tf'] && <tr><td colSpan={4} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
+                {!drill[`tf:${it.linha_id || 'sem'}`] && <tr><td colSpan={4} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
               </tbody>
             </table>
           </div>
-        )}
+        ))}
         <table style={S.table}>
           <thead><tr>
             <th style={{ ...S.th, cursor: 'pointer' }} onClick={() => sortClick('nome')}>Pessoa{seta('nome')}</th>
