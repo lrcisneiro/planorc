@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { ConciliacaoQuadro } from './ConciliacaoQuadro'
-import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare, Search } from 'lucide-react'
 
 // Conciliação CONTÁBIL × FOLHA (camada 2), organizada por MODELO DE CONTRATAÇÃO
 // (v3_085) — porque é o modelo que decide por onde o dinheiro da pessoa chega à
@@ -32,6 +32,7 @@ type CLT = {
 type Patrim = { conta_cod: string; conta_desc: string; natureza: string; razao: number; folha: number }
 type ItemRazao = { linha_id: string; razao_item: number }
 type ItemFora = { conta_cod: string; conta_desc: string; motivo: string; lancamentos: number; valor: number }
+type Hit = { conta_id: string; verba_cod: string; matricula: string; nome: string; cc_cod: string | null; valor: number }
 type PessoaFolha = { filial_id: string; filial_cod: string | null; empresa_cod: string | null; matricula: string; nome: string; valor: number }
 type Terc = {
   status: 'CASADO' | 'SEM_NF' | 'SEM_FOLHA' | 'AMBIGUO' | 'SEM_DEPARA'
@@ -97,6 +98,11 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   const [outros, setOutros] = useState<Record<string, Outro>>({})
   const [patrim, setPatrim] = useState<Patrim[]>([])
   const [itemRz, setItemRz] = useState<Record<string, ItemRazao>>({})
+  // busca por pessoa: no terceiro ela é a própria linha (filtra local); no CLT
+  // só existe no último nível, então quem responde é o banco
+  const [busca, setBusca] = useState('')
+  const [hits, setHits] = useState<Hit[] | null>(null)
+  const [ordem, setOrdem] = useState<{ col: string; dir: 1 | -1 }>({ col: 'dif', dir: 1 })
   // amarração manual: o gestor diz de quem é o texto órfão, e isso vira uma
   // linha de de-para com origem MANUAL — que a reimportação não apaga
   const [amarrando, setAmarrando] = useState<string | null>(null)
@@ -201,6 +207,10 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     }).sort((a, b) => a.cod.localeCompare(b.cod))
   }, [clt, tol, outros])
 
+  // caminhos (conta|verba) em que a pessoa buscada aparece
+  const hitKeys = useMemo(() => hits ? new Set(hits.map(h => `${h.conta_id}|${h.verba_cod}`)) : null, [hits])
+  const hitContas = useMemo(() => hits ? new Set(hits.map(h => h.conta_id)) : null, [hits])
+
   // o item orçamentário: a linha do relatório em que a conta está amarrada.
   // Conta de resultado sem amarração cai num grupo próprio em vez de sumir —
   // é falha de cadastro, e falha de cadastro tem de doer à vista.
@@ -215,14 +225,14 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
       }
       g.contas.push(c); m.set(id, g)
     }
-    return [...m.values()].map(g => ({
+    return [...m.values()].filter(g => !hitContas || g.contas.some(c => hitContas.has(c.id))).map(g => ({
       ...g,
       razao: g.contas.reduce((s, c) => s + c.razao, 0),
       folha: g.contas.reduce((s, c) => s + c.folha, 0),
       outros: g.contas.reduce((s, c) => s + c.outros, 0),
       fora: g.contas.reduce((s, c) => s + c.fora.length, 0),
     })).sort((a, b) => a.ordem - b.ordem || a.cod.localeCompare(b.cod))
-  }, [contasClt, clt])
+  }, [contasClt, clt, outros, hitContas])
 
   const totPat = useMemo(() => patrim.reduce((s, p) => ({ razao: s.razao + p.razao, folha: s.folha + p.folha }), { razao: 0, folha: 0 }), [patrim])
 
@@ -232,9 +242,21 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     return new Set([...n.entries()].filter(([, q]) => q > 1).map(([k]) => k))
   }, [contasClt])
 
-  const pessoas = useMemo(() => terc.filter(t => t.status !== 'SEM_DEPARA' && t.status !== 'AMBIGUO')
-    .sort((a, b) => ORDEM.indexOf(a.status) - ORDEM.indexOf(b.status) || Math.abs(b.razao - b.folha) - Math.abs(a.razao - a.folha)), [terc])
-  const semDono = useMemo(() => terc.filter(t => t.status === 'SEM_DEPARA' || t.status === 'AMBIGUO'), [terc])
+  const q = busca.trim().toLowerCase()
+  const casaTexto = (t: Terc) => !q || [t.nome, t.matricula, t.fornecedor_cod, t.nome_fantasia, t.cc_cod]
+    .some(x => (x || '').toLowerCase().includes(q))
+  const pessoas = useMemo(() => {
+    const base = terc.filter(t => t.status !== 'SEM_DEPARA' && t.status !== 'AMBIGUO').filter(casaTexto)
+    const val = (t: Terc): any => ordem.col === 'nome' ? (t.nome || t.matricula || '')
+      : ordem.col === 'cc' ? (t.cc_cod || '') : ordem.col === 'nf' ? t.lancamentos
+      : ordem.col === 'razao' ? t.razao : ordem.col === 'folha' ? t.folha
+      : ordem.col === 'status' ? ORDEM.indexOf(t.status) : Math.abs(t.razao - t.folha)
+    return [...base].sort((a, b) => {
+      const va = val(a), vb = val(b)
+      return (typeof va === 'string' ? va.localeCompare(vb) : (vb - va)) * ordem.dir
+    })
+  }, [terc, ordem, q]) // eslint-disable-line
+  const semDono = useMemo(() => terc.filter(t => (t.status === 'SEM_DEPARA' || t.status === 'AMBIGUO') && casaTexto(t)), [terc, q]) // eslint-disable-line
 
   const totC = useMemo(() => contasClt.reduce((s, c) => ({ razao: s.razao + c.razao, folha: s.folha + c.folha, outros: s.outros + c.outros }), { razao: 0, folha: 0, outros: 0 }), [contasClt])
   const totT = useMemo(() => pessoas.reduce((s, t) => ({ razao: s.razao + t.razao, folha: s.folha + t.folha }), { razao: 0, folha: 0 }), [pessoas])
@@ -274,6 +296,20 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     const t = await supabase.rpc('conciliacao_terceiros', { ...escopo, p_relatorio_id: relSel })
     if (!t.error) setTerc(((t.data || []) as Terc[]).map(x => ({ ...x, razao: Number(x.razao) || 0, folha: Number(x.folha) || 0 })))
   }
+
+  // a busca no CLT vai ao banco, com uma pausa para não disparar a cada tecla
+  useEffect(() => {
+    const q = busca.trim()
+    if (q.length < 3) { setHits(null); return }
+    const t = setTimeout(async () => {
+      const { data } = await supabase.rpc('conciliacao_busca_pessoa', { ...escopo, p_termo: q })
+      setHits(((data || []) as Hit[]).map(x => ({ ...x, valor: Number(x.valor) || 0 })))
+    }, 350)
+    return () => clearTimeout(t)
+  }, [busca, escopo])
+
+  const sortClick = (col: string) => setOrdem(o => o.col === col ? { col, dir: (o.dir === 1 ? -1 : 1) } : { col, dir: 1 })
+  const seta = (col: string) => ordem.col === col ? (ordem.dir === 1 ? ' ↓' : ' ↑') : ''
 
   const salvarTolerancia = async () => {
     const v = Number(tolTxt.replace(/\./g, '').replace(',', '.'))
@@ -356,8 +392,18 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
             </select>
           </div>
         )}
+        <div style={S.fld}><span style={S.lbl}>Procurar pessoa</span>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <Search size={14} style={{ position: 'absolute', left: 9, color: 'var(--muted)' }} />
+            <input style={{ ...S.inp, paddingLeft: 28, width: 240 }} value={busca} onChange={e => setBusca(e.target.value)}
+              placeholder="nome ou matrícula…"
+              title="Filtra os dois blocos. No CLT a pessoa só existe na composição da verba, então a busca vai ao banco e mostra só os caminhos em que ela aparece." />
+          </div>
+        </div>
         <span style={{ fontSize: 12, color: 'var(--muted)', paddingBottom: 8 }}>
-          Abaixo da tolerância a linha conta como conciliada — rateio e arredondamento não são divergência.
+          {q.length >= 3 && hits
+            ? `${hits.length} lançamento(s) de folha no CLT · ${pessoas.length} pessoa(s) no terceiro`
+            : 'Abaixo da tolerância a linha conta como conciliada — rateio e arredondamento não são divergência.'}
         </span>
       </div>
       {aviso && <div style={{ ...S.erro, color: 'var(--orange)', background: 'rgba(251,146,60,0.10)', borderColor: 'rgba(251,146,60,0.35)' }}><AlertCircle size={16} /> {aviso}</div>}
@@ -383,7 +429,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
           </tr></thead>
           <tbody>
             {itens.map(it => {
-              const ki = `i:${it.id}`; const abI = aberto.has(ki)
+              const ki = `i:${it.id}`; const abI = aberto.has(ki) || !!hitContas
               const difI = it.razao - it.folha
               const rzItem = itemRz[it.id]
               // o que a DRE tem no item e a conferência não cobre: conta do item
@@ -455,8 +501,8 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                       )}
                     </Fragment>
                   )}
-                  {abI && it.contas.map(c => {
-              const kc = `c:${c.id}`; const ab = aberto.has(kc)
+                  {abI && it.contas.filter(c => !hitContas || hitContas.has(c.id)).map(c => {
+              const kc = `c:${c.id}`; const ab = aberto.has(kc) || !!hitContas
               return (
                 <Fragment key={c.id}>
                   <tr onClick={() => setAberto(prev => { const n = new Set(prev); n.has(kc) ? n.delete(kc) : n.add(kc); return n })}>
@@ -469,7 +515,8 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                     <td style={S.gh}></td>
                     <td style={S.gh}>{c.fora.length ? <span style={DIF}>● {c.fora.length} verba(s)</span> : c.outros ? <span style={RES}>● só outros</span> : <span style={OK}>● conciliada</span>}</td>
                   </tr>
-                  {ab && c.verbas.sort((a, b) => Math.abs(b.razao - b.folha) - Math.abs(a.razao - a.folha)).map(v => {
+                  {ab && c.verbas.filter(v => !hitKeys || hitKeys.has(`${c.id}|${v.verba_cod}`))
+                       .sort((a, b) => Math.abs(b.razao - b.folha) - Math.abs(a.razao - a.folha)).map(v => {
                     const dif = v.razao - v.folha; const fora = Math.abs(dif) > tol
                     const kv = `v:${c.id}:${v.verba_cod}`
                     return (
@@ -486,7 +533,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                           <td style={S.td}></td><td style={S.td}></td><td style={S.td}></td>
                           <td style={S.td}>{fora ? <span style={DIF}>● fora</span> : <Check size={13} style={{ color: 'var(--green)' }} />}</td>
                         </tr>
-                        {aberto.has(kv) && (
+                        {(aberto.has(kv) || !!hitKeys) && (
                           <tr><td colSpan={8} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
                             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
                               Composição da folha — o razão do CLT é consolidado e não tem pessoa, então aqui não há o que comparar.
@@ -494,12 +541,15 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                               <thead><tr><th style={S.dh}>Matrícula</th><th style={S.dh}>Nome</th><th style={S.dh}>CC</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
                               <tbody>
-                                {((drill[kv] as Pessoa[]) || []).map((x, i) => (
+                                {(hits
+                                  ? hits.filter(h => h.conta_id === c.id && h.verba_cod === v.verba_cod)
+                                  : ((drill[kv] as Pessoa[]) || [])
+                                ).map((x: any, i) => (
                                   <tr key={i}><td style={{ ...S.dt, ...S.mono }}>{x.matricula}</td><td style={S.dt}>{x.nome}</td>
                                     <td style={{ ...S.dt, ...S.mono }}>{x.cc_cod || ''}</td>
                                     <td style={{ ...S.dt, textAlign: 'right' }}>{money(Number(x.valor) || 0)}</td></tr>
                                 ))}
-                                {!drill[kv] && <tr><td colSpan={4} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
+                                {!hits && !drill[kv] && <tr><td colSpan={4} style={{ ...S.dt, color: 'var(--muted)' }}>carregando…</td></tr>}
                               </tbody>
                             </table>
                           </td></tr>
@@ -560,14 +610,14 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
         </div>
         <table style={S.table}>
           <thead><tr>
-            <th style={S.th}>Pessoa</th>
+            <th style={{ ...S.th, cursor: 'pointer' }} onClick={() => sortClick('nome')}>Pessoa{seta('nome')}</th>
             <th style={S.th}>Fornecedor</th>
-            <th style={S.th}>CC</th>
-            <th style={{ ...S.th, textAlign: 'right' }}>NF</th>
-            <th style={{ ...S.th, textAlign: 'right' }}>Razão</th>
-            <th style={{ ...S.th, textAlign: 'right' }}>Folha</th>
-            <th style={{ ...S.th, textAlign: 'right' }}>Diferença</th>
-            <th style={S.th}>Status</th>
+            <th style={{ ...S.th, cursor: 'pointer' }} onClick={() => sortClick('cc')}>CC{seta('cc')}</th>
+            <th style={{ ...S.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => sortClick('nf')}>NF{seta('nf')}</th>
+            <th style={{ ...S.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => sortClick('razao')}>Razão{seta('razao')}</th>
+            <th style={{ ...S.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => sortClick('folha')}>Folha{seta('folha')}</th>
+            <th style={{ ...S.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => sortClick('dif')}>Diferença{seta('dif')}</th>
+            <th style={{ ...S.th, cursor: 'pointer' }} onClick={() => sortClick('status')}>Status{seta('status')}</th>
           </tr></thead>
           <tbody>
             {pessoas.map((t, i) => {
