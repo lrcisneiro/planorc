@@ -22,8 +22,11 @@
 -- próprias linhas, e só admin escreve. É essa forma que as consultas abaixo
 -- procuram nas outras duas.
 --
--- Rode inteiro no SQL Editor do Supabase. As partes 1 a 4 são leitura pura.
--- A parte 5 escreve dentro de uma transação que termina em ROLLBACK.
+-- COMO RODAR: as partes 1 a 4 são leitura pura — pode rodar de uma vez.
+-- A parte 5 personifica um usuário e escreve dentro de uma transação que
+-- termina em ROLLBACK; ela pede que você troque um e-mail em dois lugares, e
+-- por isso vai SELECIONADA e rodada à parte. Rodar o arquivo inteiro de uma
+-- vez só falha no placeholder — de propósito, para não rodar sem escolher.
 -- ============================================================
 
 
@@ -101,21 +104,45 @@ SELECT role AS papel, count(*) AS usuarios
 -- ════════════════════════════════════════════════════════════
 -- 5. O TESTE QUE DECIDE — um usuário comum consegue virar admin?
 -- ════════════════════════════════════════════════════════════
--- Nenhuma leitura de política substitui isto: o Postgres é quem sabe.
--- A transação assume a identidade de um usuário real e tenta a escalada; o
--- ROLLBACK no fim desfaz tudo, inclusive se a tentativa der certo.
+-- Nenhuma leitura de política substitui isto: quem sabe se a policy barra é o
+-- Postgres. A transação assume a identidade de um usuário real e tenta a
+-- escalada; o ROLLBACK no fim desfaz tudo, inclusive se a tentativa der certo.
 --
--- ANTES DE RODAR: troque os dois <UUID> pelo id de um usuário que NÃO deveria
--- ser admin (pegue na consulta 4; se hoje todos forem admin, use o de menor
--- privilégio pretendido). Os dois têm de ser o MESMO id.
+-- COMO USAR: rode as consultas 1 a 4 primeiro (são leitura). Depois selecione
+-- SÓ o bloco 5.0 + a transação abaixo e rode separado, trocando o e-mail nos
+-- DOIS lugares marcados. Só o e-mail — nenhum UUID à mão.
+--
+-- Escolha um usuário que NÃO deveria ser admin. Se hoje todos forem admin,
+-- use o que tiver o menor privilégio pretendido: o teste continua válido,
+-- porque o que se mede é se a POLÍTICA barra, não se a pessoa já é admin.
+
+
+-- 5.0 Confirme que o e-mail existe e veja o papel atual.
+--     Se vier vazio, PARE: o teste abaixo rodaria com identidade nula e
+--     devolveria "tudo bloqueado" sem ter testado coisa alguma.
+SELECT u.id, u.email, ut.role AS papel_atual
+  FROM auth.users u
+  LEFT JOIN user_tenant ut ON ut.user_id = u.id
+ WHERE u.email = 'troque@pelo.email';        -- ← 1 de 2
+
 
 BEGIN;
 
-SET LOCAL ROLE authenticated;
+-- Resolve o id a partir do e-mail ANTES de trocar de papel (o papel
+-- `authenticated` não enxerga auth.users).
 SELECT set_config(
   'request.jwt.claims',
-  json_build_object('sub', '<UUID>', 'role', 'authenticated')::text,
-  true);
+  json_build_object(
+    'sub',  (SELECT id FROM auth.users WHERE email = 'troque@pelo.email'),   -- ← 2 de 2
+    'role', 'authenticated'
+  )::text, true);
+
+SET LOCAL ROLE authenticated;
+
+-- 5.0b A PERSONIFICAÇÃO PEGOU?  Esta consulta é obrigatória.
+--      Se `quem_sou_eu` vier NULL, todo o resto do teste é vazio: o banco nega
+--      tudo por falta de identidade e o resultado parece ótimo sem provar nada.
+SELECT auth.uid() AS quem_sou_eu, current_user AS papel_do_postgres;
 
 -- 5.1 Ele enxerga o papel dos OUTROS?
 --     Esperado: 1 (só a própria linha). Mais que isso = vazamento de quem é
@@ -123,20 +150,19 @@ SELECT set_config(
 SELECT count(*) AS linhas_de_user_tenant_visiveis FROM user_tenant;
 
 -- 5.2 Ele enxerga a regra de escopo dos outros?
---     Importante além da segurança: o hook useUserAccess lê
---     `user_acesso_regra` SEM filtrar por user_id. Se esta conta vier > 1, o
---     usuário não só vê a regra alheia como pode acabar HERDANDO ela na tela.
+--     Importa além da segurança: o hook useUserAccess lê `user_acesso_regra`
+--     SEM filtrar por user_id. Se esta conta vier > 1, o usuário não só vê a
+--     regra alheia como pode acabar HERDANDO ela na tela.
 SELECT count(*) AS linhas_de_user_acesso_regra_visiveis FROM user_acesso_regra;
 
--- 5.3 A escalada. Se o UPDATE afetar 1 linha, está provado: qualquer usuário
---     logado vira admin com uma chamada de API, e todo o resto do plano de
---     segurança perde o sentido enquanto isto estiver aberto.
-UPDATE user_tenant SET role = 'admin' WHERE user_id = '<UUID>';
---     Leia o "UPDATE n" no retorno: n = 0 → bloqueado (bom). n = 1 → ESCALADA.
+-- 5.3 A escalada. Usa auth.uid(), que já é o usuário personificado.
+--     Leia o "UPDATE n": n = 0 → bloqueado (bom). n = 1 → ESCALADA PROVADA,
+--     e este item passa na frente de todo o resto do plano.
+UPDATE user_tenant SET role = 'admin' WHERE user_id = auth.uid();
 
 -- 5.4 E conceder escopo a si mesmo?
 INSERT INTO user_acesso_regra (user_id, tenant_id, dimensao, escopo, valor_ids, negados)
-VALUES ('<UUID>', '11111111-1111-1111-1111-111111111111', 'centro_custo', 'VER', '{}', '{}');
+VALUES (auth.uid(), '11111111-1111-1111-1111-111111111111', 'centro_custo', 'VER', '{}', '{}');
 --     n = 1 → o usuário escreve a própria permissão.
 
 ROLLBACK;   -- <<< desfaz tudo. Confirme que a mensagem "ROLLBACK" apareceu.
