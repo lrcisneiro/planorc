@@ -36,6 +36,13 @@ FORCE_ANO = FORCE_MES = None
 if FORCE:
     _p = FORCE.replace('/', '-').split('-'); FORCE_ANO = int(_p[0]); FORCE_MES = int(_p[1])
 
+def eh_resultado(conta: str) -> bool:
+    """Conta de RESULTADO = começa com 3 (receita) ou 4 (despesa); 1 e 2 são
+    patrimoniais. É o que decide qual lado do lançamento vai para a DRE."""
+    c = (conta or '').strip()
+    return bool(c) and c[0] in ('3', '4')
+
+
 def carregar_depara(path: str) -> dict:
     """CSV com colunas 'filial' e 'empresa'. Retorna { filial(4díg) : empresa_gerencial }."""
     m = {}
@@ -106,7 +113,7 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
         print(f'ERRO: nenhum prgper02_emp*.xlsx em "{folha_dir}"'); sys.exit(1)
 
     out_rows = []
-    lidas = puladas = sem_periodo = sem_deb = 0
+    lidas = puladas = sem_periodo = sem_deb = invertidas = 0
     tipos, competencias, empresas = Counter(), Counter(), Counter()
     filiais_sem_empresa = Counter()
     redirecionadas = Counter(); item_sem_depara = Counter()
@@ -133,12 +140,26 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
             if FORCE_ANO:                        # recarimba a competência (ex.: testar em 2027)
                 ano, mes = FORCE_ANO, FORCE_MES
             tipo_verba = (g('TIPO_VERBA') or '').strip()
-            conta_deb = str(g('DEBITO') or '').strip()
-            # critério contábil (não o rótulo provento/desconto/base): só entra quem TEM
-            # contabilização no débito. A folha traz encargos patronais como "Base" com
-            # débito — cortá-los subestimaria o custo. A amarração à linha da DRE é
-            # aplicada na conciliação (conta_id ∈ contas amarradas).
-            if not conta_deb:
+            conta_deb  = str(g('DEBITO')  or '').strip()
+            conta_cred = str(g('CREDITO') or '').strip()
+            # UM lançamento tem DOIS lados, e o que interessa à DRE é o lado que
+            # toca RESULTADO (conta 3 ou 4) — não necessariamente o débito.
+            #
+            # No CLT o débito é a despesa e o crédito é o passivo a pagar: sai uma
+            # linha positiva pelo débito, como sempre foi. Mas há verba invertida —
+            # 549 CONVENIO MEDICO debita 21012017 (passivo) e credita 41013001
+            # (despesa): é a empresa recuperando do prestador o convênio que
+            # adiantou. Aí o efeito no resultado está no CRÉDITO, e reduz despesa.
+            #
+            # Antes essas linhas saíam com o item do débito vazio (patrimonial não
+            # tem item orçamentário) e o importador as descartava na porta — 2.080
+            # linhas e R$ 486 mil em ago/2026 nunca chegaram à conciliação.
+            #
+            # Agora cada lado de resultado vira sua própria linha de saída, o
+            # crédito com SINAL INVERTIDO. Linha com os dois lados em resultado sai
+            # duas vezes (+ no débito, − no crédito), que é a partida dobrada
+            # escrita por extenso. Linha sem nenhum lado de resultado não sai.
+            if not eh_resultado(conta_deb) and not eh_resultado(conta_cred):
                 sem_deb += 1; continue
             filial = filial_folha(g('EMPRESA'), g('FILIAL'))
             empresa = depara.get(filial, '')
@@ -158,23 +179,36 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
                 valor = 0.0
             if not valor:
                 puladas += 1; continue
-            row = {
+            base = {
                 'ano': ano, 'mes': mes, 'empresa': empresa, 'filial': filial,
                 'cc': str(g('CENTRO_CUSTO') or '').strip(), 'matricula': mat,
                 'nome': (g('NOME') or '').strip(),
                 'verba_cod': str(g('CD_VERBA') or '').strip(), 'verba_desc': (g('DESC_VERBA') or '').strip(),
-                'tipo_verba': tipo_verba, 'valor': f'{valor:.2f}',
-                'conta_deb': conta_deb, 'conta_cred': str(g('CREDITO') or '').strip(),
-                # item orçamentário autoritativo da folha (débito) — casa com verba.conta_destino/fat_orcado
-                'item_orc': str(g('IT_CONTAB_DB') or '').strip(), 'item_orc_desc': (g('DESC_IT_CONTAB_DB') or '').strip(),
+                'tipo_verba': tipo_verba,
                 'competencia': f'{ano}{mes:02d}' if FORCE_ANO else str(g('PERIODO') or '').strip().split('.')[0],
                 'posto_codigo': f'{filial}-{mat}', 'rateio': 'N',
             }
-            out_rows.append(row)
-            tipos[row['tipo_verba'] or '(vazio)'] += 1
-            competencias[f'{ano}-{mes:02d}'] += 1
-            empresas[empresa or '(sem empresa)'] += 1
-            total_valor += valor
+            # a conta que aparece em 'conta_deb' é sempre A CONTA AFETADA, e
+            # 'conta_cred' a contrapartida — o import resolve conta_id pela
+            # primeira. Na linha do crédito os dois vêm trocados de propósito.
+            lados = []
+            if eh_resultado(conta_deb):
+                lados.append((conta_deb, conta_cred, valor,
+                              str(g('IT_CONTAB_DB') or '').strip(),
+                              (g('DESC_IT_CONTAB_DB') or '').strip()))
+            if eh_resultado(conta_cred):
+                lados.append((conta_cred, conta_deb, -valor,
+                              str(g('IT_CONTAB_CR') or '').strip(),
+                              (g('DESC_IT_CONTAB_CR') or '').strip()))
+                invertidas += 1
+            for c_afetada, c_contra, v, it_cod, it_desc in lados:
+                row = dict(base, valor=f'{v:.2f}', conta_deb=c_afetada, conta_cred=c_contra,
+                           item_orc=it_cod, item_orc_desc=it_desc)
+                out_rows.append(row)
+                tipos[row['tipo_verba'] or '(vazio)'] += 1
+                competencias[f'{ano}-{mes:02d}'] += 1
+                empresas[empresa or '(sem empresa)'] += 1
+                total_valor += v
         wb.close()
 
     with open(saida, 'w', newline='', encoding='utf-8-sig') as f:
@@ -182,7 +216,8 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
         w.writeheader(); w.writerows(out_rows)
 
     print(f'Arquivos: {len(arquivos)} | linhas lidas: {lidas} | gravadas: {len(out_rows)} | '
-          f'puladas (sem matrícula/valor): {puladas} | sem débito contábil (informativas): {sem_deb} | sem período: {sem_periodo}')
+          f'puladas (sem matrícula/valor): {puladas} | sem lado de resultado (patrimonial dos 2 lados): {sem_deb} | sem período: {sem_periodo}')
+    print(f'Linhas do CRÉDITO (sinal invertido): {invertidas}')
     print('Competências: ' + ', '.join(f'{k}={v}' for k, v in sorted(competencias.items())))
     print('Tipo de verba: ' + ', '.join(f'{k}={v}' for k, v in sorted(tipos.items())))
     print(f'Empresas ({len(empresas)}): ' + ', '.join(f'{k}={v}' for k, v in sorted(empresas.items())))
