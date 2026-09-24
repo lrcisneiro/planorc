@@ -4,7 +4,7 @@ import { supabase, TENANT_ID } from '../../lib/supabase'
 import { useLocalPref } from '../../lib/uiPrefs'
 import type { RefRelatorio } from '../../lib/refRelatorio'
 import { ConciliacaoQuadro } from './ConciliacaoQuadro'
-import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare, Search } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare, Search, X } from 'lucide-react'
 
 // Conciliação CONTÁBIL × FOLHA (camada 2), organizada por MODELO DE CONTRATAÇÃO
 // (v3_085) — porque é o modelo que decide por onde o dinheiro da pessoa chega à
@@ -54,6 +54,14 @@ type Outro = {
   conta_id: string; conta_cod: string; conta_desc: string; plano_cod: string | null
   linha_id: string | null; linha_cod: string | null; linha_desc: string | null; linha_ordem: number | null
   lancamentos: number; valor: number
+}
+// Lançamento do razão, um a um — o drill do drill. Existe separado porque a
+// tabela lado a lado compara folha × razão, e lançamento não tem contrapartida
+// do lado da folha: acrescentar linhas lá quebraria a leitura por colunas.
+type TercLanc = {
+  empresa_cod: string | null; filial_cod: string | null; cc_cod: string | null
+  data: string | null; documento: string | null; conta_cod: string; conta_desc: string
+  historico: string | null; lote: string | null; via: string | null; valor: number
 }
 type OutroLanc = { empresa_cod: string | null; filial_cod: string | null; data: string | null; documento: string | null; historico: string | null; lote: string | null; cc_cod: string | null; valor: number }
 type Lado = {
@@ -153,6 +161,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     }
   }, [p.ref])
 
+  const [modalLanc, setModalLanc] = useState<{ nome: string; matricula: string; linhas: TercLanc[] } | null>(null)
   const [tol, setTol] = useState(1)
   const [tolTxt, setTolTxt] = useState('1,00')
   const [loading, setLoading] = useState(true)
@@ -791,7 +800,17 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                                     que é a divergência mais fácil de deixar passar */}
                                 <td style={{ ...S.dt, ...S.mono, color: x.folha_ref ? 'var(--muted)' : 'var(--faint)' }}>{x.folha_ref || '—'}</td>
                                 <td style={{ ...S.dt, textAlign: 'right' }}>{fo ? money(fo) : '—'}</td>
-                                <td style={{ ...S.dt, ...S.mono, color: x.razao_ref ? 'var(--muted)' : 'var(--faint)' }}>{x.razao_ref || '—'}</td>
+                                {/* a referência do razão abre os lançamentos que
+                                    compõem o número: é onde mora a pergunta
+                                    "de que notas isto é feito?" */}
+                                <td style={{ ...S.dt, ...S.mono, color: x.razao_ref ? 'var(--violet)' : 'var(--faint)', cursor: x.razao_ref ? 'pointer' : 'default' }}
+                                  title={x.razao_ref ? 'Abrir os lançamentos do razão desta pessoa, um a um' : undefined}
+                                  onClick={async () => {
+                                    if (!x.razao_ref) return
+                                    const d = await rpc('conciliacao_terceiros_lanc', { ...escopo, p_relatorio_id: relSel, p_filial_id: t.filial_id, p_matricula: t.matricula })
+                                    setModalLanc({ nome: t.nome || t.nome_fantasia || '', matricula: t.matricula || '',
+                                      linhas: ((d as TercLanc[]) || []).map(r => ({ ...r, valor: Number(r.valor) || 0 })) })
+                                  }}>{x.razao_ref || '—'}</td>
                                 <td style={{ ...S.dt, textAlign: 'right' }}>{rz ? money(rz) : '—'}</td>
                                 <td style={{ ...S.dt, textAlign: 'right', color: fora ? 'var(--orange)' : 'var(--muted)' }}>{money(d)}</td>
                                 <td style={S.dt}>{x.historico || ''}</td>
@@ -994,7 +1013,63 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
         </div>
       )}
 
+      {modalLanc && <LancModal dados={modalLanc} onClose={() => setModalLanc(null)} />}
       <ConciliacaoQuadro params={p} />
+    </div>
+  )
+}
+
+// ── Os lançamentos do razão de uma pessoa, um a um ──
+// A linha do terceiro soma as notas; aqui elas aparecem separadas, com data e
+// documento. É o que permite dizer em QUAL nota está a diferença, em vez de
+// saber apenas que ela existe.
+function LancModal({ dados, onClose }: { dados: { nome: string; matricula: string; linhas: TercLanc[] }; onClose: () => void }) {
+  const tot = dados.linhas.reduce((s, x) => s + x.valor, 0)
+  const th: CSSProperties = { textAlign: 'left', padding: '7px 12px', fontSize: 10.5, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3, borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }
+  const td: CSSProperties = { padding: '6px 12px', borderBottom: '1px solid var(--panel-2)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: 'var(--text)' }
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 130, padding: 20 }} onClick={onClose}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, width: 'min(1000px, 96vw)', maxHeight: '86vh', overflow: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,0.4)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Lançamentos do razão — {dados.nome}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>
+              matrícula <span style={S.mono}>{dados.matricula}</span> · {dados.linhas.length} lançamento(s) · a linha do quadro é a soma destes
+            </div>
+          </div>
+          <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 }} onClick={onClose} />
+        </div>
+        <div style={{ padding: '4px 20px 18px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead><tr>
+              <th style={th}>Empresa · filial · CC</th><th style={th}>Data</th><th style={th}>Documento</th>
+              <th style={th}>Conta</th><th style={th}>Lote</th><th style={th}>Histórico</th>
+              <th style={{ ...th, textAlign: 'right' }}>Valor</th>
+            </tr></thead>
+            <tbody>
+              {dados.linhas.map((x, i) => (
+                <tr key={i}>
+                  <td style={{ ...td, color: 'var(--muted)' }}>{lugar(x.empresa_cod, x.filial_cod, x.cc_cod)}</td>
+                  <td style={td}>{x.data || '—'}</td>
+                  <td style={{ ...td, ...S.mono, color: 'var(--text)' }}>{x.documento || '—'}</td>
+                  <td style={{ ...td, color: 'var(--muted)' }}><span style={S.mono}>{x.conta_cod}</span> {x.conta_desc}</td>
+                  <td style={{ ...td, ...S.mono }}>{x.lote || '—'}</td>
+                  <td style={{ ...td, color: 'var(--muted)', whiteSpace: 'normal' }}>{x.historico || ''}</td>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{money(x.valor)}</td>
+                </tr>
+              ))}
+              {!dados.linhas.length && <tr><td colSpan={7} style={S.empty}>Nenhum lançamento — o razão desta pessoa veio só da contabilização da folha.</td></tr>}
+            </tbody>
+            {dados.linhas.length > 0 && <tfoot><tr>
+              <td style={{ ...td, fontWeight: 700 }} colSpan={6}>Total</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{money(tot)}</td>
+            </tr></tfoot>}
+          </table>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>
+            São todos os lançamentos da pessoa na competência, não só os da linha clicada — a soma fecha com a coluna Razão do quadro.
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
