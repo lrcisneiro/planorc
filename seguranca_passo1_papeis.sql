@@ -124,15 +124,18 @@ SELECT role AS papel, count(*) AS usuarios
 
 
 -- ── 5.A · o que esse usuário ENXERGA (resposta vem como ERROR) ──
--- A resposta vem como "vê X de Y": sem o denominador, o número sozinho não
--- diz nada — "vê 3" tanto pode ser "as 3 dele" quanto "as 3 que existem".
---   vê 1 de N   → restrito às próprias linhas. É o esperado.
---   vê N de N   → enxerga as de todo mundo. Para um não-admin, é vazamento;
---                 em user_acesso_regra, também faz o useUserAccess (que lê a
---                 tabela sem filtrar por user_id) poder HERDAR regra alheia.
+-- A resposta vem como "vê X de Y, sendo Z dele". Os três números juntos são
+-- necessários: "vê 4 de 4" parece vazamento e pode ser perfeitamente correto
+-- se as 4 linhas forem dele. É a comparação X vs Z que decide.
+--   X = Z   → enxerga exatamente as próprias linhas. É o esperado.
+--   X > Z   → enxerga linha de outro usuário. Para um não-admin é vazamento;
+--             em user_acesso_regra, também faz o useUserAccess (que lê a
+--             tabela sem filtrar por user_id) poder HERDAR regra alheia.
 DO $teste$
 DECLARE uid uuid; mail text; papel text;
-        ta int; tb int; tc int; va int; vb int; vc int;
+        ta int; tb int; tc int;      -- totais reais (sem RLS)
+        da int; db int; dc int;      -- quantas dessas linhas são DELE
+        va int; vb int; vc int;      -- quantas ele enxerga
 BEGIN
   -- Alvo: escolhido pelo próprio bloco, para não depender de edição à mão.
   -- Preferência: quem NÃO é admin; entre eles, o mais recente. Se todos forem
@@ -147,10 +150,11 @@ BEGIN
     RAISE EXCEPTION 'Nenhum usuário em user_tenant — não há o que testar';
   END IF;
 
-  -- Totais reais, medidos AINDA COMO DONO (sem RLS). São o denominador.
-  SELECT count(*) INTO ta FROM user_tenant;
-  SELECT count(*) INTO tb FROM user_acesso_regra;
-  SELECT count(*) INTO tc FROM user_acesso_funcao;
+  -- Medidos AINDA COMO DONO (sem RLS): o total de cada tabela e quantas
+  -- dessas linhas pertencem ao alvo. Sem os dois, "vê 4 de 4" é indecidível.
+  SELECT count(*), count(*) FILTER (WHERE user_id = uid) INTO ta, da FROM user_tenant;
+  SELECT count(*), count(*) FILTER (WHERE user_id = uid) INTO tb, db FROM user_acesso_regra;
+  SELECT count(*), count(*) FILTER (WHERE user_id = uid) INTO tc, dc FROM user_acesso_funcao;
 
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', uid, 'role', 'authenticated')::text, true);
@@ -163,8 +167,8 @@ BEGIN
   SELECT count(*) INTO vb FROM user_acesso_regra;
   SELECT count(*) INTO vc FROM user_acesso_funcao;
 
-  RAISE EXCEPTION 'RESULTADO 5.A — como % (papel: %) · user_tenant: vê % de % · user_acesso_regra: vê % de % · user_acesso_funcao: vê % de %',
-    mail, papel, va, ta, vb, tb, vc, tc;
+  RAISE EXCEPTION 'RESULTADO 5.A — como % (papel: %) · user_tenant: vê % de %, sendo % dele · user_acesso_regra: vê % de %, sendo % dele · user_acesso_funcao: vê % de %, sendo % dele',
+    mail, papel, va, ta, da, vb, tb, db, vc, tc, dc;
 END
 $teste$;
 
