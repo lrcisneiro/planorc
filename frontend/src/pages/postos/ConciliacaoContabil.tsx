@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { ConciliacaoQuadro } from './ConciliacaoQuadro'
-import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare, Search } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare, Search, Plus, X } from 'lucide-react'
 
 // Conciliação CONTÁBIL × FOLHA (camada 2), organizada por MODELO DE CONTRATAÇÃO
 // (v3_085) — porque é o modelo que decide por onde o dinheiro da pessoa chega à
@@ -30,6 +30,7 @@ type CLT = {
   verba_cod: string; verba_desc: string | null; razao: number; folha: number
 }
 type Patrim = { conta_cod: string; conta_desc: string; natureza: string; razao: number; folha: number }
+type Aglut = { conta_id: string; conta_cod: string; conta_desc: string; linha_desc: string | null; motivo: string; lancamentos: number; valor: number }
 type ItemRazao = { linha_id: string; razao_item: number }
 type ItemFora = { conta_cod: string; conta_desc: string; motivo: string; lancamentos: number; valor: number }
 type Hit = { conta_id: string; verba_cod: string; matricula: string; nome: string; cc_cod: string | null; valor: number }
@@ -109,6 +110,8 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   const [clt, setClt] = useState<CLT[]>([])
   const [outros, setOutros] = useState<Record<string, Outro>>({})
   const [patrim, setPatrim] = useState<Patrim[]>([])
+  const [aglut, setAglut] = useState<Aglut[]>([])
+  const [agForm, setAgForm] = useState<{ conta: string; motivo: string } | null>(null)
   const [itemRz, setItemRz] = useState<Record<string, ItemRazao>>({})
   const [tercTot, setTercTot] = useState<TercTotal[]>([])
   // busca por pessoa: no terceiro ela é a própria linha (filtra local); no CLT
@@ -160,7 +163,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     let vivo = true
     ;(async () => {
       setLoading(true); setErro(null); setAviso(null); setAberto(new Set()); setDrill({})
-      const [c, o, t, pt, ir, tz, n, tt] = await Promise.all([
+      const [c, o, t, pt, ir, tz, n, tt, ag] = await Promise.all([
         supabase.rpc('conciliacao_clt', { ...escopo, p_relatorio_id: relSel }),
         supabase.rpc('conciliacao_clt_outros', { ...escopo, p_relatorio_id: relSel }),
         supabase.rpc('conciliacao_terceiros', { ...escopo, p_relatorio_id: relSel }),
@@ -169,6 +172,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
         supabase.rpc('conciliacao_terceiros_total', { ...escopo, p_relatorio_id: relSel }),
         supabase.from('conciliacao_folha_nota').select('id,conta_id,verba_cod,motivo').eq('ano', p.ano).eq('mes', p.mes),
         supabase.from('tenant').select('conciliacao_tolerancia').eq('id', TENANT_ID).maybeSingle(),
+        supabase.rpc('conciliacao_aglutinadas', { ...escopo, p_relatorio_id: relSel }),
       ])
       if (!vivo) return
       if (c.error || t.error) { setErro((c.error || t.error)!.message); setClt([]); setTerc([]); setLoading(false); return }
@@ -186,6 +190,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
       const map: Record<string, Nota> = {}
       ;((n.data || []) as Nota[]).forEach(x => { map[chave(x.conta_id, x.verba_cod)] = x })
       setNotas(map)
+      setAglut(((ag.data || []) as Aglut[]).map(x => ({ ...x, valor: Number(x.valor) || 0, lancamentos: Number(x.lancamentos) || 0 })))
       const v = Number(tt.data?.conciliacao_tolerancia ?? 1)
       setTol(v); setTolTxt(money(v))
       setLoading(false)
@@ -256,6 +261,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     })).sort((a, b) => a.ordem - b.ordem || a.cod.localeCompare(b.cod))
   }, [contasClt, clt, outros, hitContas])
 
+  const totAglut = useMemo(() => aglut.reduce((s, a) => s + a.valor, 0), [aglut])
   const totPat = useMemo(() => patrim.reduce((s, p) => ({ razao: s.razao + p.razao, folha: s.folha + p.folha }), { razao: 0, folha: 0 }), [patrim])
 
   const repetidas = useMemo(() => {
@@ -346,6 +352,36 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     setAberto(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
     if (!drill[k]) { const d = await carregar(); setDrill(prev => ({ ...prev, [k]: d })) }
   }
+  // recarrega só o quadro das aglutinadas — marcar uma conta não muda a folha
+  const recarregaAglut = async () => {
+    const r = await supabase.rpc('conciliacao_aglutinadas', { ...escopo, p_relatorio_id: relSel })
+    setAglut(((r.data || []) as Aglut[]).map(x => ({ ...x, valor: Number(x.valor) || 0, lancamentos: Number(x.lancamentos) || 0 })))
+  }
+
+  const marcaAglutinada = async () => {
+    const cod = (agForm?.conta || '').trim(), motivo = (agForm?.motivo || '').trim()
+    if (!cod || !motivo) { setErro('Informe o código da conta e o motivo.'); return }
+    // o código se repete entre planos (multi-ERP): exigir que resolva em uma só
+    const { data: cs } = await supabase.from('conta_contabil').select('id,codigo,descricao,plano_id').eq('codigo', cod)
+    if (!cs?.length) { setErro(`Conta ${cod} não encontrada.`); return }
+    if (cs.length > 1) { setErro(`O código ${cod} existe em ${cs.length} planos de contas — marque pela tela de contas.`); return }
+    const { error } = await supabase.from('conciliacao_conta_aglutinada')
+      .insert({ tenant_id: TENANT_ID, conta_id: cs[0].id, motivo })
+    if (error) { setErro(error.message); return }
+    setErro(null); setAgForm(null); await recarregaAglut()
+    // sai do universo do terceiro: o bloco de pessoas tem de ser refeito
+    const t = await supabase.rpc('conciliacao_terceiros', { ...escopo, p_relatorio_id: relSel })
+    setTerc(((t.data || []) as Terc[]).map(x => ({ ...x, razao: Number(x.razao) || 0, folha: Number(x.folha) || 0 })))
+  }
+
+  const desmarcaAglutinada = async (contaId: string) => {
+    const { error } = await supabase.from('conciliacao_conta_aglutinada').delete().eq('conta_id', contaId)
+    if (error) { setErro(error.message); return }
+    await recarregaAglut()
+    const t = await supabase.rpc('conciliacao_terceiros', { ...escopo, p_relatorio_id: relSel })
+    setTerc(((t.data || []) as Terc[]).map(x => ({ ...x, razao: Number(x.razao) || 0, folha: Number(x.folha) || 0 })))
+  }
+
   const rpc = async (fn: string, args: any) => {
     const { data, error } = await supabase.rpc(fn, args)
     if (error) { setErro(error.message); return [] }
@@ -912,6 +948,63 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
           </table>}
         </div>
       )}
+
+      {/* ─── decidido que não tem dono ─── */}
+      <div style={S.card}>
+        <div style={{ ...S.head, cursor: 'pointer', borderBottom: aberto.has('agl') ? '1px solid var(--border)' : 'none' }}
+          onClick={() => setAberto(prev => { const n = new Set(prev); n.has('agl') ? n.delete('agl') : n.add('agl'); return n })}>
+          {aberto.has('agl') ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <h2 style={{ ...S.h2, fontWeight: 600, color: 'var(--text-mid)' }}>Pagamento aglutinado · sem dono por decisão</h2>
+          <span style={S.hsub}>
+            Conta em que o lançamento é de várias pessoas somadas — pró-labore dos sócios, por exemplo. Não é falta de
+            amarração: não há a quem amarrar. Sai do bloco de terceiros e continua dentro do item na DRE.
+          </span>
+          <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: 'var(--text-mid)', whiteSpace: 'nowrap' }}>
+            {aglut.length} conta(s) · {money(totAglut)}
+          </span>
+        </div>
+        {aberto.has('agl') && (
+          <>
+            <table style={S.table}>
+              <thead><tr>
+                <th style={S.th}>Conta</th><th style={S.th}>Item orçamentário</th>
+                <th style={S.th}>Motivo</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Lanç.</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Valor na DRE</th>
+                <th style={S.th} />
+              </tr></thead>
+              <tbody>
+                {aglut.map(a => (
+                  <tr key={a.conta_id}>
+                    <td style={S.td}><span style={S.mono}>{a.conta_cod}</span> {a.conta_desc}</td>
+                    <td style={{ ...S.td, color: 'var(--muted)' }}>{a.linha_desc || '— sem item —'}</td>
+                    <td style={{ ...S.td, color: 'var(--muted)' }}>{a.motivo}</td>
+                    <td style={{ ...S.td, textAlign: 'right', color: 'var(--muted)' }}>{a.lancamentos}</td>
+                    <td style={{ ...S.td, textAlign: 'right' }}>{money(a.valor)}</td>
+                    <td style={{ ...S.td, textAlign: 'right' }}>
+                      <button style={{ ...S.inp, padding: '3px 8px', fontSize: 11.5, cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center' }} title="Voltar a conciliar esta conta por pessoa"
+                        onClick={() => desmarcaAglutinada(a.conta_id)}><X size={13} /></button>
+                    </td>
+                  </tr>
+                ))}
+                {!aglut.length && <tr><td colSpan={6} style={S.empty}>Nenhuma conta marcada.</td></tr>}
+              </tbody>
+            </table>
+            <div style={{ padding: '8px 14px 12px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              {agForm
+                ? <>
+                    <input style={{ ...S.inp, width: 120 }} placeholder="código da conta" value={agForm.conta}
+                      onChange={e => setAgForm({ ...agForm, conta: e.target.value })} />
+                    <input style={{ ...S.inp, flex: 1, minWidth: 240 }} placeholder="por que não tem dono (fica registrado)"
+                      value={agForm.motivo} onChange={e => setAgForm({ ...agForm, motivo: e.target.value })} />
+                    <button style={{ ...S.inp, padding: '3px 8px', fontSize: 11.5, cursor: 'pointer', color: 'var(--violet)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }} onClick={marcaAglutinada}><Check size={13} /> Marcar</button>
+                    <button style={{ ...S.inp, padding: '3px 8px', fontSize: 11.5, cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center' }} onClick={() => setAgForm(null)}><X size={13} /></button>
+                  </>
+                : <button style={{ ...S.inp, padding: '3px 8px', fontSize: 11.5, cursor: 'pointer', color: 'var(--violet)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }} onClick={() => setAgForm({ conta: '', motivo: '' })}><Plus size={13} /> Marcar uma conta</button>}
+            </div>
+          </>
+        )}
+      </div>
 
       {/* ─── o que saiu da conferência, para não sumir ─── */}
       {!!patrim.length && (

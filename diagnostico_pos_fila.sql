@@ -64,8 +64,12 @@ SELECT 'razão', btrim(split_part(coalesce(fr.historico, ''), '-', 1)),
  ORDER BY 1, 2;
 
 -- ── 4. O par 950001 / 950100 ──
--- As duas têm de estar no MESMO master e com sinais que se anulem; senão a
--- linha da DRE inflava em ±272 mil. razao_dre já vem com o sinal da amarração.
+-- Aqui NÃO se pergunta de quem é o lançamento: é pró-labore dos sócios, pago de
+-- forma aglutinada, e ficou decidido que não se amarra a nomes (a v3_107 dá o
+-- lugar formal para isso). A pergunta desta consulta é outra e continua de pé:
+-- as duas contas estão no MESMO master, com sinais que se anulem? Se só um lado
+-- estiver amarrado, a linha da DRE infla ±272 mil sem nada parecer errado na
+-- tela. razao_dre já vem com o sinal da amarração aplicado.
 -- o razão vem por subselect, não por join: conta amarrada a dois masters
 -- devolve duas linhas aqui, e um join multiplicaria o valor por elas.
 SELECT cc.codigo AS conta, left(cc.descricao, 30) AS descricao, cc.natureza,
