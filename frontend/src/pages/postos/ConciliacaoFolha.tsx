@@ -628,7 +628,17 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
                   <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: it.orc ? 'var(--text)' : 'var(--muted)' }}>{it.orc ? money(it.orc) : '—'}</td>
                   <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: it.real ? 'var(--text)' : 'var(--muted)' }}>{it.real ? money(it.real) : '—'}</td>
                   {p.ref && <>
-                    <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: it.dreOrc ? 'var(--violet)' : 'var(--muted)' }}>{it.dreOrc ? money(it.dreOrc) : '—'}</td>
+                    <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: it.dreOrc ? 'var(--violet)' : 'var(--muted)' }}>
+                      {it.dreOrc ? money(it.dreOrc) : '—'}
+                      {/* mesma magnitude e sinal contrário não é divergência de
+                          valor: é convenção. A linha de despesa GRAVA com sinal
+                          e o Aplicar grava o custo positivo — vale nomear, senão
+                          parece diferença de número. */}
+                      {!!it.dreOrc && !!it.orc && Math.sign(it.dreOrc) !== Math.sign(it.orc)
+                        && Math.abs(Math.abs(it.dreOrc) - Math.abs(it.orc)) < 0.05 &&
+                        <span title="Mesmo valor, sinal contrário. A linha é de DESPESA: o relatório exibe positivo e grava com sinal, e o Aplicar dos postos grava o custo positivo. Não é diferença de orçamento — é o sinal com que o orçado de posto entra na DRE."
+                          style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: 'var(--orange)', border: '1px solid rgba(251,146,60,0.4)', borderRadius: 4, padding: '0 4px' }}>sinal trocado</span>}
+                    </td>
                     <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: it.dreReal ? 'var(--violet)' : 'var(--muted)' }}>{it.dreReal ? money(it.dreReal) : '—'}</td>
                   </>}
                 </tr>
