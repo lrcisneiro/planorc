@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { cascataRateio } from '../../lib/rateioFolha'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
+import { decodeCC } from '../../lib/ccDims'
 import { AlertCircle, ChevronDown, ChevronRight, Search, X } from 'lucide-react'
 
 // Corpo reutilizável da conciliação de folha (Orçado motor × Realizado folha, por posto).
@@ -20,7 +21,11 @@ export type ConcilParams = {
   contaToItem?: Record<string, string>   // conta_contabil → item orçamentário (vindo pronto do DRE); sem isto, resolve no banco
   slot?: number   // multimoeda: moeda em exibição (val_m<slot>); 1 = base/BRL
 }
-type Linha = { key: string; posto_id: string | null; codigo: string; nome: string; matricula: string; cargo: string; empCod: string; filCod: string; ccCod: string; ccDesc: string; orcado: number; realizado: number; divergDims: string[] }
+type Linha = { key: string; posto_id: string | null; codigo: string; nome: string; matricula: string; cargo: string; empCod: string; filCod: string; ccCod: string; ccDesc: string; orcado: number; realizado: number; divergDims: string[]
+  // sem orçado na versão = grupo "Realizado sem orçamento". Vem de ter ou não
+  // linha de orçado no período — não de o valor filtrado ter dado zero, senão
+  // um posto orçado fora do recorte seria acusado de nunca ter sido previsto.
+  semOrcado: boolean; motivoSem: 'sem posto' | 'posto não orçado' | ''; filialId: string | null }
 type VerbaReal = { verba_cod: string; verba_desc: string; conta_id: string | null; item_orc_id: string | null; valor: number }
 type DimCell = { empId: string | null; filId: string | null; ccId: string | null; orc: number; real: number }
 
@@ -67,12 +72,17 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
   // 'posto' = por posto (headcount, filtra pela ORIGEM); 'rateado' = gerencial (orçado rateado, filtra pelo DESTINO)
   const [modo, setModo] = useLocalPref<'posto' | 'rateado'>('planorc_concil_modo', 'posto')
   const [soDiverg, setSoDiverg] = useState(false)   // filtro rápido: só postos com realizado fora da origem
-  // Matrícula sem posto cadastrado: ligado, a conciliação é só sobre o que foi
-  // orçado (leitura de orçamento). Desligado, cada matrícula sem posto vira UMA
-  // linha nomeada — um balde único agregado por verba não permite conciliar nada,
-  // porque a pergunta seguinte é sempre "quem?".
-  const [soOrcados, setSoOrcados] = useLocalPref('planorc_concil_so_orcados', true)
-  const [dimBreak, setDimBreak] = useState<Record<string, DimCell[]>>({})   // posto → células (empresa×filial×CC) orç×real
+  // O que a folha pagou e o orçamento não previu fica em quadro PRÓPRIO, não
+  // escondido atrás de um filtro: os dois quadros juntos têm de dar a folha do
+  // período, e isso é a prova de que nada ficou de fora (o rodapé mostra).
+  const [semAberto, setSemAberto] = useLocalPref('planorc_concil_sem_orc_aberto', true)
+  // células (empresa×filial×CC) por posto, SEM filtro de escopo — é o painel do
+  // Δ: quem orçou quer ver onde o realizado caiu, não só que aqui não caiu.
+  const [dimFull, setDimFull] = useState<Record<string, DimCell[]>>({})
+  // chave filial+matrícula: matrícula sozinha é ambígua entre filiais (medido:
+  // 69 colisões em 168 matrículas), e aqui uma colisão inventaria dinheiro.
+  const [semVinculo, setSemVinculo] = useState<Record<string, number>>({})  // filial|matrícula → folha sem posto_id
+  const [folhaPeriodo, setFolhaPeriodo] = useState(0)   // folha do período inteira, sem recorte — o alvo da prova
   const [modalDim, setModalDim] = useState<Linha | null>(null)   // posto aberto no modal comparativo de dimensões
   // multimoeda: lê a coluna do slot em exibição; símbolo p/ os KPIs
   const slot = p.slot ?? 1
@@ -152,14 +162,20 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
           return s
         }
 
-        // breakdown por (empresa×filial×CC) por posto — alimenta o modal comparativo
-        // "onde está o orçado × onde caiu o realizado" (só modo posto).
+        // breakdown por (empresa×filial×CC) por posto — alimenta o painel do Δ.
+        // Montado num passe PRÓPRIO, depois das somas, porque ele ignora o
+        // escopo de propósito: é o quadro que responde "caiu em outro lugar".
         const dimTmp: Record<string, Record<string, DimCell>> = {}
         const addDim = (pid: string, empId: any, filId: any, ccId: any, field: 'orc' | 'real', val: number) => {
           const dk = `${empId}|${filId}|${ccId}`; const dm = (dimTmp[pid] ||= {})
           const cell = (dm[dk] ||= { empId: empId || null, filId: filId || null, ccId: ccId || null, orc: 0, real: 0 })
           cell[field] += val
         }
+        // Quem tem orçado no período, ANTES do escopo: é o que separa "não foi
+        // previsto" de "foi previsto, mas o recorte atual não o alcança".
+        const orcadoNaVersao = new Set<string>(
+          orcRows.filter((r: any) => inPer(r) && r.posto_id).map((r: any) => r.posto_id as string))
+
         // ORÇADO por posto + detalhe por verba
         const semInfo: Record<string, { matricula: string; nome: string; emp: string | null; fil: string | null; cc: string | null }> = {}
         const orcById: Record<string, number> = {}, orcTmp: Record<string, Record<string, VerbaReal>> = {}
@@ -172,8 +188,6 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
           else { fator = pctEscopo(r.posto_id); if (!fator) continue }
           const v = sv(r) * fator
           orcById[pid] = (orcById[pid] || 0) + v
-          // breakdown: distribui o orçado pelos destinos do rateio (sem rateio = origem)
-          if (modo === 'posto') for (const c of orcCells(pid)) addDim(pid, c.empId, c.filId, c.ccId, 'orc', v * c.pct)
           const t = (orcTmp[pid] ||= {}); const k = `${r.verba_cod}|${r.item_orc_id}`
           if (t[k]) t[k].valor += v; else t[k] = { verba_cod: r.verba_cod || '', verba_desc: r.verba_desc || '', conta_id: null, item_orc_id: r.item_orc_id || null, valor: v }
         }
@@ -205,7 +219,6 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
           // empregador — e o orçado (motor) não os modela. Fora do realizado da conciliação.
           if ((r.tipo_verba || '').startsWith('Desconto')) continue
           const semPosto = !r.posto_id
-          if (semPosto && soOrcados) continue
           const pid = r.posto_id || `sem:${(r.matricula || '').trim() || (r.nome || '?').trim()}`
           const po = postoById[r.posto_id]
           // realizado vem JÁ distribuído do ERP: modo posto filtra pela ORIGEM; rateado pelo DESTINO (linha da folha)
@@ -226,7 +239,6 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
           }
           const v = sv(r)
           realById[pid] = (realById[pid] || 0) + v
-          if (modo === 'posto') addDim(pid, r.empresa_id, r.filial_id, r.cc_id, 'real', v)
           const t = (realTmp[pid] ||= {}); const k = `${r.verba_cod}|${r.conta_id}`
           if (t[k]) t[k].valor += v; else t[k] = { verba_cod: r.verba_cod || '', verba_desc: r.verba_desc || '', conta_id: r.conta_id || null, item_orc_id: r.item_orc_id || fallbackItem[r.conta_id] || null, valor: v }
         }
@@ -249,6 +261,31 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
           ;(data || []).forEach((x: any) => { cod[k][x.id] = x.codigo })
         }))
 
+        // ── passe SEM escopo: alimenta o painel do Δ e a prova de soma ──
+        // Mesma regra de verba das somas (desconto é retenção, fica fora), senão a
+        // prova compararia dois universos e a sobra seria inexplicável.
+        for (const r of orcRows) {
+          if (!inPer(r)) continue
+          const pid = r.posto_id || '(sem posto)'
+          const v = sv(r)
+          if (r.posto_id) for (const c of orcCells(pid)) addDim(pid, c.empId, c.filId, c.ccId, 'orc', v * c.pct)
+          else addDim(pid, r.empresa_id, r.filial_id, r.cc_id, 'orc', v)
+        }
+        let folhaPeriodo = 0
+        const semVinc: Record<string, number> = {}
+        for (const r of realRows) {
+          if (!inPer(r)) continue
+          if ((r.tipo_verba || '').startsWith('Desconto')) continue
+          const v = sv(r)
+          folhaPeriodo += v
+          const pid = r.posto_id || `sem:${(r.matricula || '').trim() || (r.nome || '?').trim()}`
+          addDim(pid, r.empresa_id, r.filial_id, r.cc_id, 'real', v)
+          // folha desta matrícula que não casou com posto nenhum: o painel de um
+          // posto precisa citá-la, senão "não houve realizado" engana de novo
+          if (!r.posto_id) { const m = (r.matricula || '').trim(); if (m) { const k = `${r.filial_id || ''}|${m}`; semVinc[k] = (semVinc[k] || 0) + v } }
+        }
+        setSemVinculo(semVinc); setFolhaPeriodo(folhaPeriodo)
+
         const merge: Linha[] = [...new Set([...Object.keys(orcById), ...Object.keys(realById)])].map(pid => {
           const q = postoById[pid]
           const sp = semInfo[pid]
@@ -256,21 +293,34 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
             key: pid, posto_id: sp ? null : pid,
             codigo: q?.codigo || (sp ? (sp.matricula || '—') : '?'),
             nome: q?.nome || (sp ? (sp.nome || 'Sem posto') : 'Vaga'),
+            filialId: q?.filial_id || sp?.fil || null,
             matricula: q?.matricula || sp?.matricula || '', cargo: q?.cargo?.nome || (sp ? 'sem posto cadastrado' : ''),
             empCod: q?.empresa?.codigo || (sp?.emp ? cod.emp[sp.emp] || '' : ''),
             filCod: q?.filial?.codigo || (sp?.fil ? cod.fil[sp.fil] || '' : ''),
             ccCod: q?.centro_custo?.codigo || (sp?.cc ? cod.cc[sp.cc] || '' : ''), ccDesc: q?.centro_custo?.descricao || '',
             orcado: orcById[pid] || 0, realizado: realById[pid] || 0,
             divergDims: sp ? ['sem posto'] : [...(divergById[pid] || [])],
+            semOrcado: !orcadoNaVersao.has(pid),
+            motivoSem: orcadoNaVersao.has(pid) ? '' : (sp ? 'sem posto' : 'posto não orçado'),
           }
         })
         const dimByPosto: Record<string, DimCell[]> = {}
         for (const pid in dimTmp) dimByPosto[pid] = Object.values(dimTmp[pid]).sort((a, b) => (b.orc + b.real) - (a.orc + a.real))
-        setLinhas(merge); setOrcDet(orcDetail); setRealDet(realDetail); setDimBreak(dimByPosto)
+        setLinhas(merge); setOrcDet(orcDetail); setRealDet(realDetail); setDimFull(dimByPosto)
       } catch (e: any) { setErro(e?.message || String(e)) }
       finally { setLoading(false) }
     })()
-  }, [modo, slot, soOrcados, p.versaoId, JSON.stringify(p.meses), JSON.stringify(p.masterIds), JSON.stringify(p.contaIds), JSON.stringify(p.empresaSel), JSON.stringify(p.filialFilter), JSON.stringify(p.ccFilter), JSON.stringify(p.contaToItem)]) // eslint-disable-line
+  }, [modo, slot, p.versaoId, JSON.stringify(p.meses), JSON.stringify(p.masterIds), JSON.stringify(p.contaIds), JSON.stringify(p.empresaSel), JSON.stringify(p.filialFilter), JSON.stringify(p.ccFilter), JSON.stringify(p.contaToItem)]) // eslint-disable-line
+
+  // o painel do Δ mostra tudo; esta função é só para MARCAR o que o recorte atual alcança
+  const dentroEscopo = useMemo(() => {
+    const sE = p.empresaSel?.length ? new Set(p.empresaSel) : null
+    const sF = p.filialFilter ? new Set(p.filialFilter) : null
+    const sC = p.ccFilter ? new Set(p.ccFilter) : null
+    if (!sE && !sF && !sC) return null   // sem filtro: nada a marcar
+    return (e: string | null, f: string | null, c: string | null) =>
+      Boolean((!sE || (e && sE.has(e))) && (!sF || (f && sF.has(f))) && (!sC || (c && sC.has(c))))
+  }, [JSON.stringify(p.empresaSel), JSON.stringify(p.filialFilter), JSON.stringify(p.ccFilter)]) // eslint-disable-line
 
   const nDiverg = useMemo(() => linhas.filter(l => l.divergDims.length > 0).length, [linhas])
   useEffect(() => { if (nDiverg === 0 && soDiverg) setSoDiverg(false) }, [nDiverg]) // eslint-disable-line
@@ -279,23 +329,38 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
     return linhas.filter(l => (!soDiverg || l.divergDims.length > 0)
       && (!q || [l.codigo, l.nome, l.matricula, l.cargo, l.empCod, l.filCod, l.ccCod, l.ccDesc].some(x => (x || '').toLowerCase().includes(q))))
   }, [linhas, busca, soDiverg])
+  // os dois quadros. A partição é por ter sido orçado, não por ter posto:
+  // posto cadastrado e não orçado é surpresa de orçamento igual à admissão fora do plano.
+  const orcados = useMemo(() => filtrados.filter(l => !l.semOrcado), [filtrados])
+  const semOrc  = useMemo(() => filtrados.filter(l => l.semOrcado), [filtrados])
   const ordenar = (arr: Linha[]) => {
     const val = (l: Linha) => ordem.col === 'orcado' ? l.orcado : ordem.col === 'realizado' ? l.realizado : ordem.col === 'codigo' ? l.codigo : (l.orcado - l.realizado)
     return [...arr].sort((a, b) => { const va = val(a) as any, vb = val(b) as any; return (typeof va === 'string' ? va.localeCompare(vb) : (Math.abs(vb) - Math.abs(va))) * ordem.dir })
   }
-  const linhasOrd = useMemo(() => ordenar(filtrados), [filtrados, ordem]) // eslint-disable-line
-  const grupos = useMemo(() => {
+  type Grupo = { key: string; label: string; linhas: Linha[]; orc: number; real: number }
+  const agrupa = (rows: Linha[], pref: string): Grupo[] | null => {
     if (agrupar === 'nenhum') return null
-    const m = new Map<string, { key: string; label: string; linhas: Linha[]; orc: number; real: number }>()
-    for (const l of filtrados) {
-      const k = agrupar === 'cc' ? (l.ccCod || '(sem CC)') : (l.cargo || '(sem cargo)')
+    const m = new Map<string, Grupo>()
+    for (const l of rows) {
+      const k = pref + (agrupar === 'cc' ? (l.ccCod || '(sem CC)') : (l.cargo || '(sem cargo)'))
       const label = agrupar === 'cc' ? (l.ccCod ? `${l.ccCod} · ${l.ccDesc}` : 'Sem centro de custo') : (l.cargo || 'Sem cargo')
       let g = m.get(k); if (!g) { g = { key: k, label, linhas: [], orc: 0, real: 0 }; m.set(k, g) }
       g.linhas.push(l); g.orc += l.orcado; g.real += l.realizado
     }
     return [...m.values()].sort((a, b) => Math.abs(b.orc - b.real) - Math.abs(a.orc - a.real))
-  }, [filtrados, agrupar])
-  const tot = useMemo(() => filtrados.reduce((s, l) => ({ orc: s.orc + l.orcado, real: s.real + l.realizado }), { orc: 0, real: 0 }), [filtrados])
+  }
+  const grupos  = useMemo(() => agrupa(orcados, 'o:'), [orcados, agrupar])  // eslint-disable-line
+  const grupos2 = useMemo(() => agrupa(semOrc, 's:'),  [semOrc, agrupar])   // eslint-disable-line
+  const somar = (rows: Linha[]) => rows.reduce((s, l) => ({ orc: s.orc + l.orcado, real: s.real + l.realizado }), { orc: 0, real: 0 })
+  const tot  = useMemo(() => somar(filtrados), [filtrados]) // eslint-disable-line
+  const tot1 = useMemo(() => somar(orcados),   [orcados])   // eslint-disable-line
+  const tot2 = useMemo(() => somar(semOrc),    [semOrc])    // eslint-disable-line
+  // A prova é sobre o DADO, não sobre a busca: soma as linhas todas, não as filtradas.
+  const prova = useMemo(() => {
+    const g1 = linhas.filter(l => !l.semOrcado).reduce((s, l) => s + l.realizado, 0)
+    const g2 = linhas.filter(l => l.semOrcado).reduce((s, l) => s + l.realizado, 0)
+    return { g1, g2, conferido: g1 + g2, folha: folhaPeriodo, fora: folhaPeriodo - g1 - g2 }
+  }, [linhas, folhaPeriodo])
   const sortClick = (col: string) => setOrdem(o => o.col === col ? { col, dir: (o.dir === 1 ? -1 : 1) } : { col, dir: 1 })
   const seta = (col: string) => ordem.col === col ? (ordem.dir === 1 ? ' ↓' : ' ↑') : ''
   const corDelta = (d: number) => Math.abs(d) < 0.005 ? 'var(--muted)' : d < 0 ? 'var(--red)' : 'var(--green)'
@@ -323,6 +388,9 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
           {!l.posto_id
             ? <span title="A folha pagou esta matrícula e nenhum posto foi encontrado para ela: admissão fora do plano, substituição em posto existente ou matrícula divergente entre o cadastro e a folha. Não há orçado a comparar."
                 style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: 'var(--red)', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.4)', borderRadius: 4, padding: '1px 6px', whiteSpace: 'nowrap' }}>≠ sem posto relacionado</span>
+            : l.semOrcado
+            ? <span title="O posto está cadastrado, mas não tem linha de orçado nesta versão/período. A folha pagou; o orçamento não previu."
+                style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: 'var(--orange)', background: 'rgba(251,146,60,0.14)', border: '1px solid rgba(251,146,60,0.4)', borderRadius: 4, padding: '1px 6px', whiteSpace: 'nowrap' }}>posto não orçado</span>
             : l.divergDims.length > 0 && <span onClick={e => { e.stopPropagation(); setModalDim(l) }}
               title={`Realizado em ${l.divergDims.join(' / ')} diferente da origem do posto. Clique para comparar empresa×filial×CC orçado × realizado.`}
               style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: 'var(--orange)', background: 'rgba(251,146,60,0.14)', border: '1px solid rgba(251,146,60,0.4)', borderRadius: 4, padding: '1px 6px', whiteSpace: 'nowrap', cursor: 'pointer' }}>≠ {l.divergDims.join('/')}</span>}
@@ -332,8 +400,15 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
         <td style={{ ...S.td, textAlign: 'right' }}>{money(l.realizado)}</td>
         <td style={{ ...S.td, textAlign: 'right', color: corDelta(d), fontWeight: 600 }}>{money(d)}</td>
         <td style={{ ...S.td, textAlign: 'right', color: corDelta(d) }}>{l.realizado ? `${(d / Math.abs(l.realizado) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : (l.orcado ? '—' : '')}</td>
+        {/* o Δ diz QUANTO faltou; este link diz ONDE foi parar. Vale mesmo com
+            Δ zero: bater no total e bater no lugar são coisas diferentes. */}
+        <td style={{ ...S.td, textAlign: 'right', padding: '6px 10px' }}>
+          <span onClick={e => { e.stopPropagation(); setModalDim(l) }}
+            title="Compara orçado × realizado deste posto por empresa · filial · CC, SEM os filtros da tela — é onde o realizado caiu de fato."
+            style={{ fontSize: 11, color: 'var(--violet)', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: '1px dotted var(--violet)' }}>onde caiu ▸</span>
+        </td>
       </tr>
-      {open && <tr><td colSpan={7} style={{ background: 'var(--bg-soft)', padding: '4px 16px 12px 34px', borderBottom: '1px solid var(--panel-2)' }}>
+      {open && <tr><td colSpan={8} style={{ background: 'var(--bg-soft)', padding: '4px 16px 12px 34px', borderBottom: '1px solid var(--panel-2)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
           <thead><tr>
             <th style={S.dh}>Item · verba</th>
@@ -367,6 +442,48 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
     )
   }
 
+  // mesma tabela nos dois quadros: as colunas e o comportamento são os mesmos,
+  // o que muda é quem entra em cada um.
+  const tabela = (rows: Linha[], grps: Grupo[] | null, vazio: string, t: { orc: number; real: number }, unidade: string) => (
+    <table style={S.table}>
+      <thead><tr>
+        <th style={S.th} onClick={() => sortClick('codigo')}>Posto{seta('codigo')}</th>
+        <th style={{ ...S.th, cursor: 'default' }}>Ocupante</th>
+        <th style={{ ...S.th, cursor: 'default' }}>Empresa · Filial · CC</th>
+        <th style={{ ...S.th, textAlign: 'right' }} onClick={() => sortClick('orcado')}>Orçado{seta('orcado')}</th>
+        <th style={{ ...S.th, textAlign: 'right' }} onClick={() => sortClick('realizado')}>Realizado{seta('realizado')}</th>
+        <th style={{ ...S.th, textAlign: 'right' }} onClick={() => sortClick('delta')}>Δ{seta('delta')}</th>
+        <th style={{ ...S.th, textAlign: 'right', cursor: 'default' }}>Δ%</th>
+        <th style={{ ...S.th, cursor: 'default' }} />
+      </tr></thead>
+      <tbody>
+        {loading && <tr><td colSpan={8} style={{ ...S.td, textAlign: 'center', color: 'var(--muted)', padding: 24 }}>Carregando…</td></tr>}
+        {!loading && !grps && ordenar(rows).map(renderLinha)}
+        {!loading && grps && grps.map(g => { const gd = g.orc - g.real; const gopen = !fechados.has(g.key); return (
+          <Fragment key={'g:' + g.key}>
+            <tr onClick={() => toggleGrupo(g.key)}>
+              <td colSpan={3} style={S.gh}>{gopen ? <ChevronDown size={12} style={{ verticalAlign: -2 }} /> : <ChevronRight size={12} style={{ verticalAlign: -2 }} />} {g.label} <span style={{ fontWeight: 400, color: 'var(--muted)' }}>· {g.linhas.length} {unidade}</span></td>
+              <td style={{ ...S.gh, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(g.orc)}</td>
+              <td style={{ ...S.gh, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(g.real)}</td>
+              <td style={{ ...S.gh, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: corDelta(gd) }}>{money(gd)}</td>
+              <td style={{ ...S.gh, textAlign: 'right', color: corDelta(gd) }}>{g.real ? `${(gd / Math.abs(g.real) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : '—'}</td>
+              <td style={S.gh} />
+            </tr>
+            {gopen && ordenar(g.linhas).map(renderLinha)}
+          </Fragment>
+        ) })}
+        {!loading && !rows.length && <tr><td colSpan={8} style={S.empty}>{vazio}</td></tr>}
+      </tbody>
+      {!loading && rows.length > 0 && <tfoot><tr>
+        <td style={{ ...S.td, fontWeight: 700 }} colSpan={3}>Total</td>
+        <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{money(t.orc)}</td>
+        <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{money(t.real)}</td>
+        <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, color: corDelta(t.orc - t.real) }}>{money(t.orc - t.real)}</td>
+        <td style={S.td} /><td style={S.td} />
+      </tr></tfoot>}
+    </table>
+  )
+
   return (
     <>
       {erro && <div style={S.erro}><AlertCircle size={14} /> {erro}</div>}
@@ -383,12 +500,6 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
             <option value="posto">Por posto (headcount)</option>
             <option value="rateado">Rateado (gerencial)</option>
           </select>
-        </div>
-        <div style={S.fld}><span style={S.lbl}>Escopo</span>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-mid)', cursor: 'pointer', padding: '7px 0' }}
-            title="Ligado: concilia só o que foi orçado. Desligado: acrescenta as matrículas da folha que não casaram com nenhum posto, cada uma na sua linha, com nome.">
-            <input type="checkbox" checked={soOrcados} onChange={e => setSoOrcados(e.target.checked)} /> Só postos orçados
-          </label>
         </div>
         <div style={S.fld}><span style={S.lbl}>Buscar</span>
           <div style={{ position: 'relative' }}>
@@ -427,64 +538,85 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
         )}
       </div>
 
+      {/* ── quadro 1: o que foi orçado ── */}
       <div style={S.card}>
-        <div style={S.cardT}>Por posto <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— {filtrados.length} de {linhas.length} · {modo === 'rateado' ? 'orçado rateado, filtros pelo destino (empresa/filial/CC)' : 'headcount, filtros pela origem do posto'} · clique p/ ver verbas · Δ vermelho = realizado &gt; orçado · realizado = custo (descontos de funcionário fora)</span></div>
+        <div style={S.cardT}>Postos orçados <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— {orcados.length} de {linhas.filter(l => !l.semOrcado).length} · {modo === 'rateado' ? 'orçado rateado, filtros pelo destino (empresa/filial/CC)' : 'headcount, filtros pela origem do posto'} · clique p/ ver verbas · Δ vermelho = realizado &gt; orçado · realizado = custo (descontos de funcionário fora)</span></div>
         <div style={{ maxHeight: 620, overflow: 'auto' }}>
-          <table style={S.table}>
-            <thead><tr>
-              <th style={S.th} onClick={() => sortClick('codigo')}>Posto{seta('codigo')}</th>
-              <th style={{ ...S.th, cursor: 'default' }}>Ocupante</th>
-              <th style={{ ...S.th, cursor: 'default' }}>Empresa · Filial · CC</th>
-              <th style={{ ...S.th, textAlign: 'right' }} onClick={() => sortClick('orcado')}>Orçado{seta('orcado')}</th>
-              <th style={{ ...S.th, textAlign: 'right' }} onClick={() => sortClick('realizado')}>Realizado{seta('realizado')}</th>
-              <th style={{ ...S.th, textAlign: 'right' }} onClick={() => sortClick('delta')}>Δ{seta('delta')}</th>
-              <th style={{ ...S.th, textAlign: 'right', cursor: 'default' }}>Δ%</th>
-            </tr></thead>
-            <tbody>
-              {loading && <tr><td colSpan={7} style={{ ...S.td, textAlign: 'center', color: 'var(--muted)', padding: 24 }}>Carregando…</td></tr>}
-              {!loading && agrupar === 'nenhum' && linhasOrd.map(renderLinha)}
-              {!loading && agrupar !== 'nenhum' && (grupos || []).map(g => { const gd = g.orc - g.real; const gopen = !fechados.has(g.key); return (
-                <Fragment key={'g:' + g.key}>
-                  <tr onClick={() => toggleGrupo(g.key)}>
-                    <td colSpan={3} style={S.gh}>{gopen ? <ChevronDown size={12} style={{ verticalAlign: -2 }} /> : <ChevronRight size={12} style={{ verticalAlign: -2 }} />} {g.label} <span style={{ fontWeight: 400, color: 'var(--muted)' }}>· {g.linhas.length} posto(s)</span></td>
-                    <td style={{ ...S.gh, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(g.orc)}</td>
-                    <td style={{ ...S.gh, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(g.real)}</td>
-                    <td style={{ ...S.gh, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: corDelta(gd) }}>{money(gd)}</td>
-                    <td style={{ ...S.gh, textAlign: 'right', color: corDelta(gd) }}>{g.real ? `${(gd / Math.abs(g.real) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : '—'}</td>
-                  </tr>
-                  {gopen && ordenar(g.linhas).map(renderLinha)}
-                </Fragment>
-              ) })}
-              {!loading && !filtrados.length && <tr><td colSpan={7} style={S.empty}>{linhas.length ? 'Nenhum posto para a busca.' : 'Sem orçado-posto nem realizado-folha neste escopo/competência.'}</td></tr>}
-            </tbody>
-            {!loading && filtrados.length > 0 && <tfoot><tr>
-              <td style={{ ...S.td, fontWeight: 700 }} colSpan={3}>Total</td>
-              <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{money(tot.orc)}</td>
-              <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{money(tot.real)}</td>
-              <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, color: corDelta(tot.orc - tot.real) }}>{money(tot.orc - tot.real)}</td>
-              <td style={S.td} />
-            </tr></tfoot>}
-          </table>
+          {tabela(orcados, grupos, linhas.length ? 'Nenhum posto orçado para a busca.' : 'Sem orçado-posto nem realizado-folha neste escopo/competência.', tot1, 'posto(s)')}
         </div>
       </div>
-      {modalDim && <DimModal linha={modalDim} cells={dimBreak[modalDim.key] || []} onClose={() => setModalDim(null)} />}
+
+      {/* ── quadro 2: o que a folha pagou e o orçamento não previu ── */}
+      {!loading && semOrc.length > 0 && (
+        <div style={{ ...S.card, marginTop: 16 }}>
+          <div style={{ ...S.cardT, display: 'flex', alignItems: 'baseline', gap: 8, cursor: 'pointer' }} onClick={() => setSemAberto(v => !v)}>
+            {semAberto ? <ChevronDown size={14} style={{ flexShrink: 0 }} /> : <ChevronRight size={14} style={{ flexShrink: 0 }} />}
+            Realizado sem orçamento
+            <span style={{ fontWeight: 400, color: 'var(--muted)', flex: 1 }}>— {semOrc.length} · matrícula que a folha pagou e o orçamento não previu: admissão fora do plano, substituição, ou posto cadastrado que ninguém orçou</span>
+            <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--red)', whiteSpace: 'nowrap' }}>{money(tot2.real)}</span>
+          </div>
+          {semAberto && <div style={{ maxHeight: 420, overflow: 'auto' }}>
+            {tabela(semOrc, grupos2, 'Nenhuma linha para a busca.', tot2, 'pessoa(s)')}
+          </div>}
+        </div>
+      )}
+
+      {/* ── a prova: os dois quadros têm de dar a folha do período ── */}
+      {!loading && (
+        <div style={{ ...S.card, marginTop: 16 }}>
+          <div style={S.cardT}>Prova de soma <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— contra a folha{p.contaIds || p.masterIds ? ' destes itens' : ''}, no período selecionado</span></div>
+          <table style={S.table}>
+            <tbody>
+              {([['Postos orçados', prova.g1], ['Realizado sem orçamento', prova.g2]] as [string, number][]).map(([lbl, v], i) => (
+                <tr key={i}><td style={S.td}>{lbl}</td><td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(v)}</td></tr>
+              ))}
+              <tr><td style={{ ...S.td, fontWeight: 700 }}>= conferido nos dois quadros</td>
+                <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{money(prova.conferido)}</td></tr>
+              <tr><td style={{ ...S.td, color: 'var(--muted)' }}>Folha do período, sem recorte de empresa/filial/CC</td>
+                <td style={{ ...S.td, textAlign: 'right', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{money(prova.folha)}</td></tr>
+              <tr><td style={{ ...S.td, color: Math.abs(prova.fora) < 0.005 ? 'var(--green)' : 'var(--orange)' }}>
+                  {Math.abs(prova.fora) < 0.005
+                    ? 'Fecha: tudo o que a folha pagou está num dos dois quadros.'
+                    : 'Fora do recorte atual — folha do período que os filtros desta tela não alcançam'}</td>
+                <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: Math.abs(prova.fora) < 0.005 ? 'var(--green)' : 'var(--orange)' }}>{money(prova.fora)}</td></tr>
+            </tbody>
+          </table>
+          <div style={{ padding: '8px 14px 12px', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.6 }}>
+            A prova é contra a <b>folha</b>, que é a fonte dos dois quadros — por isso fecha. O valor dos mesmos itens na
+            <b> DRE</b> vem do <b>razão</b>, e a distância entre folha e razão (contabilização, nota de PJ, resíduo) é assunto da
+            conciliação <b>Contábil × Folha</b>, não desta tela.
+            {modo === 'posto' && (p.empresaSel?.length || p.filialFilter || p.ccFilter) ? <>
+              {' '}No modo <b>por posto</b> os dois quadros usam recortes diferentes — o posto orçado entra pela origem e traz
+              a folha dele inteira, a matrícula sem posto entra pela própria linha —, então a sobra acima mistura os dois
+              critérios. Para uma prova exata, tire o filtro ou use o modo rateado.
+            </> : null}
+          </div>
+        </div>
+      )}
+
+      {modalDim && <DimModal linha={modalDim} cells={dimFull[modalDim.key] || []} dentro={dentroEscopo}
+        semVinculo={modalDim.posto_id && modalDim.matricula ? (semVinculo[`${modalDim.filialId || ''}|${modalDim.matricula}`] || 0) : 0}
+        onClose={() => setModalDim(null)} />}
     </>
   )
 }
 
 // Modal comparativo empresa×filial×CC: onde está o ORÇADO × onde caiu o REALIZADO,
 // para um posto. Resolve os códigos das dimensões sob demanda (só as usadas).
-function DimModal({ linha, cells, onClose }: { linha: Linha; cells: DimCell[]; onClose: () => void }) {
+type Dentro = ((e: string | null, f: string | null, c: string | null) => boolean) | null
+function DimModal({ linha, cells, dentro, semVinculo, onClose }:
+  { linha: Linha; cells: DimCell[]; dentro: Dentro; semVinculo: number; onClose: () => void }) {
   const [emp, setEmp] = useState<Record<string, string>>({})
   const [fil, setFil] = useState<Record<string, string>>({})
   const [cc, setCc] = useState<Record<string, string>>({})
+  const [ccCod, setCcCod] = useState<Record<string, string>>({})
   useEffect(() => {
     const uniq = (f: (c: DimCell) => string | null) => [...new Set(cells.map(f).filter(Boolean))] as string[]
     const eids = uniq(c => c.empId), fids = uniq(c => c.filId), cids = uniq(c => c.ccId)
     ;(async () => {
       if (eids.length) { const { data } = await supabase.from('empresa').select('id,codigo').in('id', eids); setEmp(Object.fromEntries((data || []).map((x: any) => [x.id, x.codigo]))) }
       if (fids.length) { const { data } = await supabase.from('filial').select('id,codigo').in('id', fids); setFil(Object.fromEntries((data || []).map((x: any) => [x.id, x.codigo]))) }
-      if (cids.length) { const { data } = await supabase.from('centro_custo').select('id,codigo,descricao').in('id', cids); setCc(Object.fromEntries((data || []).map((x: any) => [x.id, `${x.codigo} · ${x.descricao}`]))) }
+      if (cids.length) { const { data } = await supabase.from('centro_custo').select('id,codigo,descricao').in('id', cids); setCc(Object.fromEntries((data || []).map((x: any) => [x.id, `${x.codigo} · ${x.descricao}`]))) ; setCcCod(Object.fromEntries((data || []).map((x: any) => [x.id, x.codigo as string]))) }
     })()
   }, [cells])
   const tot = cells.reduce((s, c) => ({ orc: s.orc + c.orc, real: s.real + c.real }), { orc: 0, real: 0 })
@@ -496,23 +628,36 @@ function DimModal({ linha, cells, onClose }: { linha: Linha; cells: DimCell[]; o
       <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, width: 'min(720px, 96vw)', maxHeight: '86vh', overflow: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,0.4)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Orçado × Realizado por empresa · filial · CC</div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>{linha.codigo} · {linha.nome}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Onde caiu — {linha.nome}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>
+              {linha.codigo}{linha.matricula ? ` · matrícula ${linha.matricula}` : ''} · orçado × realizado por empresa · filial · CC, <b>sem os filtros da tela</b>
+            </div>
+            {/* os dois pares lado a lado: é a comparação que responde a pergunta */}
+            <div style={{ display: 'flex', gap: 18, marginTop: 8, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+              <span><span style={{ color: 'var(--muted)' }}>nesta tela (com filtro): </span>orçado {money(linha.orcado)} · realizado {money(linha.realizado)}</span>
+              <span><span style={{ color: 'var(--muted)' }}>no total: </span>orçado {money(tot.orc)} · realizado {money(tot.real)}</span>
+            </div>
           </div>
           <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 }} onClick={onClose} />
         </div>
         <div style={{ padding: '4px 20px 16px' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead><tr>
-              <th style={th}>Empresa</th><th style={th}>Filial</th><th style={th}>Centro de custo</th>
+              <th style={th}>Empresa</th><th style={th}>Filial</th><th style={th}>Centro de custo</th><th style={th}>Área · Divisão · BU</th>
               <th style={{ ...th, textAlign: 'right' }}>Orçado</th><th style={{ ...th, textAlign: 'right' }}>Realizado</th><th style={{ ...th, textAlign: 'right' }}>Δ</th>
             </tr></thead>
             <tbody>
-              {cells.map((c, i) => { const d = c.orc - c.real; const soUm = c.orc < 0.005 || c.real < 0.005; return (
+              {cells.map((c, i) => { const d = c.orc - c.real; const soUm = c.orc < 0.005 || c.real < 0.005
+                const dd = c.ccId ? decodeCC(ccCod[c.ccId] || '') : null
+                const fora = dentro ? !dentro(c.empId, c.filId, c.ccId) : false
+                return (
                 <tr key={i} style={soUm ? { background: 'rgba(251,146,60,0.08)' } : undefined}>
-                  <td style={{ ...td, color: 'var(--text)' }}>{c.empId ? (emp[c.empId] || '…') : '—'}</td>
+                  <td style={{ ...td, color: 'var(--text)' }}>{c.empId ? (emp[c.empId] || '…') : '—'}
+                    {fora && <span title="Fora do filtro aplicado na tela — por isso este valor não aparece na linha."
+                      style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--border-strong)', borderRadius: 4, padding: '0 4px' }}>fora do filtro</span>}</td>
                   <td style={{ ...td, color: 'var(--muted)' }}>{c.filId ? (fil[c.filId] || '…') : '—'}</td>
                   <td style={{ ...td, color: 'var(--muted)' }}>{c.ccId ? (cc[c.ccId] || '…') : '—'}</td>
+                  <td style={{ ...td, color: 'var(--muted)' }}>{dd ? [dd.area_nome, dd.divisao_nome, dd.bu_nome].filter(Boolean).join(' · ') || '—' : '—'}</td>
                   <td style={{ ...td, textAlign: 'right' }}>{money(c.orc)}</td>
                   <td style={{ ...td, textAlign: 'right' }}>{money(c.real)}</td>
                   <td style={{ ...td, textAlign: 'right', color: cor(d), fontWeight: 600 }}>{money(d)}</td>
@@ -520,13 +665,23 @@ function DimModal({ linha, cells, onClose }: { linha: Linha; cells: DimCell[]; o
               ) })}
             </tbody>
             <tfoot><tr>
-              <td style={{ ...td, fontWeight: 700 }} colSpan={3}>Total</td>
+              <td style={{ ...td, fontWeight: 700 }} colSpan={4}>Total</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{money(tot.orc)}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{money(tot.real)}</td>
               <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: cor(tot.orc - tot.real) }}>{money(tot.orc - tot.real)}</td>
             </tr></tfoot>
           </table>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>Linhas destacadas = dimensão com só um dos lados (orçado sem realizado, ou realizado que caiu fora do orçado).</div>
+          {/* sem isto, um vínculo quebrado no ERP vira "não houve realizado" */}
+          {semVinculo > 0 && (
+            <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 8, background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.35)', fontSize: 12, color: 'var(--text-mid)' }}>
+              Há ainda <b style={{ fontVariantNumeric: 'tabular-nums' }}>{money(semVinculo)}</b> na folha desta matrícula <b>sem posto vinculado</b> —
+              não entra no quadro acima e aparece no grupo <i>Realizado sem orçamento</i>. Costuma ser matrícula que mudou de filial ou admissão relançada.
+            </div>
+          )}
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>
+            Linhas destacadas = dimensão com só um dos lados (orçado sem realizado, ou realizado que caiu fora do orçado).
+            O orçado aparece na origem do posto e nos destinos do rateio; o realizado, onde a folha o lançou.
+          </div>
         </div>
       </div>
     </div>
