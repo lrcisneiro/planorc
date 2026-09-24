@@ -116,6 +116,11 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   const [busca, setBusca] = useState('')
   const [hits, setHits] = useState<Hit[] | null>(null)
   const [ordem, setOrdem] = useState<{ col: string; dir: 1 | -1 }>({ col: 'dif', dir: 1 })
+  // quadros recolhidos: a tela é longa e raramente se confere os dois de uma vez.
+  // Fica no localStorage porque é preferência de quem confere, não do dado.
+  const [recolhidos, setRecolhidos] = useLocalPref<string[]>('planorc_concil_recolhidos', [])
+  const recolhido = (k: string) => recolhidos.includes(k)
+  const alternarQuadro = (k: string) => setRecolhidos(r => r.includes(k) ? r.filter(x => x !== k) : [...r, k])
   // amarração manual: o gestor diz de quem é o texto órfão, e isso vira uma
   // linha de de-para com origem MANUAL — que a reimportação não apaga
   const [amarrando, setAmarrando] = useState<string | null>(null)
@@ -428,13 +433,15 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
 
       {/* ─────────── CLT ─────────── */}
       <div style={S.card}>
-        <div style={S.head}>
+        <div style={{ ...S.head, cursor: 'pointer', borderBottom: recolhido('clt') ? 'none' : '1px solid var(--border)' }}
+          onClick={() => alternarQuadro('clt')}>
+          {recolhido('clt') ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
           <h2 style={S.h2}>CLT</h2>
           <span style={S.hsub}>Aberto por <b>item orçamentário</b> — a linha do relatório em que cada conta está amarrada. A folha contabiliza e o razão
             vem consolidado por conta × verba (não tem matrícula), então a comparação para na verba. A coluna <b>outros</b> é o que entrou na conta
             sem vir da folha (fatura do convênio, encargo à mão): não é divergência dela, e fica fora da diferença.</span>
         </div>
-        <table style={S.table}>
+        {!recolhido('clt') && <table style={S.table}>
           <thead><tr>
             <th style={S.th}>Item · conta · verba</th>
             <th style={{ ...S.th, textAlign: 'right' }}>Razão</th>
@@ -617,12 +624,14 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
             })}
             {!contasClt.length && <tr><td colSpan={8} style={S.empty}>Nenhum lançamento de contabilização da folha nesta competência e escopo.</td></tr>}
           </tbody>
-        </table>
+        </table>}
       </div>
 
       {/* ─────────── TERCEIROS ─────────── */}
       <div style={S.card}>
-        <div style={S.head}>
+        <div style={{ ...S.head, cursor: 'pointer', borderBottom: recolhido('terc') ? 'none' : '1px solid var(--border)' }}
+          onClick={() => alternarQuadro('terc')}>
+          {recolhido('terc') ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
           <h2 style={S.h2}>Terceiros</h2>
           <span style={S.hsub}>A folha calcula e a nota fiscal paga. Nota tem dono, então compara por pessoa — a conta de cada lado costuma ser diferente, e aparece no detalhe.</span>
           {/* uma linha por ITEM: é o item que tem par na DRE. O universo do
@@ -642,7 +651,13 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                     <span style={{ color: 'var(--muted)' }}>{it.item_completo ? ' · DRE ' : ' · parte de terceiro '}</span>{money(it.razao_item)}
                     {Math.abs(d) > tol
                       ? <span style={{ color: 'var(--orange)', cursor: 'pointer' }}
-                          onClick={() => toggle(k, () => rpc('conciliacao_terceiros_fora', { ...escopo, p_relatorio_id: relSel, p_linha_id: it.linha_id }))}>
+                          // o "fora" mora no cabeçalho, que agora recolhe o quadro:
+                          // sem parar aqui, pedir o detalhe fecharia a gaveta onde ele sai
+                          onClick={e => {
+                            e.stopPropagation()
+                            setRecolhidos(r => r.filter(x => x !== 'terc'))
+                            toggle(k, () => rpc('conciliacao_terceiros_fora', { ...escopo, p_relatorio_id: relSel, p_linha_id: it.linha_id }))
+                          }}>
                           {' · '}fora {money(d)} ▸
                         </span>
                       : <span style={{ color: 'var(--green)' }}> · fecha</span>}
@@ -652,7 +667,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
             </div>
           )}
         </div>
-        {tercTot.filter(it => aberto.has(`tf:${it.linha_id || 'sem'}`)).map(it => (
+        {!recolhido('terc') && tercTot.filter(it => aberto.has(`tf:${it.linha_id || 'sem'}`)).map(it => (
           <div key={it.linha_id || 'sem'} style={{ padding: '8px 14px 12px', background: 'var(--bg-soft)', borderBottom: '1px solid var(--border)' }}>
             <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>
               <b style={{ color: 'var(--text)' }}>{it.linha_desc || 'Sem item orçamentário'}</b> — o que este item tem
@@ -675,7 +690,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
             </table>
           </div>
         ))}
-        <table style={S.table}>
+        {!recolhido('terc') && <table style={S.table}>
           <thead><tr>
             <th style={{ ...S.th, cursor: 'pointer' }} onClick={() => sortClick('nome')}>Pessoa{seta('nome')}</th>
             <th style={S.th}>Fornecedor</th>
@@ -751,18 +766,20 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
             })}
             {!pessoas.length && <tr><td colSpan={8} style={S.empty}>Nenhum terceiro nesta competência e escopo.</td></tr>}
           </tbody>
-        </table>
+        </table>}
       </div>
 
       {/* ─────────── SEM DONO ─────────── */}
       {!!semDono.length && (
         <div style={S.card}>
-          <div style={S.head}>
+          <div style={{ ...S.head, cursor: 'pointer', borderBottom: recolhido('sd') ? 'none' : '1px solid var(--border)' }}
+            onClick={() => alternarQuadro('sd')}>
+            {recolhido('sd') ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
             <h2 style={S.h2}>Outros lançamentos</h2>
             <span style={S.hsub}>Nota fiscal que entrou numa conta de terceiro e não casou com ninguém. Ou o prestador é empresa e nunca terá pessoa,
               ou falta amarração em <b>Estrutura → Fornecedores (PJ)</b>. O que é de conta de CLT não vem para cá — fica na coluna <b>outros</b> da própria conta.</span>
           </div>
-          <table style={S.table}>
+          {!recolhido('sd') && <table style={S.table}>
             <thead><tr>
               <th style={S.th}>Texto do histórico</th>
               <th style={{ ...S.th, textAlign: 'right' }}>Lançamentos</th>
@@ -892,7 +909,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                 </td></tr>
               )}
             </tbody>
-          </table>
+          </table>}
         </div>
       )}
 
