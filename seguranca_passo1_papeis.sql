@@ -105,67 +105,95 @@ SELECT role AS papel, count(*) AS usuarios
 -- 5. O TESTE QUE DECIDE — um usuário comum consegue virar admin?
 -- ════════════════════════════════════════════════════════════
 -- Nenhuma leitura de política substitui isto: quem sabe se a policy barra é o
--- Postgres. A transação assume a identidade de um usuário real e tenta a
--- escalada; o ROLLBACK no fim desfaz tudo, inclusive se a tentativa der certo.
+-- Postgres.
 --
--- COMO USAR: rode as consultas 1 a 4 primeiro (são leitura). Depois selecione
--- SÓ o bloco 5.0 + a transação abaixo e rode separado, trocando o e-mail nos
--- DOIS lugares marcados. Só o e-mail — nenhum UUID à mão.
+-- COMO RODAR: primeiro troque `troque@pelo.email` em TODO o arquivo (o
+-- localizar-e-substituir do editor resolve de uma vez). Depois rode os blocos
+-- 5.0, 5.A, 5.B e 5.C UM DE CADA VEZ, selecionando cada um.
+--
+-- Por que um de cada vez: o editor do Supabase mostra só o retorno da última
+-- instrução, e um erro no meio aborta o resto. Os blocos de escrita (5.B e
+-- 5.C) por isso devolvem a resposta como EXCEÇÃO — em editor de SQL a exceção
+-- é a única saída que sempre aparece, e ela ainda garante o rollback de
+-- brinde. Ver "ERROR" ali é o funcionamento normal, não falha.
 --
 -- Escolha um usuário que NÃO deveria ser admin. Se hoje todos forem admin,
--- use o que tiver o menor privilégio pretendido: o teste continua válido,
--- porque o que se mede é se a POLÍTICA barra, não se a pessoa já é admin.
+-- use o de menor privilégio pretendido: o que se mede é se a POLÍTICA barra,
+-- não se a pessoa já é admin.
 
 
--- 5.0 Confirme que o e-mail existe e veja o papel atual.
---     Se vier vazio, PARE: o teste abaixo rodaria com identidade nula e
---     devolveria "tudo bloqueado" sem ter testado coisa alguma.
+-- ── 5.0 · leitura ─────────────────────────────────────────────
+-- O e-mail existe? Se vier vazio, PARE: os blocos seguintes rodariam com
+-- identidade nula e devolveriam "tudo bloqueado" sem ter testado nada.
 SELECT u.id, u.email, ut.role AS papel_atual
   FROM auth.users u
   LEFT JOIN user_tenant ut ON ut.user_id = u.id
- WHERE u.email = 'troque@pelo.email';        -- ← 1 de 2
+ WHERE u.email = 'troque@pelo.email';
 
 
+-- ── 5.A · leitura, personificando ─────────────────────────────
+-- Responde três coisas de uma vez. `quem_sou_eu` NULL invalida tudo.
+-- user_tenant: esperado 1 (só a própria linha). Mais = vazamento de quem é
+-- admin, que é o mapa de quem atacar.
+-- user_acesso_regra: além da segurança, o hook useUserAccess lê essa tabela
+-- SEM filtrar por user_id — se vier > 1, o usuário pode HERDAR regra alheia.
 BEGIN;
-
--- Resolve o id a partir do e-mail ANTES de trocar de papel (o papel
--- `authenticated` não enxerga auth.users).
-SELECT set_config(
-  'request.jwt.claims',
-  json_build_object(
-    'sub',  (SELECT id FROM auth.users WHERE email = 'troque@pelo.email'),   -- ← 2 de 2
-    'role', 'authenticated'
-  )::text, true);
-
+SELECT set_config('request.jwt.claims',
+  json_build_object('sub', (SELECT id FROM auth.users WHERE email = 'troque@pelo.email'),
+                    'role', 'authenticated')::text, true);
 SET LOCAL ROLE authenticated;
+SELECT auth.uid()                              AS quem_sou_eu,
+       (SELECT count(*) FROM user_tenant)       AS ve_linhas_de_user_tenant,
+       (SELECT count(*) FROM user_acesso_regra) AS ve_linhas_de_user_acesso_regra,
+       (SELECT count(*) FROM user_acesso_funcao) AS ve_linhas_de_user_acesso_funcao;
+ROLLBACK;
 
--- 5.0b A PERSONIFICAÇÃO PEGOU?  Esta consulta é obrigatória.
---      Se `quem_sou_eu` vier NULL, todo o resto do teste é vazio: o banco nega
---      tudo por falta de identidade e o resultado parece ótimo sem provar nada.
-SELECT auth.uid() AS quem_sou_eu, current_user AS papel_do_postgres;
 
--- 5.1 Ele enxerga o papel dos OUTROS?
---     Esperado: 1 (só a própria linha). Mais que isso = vazamento de quem é
---     admin, que é o mapa de quem atacar.
-SELECT count(*) AS linhas_de_user_tenant_visiveis FROM user_tenant;
+-- ── 5.B · A ESCALADA (resposta vem como ERROR, é esperado) ────
+-- Leia a mensagem:
+--   "afetou 0 linha(s)"      → a política barrou. É o resultado bom.
+--   "afetou 1 linha(s)"      → ESCALADA PROVADA: qualquer usuário logado vira
+--                              admin por uma chamada de API. Passa na frente
+--                              de todo o resto do plano, inclusive do ACS-02.
+--   "violates row-level..."  → a política barrou na escrita. Também é bom.
+BEGIN;
+SELECT set_config('request.jwt.claims',
+  json_build_object('sub', (SELECT id FROM auth.users WHERE email = 'troque@pelo.email'),
+                    'role', 'authenticated')::text, true);
+SET LOCAL ROLE authenticated;
+DO $teste$
+DECLARE n int;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'TESTE INVÁLIDO: auth.uid() é NULL — confira o e-mail no bloco 5.0';
+  END IF;
+  UPDATE user_tenant SET role = 'admin' WHERE user_id = auth.uid();
+  GET DIAGNOSTICS n = ROW_COUNT;
+  RAISE EXCEPTION 'RESULTADO 5.B — o UPDATE em user_tenant afetou % linha(s)', n;
+END
+$teste$;
+ROLLBACK;
 
--- 5.2 Ele enxerga a regra de escopo dos outros?
---     Importa além da segurança: o hook useUserAccess lê `user_acesso_regra`
---     SEM filtrar por user_id. Se esta conta vier > 1, o usuário não só vê a
---     regra alheia como pode acabar HERDANDO ela na tela.
-SELECT count(*) AS linhas_de_user_acesso_regra_visiveis FROM user_acesso_regra;
 
--- 5.3 A escalada. Usa auth.uid(), que já é o usuário personificado.
---     Leia o "UPDATE n": n = 0 → bloqueado (bom). n = 1 → ESCALADA PROVADA,
---     e este item passa na frente de todo o resto do plano.
-UPDATE user_tenant SET role = 'admin' WHERE user_id = auth.uid();
-
--- 5.4 E conceder escopo a si mesmo?
-INSERT INTO user_acesso_regra (user_id, tenant_id, dimensao, escopo, valor_ids, negados)
-VALUES (auth.uid(), '11111111-1111-1111-1111-111111111111', 'centro_custo', 'VER', '{}', '{}');
---     n = 1 → o usuário escreve a própria permissão.
-
-ROLLBACK;   -- <<< desfaz tudo. Confirme que a mensagem "ROLLBACK" apareceu.
+-- ── 5.C · conceder escopo a si mesmo (idem, ERROR esperado) ───
+-- Já sabemos o resultado de uma execução anterior: a política recusou o
+-- INSERT ("new row violates row-level security policy"). Fica aqui para o
+-- registro do Anexo A e para reconferir depois de qualquer mudança de policy.
+BEGIN;
+SELECT set_config('request.jwt.claims',
+  json_build_object('sub', (SELECT id FROM auth.users WHERE email = 'troque@pelo.email'),
+                    'role', 'authenticated')::text, true);
+SET LOCAL ROLE authenticated;
+DO $teste$
+DECLARE n int;
+BEGIN
+  INSERT INTO user_acesso_regra (user_id, tenant_id, dimensao, escopo, valor_ids, negados)
+  VALUES (auth.uid(), '11111111-1111-1111-1111-111111111111', 'centro_custo', 'VER', '{}', '{}');
+  GET DIAGNOSTICS n = ROW_COUNT;
+  RAISE EXCEPTION 'RESULTADO 5.C — o INSERT gravou % linha(s): o usuário escreve a própria permissão', n;
+END
+$teste$;
+ROLLBACK;
 
 
 -- ════════════════════════════════════════════════════════════
