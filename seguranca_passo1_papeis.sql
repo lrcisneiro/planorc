@@ -23,10 +23,11 @@
 -- procuram nas outras duas.
 --
 -- COMO RODAR: as partes 1 a 4 são leitura pura — pode rodar de uma vez.
--- A parte 5 personifica um usuário e escreve dentro de uma transação que
--- termina em ROLLBACK; ela pede que você troque um e-mail em dois lugares, e
--- por isso vai SELECIONADA e rodada à parte. Rodar o arquivo inteiro de uma
--- vez só falha no placeholder — de propósito, para não rodar sem escolher.
+-- A parte 5 personifica um usuário e vai em blocos, rodados um de cada vez.
+-- Antes dela, troque `troque@pelo.email` em todo o arquivo (localizar e
+-- substituir). Não rode o arquivo inteiro de uma vez: o editor do Supabase
+-- mostra só o retorno da última instrução, e os blocos de escrita respondem
+-- de propósito com ERROR.
 -- ============================================================
 
 
