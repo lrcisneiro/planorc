@@ -23,10 +23,11 @@
 -- procuram nas outras duas.
 --
 -- COMO RODAR: as partes 1 a 4 são leitura pura — pode rodar de uma vez.
--- A parte 5 personifica um usuário; troque `troque@pelo.email` em todo o
--- arquivo e rode os blocos dela UM DE CADA VEZ. Eles respondem de propósito
--- com ERROR: é a única saída que o editor sempre mostra. Não rode o arquivo
--- inteiro de uma vez — o editor exibe só o retorno da última instrução.
+-- A parte 5 não tem nada para editar: cada bloco escolhe sozinho o usuário a
+-- personificar e diz na resposta quem usou. Rode um bloco de cada vez; eles
+-- respondem de propósito com ERROR, que é a única saída que o editor sempre
+-- mostra. Não rode o arquivo inteiro de uma vez — o editor exibe só o retorno
+-- da última instrução.
 -- ============================================================
 
 
@@ -107,24 +108,19 @@ SELECT role AS papel, count(*) AS usuarios
 -- Nenhuma leitura de política substitui isto: quem sabe se a policy barra é o
 -- Postgres.
 --
--- COMO RODAR: troque `troque@pelo.email` em todo o arquivo (localizar e
--- substituir) e rode os blocos 5.A, 5.B e 5.C um de cada vez, selecionando
--- cada um. Caixa alta/baixa não importa — a busca é case-insensitive.
+-- COMO RODAR: nada para editar. Selecione o bloco 5.A e rode; depois o 5.B.
+-- Cada bloco escolhe sozinho o usuário a personificar — de preferência um que
+-- NÃO seja admin — e diz na resposta quem usou.
 --
 -- POR QUE CADA BLOCO É UM `DO` SÓ: o editor do Supabase não garante que um
 -- `BEGIN;` agrupe as instruções seguintes; cada uma pode ir em transação
--- própria, e aí a identidade definida numa se perde antes da outra rodar —
--- foi exatamente o que fez o auth.uid() vir NULL na tentativa anterior. Um
--- bloco `DO` é UMA instrução: identidade, papel e teste acontecem na mesma
--- transação, por construção.
+-- própria, e a identidade definida numa se perde antes de a outra rodar. Um
+-- bloco `DO` é UMA instrução: identidade, papel e teste na mesma transação,
+-- por construção.
 --
 -- E POR QUE A RESPOSTA VEM COMO `ERROR`: é a única saída que o editor sempre
 -- mostra, e a exceção ainda garante o rollback de tudo que o bloco escreveu.
 -- Ver "ERROR" aqui é o funcionamento normal. O que importa é a MENSAGEM.
---
--- Escolha um usuário que NÃO deveria ser admin. Se hoje todos forem admin,
--- use o de menor privilégio pretendido: o que se mede é se a POLÍTICA barra,
--- não se a pessoa já é admin.
 
 
 -- ── 5.A · o que esse usuário ENXERGA (resposta vem como ERROR) ──
@@ -133,11 +129,19 @@ SELECT role AS papel, count(*) AS usuarios
 -- user_acesso_regra: além da segurança, o hook useUserAccess lê essa tabela
 --   SEM filtrar por user_id — se vier > 1, o usuário pode HERDAR regra alheia.
 DO $teste$
-DECLARE uid uuid; a int; b int; c int;
+DECLARE uid uuid; mail text; a int; b int; c int;
 BEGIN
-  SELECT id INTO uid FROM auth.users WHERE lower(email) = lower('troque@pelo.email');
+  -- Alvo: escolhido pelo próprio bloco, para não depender de edição à mão.
+  -- Preferência: quem NÃO é admin; entre eles, o mais recente. Se todos forem
+  -- admin, pega o mais recente — o teste continua válido, porque o que se mede
+  -- é se a POLÍTICA barra, não se a pessoa já tem o papel.
+  SELECT ut.user_id, u.email INTO uid, mail
+    FROM user_tenant ut
+    JOIN auth.users u ON u.id = ut.user_id
+   ORDER BY (ut.role = 'admin'), u.created_at DESC
+   LIMIT 1;
   IF uid IS NULL THEN
-    RAISE EXCEPTION 'E-mail não encontrado em auth.users — confira a grafia';
+    RAISE EXCEPTION 'Nenhum usuário em user_tenant — não há o que testar';
   END IF;
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', uid, 'role', 'authenticated')::text, true);
@@ -148,7 +152,7 @@ BEGIN
   SELECT count(*) INTO a FROM user_tenant;
   SELECT count(*) INTO b FROM user_acesso_regra;
   SELECT count(*) INTO c FROM user_acesso_funcao;
-  RAISE EXCEPTION 'RESULTADO 5.A — uid=% · vê % linha(s) de user_tenant · % de user_acesso_regra · % de user_acesso_funcao', uid, a, b, c;
+  RAISE EXCEPTION 'RESULTADO 5.A — como % · vê % linha(s) de user_tenant · % de user_acesso_regra · % de user_acesso_funcao', mail, a, b, c;
 END
 $teste$;
 
@@ -161,11 +165,19 @@ $teste$;
 --                             todo o resto do plano, inclusive do ACS-02.
 --   "violates row-level..." → a política barrou na escrita. Também é bom.
 DO $teste$
-DECLARE uid uuid; n int;
+DECLARE uid uuid; mail text; n int;
 BEGIN
-  SELECT id INTO uid FROM auth.users WHERE lower(email) = lower('troque@pelo.email');
+  -- Alvo: escolhido pelo próprio bloco, para não depender de edição à mão.
+  -- Preferência: quem NÃO é admin; entre eles, o mais recente. Se todos forem
+  -- admin, pega o mais recente — o teste continua válido, porque o que se mede
+  -- é se a POLÍTICA barra, não se a pessoa já tem o papel.
+  SELECT ut.user_id, u.email INTO uid, mail
+    FROM user_tenant ut
+    JOIN auth.users u ON u.id = ut.user_id
+   ORDER BY (ut.role = 'admin'), u.created_at DESC
+   LIMIT 1;
   IF uid IS NULL THEN
-    RAISE EXCEPTION 'E-mail não encontrado em auth.users — confira a grafia';
+    RAISE EXCEPTION 'Nenhum usuário em user_tenant — não há o que testar';
   END IF;
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', uid, 'role', 'authenticated')::text, true);
@@ -175,26 +187,40 @@ BEGIN
   END IF;
   UPDATE user_tenant SET role = 'admin' WHERE user_id = auth.uid();
   GET DIAGNOSTICS n = ROW_COUNT;
-  RAISE EXCEPTION 'RESULTADO 5.B — uid=% · o UPDATE em user_tenant afetou % linha(s)', uid, n;
+  RAISE EXCEPTION 'RESULTADO 5.B — como % · o UPDATE em user_tenant afetou % linha(s)', mail, n;
 END
 $teste$;
 
 
 -- ── 5.C · conceder escopo a si mesmo (idem, ERROR esperado) ──
 -- Já sabemos de uma execução anterior que a política recusou este INSERT
--- ("new row violates row-level security policy"). Fica aqui para o registro do
+-- ("new row violates row-level security policy"). Fica para o registro do
 -- Anexo A e para reconferir depois de qualquer mudança de política.
 DO $teste$
-DECLARE uid uuid; n int;
+DECLARE uid uuid; mail text; n int;
 BEGIN
-  SELECT id INTO uid FROM auth.users WHERE lower(email) = lower('troque@pelo.email');
+  -- Alvo: escolhido pelo próprio bloco, para não depender de edição à mão.
+  -- Preferência: quem NÃO é admin; entre eles, o mais recente. Se todos forem
+  -- admin, pega o mais recente — o teste continua válido, porque o que se mede
+  -- é se a POLÍTICA barra, não se a pessoa já tem o papel.
+  SELECT ut.user_id, u.email INTO uid, mail
+    FROM user_tenant ut
+    JOIN auth.users u ON u.id = ut.user_id
+   ORDER BY (ut.role = 'admin'), u.created_at DESC
+   LIMIT 1;
+  IF uid IS NULL THEN
+    RAISE EXCEPTION 'Nenhum usuário em user_tenant — não há o que testar';
+  END IF;
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', uid, 'role', 'authenticated')::text, true);
   EXECUTE 'SET LOCAL ROLE authenticated';
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'TESTE INVÁLIDO: a personificação não pegou (auth.uid() nulo)';
+  END IF;
   INSERT INTO user_acesso_regra (user_id, tenant_id, dimensao, escopo, valor_ids, negados)
   VALUES (auth.uid(), '11111111-1111-1111-1111-111111111111', 'centro_custo', 'VER', '{}', '{}');
   GET DIAGNOSTICS n = ROW_COUNT;
-  RAISE EXCEPTION 'RESULTADO 5.C — o INSERT gravou % linha(s): o usuário escreve a própria permissão', n;
+  RAISE EXCEPTION 'RESULTADO 5.C — como % · o INSERT gravou % linha(s)', mail, n;
 END
 $teste$;
 
