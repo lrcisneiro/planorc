@@ -613,7 +613,7 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
               <th style={{ ...S.th, textAlign: 'right' }} title="Orçado do motor de postos, na origem do posto.">Orçado · folha</th>
               <th style={{ ...S.th, textAlign: 'right' }} title="Realizado da folha importada.">Realizado · folha</th>
               {p.ref && <>
-                <th style={{ ...S.th, textAlign: 'right', color: 'var(--violet)' }} title="O mesmo número que o relatório mostra, pela função dele: fat_orcado, rateado no CC de destino.">Orçado · DRE</th>
+                <th style={{ ...S.th, textAlign: 'right', color: 'var(--violet)' }} title="O mesmo número que o relatório mostra, pela função dele: fat_orcado, rateado no CC de destino. Confira se a DRE está nesta mesma versão — ela tem seletor próprio.">Orçado · DRE<br /><span style={{ fontSize: 9.5, opacity: 0.75, textTransform: 'none', letterSpacing: 0 }}>versão {p.versaoLabel || '—'}</span></th>
                 <th style={{ ...S.th, textAlign: 'right', color: 'var(--violet)' }} title="O mesmo número que o relatório mostra: razão, não folha.">Realizado · DRE</th>
               </>}
             </tr></thead>

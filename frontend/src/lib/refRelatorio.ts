@@ -20,7 +20,7 @@ import { totaisRelatorio } from './relatorioTotais'
 import type { RLData } from './relatorioTotais'
 import type { CC } from '../pages/dashboard/DashFiltros'
 
-export type LinhaRel = RLData & { descricao: string; ordem: number | null }
+export type LinhaRel = RLData & { descricao: string; ordem: number | null; natureza: string | null }
 
 export type RefRelatorio = {
   relatorioNome: string
@@ -28,7 +28,22 @@ export type RefRelatorio = {
   masterToLine: Record<string, string>   // master (conta_orcamentaria) → linha selecionada
 }
 
-export const COLS_LINHA = 'id,pai_id,codigo,descricao,tipo_linha,expressao,desativada,linha_orc_id,nao_soma,filtro_escopo,ordem'
+export const COLS_LINHA = 'id,pai_id,codigo,descricao,tipo_linha,expressao,desativada,linha_orc_id,nao_soma,filtro_escopo,ordem,natureza'
+
+// O relatório EXIBE despesa positiva e GRAVA com sinal (RelatorioEditorPage:317).
+// `totaisRelatorio` devolve o valor cru; sem aplicar o mesmo fator aqui, a
+// referência sairia espelhada — e um número com o sinal trocado ao lado do
+// certo é pior do que número nenhum, porque parece só uma diferença.
+// A natureza é herdada do pai, como no editor: a linha analítica costuma não
+// declarar a sua, quem declara é o bloco de Despesas acima dela.
+function fatorExibicao(id: string, byId: Record<string, LinhaRel>): number {
+  let cur: LinhaRel | undefined = byId[id]
+  for (let g = 0; cur && g < 60; g++) {
+    if (cur.natureza === 'RECEITA' || cur.natureza === 'DESPESA') return cur.natureza === 'DESPESA' ? -1 : 1
+    cur = cur.pai_id ? byId[cur.pai_id] : undefined
+  }
+  return 1
+}
 
 // Masters da SUBÁRVORE de cada linha escolhida. É o que resolve o Σ: a linha da
 // DRE não tem master próprio, quem tem são as filhas dela.
@@ -83,10 +98,11 @@ export async function refDoRelatorio(o: Opts): Promise<RefRelatorio | null> {
   return {
     relatorioNome: o.relatorioNome,
     masterToLine,
-    linhas: o.sel.filter(id => byId[id]).map(id => ({
-      id, codigo: byId[id].codigo, descricao: byId[id].descricao,
-      orc: orc[id] || 0, real: real[id] || 0,
-    })),
+    linhas: o.sel.filter(id => byId[id]).map(id => {
+      const f = fatorExibicao(id, byId)
+      return { id, codigo: byId[id].codigo, descricao: byId[id].descricao,
+        orc: (orc[id] || 0) * f, real: (real[id] || 0) * f }
+    }),
   }
 }
 
