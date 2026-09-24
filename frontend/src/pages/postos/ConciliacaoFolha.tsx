@@ -5,6 +5,7 @@ import { cascataRateio } from '../../lib/rateioFolha'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
 import { decodeCC } from '../../lib/ccDims'
+import type { RefRelatorio } from '../../lib/refRelatorio'
 import { AlertCircle, ChevronDown, ChevronRight, Search, X } from 'lucide-react'
 
 // Corpo reutilizável da conciliação de folha (Orçado motor × Realizado folha, por posto).
@@ -20,6 +21,10 @@ export type ConcilParams = {
   empresaSel: string[]; filialFilter: string[] | null; ccFilter: string[] | null
   contaToItem?: Record<string, string>   // conta_contabil → item orçamentário (vindo pronto do DRE); sem isto, resolve no banco
   slot?: number   // multimoeda: moeda em exibição (val_m<slot>); 1 = base/BRL
+  // referência do relatório (mesma função que a DRE usa) — sem seleção de
+  // linha não existe, e a tela não mostra coluna de DRE nenhuma: melhor não
+  // ter número do que ter um que não corresponde ao que está na frente
+  ref?: RefRelatorio | null
 }
 type Linha = { key: string; posto_id: string | null; codigo: string; nome: string; matricula: string; cargo: string; empCod: string; filCod: string; ccCod: string; ccDesc: string; orcado: number; realizado: number; divergDims: string[]
   // sem orçado na versão = grupo "Realizado sem orçamento". Vem de ter ou não
@@ -366,20 +371,38 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
   // quem confere põe as duas telas lado a lado sem ter de recompor nada.
   // Vem do detalhe por verba, que carrega o item de cada linha — então soma
   // exatamente o mesmo que os dois quadros, por outro caminho.
+  type ItemProva = { chave: string; cod: string; desc: string; orc: number; real: number; dreOrc?: number; dreReal?: number; estranho?: boolean }
   const porItem = useMemo(() => {
-    const m = new Map<string, { id: string | null; orc: number; real: number }>()
-    const add = (det: Record<string, VerbaReal[]>, campo: 'orc' | 'real') => {
-      for (const k in det) for (const v of det[k]) {
-        const ik = v.item_orc_id || '__sem'
-        const it = m.get(ik) || { id: v.item_orc_id, orc: 0, real: 0 }
-        it[campo] += v.valor; m.set(ik, it)
+    // com linhas escolhidas, o agrupamento é pela LINHA DO RELATÓRIO — é ela
+    // que tem par na DRE. O master sozinho não serve: linha Σ agrega várias.
+    const paraLinha = p.ref?.masterToLine
+    const m = new Map<string, ItemProva>()
+    const pega = (itemId: string | null): ItemProva => {
+      const lid = itemId && paraLinha ? paraLinha[itemId] : null
+      const chave = lid || itemId || '__sem'
+      let it = m.get(chave)
+      if (!it) {
+        const l = lid ? p.ref!.linhas.find(x => x.id === lid) : null
+        it = l
+          ? { chave, cod: l.codigo, desc: l.descricao, orc: 0, real: 0, dreOrc: l.orc, dreReal: l.real }
+          : itemId
+            ? { chave, cod: contaOrc[itemId]?.codigo || '—', desc: contaOrc[itemId]?.descricao || '', orc: 0, real: 0, estranho: !!paraLinha }
+            : { chave, cod: '', desc: '', orc: 0, real: 0 }
+        m.set(chave, it)
       }
+      return it
+    }
+    const add = (det: Record<string, VerbaReal[]>, campo: 'orc' | 'real') => {
+      for (const k in det) for (const v of det[k]) pega(v.item_orc_id)[campo] += v.valor
     }
     add(orcDet, 'orc'); add(realDet, 'real')
-    // ordem do código do item — a mesma que o relatório segue; sem item por último
-    return [...m.values()].sort((a, b) => !a.id ? 1 : !b.id ? -1
-      : (contaOrc[a.id]?.codigo || '').localeCompare(contaOrc[b.id]?.codigo || ''))
-  }, [orcDet, realDet, contaOrc])
+    // linha escolhida sem nada na folha ainda precisa aparecer: o par da DRE é
+    // informação, e "zero de um lado" é o achado mais importante que existe aqui
+    if (p.ref) for (const l of p.ref.linhas) if (!m.has(l.id))
+      m.set(l.id, { chave: l.id, cod: l.codigo, desc: l.descricao, orc: 0, real: 0, dreOrc: l.orc, dreReal: l.real })
+    return [...m.values()].sort((a, b) => a.chave === '__sem' ? 1 : b.chave === '__sem' ? -1 : a.cod.localeCompare(b.cod))
+  }, [orcDet, realDet, contaOrc, p.ref])
+  const totDre = useMemo(() => porItem.reduce((s, i) => ({ orc: s.orc + (i.dreOrc || 0), real: s.real + (i.dreReal || 0) }), { orc: 0, real: 0 }), [porItem])
   const sortClick = (col: string) => setOrdem(o => o.col === col ? { col, dir: (o.dir === 1 ? -1 : 1) } : { col, dir: 1 })
   const seta = (col: string) => ordem.col === col ? (ordem.dir === 1 ? ' ↓' : ' ↑') : ''
   const corDelta = (d: number) => Math.abs(d) < 0.005 ? 'var(--muted)' : d < 0 ? 'var(--red)' : 'var(--green)'
@@ -583,47 +606,70 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
       {/* ── a prova: os dois quadros têm de dar a folha do período ── */}
       {!loading && (
         <div style={{ ...S.card, marginTop: 16 }}>
-          <div style={S.cardT}>Prova de soma <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— contra a folha{p.contaIds || p.masterIds ? ' destes itens' : ''}, no período selecionado · aberta por item, como o relatório apresenta</span></div>
+          <div style={S.cardT}>Prova de soma <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— contra a folha{p.contaIds || p.masterIds ? ' destes itens' : ''}, no período selecionado{p.ref ? <> · ao lado, <b>{p.ref.relatorioNome}</b> pela própria função dele</> : ' · aberta por item, como o relatório apresenta'}</span></div>
           <table style={S.table}>
             <thead><tr>
-              <th style={S.th}>Item orçamentário</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>Orçado</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>Realizado</th>
+              <th style={S.th}>{p.ref ? 'Linha do relatório' : 'Item orçamentário'}</th>
+              <th style={{ ...S.th, textAlign: 'right' }} title="Orçado do motor de postos, na origem do posto.">Orçado · folha</th>
+              <th style={{ ...S.th, textAlign: 'right' }} title="Realizado da folha importada.">Realizado · folha</th>
+              {p.ref && <>
+                <th style={{ ...S.th, textAlign: 'right', color: 'var(--violet)' }} title="O mesmo número que o relatório mostra, pela função dele: fat_orcado, rateado no CC de destino.">Orçado · DRE</th>
+                <th style={{ ...S.th, textAlign: 'right', color: 'var(--violet)' }} title="O mesmo número que o relatório mostra: razão, não folha.">Realizado · DRE</th>
+              </>}
             </tr></thead>
             <tbody>
               {porItem.map((it, i) => (
                 <tr key={i}>
-                  <td style={S.td}>{it.id
-                    ? <><span style={S.mono}>{contaOrc[it.id]?.codigo || '—'}</span> {contaOrc[it.id]?.descricao || ''}</>
-                    : <span style={{ color: 'var(--orange)' }}>⚠ Sem item orçamentário</span>}</td>
+                  <td style={S.td}>{it.chave === '__sem'
+                    ? <span style={{ color: 'var(--orange)' }}>⚠ Sem item orçamentário</span>
+                    : <><span style={S.mono}>{it.cod}</span> {it.desc}
+                        {it.estranho && <span title="A folha atribuiu esta linha a um item que não está nas linhas escolhidas — some se você incluir a linha dele."
+                          style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: 'var(--orange)', border: '1px solid rgba(251,146,60,0.4)', borderRadius: 4, padding: '0 4px' }}>fora da seleção</span>}</>}</td>
                   <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: it.orc ? 'var(--text)' : 'var(--muted)' }}>{it.orc ? money(it.orc) : '—'}</td>
                   <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: it.real ? 'var(--text)' : 'var(--muted)' }}>{it.real ? money(it.real) : '—'}</td>
+                  {p.ref && <>
+                    <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: it.dreOrc ? 'var(--violet)' : 'var(--muted)' }}>{it.dreOrc ? money(it.dreOrc) : '—'}</td>
+                    <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: it.dreReal ? 'var(--violet)' : 'var(--muted)' }}>{it.dreReal ? money(it.dreReal) : '—'}</td>
+                  </>}
                 </tr>
               ))}
-              {!porItem.length && <tr><td colSpan={3} style={S.empty}>Sem orçado nem folha no recorte.</td></tr>}
+              {!porItem.length && <tr><td colSpan={p.ref ? 5 : 3} style={S.empty}>Sem orçado nem folha no recorte.</td></tr>}
 
               {/* daqui para baixo é a mesma soma vista pelos dois quadros: fecha
                   com a lista acima, por outro caminho */}
-              <tr><td colSpan={3} style={{ ...S.td, padding: '10px 12px 2px', borderBottom: 'none', fontSize: 10.5, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>O mesmo total, visto pelos dois quadros</td></tr>
+              <tr><td colSpan={p.ref ? 5 : 3} style={{ ...S.td, padding: '10px 12px 2px', borderBottom: 'none', fontSize: 10.5, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>O mesmo total, visto pelos dois quadros</td></tr>
               <tr>
                 <td style={S.td}>Postos orçados</td>
                 <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(prova.orc)}</td>
                 <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(prova.g1)}</td>
+                {p.ref && <><td style={S.td} /><td style={S.td} /></>}
               </tr>
               <tr>
                 <td style={S.td}>Realizado sem orçamento</td>
                 <td style={{ ...S.td, textAlign: 'right', color: 'var(--muted)' }}>—</td>
                 <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(prova.g2)}</td>
+                {p.ref && <><td style={S.td} /><td style={S.td} /></>}
               </tr>
               <tr>
                 <td style={{ ...S.td, fontWeight: 700 }}>= conferido</td>
                 <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{money(prova.orc)}</td>
                 <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{money(prova.conferido)}</td>
+                {p.ref && <>
+                  <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--violet)' }}>{money(totDre.orc)}</td>
+                  <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--violet)' }}>{money(totDre.real)}</td>
+                </>}
               </tr>
+              {p.ref && <tr>
+                <td style={{ ...S.td, color: 'var(--muted)' }}>Distância até o relatório (conferido − DRE)</td>
+                <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: corDelta(prova.orc - totDre.orc) }}>{money(prova.orc - totDre.orc)}</td>
+                <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: corDelta(prova.conferido - totDre.real) }}>{money(prova.conferido - totDre.real)}</td>
+                <td style={S.td} /><td style={S.td} />
+              </tr>}
               <tr>
                 <td style={{ ...S.td, color: 'var(--muted)' }}>Folha do período, sem recorte de empresa/filial/CC</td>
                 <td style={{ ...S.td, textAlign: 'right', color: 'var(--muted)' }}>—</td>
                 <td style={{ ...S.td, textAlign: 'right', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{money(prova.folha)}</td>
+                {p.ref && <><td style={S.td} /><td style={S.td} /></>}
               </tr>
               <tr>
                 <td style={{ ...S.td, color: Math.abs(prova.fora) < 0.005 ? 'var(--green)' : 'var(--orange)' }}>
@@ -632,16 +678,20 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
                     : 'Fora do recorte atual — folha do período que os filtros desta tela não alcançam'}</td>
                 <td style={{ ...S.td, textAlign: 'right', color: 'var(--muted)' }}>—</td>
                 <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: Math.abs(prova.fora) < 0.005 ? 'var(--green)' : 'var(--orange)' }}>{money(prova.fora)}</td>
+                {p.ref && <><td style={S.td} /><td style={S.td} /></>}
               </tr>
             </tbody>
           </table>
           <div style={{ padding: '8px 14px 12px', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            Os itens estão na ordem do código, como o relatório os apresenta, para conferir linha a linha — mas os números
-            são os da <b>folha</b>, que é a fonte dos dois quadros; por isso a prova fecha. O <b>realizado</b> que a
-            <b>DRE</b> mostra nos mesmos itens vem do <b>razão</b>, e a distância entre folha e razão (contabilização, nota
-            de PJ, resíduo) é assunto da conciliação <b>Contábil × Folha</b>, não desta tela. O <b>orçado</b> da DRE também
-            não é igual: lá ele está <b>rateado no CC de destino</b>, e aqui na <b>origem do posto</b> — com filtro por CC,
-            os dois recortam populações diferentes.
+            As duas primeiras colunas são da <b>folha</b>, que é a fonte dos dois quadros; por isso a prova fecha.
+            {p.ref
+              ? <> As duas últimas vêm da <b>mesma função que o relatório usa</b> — incluindo o Σ, que soma a subárvore da
+                linha, e as fórmulas. <b>Elas não vão ser iguais às da folha, e não é erro:</b> o realizado da DRE vem do
+                razão e não da folha (a distância é a conciliação <b>Contábil × Folha</b>), e o orçado dela está
+                <b> rateado no CC de destino</b> enquanto o da folha está na <b>origem do posto</b> — com filtro por CC, os
+                dois recortam populações diferentes.</>
+              : <> Escolha as <b>linhas do relatório</b> no topo para ver, ao lado, o número que a DRE mostra nas mesmas
+                linhas — calculado pela função dela, não por uma segunda opinião.</>}
             {modo === 'posto' && (p.empresaSel?.length || p.filialFilter || p.ccFilter) ? <>
               {' '}No modo <b>por posto</b> os dois quadros usam recortes diferentes — o posto orçado entra pela origem e traz
               a folha dele inteira, a matrícula sem posto entra pela própria linha —, então a sobra acima mistura os dois

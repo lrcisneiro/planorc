@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { useLocalPref } from '../../lib/uiPrefs'
+import type { RefRelatorio } from '../../lib/refRelatorio'
 import { ConciliacaoQuadro } from './ConciliacaoQuadro'
 import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare, Search } from 'lucide-react'
 
@@ -23,6 +24,9 @@ import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare, Search } 
 export type ContabilParams = {
   ano: number; mes: number; versaoId: string
   empresaSel: string[]; filialFilter: string[] | null; ccFilter: string[] | null
+  // relatório e referência vêm da página: o seletor é um só para as duas abas
+  relatorioId?: string
+  ref?: RefRelatorio | null
 }
 type CLT = {
   linha_id: string | null; linha_cod: string | null; linha_desc: string | null; linha_ordem: number | null
@@ -129,8 +133,26 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   const [salvandoAm, setSalvandoAm] = useState(false)
   const [terc, setTerc] = useState<Terc[]>([])
   const [rels, setRels] = useState<any[]>([])
-  const [relSel, setRelSel] = useLocalPref('planorc_concil_relatorio', '')
+  const [relLocal, setRelLocal] = useLocalPref('planorc_concil_relatorio', '')
+  // a página é a dona do seletor; o estado local só existe para quem monta esta
+  // aba sem passar relatório (não acontece hoje, mas evita tela vazia por engano)
+  const relSel = p.relatorioId || relLocal
   const [notas, setNotas] = useState<Record<string, Nota>>({})
+  // O MESMO item visto pelo relatório, pela função dele. Só mostra quando a
+  // linha escolhida tem UM master: linha Σ que agrega vários não tem valor
+  // "por master", e repetir o total dela em cada um seria contar em dobro.
+  const doRelatorio = useMemo(() => {
+    if (!p.ref) return null
+    const n: Record<string, number> = {}
+    for (const m in p.ref.masterToLine) n[p.ref.masterToLine[m]] = (n[p.ref.masterToLine[m]] || 0) + 1
+    return (masterId: string | null) => {
+      if (!masterId || !p.ref) return null
+      const lid = p.ref.masterToLine[masterId]; if (!lid) return null
+      const l = p.ref.linhas.find(x => x.id === lid); if (!l) return null
+      return { linha: l, sozinho: n[lid] === 1 }
+    }
+  }, [p.ref])
+
   const [tol, setTol] = useState(1)
   const [tolTxt, setTolTxt] = useState('1,00')
   const [loading, setLoading] = useState(true)
@@ -147,13 +169,15 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     p_filiais: p.filialFilter, p_ccs: p.ccFilter,
   }), [p.ano, p.mes, p.empresaSel, p.filialFilter, p.ccFilter])
 
-  // o relatório serve só para saber quais contas são irmãs no lado da nota
+  // o relatório serve para saber quais contas são irmãs no lado da nota — e,
+  // desde o seletor compartilhado, para a referência vir do próprio relatório
   useEffect(() => {
+    if (p.relatorioId) return
     supabase.from('relatorio').select('id,codigo,nome').order('codigo').then(r => {
       const l = r.data || []; setRels(l)
-      setRelSel(prev => l.some((x: any) => x.id === prev) ? prev : (l[0]?.id || ''))
+      setRelLocal(prev => l.some((x: any) => x.id === prev) ? prev : (l[0]?.id || ''))
     })
-  }, []) // eslint-disable-line
+  }, [p.relatorioId]) // eslint-disable-line
 
   useEffect(() => {
     if (!relSel) return
@@ -407,9 +431,9 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
             onChange={e => setTolTxt(e.target.value)} onBlur={salvarTolerancia}
             onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
         </div>
-        {rels.length > 1 && (
+        {!p.relatorioId && rels.length > 1 && (
           <div style={S.fld}><span style={S.lbl}>Relatório (contas irmãs)</span>
-            <select style={S.inp} value={relSel} onChange={e => setRelSel(e.target.value)}
+            <select style={S.inp} value={relSel} onChange={e => setRelLocal(e.target.value)}
               title="A nota fiscal costuma cair em conta diferente da que a folha aponta. A amarração conta→linha deste relatório diz quais contas são a mesma coisa.">
               {rels.map((r: any) => <option key={r.id} value={r.id}>{r.codigo} — {r.nome}</option>)}
             </select>
@@ -449,7 +473,8 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
             <th style={{ ...S.th, textAlign: 'right' }}>Diferença</th>
             <th style={{ ...S.th, textAlign: 'right' }} title="Razão que entrou nesta conta sem vir da contabilização da folha: fatura do convênio, encargo lançado à mão, ajuste. Não é divergência da folha — por isso fica fora da diferença.">Outros</th>
             <th style={{ ...S.th, textAlign: 'right' }} title="Razão + Outros: tudo o que a conferência enxerga nesta linha. É o número a comparar com o item da DRE ao lado.">Total</th>
-            <th style={{ ...S.th, textAlign: 'right' }} title="O razão de TODAS as contas amarradas ao item, com o sinal da amarração — o mesmo número que a DRE mostra na linha. A conferência cobre só o que a folha toca; a diferença é conta do item sem folha nenhuma.">Item na DRE</th>
+            <th style={{ ...S.th, textAlign: 'right' }} title="O razão de TODAS as contas amarradas ao item, com o sinal da amarração — agregação desta tela, por master. A conferência cobre só o que a folha toca; a diferença é conta do item sem folha nenhuma.">Item na DRE</th>
+            {p.ref && <th style={{ ...S.th, textAlign: 'right', color: 'var(--violet)' }} title="O mesmo número, calculado pela função que o relatório usa — incluindo Σ (soma da subárvore) e fórmulas. É a referência a confiar quando as duas divergirem.">No relatório</th>}
             <th style={S.th}>Status</th>
           </tr></thead>
           <tbody>
@@ -479,6 +504,14 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                       title={rzItem ? `a DRE conta ${money(foraItem)} a mais neste item — abra a linha para ver o quê` : undefined}>
                       {rzItem ? money(rzItem.razao_item) : '—'}
                     </td>
+                    {p.ref && (() => { const r = doRelatorio!(it.id); return (
+                      <td style={{ ...S.gh, textAlign: 'right', fontWeight: 700, background: 'var(--panel-2)', color: 'var(--violet)' }}
+                        title={!r ? 'Este item não está nas linhas escolhidas no topo.'
+                          : !r.sozinho ? `A linha "${r.linha.descricao}" soma mais de um item — o total dela aparece uma vez só, no rodapé.`
+                          : `${r.linha.codigo} · ${r.linha.descricao}`}>
+                        {r ? (r.sozinho ? money(r.linha.real) : <span style={{ color: 'var(--muted)', fontWeight: 400 }}>Σ</span>) : <span style={{ color: 'var(--muted)', fontWeight: 400 }}>—</span>}
+                      </td>
+                    ) })()}
                     <td style={{ ...S.gh, background: 'var(--panel-2)' }}>{it.fora ? <span style={DIF}>● {it.fora} verba(s)</span> : <span style={OK}>● conciliado</span>}</td>
                   </tr>
                   {abI && rzItem && Math.abs(foraItem) > tol && (
@@ -493,10 +526,11 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                         <td style={S.td}></td><td style={S.td}></td><td style={S.td}></td><td style={S.td}></td>
                         <td style={S.td}></td>
                         <td style={{ ...S.td, textAlign: 'right', color: 'var(--blue)' }}>{money(foraItem)}</td>
+                        {p.ref && <td style={S.td}></td>}
                         <td style={S.td}></td>
                       </tr>
                       {aberto.has(`if:${it.id}`) && (
-                        <tr><td colSpan={8} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
+                        <tr><td colSpan={p.ref ? 9 : 8} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
                             Nenhum destes é divergência — são parcelas do item que a conferência não tem o que conciliar.
                             Somados ao razão e aos outros, dão o total da DRE.
@@ -538,6 +572,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                     <td style={{ ...S.gh, textAlign: 'right', color: c.outros ? 'var(--blue)' : 'var(--muted)' }}>{c.outros ? money(c.outros) : '—'}</td>
                     <td style={{ ...S.gh, textAlign: 'right' }}>{money(c.razao + c.outros)}</td>
                     <td style={S.gh}></td>
+                    {p.ref && <td style={S.gh}></td>}
                     <td style={S.gh}>{c.fora.length ? <span style={DIF}>● {c.fora.length} verba(s)</span> : c.outros ? <span style={RES}>● só outros</span> : <span style={OK}>● conciliada</span>}</td>
                   </tr>
                   {ab && c.verbas.filter(v => !hitKeys || hitKeys.has(`${c.id}|${v.verba_cod}`))
@@ -556,10 +591,11 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                           <td style={{ ...S.td, textAlign: 'right' }}>{money(v.folha)}</td>
                           <td style={{ ...S.td, textAlign: 'right', color: fora ? 'var(--orange)' : 'var(--muted)' }}>{money(dif)}</td>
                           <td style={S.td}></td><td style={S.td}></td><td style={S.td}></td>
+                          {p.ref && <td style={S.td}></td>}
                           <td style={S.td}>{fora ? <span style={DIF}>● fora</span> : <Check size={13} style={{ color: 'var(--green)' }} />}</td>
                         </tr>
                         {(aberto.has(kv) || !!hitKeys) && (
-                          <tr><td colSpan={8} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
+                          <tr><td colSpan={p.ref ? 9 : 8} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
                             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
                               Composição da folha — o razão do CLT é consolidado e não tem pessoa, então aqui não há o que comparar.
                             </div>
@@ -579,7 +615,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                             </table>
                           </td></tr>
                         )}
-                        {fora && <tr><td colSpan={8} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={v.verba_cod} valorRef={dif} /></td></tr>}
+                        {fora && <tr><td colSpan={p.ref ? 9 : 8} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={v.verba_cod} valorRef={dif} /></td></tr>}
                       </Fragment>
                     )
                   })}
@@ -593,10 +629,11 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                         <td style={S.td}></td><td style={S.td}></td><td style={S.td}></td>
                         <td style={{ ...S.td, textAlign: 'right', color: 'var(--blue)' }}>{money(c.outros)}</td>
                         <td style={S.td}></td><td style={S.td}></td>
+                        {p.ref && <td style={S.td}></td>}
                         <td style={S.td}>{notas[chave(c.id, null)] ? <Check size={13} style={{ color: 'var(--green)' }} /> : <span style={RES}>● explicar</span>}</td>
                       </tr>
                       {aberto.has(`o:${c.id}`) && (
-                        <tr><td colSpan={8} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
+                        <tr><td colSpan={p.ref ? 9 : 8} style={{ padding: '4px 12px 10px 44px', background: 'var(--bg-soft)' }}>
                           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                             <thead><tr><th style={S.dh}>Empresa · filial · CC</th><th style={S.dh}>Data</th><th style={S.dh}>Documento</th><th style={S.dh}>Histórico</th><th style={S.dh}>Lote</th><th style={{ ...S.dh, textAlign: 'right' }}>Valor</th></tr></thead>
                             <tbody>
@@ -613,7 +650,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                           </table>
                         </td></tr>
                       )}
-                      <tr><td colSpan={8} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={null} valorRef={c.outros} /></td></tr>
+                      <tr><td colSpan={p.ref ? 9 : 8} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={null} valorRef={c.outros} /></td></tr>
                     </Fragment>
                   )}
                 </Fragment>
@@ -622,7 +659,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                 </Fragment>
               )
             })}
-            {!contasClt.length && <tr><td colSpan={8} style={S.empty}>Nenhum lançamento de contabilização da folha nesta competência e escopo.</td></tr>}
+            {!contasClt.length && <tr><td colSpan={p.ref ? 9 : 8} style={S.empty}>Nenhum lançamento de contabilização da folha nesta competência e escopo.</td></tr>}
           </tbody>
         </table>}
       </div>
@@ -649,6 +686,11 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                     {/* "DRE" só quando o terceiro cobre o item inteiro; senão o
                         resto do item está no bloco de CLT e o rótulo mentiria */}
                     <span style={{ color: 'var(--muted)' }}>{it.item_completo ? ' · DRE ' : ' · parte de terceiro '}</span>{money(it.razao_item)}
+                    {/* a mesma linha pela função do relatório — a referência a
+                        confiar quando as duas divergirem */}
+                    {(() => { const r = doRelatorio?.(it.linha_id); return r && r.sozinho
+                      ? <><span style={{ color: 'var(--muted)' }}> · no relatório </span><span style={{ color: 'var(--violet)' }}>{money(r.linha.real)}</span></>
+                      : null })()}
                     {Math.abs(d) > tol
                       ? <span style={{ color: 'var(--orange)', cursor: 'pointer' }}
                           // o "fora" mora no cabeçalho, que agora recolhe o quadro:
