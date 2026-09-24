@@ -29,7 +29,7 @@ WITH cc31 AS (SELECT id, codigo, descricao FROM centro_custo
 SELECT (SELECT count(*) FROM cc31) AS ccs_no_filtro,
        (SELECT string_agg(codigo, ', ' ORDER BY codigo) FROM cc31) AS codigos;
 
-SELECT id, codigo, nome FROM versao_orcamento
+SELECT id, codigo, descricao, ano, ativa FROM versao_orcamento
  WHERE tenant_id = current_tenant_id() ORDER BY codigo;
 
 -- ── 1. O orçado da DRE nos 3 itens, e quanto dele veio de FORA por rateio ──
@@ -44,19 +44,25 @@ mestres AS (
      AND (descricao ILIKE '%salario%' OR descricao ILIKE '%encargo%' OR descricao ILIKE '%terceiro%interno%')
 ),
 o AS (
+  -- TODAS as origens: se houver orcado MANUAL ou de FORMULARIO nestes itens,
+  -- ele esta na DRE e nunca estara na conciliacao, que so conhece posto.
   SELECT fo.*, (fo.dims->>'cc_origem')::uuid AS cc_origem
     FROM fat_orcado fo
    WHERE fo.tenant_id = current_tenant_id() AND fo.ano = 2026 AND fo.mes = 8
-     AND fo.origem = 'POSTO' AND fo.linha_id IN (SELECT id FROM mestres)
-)
+     AND fo.linha_id IN (SELECT id FROM mestres)
+),
+d AS (SELECT * FROM o WHERE cc_id IN (SELECT id FROM cc31))
 SELECT m.codigo, left(m.descricao, 26) AS item,
-       to_char(sum(o.valor) FILTER (WHERE o.cc_id IN (SELECT id FROM cc31)), 'FM999G999G990D00') AS dre_no_filtro,
-       to_char(sum(o.valor) FILTER (WHERE o.cc_id IN (SELECT id FROM cc31)
-                                      AND (o.cc_origem IS NULL OR o.cc_origem NOT IN (SELECT id FROM cc31))), 'FM999G999G990D00') AS entrou_por_rateio,
-       to_char(sum(o.valor) FILTER (WHERE o.cc_id NOT IN (SELECT id FROM cc31)
-                                      AND o.cc_origem IN (SELECT id FROM cc31)), 'FM999G999G990D00') AS saiu_por_rateio
-  FROM o JOIN mestres m ON m.id = o.linha_id
- GROUP BY 1, 2 ORDER BY 1;
+       to_char(sum(d.valor), 'FM999G999G990D00') AS dre_no_filtro,
+       to_char(sum(d.valor) FILTER (WHERE d.origem <> 'POSTO'), 'FM999G999G990D00') AS nao_veio_de_posto,
+       to_char(sum(d.valor) FILTER (WHERE d.origem = 'POSTO'
+                                      AND (d.cc_origem IS NULL OR d.cc_origem NOT IN (SELECT id FROM cc31))), 'FM999G999G990D00') AS entrou_por_rateio,
+       to_char((SELECT sum(o2.valor) FROM o o2
+                 WHERE o2.linha_id = m.id AND o2.origem = 'POSTO'
+                   AND o2.cc_id NOT IN (SELECT id FROM cc31)
+                   AND o2.cc_origem IN (SELECT id FROM cc31)), 'FM999G999G990D00') AS saiu_por_rateio
+  FROM d JOIN mestres m ON m.id = d.linha_id
+ GROUP BY 1, 2, m.id ORDER BY 1;
 
 -- ── 2. O orçado da conciliação (fat_folha ORCADO), pela ORIGEM ──
 -- É o mesmo Aplicar, gravado sem rateio. A diferença para a consulta 1 é o
