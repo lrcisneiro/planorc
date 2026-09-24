@@ -82,7 +82,10 @@ BEGIN
     ),
     j AS (
       SELECT coalesce(fo.folha_bloco, 0) - rz.razao                              AS dif_bruto,
-             coalesce(fo.folha_bloco, 0) - coalesce(fo.descontos, 0) - rz.razao  AS dif_liquido,
+             -- SOMA, não subtrai: depois da correção do conversor a linha do
+             -- desconto vem do lado do CRÉDITO e já chega negativa. Subtrair
+             -- dobrava o erro — foi o que o balde 5 mostrou.
+             coalesce(fo.folha_bloco, 0) + coalesce(fo.descontos, 0) - rz.razao  AS dif_liquido,
              coalesce(fo.descontos, 0)                                           AS descontos
         FROM rz LEFT JOIN fo ON fo.filial_id IS NOT DISTINCT FROM rz.filial_id
                             AND fo.matricula = rz.matricula
@@ -90,9 +93,9 @@ BEGIN
     SELECT CASE
              WHEN abs(dif_bruto) <= 1               THEN '1 ja batia sem desconto'
              WHEN descontos = 0                     THEN '4 diverge SEM desconto (outra causa)'
-             WHEN abs(dif_liquido) <= 1             THEN '2 EXPLICADO: bruto - desconto = razao'
+             WHEN abs(dif_liquido) <= 1             THEN '2 EXPLICADO: folha + desconto = razao'
              WHEN abs(dif_liquido) < abs(dif_bruto) THEN '3 melhora mas nao fecha'
-             ELSE                                        '5 PIORA ao subtrair (NAO aplicar)'
+             ELSE                                        '5 PIORA ao somar (NAO aplicar)'
            END AS balde,
            count(*) AS pessoas,
            sum(dif_bruto)   AS soma_hoje,
