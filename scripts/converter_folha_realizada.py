@@ -32,9 +32,35 @@ SAIDA     = _args[1] if len(_args) > 1 else 'dados_rh/folha_realizada.csv'
 DEPARA    = _flag_val('--depara', 'dados_rh/Depara_filial_empresa.csv')
 DEPARA_IT = _flag_val('--depara-item', 'dados_rh/DePara ItemCCxEmpresa.csv')  # ITEM_CONTABIL → empresa
 FORCE     = _flag_val('--competencia', '')   # 'YYYY-MM' força a competência de saída (teste)
+SEM_OVR   = '--sem-override' in _flags      # gera sem o quebra-galho de conta (p/ comparar)
 FORCE_ANO = FORCE_MES = None
 if FORCE:
     _p = FORCE.replace('/', '-').split('-'); FORCE_ANO = int(_p[0]); FORCE_MES = int(_p[1])
+
+# ─────────────────────────────────────────────────────────────────────────
+# QUEBRA-GALHO — corrige no arquivo o que está errado no cadastro do ERP.
+#
+# A verba 549 CONVENIO MEDICO credita 41013001 (Encargos), mas a nota fiscal do
+# prestador já sai LÍQUIDA dela, em 41021001 (Terceiros Internos). Os dois lados
+# do mesmo fato em contas diferentes nunca batem — e a DRE fica com Encargos
+# subavaliado e Terceiros superavaliado no mesmo valor, todo mês.
+#
+# Enquanto o cadastro não é corrigido, remapeia aqui. Medido em ago/2026: as 22
+# linhas da 549 são de pessoas cuja conta principal é 41021001, nenhuma CLT —
+# por isso a troca é incondicional. O contador no relatório final mostra quantas
+# foram trocadas: se um dia aparecer gente de CLT com esta verba, o número sobe
+# e alguém percebe.
+#
+# O item vai junto de propósito: só trocar a conta mandaria a linha para
+# 41021001 carregando o item de Encargos, e a conciliação agrupa por item.
+#
+# >>> APAGAR quando o cadastro do ERP for corrigido. Use --sem-override para
+# >>> gerar sem o remapeamento e comparar. <<<
+OVERRIDE_CRED = {
+    # verba: (conta_credito_correta, item_orc, descricao_item)
+    '549': ('41021001', '20301', 'Terceiros Internos'),
+}
+
 
 def eh_resultado(conta: str) -> bool:
     """Conta de RESULTADO = começa com 3 (receita) ou 4 (despesa); 1 e 2 são
@@ -114,6 +140,7 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
 
     out_rows = []
     lidas = puladas = sem_periodo = sem_deb = invertidas = 0
+    trocadas = Counter()   # quebra-galho de conta de crédito, por verba
     tipos, competencias, empresas = Counter(), Counter(), Counter()
     filiais_sem_empresa = Counter()
     redirecionadas = Counter(); item_sem_depara = Counter()
@@ -142,6 +169,13 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
             tipo_verba = (g('TIPO_VERBA') or '').strip()
             conta_deb  = str(g('DEBITO')  or '').strip()
             conta_cred = str(g('CREDITO') or '').strip()
+            verba = str(g('CD_VERBA') or '').strip()
+            it_cr_cod  = str(g('IT_CONTAB_CR') or '').strip()
+            it_cr_desc = (g('DESC_IT_CONTAB_CR') or '').strip()
+            ovr = None if SEM_OVR else OVERRIDE_CRED.get(verba)
+            if ovr and conta_cred != ovr[0]:
+                conta_cred, it_cr_cod, it_cr_desc = ovr
+                trocadas[verba] += 1
             # UM lançamento tem DOIS lados, e o que interessa à DRE é o lado que
             # toca RESULTADO (conta 3 ou 4) — não necessariamente o débito.
             #
@@ -197,9 +231,7 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
                               str(g('IT_CONTAB_DB') or '').strip(),
                               (g('DESC_IT_CONTAB_DB') or '').strip()))
             if eh_resultado(conta_cred):
-                lados.append((conta_cred, conta_deb, -valor,
-                              str(g('IT_CONTAB_CR') or '').strip(),
-                              (g('DESC_IT_CONTAB_CR') or '').strip()))
+                lados.append((conta_cred, conta_deb, -valor, it_cr_cod, it_cr_desc))
                 invertidas += 1
             for c_afetada, c_contra, v, it_cod, it_desc in lados:
                 row = dict(base, valor=f'{v:.2f}', conta_deb=c_afetada, conta_cred=c_contra,
@@ -218,6 +250,10 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
     print(f'Arquivos: {len(arquivos)} | linhas lidas: {lidas} | gravadas: {len(out_rows)} | '
           f'puladas (sem matrícula/valor): {puladas} | sem lado de resultado (patrimonial dos 2 lados): {sem_deb} | sem período: {sem_periodo}')
     print(f'Linhas do CRÉDITO (sinal invertido): {invertidas}')
+    if trocadas:
+        print('⚠ QUEBRA-GALHO ativo — conta de crédito remapeada: '
+              + ', '.join(f'verba {k}→{OVERRIDE_CRED[k][0]} ({v} linha(s))' for k, v in sorted(trocadas.items()))
+              + '. Apagar OVERRIDE_CRED quando o cadastro do ERP for corrigido.')
     print('Competências: ' + ', '.join(f'{k}={v}' for k, v in sorted(competencias.items())))
     print('Tipo de verba: ' + ', '.join(f'{k}={v}' for k, v in sorted(tipos.items())))
     print(f'Empresas ({len(empresas)}): ' + ', '.join(f'{k}={v}' for k, v in sorted(empresas.items())))
