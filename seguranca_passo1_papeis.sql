@@ -124,18 +124,21 @@ SELECT role AS papel, count(*) AS usuarios
 
 
 -- ── 5.A · o que esse usuário ENXERGA (resposta vem como ERROR) ──
--- user_tenant: esperado 1 (só a própria linha). Mais = ele vê quem é admin,
---   que é o mapa de quem atacar.
--- user_acesso_regra: além da segurança, o hook useUserAccess lê essa tabela
---   SEM filtrar por user_id — se vier > 1, o usuário pode HERDAR regra alheia.
+-- A resposta vem como "vê X de Y": sem o denominador, o número sozinho não
+-- diz nada — "vê 3" tanto pode ser "as 3 dele" quanto "as 3 que existem".
+--   vê 1 de N   → restrito às próprias linhas. É o esperado.
+--   vê N de N   → enxerga as de todo mundo. Para um não-admin, é vazamento;
+--                 em user_acesso_regra, também faz o useUserAccess (que lê a
+--                 tabela sem filtrar por user_id) poder HERDAR regra alheia.
 DO $teste$
-DECLARE uid uuid; mail text; a int; b int; c int;
+DECLARE uid uuid; mail text; papel text;
+        ta int; tb int; tc int; va int; vb int; vc int;
 BEGIN
   -- Alvo: escolhido pelo próprio bloco, para não depender de edição à mão.
   -- Preferência: quem NÃO é admin; entre eles, o mais recente. Se todos forem
   -- admin, pega o mais recente — o teste continua válido, porque o que se mede
   -- é se a POLÍTICA barra, não se a pessoa já tem o papel.
-  SELECT ut.user_id, u.email INTO uid, mail
+  SELECT ut.user_id, u.email, ut.role INTO uid, mail, papel
     FROM user_tenant ut
     JOIN auth.users u ON u.id = ut.user_id
    ORDER BY (ut.role = 'admin'), u.created_at DESC
@@ -143,16 +146,25 @@ BEGIN
   IF uid IS NULL THEN
     RAISE EXCEPTION 'Nenhum usuário em user_tenant — não há o que testar';
   END IF;
+
+  -- Totais reais, medidos AINDA COMO DONO (sem RLS). São o denominador.
+  SELECT count(*) INTO ta FROM user_tenant;
+  SELECT count(*) INTO tb FROM user_acesso_regra;
+  SELECT count(*) INTO tc FROM user_acesso_funcao;
+
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', uid, 'role', 'authenticated')::text, true);
   EXECUTE 'SET LOCAL ROLE authenticated';
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'TESTE INVÁLIDO: a personificação não pegou (auth.uid() nulo)';
   END IF;
-  SELECT count(*) INTO a FROM user_tenant;
-  SELECT count(*) INTO b FROM user_acesso_regra;
-  SELECT count(*) INTO c FROM user_acesso_funcao;
-  RAISE EXCEPTION 'RESULTADO 5.A — como % · vê % linha(s) de user_tenant · % de user_acesso_regra · % de user_acesso_funcao', mail, a, b, c;
+
+  SELECT count(*) INTO va FROM user_tenant;
+  SELECT count(*) INTO vb FROM user_acesso_regra;
+  SELECT count(*) INTO vc FROM user_acesso_funcao;
+
+  RAISE EXCEPTION 'RESULTADO 5.A — como % (papel: %) · user_tenant: vê % de % · user_acesso_regra: vê % de % · user_acesso_funcao: vê % de %',
+    mail, papel, va, ta, vb, tb, vc, tc;
 END
 $teste$;
 
