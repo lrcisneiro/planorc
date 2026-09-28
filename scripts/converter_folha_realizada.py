@@ -248,8 +248,24 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
             cred_contabilizado += 1
             continue
         conta_alvo, it_cod, it_desc = alvo
+        # conta_cred = a conta que o ERP REALMENTE creditou (não o débito de
+        # origem). Duas razões, e a segunda não é óbvia:
+        #
+        #  1. é mais verdadeiro: a contrapartida daquele valor é essa mesma.
+        #  2. é o que mantém a conciliação de CLT limpa. O universo do CLT sai
+        #     do razão — contas cujo histórico começa com verba presente na
+        #     folha — MENOS os pares (conta, verba) que a folha declara em
+        #     conta_cred_cod (v3_087). Gravando aqui o débito de origem, aquela
+        #     exclusão deixava de casar e a conta creditada entrava no bloco com
+        #     folha 0,00: em ago/2026 apareceram "Manutenção de veículos" e
+        #     "Multas de trânsitos" do nada, e ~11,5 mil dos 21,5 mil de
+        #     diferença do CLT eram esse artefato.
+        #
+        # O erro de cadastro continua visível — no aviso que este conversor
+        # imprime a cada geração e no diagnostico_verba_conta_errada.sql. O
+        # bloco de conciliação volta a conciliar só o que a folha contabiliza.
         out_rows.append(dict(base, valor=f'{-valor:.2f}', conta_deb=conta_alvo,
-                             conta_cred=c_deb, item_orc=it_cod, item_orc_desc=it_desc))
+                             conta_cred=c_cred, item_orc=it_cod, item_orc_desc=it_desc))
         tipos[base['tipo_verba'] or '(vazio)'] += 1
         competencias[f'{ano}-{mes:02d}'] += 1
         empresas[empresa or '(sem empresa)'] += 1

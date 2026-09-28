@@ -119,6 +119,14 @@ python3 scripts/converter_folha_realizada.py dados_rh dados_rh/folha_realizada.c
   Em `conta_deb` vai sempre **a conta afetada** e em `conta_cred` a
   contrapartida — na linha invertida eles vêm trocados de propósito, porque é
   por `conta_deb` que o importador resolve a `conta_id`.
+- **Terceiro com crédito na conta errada:** quando a pessoa é PJ (tem linha com
+  `LCTO_PADRAO` vazio), o crédito de resultado vai para a **conta de terceiro
+  dela**, não para a que a verba credita — a nota sai líquida do desconto, então
+  é ali que o efeito pertence. `conta_cred` guarda a conta que o ERP creditou,
+  o que mantém a exclusão de contrapartida da conciliação (v3_087) funcionando:
+  sem isso a conta creditada entra no bloco de CLT com folha 0,00. O conversor
+  imprime a lista de redirecionamentos a cada geração — é a lista de cadastros
+  a corrigir no ERP.
 - Linha patrimonial dos dois lados não sai. Antes ela saía e era descartada no
   import (que ignora linha sem `item_orc`) — em ago/2026 eram 2.080 linhas, e
   junto iam 86 linhas de crédito que deveriam ter entrado.
