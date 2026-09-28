@@ -624,7 +624,11 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                             </table>
                           </td></tr>
                         )}
-                        {fora && <tr><td colSpan={p.ref ? 9 : 8} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={v.verba_cod} valorRef={dif} /></td></tr>}
+                        {/* a justificativa só aparece com a linha ABERTA. Fixa, ela
+                            repetia "sem justificativa" a cada verba fora e dobrava a
+                            altura do quadro — o status na última coluna já avisa que
+                            falta explicar. */}
+                        {fora && aberto.has(kv) && <tr><td colSpan={p.ref ? 9 : 8} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={v.verba_cod} valorRef={dif} /></td></tr>}
                       </Fragment>
                     )
                   })}
@@ -632,8 +636,14 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                     <Fragment>
                       <tr>
                         <td style={{ ...S.td, paddingLeft: 30, cursor: 'pointer', color: 'var(--blue)' }}
+                          title="Razão que entrou nesta conta sem vir da contabilização da folha: fatura do convênio, encargo lançado à mão, ajuste. Clique para ver lançamento a lançamento."
                           onClick={() => toggle(`o:${c.id}`, () => rpc('conciliacao_clt_outros_lanc', { ...escopo, p_conta: c.id }))}>
-                          {aberto.has(`o:${c.id}`) ? <ChevronDown size={12} /> : <ChevronRight size={12} />} outros — não veio da contabilização da folha
+                          {/* apresentado como se fosse uma verba, no mesmo nível das
+                              outras: o leitor está percorrendo uma lista de verbas, e
+                              uma linha com outra forma quebra a leitura. FOR não existe
+                              na folha — é rótulo desta tela. */}
+                          {aberto.has(`o:${c.id}`) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}{' '}
+                          <span style={S.mono}>FOR</span> Fora da folha
                         </td>
                         <td style={S.td}></td><td style={S.td}></td><td style={S.td}></td>
                         <td style={{ ...S.td, textAlign: 'right', color: 'var(--blue)' }}>{money(c.outros)}</td>
@@ -659,7 +669,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
                           </table>
                         </td></tr>
                       )}
-                      <tr><td colSpan={p.ref ? 9 : 8} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={null} valorRef={c.outros} /></td></tr>
+                      {aberto.has(`o:${c.id}`) && <tr><td colSpan={p.ref ? 9 : 8} style={{ background: 'var(--bg-soft)' }}><BlocoNota contaId={c.id} verba={null} valorRef={c.outros} /></td></tr>}
                     </Fragment>
                   )}
                 </Fragment>
