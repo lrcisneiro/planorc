@@ -106,14 +106,18 @@ python3 scripts/converter_folha_realizada.py dados_rh dados_rh/folha_realizada.c
   lançamento que toca **conta de RESULTADO** (código 3 ou 4). Encargos patronais
   vêm como "Base" com débito em despesa — por isso o filtro é pela conta, não
   pelo tipo de verba.
-- **Os dois lados contam.** Um lançamento tem débito e crédito, e nem sempre o
-  resultado está no débito: a verba `549 CONVENIO MEDICO` debita `21012017`
-  (passivo) e credita `41013001` (despesa) — a empresa recuperando do prestador
-  o convênio que adiantou. Cada lado de resultado vira uma linha de saída; a do
-  **crédito sai com sinal invertido** e com o item de `IT_CONTAB_CR`. Linha com
-  os dois lados em resultado sai duas vezes (+ no débito, − no crédito).
+- **Os dois lados contam — mas só um vira linha quando a folha já contabilizou.**
+  Nem sempre o resultado está no débito: `549 CONVENIO MEDICO` debita `21012017`
+  (passivo) e credita `41013001` (despesa). Quem decide é a coluna
+  **`LCTO_PADRAO`** (AH):
+  - **preenchido (`GPE`)** = a folha contabilizou, o razão já tem os DOIS lados,
+    e a conciliação já exclui a contrapartida de crédito por `conta_cred_cod`
+    (v3_087). Trazer o crédito aqui seria contar duas vezes → **não inverte**.
+  - **vazio** = é PJ, que não contabiliza por verba e sim pela **nota**. Aí o
+    crédito é o único lugar onde o efeito no resultado existe → sai uma linha
+    com **sinal invertido** e o item de `IT_CONTAB_CR`.
   Em `conta_deb` vai sempre **a conta afetada** e em `conta_cred` a
-  contrapartida — na linha do crédito eles vêm trocados de propósito, porque é
+  contrapartida — na linha invertida eles vêm trocados de propósito, porque é
   por `conta_deb` que o importador resolve a `conta_id`.
 - Linha patrimonial dos dois lados não sai. Antes ela saía e era descartada no
   import (que ignora linha sem `item_orc`) — em ago/2026 eram 2.080 linhas, e
