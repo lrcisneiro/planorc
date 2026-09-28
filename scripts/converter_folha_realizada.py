@@ -114,6 +114,9 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
 
     out_rows = []
     lidas = puladas = sem_periodo = sem_deb = invertidas = cred_contabilizado = 0
+    conta_terceiro = {}    # (filial, matrícula) → (conta, item, desc) do PJ
+    pendentes = []         # créditos de resultado, resolvidos no 2º passe
+    redirecionado = Counter()
     tipos, competencias, empresas = Counter(), Counter(), Counter()
     filiais_sem_empresa = Counter()
     redirecionadas = Counter(); item_sem_depara = Counter()
@@ -164,9 +167,10 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
             # tem item orçamentário) e o importador as descartava na porta — 2.080
             # linhas e R$ 486 mil em ago/2026 nunca chegaram à conciliação.
             #
-            # Cada lado de resultado vira sua própria linha de saída — mas o
-            # crédito só quando a linha NÃO foi contabilizada pela folha (ver
-            # LCTO_PADRAO abaixo). Linha sem nenhum lado de resultado não sai.
+            # Cada lado de resultado vira sua própria linha de saída. O crédito
+            # é caso especial e vai resolvido no SEGUNDO PASSE (ver adiante):
+            # depende de saber se a pessoa é terceiro, o que só se sabe depois
+            # de ler todas as linhas dela.
             if not eh_resultado(conta_deb) and not eh_resultado(conta_cred):
                 sem_deb += 1; continue
             filial = filial_folha(g('EMPRESA'), g('FILIAL'))
@@ -187,6 +191,15 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
                 valor = 0.0
             if not valor:
                 puladas += 1; continue
+            # chave da pessoa: filial + matrícula (a empresa pode ser redirecionada
+            # por ITEM_CONTABIL e variar entre linhas da mesma pessoa)
+            pessoa = (filial, mat)
+            # AH vazio = não contabilizado pela folha = é PJ, que contabiliza
+            # pela NOTA. A conta do débito dessas linhas é a conta de terceiro
+            # daquela pessoa — é para lá que o crédito dela tem de ir.
+            if not contabilizada and eh_resultado(conta_deb):
+                conta_terceiro[pessoa] = (conta_deb, str(g('IT_CONTAB_DB') or '').strip(),
+                                          (g('DESC_IT_CONTAB_DB') or '').strip())
             base = {
                 'ano': ano, 'mes': mes, 'empresa': empresa, 'filial': filial,
                 'cc': str(g('CENTRO_CUSTO') or '').strip(), 'matricula': mat,
@@ -204,11 +217,6 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
                 lados.append((conta_deb, conta_cred, valor,
                               str(g('IT_CONTAB_DB') or '').strip(),
                               (g('DESC_IT_CONTAB_DB') or '').strip()))
-            if eh_resultado(conta_cred) and not contabilizada:
-                lados.append((conta_cred, conta_deb, -valor, it_cr_cod, it_cr_desc))
-                invertidas += 1
-            elif eh_resultado(conta_cred):
-                cred_contabilizado += 1
             for c_afetada, c_contra, v, it_cod, it_desc in lados:
                 row = dict(base, valor=f'{v:.2f}', conta_deb=c_afetada, conta_cred=c_contra,
                            item_orc=it_cod, item_orc_desc=it_desc)
@@ -217,7 +225,38 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
                 competencias[f'{ano}-{mes:02d}'] += 1
                 empresas[empresa or '(sem empresa)'] += 1
                 total_valor += v
+            # guarda o crédito de resultado para o 2º passe (precisa saber se a
+            # pessoa é terceiro, e isso só se sabe depois de ler tudo dela)
+            if eh_resultado(conta_cred):
+                pendentes.append((pessoa, dict(base), conta_cred, conta_deb, valor,
+                                  it_cr_cod, it_cr_desc, ano, mes, empresa))
         wb.close()
+
+    # ── 2º PASSE — o crédito de resultado de quem é TERCEIRO ──
+    # A verba do desconto credita a conta do benefício (ex.: 549 → 41013001),
+    # mas para o PJ isso está errado no cadastro: a nota dele sai LÍQUIDA do
+    # desconto, então o efeito tem de cair na conta de TERCEIRO, não na do
+    # benefício. Gera a linha com sinal invertido, na conta (e no item) em que
+    # os proventos daquela pessoa estão.
+    #
+    # Quem não é terceiro não gera nada: para o CLT a folha contabiliza a verba,
+    # o razão já tem os dois lados e a conciliação exclui a contrapartida por
+    # conta_cred_cod (v3_087) — trazer o crédito aqui seria contar duas vezes.
+    for pessoa, base, c_cred, c_deb, valor, it_cr, it_cr_desc, ano, mes, empresa in pendentes:
+        alvo = conta_terceiro.get(pessoa)
+        if not alvo:
+            cred_contabilizado += 1
+            continue
+        conta_alvo, it_cod, it_desc = alvo
+        out_rows.append(dict(base, valor=f'{-valor:.2f}', conta_deb=conta_alvo,
+                             conta_cred=c_deb, item_orc=it_cod, item_orc_desc=it_desc))
+        tipos[base['tipo_verba'] or '(vazio)'] += 1
+        competencias[f'{ano}-{mes:02d}'] += 1
+        empresas[empresa or '(sem empresa)'] += 1
+        total_valor += -valor
+        invertidas += 1
+        if conta_alvo != c_cred:
+            redirecionado[f'{base["verba_cod"]} {c_cred}→{conta_alvo}'] += 1
 
     with open(saida, 'w', newline='', encoding='utf-8-sig') as f:
         w = csv.DictWriter(f, fieldnames=COLS_SAIDA)
@@ -226,7 +265,10 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
     print(f'Arquivos: {len(arquivos)} | linhas lidas: {lidas} | gravadas: {len(out_rows)} | '
           f'puladas (sem matrícula/valor): {puladas} | sem lado de resultado (patrimonial dos 2 lados): {sem_deb} | sem período: {sem_periodo}')
     print(f'Linhas do CRÉDITO (sinal invertido): {invertidas}')
-    print(f'Crédito de resultado JÁ contabilizado pela folha (não invertido): {cred_contabilizado}')
+    print(f'Crédito de resultado de CLT (não invertido — o razão já tem os 2 lados): {cred_contabilizado}')
+    if redirecionado:
+        print('Crédito de terceiro redirecionado para a conta dele (cadastro da verba errado): '
+              + ', '.join(f'{k} ({v}x)' for k, v in sorted(redirecionado.items())))
     print('Competências: ' + ', '.join(f'{k}={v}' for k, v in sorted(competencias.items())))
     print('Tipo de verba: ' + ', '.join(f'{k}={v}' for k, v in sorted(tipos.items())))
     print(f'Empresas ({len(empresas)}): ' + ', '.join(f'{k}={v}' for k, v in sorted(empresas.items())))
