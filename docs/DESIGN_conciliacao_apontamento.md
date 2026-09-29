@@ -236,16 +236,21 @@ TER073 JOHNY W. P. FELIPE   TER362 ROMILDA SANTOS SILVA    TER393 OPC SERVICOS L
 TER341 TIAGO CASTILHO       TER367 WISLEY A. FERNANDES     TL9015 VITOR LOPES
 ```
 
-Um deles (`TER393`) é **empresa**, não pessoa. Eles apontam horas e **não passam pela
-folha** — são pagos por outro caminho, quase certamente NF direta por contas a pagar, que
-é o território da aba *Contábil × Folha*.
+São apontamentos de **empresas terceiras**, que não são colaboradores da TOTVS Oeste —
+`TER393 OPC SERVICOS LTDA` é o caso explícito. Não há de-para a construir: essa gente não
+passa pela folha porque não deveria mesmo passar.
 
 São **130 linhas · R$ 75.785,36 · 3,5%** do valor apontado em julho.
 
-**Consequência para a tela:** eles nunca vão casar, e não são divergência. Precisam de um
-estado próprio — *"aponta mas não passa pela folha"* — em rodapé, com valor visível, como
-os patrimoniais e o CLT. Tratá-los como "apontado sem folha" poluiria justamente a lista
-que o líder precisa olhar.
+**Consequência para a tela:** ficam **fora da conferência**, com estado próprio —
+*"empresa terceira, não é colaborador"*. Mas o valor aparece num rodapé, como os
+patrimoniais: o total apontado os inclui, então sem mostrá-los a **prova de soma não
+fecha**, e o quadro passaria a afirmar uma completude que não tem. Jogá-los em "apontado
+sem folha" seria pior ainda — poluiria justamente a lista que o líder precisa olhar.
+
+O corte é pelo recurso não ter `posto` com `recurso_cod` correspondente: é o que os
+identifica sem depender de convenção de código (`TER***` não é regra, `001324` e `TC0044`
+seguem o padrão de quem está no cadastro).
 
 ### Regra de competência
 
