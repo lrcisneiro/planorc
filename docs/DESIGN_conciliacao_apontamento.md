@@ -114,7 +114,9 @@ produto.
    do cadastro da folha, não da conta contábil nem do `Cargo` do extrato.
 2. **O recurso mora em `SRA.RA_X_RECUR`** — o de-para é do próprio Protheus.
 3. **Quem já tem cálculo no período é PULADO** (`RegFunCal`/`TemSrcPd`), e o integrador
-   lista esses no fim. É candidato forte a explicar parte das 53 chaves.
+   lista esses no fim. Depois de descartar o intercâmbio por medição, esta é a hipótese
+   principal para as **53 chaves / 3.322,5 h** que não viraram folha. Basta guardar o log
+   de uma execução do `OEFOLM02` para cruzar.
 4. **Projeto `9999999999` é intercâmbio**: `CalPrjIn()` busca o CC em `AF8_CC` de outra
    empresa (`AFU200/250/280/500/510`) e pode **espalhar as horas para outra empresa**.
    Uma hora apontada em intercâmbio não cai onde o extrato sugere.
@@ -144,6 +146,38 @@ apontamento (horas por CC do projeto)
 Isso dá à nova aba um papel que as outras duas não têm: um CC errado no apontamento **se
 propaga até a contabilidade**, proporcionalmente. A conciliação Contábil × Folha mostra o
 efeito; só esta mostra a origem.
+
+### O extrato por dentro (`TRI0052A.prw`)
+
+O fonte que gera o extrato confirma a escolha por horas — e com um comentário do próprio
+autor:
+
+```
+//ALEXEI - ALTERACAO FEITA PARA CALCULAR O VALOR HORA BASEADO NO CUSTO DO APONTAMENTO
+//E NAO NO VALOR HORA DO RECURSO (AE8_VALOR) QUE PODE SER ALTERADO CONFORME EVOLUCAO
+//DO CONSULTOR.
+```
+
+`CUSTO_HORA` = `AFU_CUSTO1 / AFU_HQUANT` — custo **do apontamento**, congelado. O
+integrador usa `RetValHr(SRA)`, o valor-hora **do cadastro**, que muda quando o consultor
+evolui. São duas taxas para a mesma hora, **de propósito**. Comparar valor nunca fecharia.
+
+Outros pontos que a importação precisa respeitar:
+
+- **`CC_PROJETO` = `AFU_CCPRJ`** — o CC gravado **no apontamento**, não o do cadastro do
+  projeto (`AF8_CC`). É o que o líder digitou/herdou na hora de apontar.
+- **Moeda**: se `AE8_MOEDA <> '1'`, o custo é convertido por `M2_MOEDA2`. Há recurso em
+  moeda estrangeira, e o extrato já sai convertido conforme `MV_PAR24`.
+- **Filtros fixos da consulta**: `AFU_CTRRVS = '1'` e `AF8_EMPRES = '2'`. Linha fora
+  disso não existe no extrato, e portanto não existe na conciliação.
+- **Intercâmbio é opcional no extrato**: `lSemInter := Len(aEmpFil) > 1` — rodando
+  multi-empresa, o projeto `9999999999` é excluído para não duplicar. **Os dois arquivos
+  que temos o incluem** (493 linhas em julho, 512 em junho). A importação tem de detectar
+  isso, senão a mesma competência gera resultados diferentes conforme quem exportou.
+
+Medido: **manter o intercâmbio concilia melhor** — 157 chaves contra 119 sem ele. O
+`CalPrjIn()` na maioria das vezes devolve o mesmo CC que o extrato mostra, então excluir
+as linhas só cria buraco dos dois lados.
 
 ### Consequência para o modelo
 
