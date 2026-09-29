@@ -69,7 +69,13 @@ python3 scripts/preencher_salario_folha.py dados_rh/funcionarios_convertido.csv 
 ```
 
 Colunas finais do CSV: `posto_codigo, empresa, filial, cc, matricula, nome, cargo,
-regime, salario, admissao, demissao, situacao, ativo, rateio, D49, A76, D50, A15, A51`.
+regime, salario, admissao, demissao, situacao, ativo, rateio, recurso, D49, A76, D50,
+A15, A51`.
+
+- **`recurso`** vem de `BK_RECURSO` (`P |01|AE8200||001075` → `001075`; vazio quando a
+  pessoa não aponta horas). É `SRA.RA_X_RECUR`, o campo que o integrador da folha usa
+  para buscar o apontamento — e é o que liga o posto ao Extrato de Horas Apontadas, onde
+  a pessoa é identificada por recurso e não por matrícula. Medido: 315 de 558 linhas têm.
 
 ## O que cada coluna vira no import
 - **posto** (posto_codigo/empresa/filial/cc/cargo/regime/salario/vigência) → tabela `posto`.

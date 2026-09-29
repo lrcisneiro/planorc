@@ -100,7 +100,8 @@ def rateio_por_cc(cc: str) -> str:
     return RATEIO_POR_CC.get((cc or '').strip(), '')
 
 COLS_SAIDA = ['posto_codigo', 'empresa', 'filial', 'cc', 'matricula',
-              'nome', 'cargo', 'regime', 'salario', 'admissao', 'demissao', 'situacao', 'ativo', 'rateio']
+              'nome', 'cargo', 'regime', 'salario', 'admissao', 'demissao', 'situacao', 'ativo', 'rateio',
+              'recurso']
 
 def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=None):
     depara = depara or {}
@@ -125,6 +126,13 @@ def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=Non
             empresa = apos_ultimo_pipe(r.get('BK_EMPRESA', ''))
         nome      = (r.get('NOME_FUNC', '') or '').strip()
         cargo     = (r.get('CARGO_RECURO', '') or '').strip()
+        # BK_RECURSO vem como 'P |01|AE8200||001075' — o código fica depois do
+        # último pipe, e vazio quando a pessoa não aponta horas. É o campo que o
+        # integrador da folha usa (SRA.RA_X_RECUR) para achar o apontamento, e
+        # sem ele não há como ligar o extrato de horas à folha.
+        recurso   = apos_ultimo_pipe(r.get('BK_RECURSO', ''))
+        if recurso.upper().startswith('INDEFINIDO') or '-' in recurso:
+            recurso = ''   # placeholder do ERP ('01 - INDEFINIDO'), não é código
         situacao  = (r.get('SITFOLHA', '') or '').strip()
         admissao  = data_iso(r.get('RA_ADMISSA', ''))
         demissao  = data_iso(r.get('RA_DEMISSA', ''))
@@ -146,7 +154,7 @@ def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=Non
                'cc': cc, 'matricula': matricula, 'nome': nome, 'cargo': cargo,
                'regime': regime_por(matricula, cargo), 'salario': '',
                'admissao': admissao, 'demissao': demissao, 'situacao': situacao, 'ativo': ativo,
-               'rateio': rateio_por_cc(cc)}
+               'rateio': rateio_por_cc(cc), 'recurso': recurso}
 
         if posto_codigo in vistos:   # colisão: mantém a admissão mais recente
             colisoes += 1

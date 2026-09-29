@@ -246,6 +246,10 @@ export default function PostosGradePage() {
           sindicato_id: sindByCod[sindCodPorEmp((r.empresa || '').trim())] || null,
           regime: (() => { const s = (r.regime || '').trim(); return s ? (s.includes('-') ? s : 'BR-' + s) : null })(), salario_base: r.salario ? parseFloat(r.salario) : 0,
           nome: (r.nome || '').trim() || null, matricula: (r.matricula || '').trim() || null,
+          // código do recurso no apontamento de horas (SRA.RA_X_RECUR). É o que liga o
+          // posto ao Extrato de Horas Apontadas — lá a pessoa é identificada por recurso,
+          // não por matrícula. Vazio em vaga planejada e em quem não aponta.
+          recurso_cod: (r.recurso || '').trim() || null,
           ini_ano: ay ? parseInt(ay, 10) : null, ini_mes: am ? parseInt(am, 10) : null, fte: 1, ativo: (r.ativo || 'sim') !== 'nao' })
       }
       if (!payload.length) {
