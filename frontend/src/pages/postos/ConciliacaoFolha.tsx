@@ -6,7 +6,7 @@ import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
 import { decodeCC } from '../../lib/ccDims'
 import type { RefRelatorio } from '../../lib/refRelatorio'
-import { AlertCircle, ChevronDown, ChevronRight, Search, X } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronRight, Search, X, FileDown } from 'lucide-react'
 
 // Corpo reutilizável da conciliação de folha (Orçado motor × Realizado folha, por posto).
 // Usado pelo modal (drill do DRE) e pela página avulsa (a partir dos Postos).
@@ -33,6 +33,9 @@ type Linha = { key: string; posto_id: string | null; codigo: string; nome: strin
   semOrcado: boolean; motivoSem: 'sem posto' | 'posto não orçado' | ''; filialId: string | null }
 type VerbaReal = { verba_cod: string; verba_desc: string; conta_id: string | null; item_orc_id: string | null; valor: number }
 type DimCell = { empId: string | null; filId: string | null; ccId: string | null; orc: number; real: number }
+
+// SheetJS vem do CDN no index.html (mesmo padrão dos outros exportadores)
+declare const XLSX: any
 
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const milAno = (v: number, sym = 'R$') => Math.abs(v) >= 1e6 ? `${sym} ${(v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} mi` : `${sym} ${money(v)}`
@@ -484,6 +487,90 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
     )
   }
 
+  // ── Exportar para XLSX ──
+  // Achatado: uma linha por folha da árvore, com o contexto do pai em colunas.
+  // Aqui dá para exportar TUDO — o detalhe por verba e o "onde caiu" já estão
+  // em memória (são montados na carga, não sob demanda como na aba contábil).
+  // Números como número, não texto formatado, senão não somam no Excel.
+  const exportarXlsx = async () => {
+    const wb = XLSX.utils.book_new()
+    const add = (nome: string, linhas: any[][]) =>
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhas), nome)
+    const periodo = p.meses.map(m => `${String(m.mes).padStart(2, '0')}/${m.ano}`).join(', ')
+    const escopoTxt = (v: string[] | null) => v === null || !v.length ? 'todos' : `${v.length} selecionado(s)`
+    const item = (id: string | null) => id ? `${contaOrc[id]?.codigo || ''} ${contaOrc[id]?.descricao || ''}`.trim() : '(sem item)'
+
+    add('Resumo', [
+      ['Conciliação Orçado × Folha'],
+      ['Versão (orçado)', p.versaoLabel], ['Competência', periodo], ['Título', p.titulo || ''],
+      ['Modo', modo === 'rateado' ? 'Rateado (filtros pelo destino)' : 'Por posto (filtros pela origem)'],
+      ['Empresas', escopoTxt(p.empresaSel)], ['Filiais', escopoTxt(p.filialFilter)], ['Centros de custo', escopoTxt(p.ccFilter)],
+      [],
+      ['', 'Orçado', 'Realizado', 'Δ (orç − real)'],
+      ['Postos orçados', tot1.orc, tot1.real, tot1.orc - tot1.real],
+      ['Realizado sem orçamento', tot2.orc, tot2.real, tot2.orc - tot2.real],
+      [],
+      ['PROVA DE SOMA (sobre o dado, não sobre a busca)'],
+      ['Postos orçados', prova.orc, prova.g1],
+      ['Realizado sem orçamento', '', prova.g2],
+      ['= conferido', prova.orc, prova.conferido],
+      ['Folha do período, sem recorte', '', prova.folha],
+      ['Fora do recorte atual', '', prova.fora],
+      ...(p.ref ? [[], [`No relatório ${p.ref.relatorioNome} (função do próprio relatório)`],
+        ['Linha', 'Orçado folha', 'Realizado folha', 'Orçado DRE', 'Realizado DRE'],
+        ...porItem.map(i => [`${i.cod} ${i.desc}`, i.orc, i.real, i.dreOrc ?? '', i.dreReal ?? ''])] : []),
+      [], ['Exportado em', new Date().toLocaleString('pt-BR')],
+    ])
+
+    add('Postos', [['Grupo', 'Posto', 'Ocupante', 'Matrícula', 'Cargo', 'Empresa', 'Filial', 'CC', 'Descrição do CC',
+      'Orçado', 'Realizado', 'Δ', 'Δ %', 'Divergência de dimensão', 'Motivo'],
+      ...linhas.map(l => [l.semOrcado ? 'Realizado sem orçamento' : 'Postos orçados',
+        l.codigo, l.nome, l.matricula, l.cargo, l.empCod, l.filCod, l.ccCod, l.ccDesc,
+        l.orcado, l.realizado, l.orcado - l.realizado,
+        l.realizado ? (l.orcado - l.realizado) / Math.abs(l.realizado) : '',
+        l.divergDims.join(' / '), l.motivoSem])])
+
+    // por verba — o que se cruza para achar de onde vem o delta
+    const verbas: any[][] = [['Posto', 'Ocupante', 'Matrícula', 'Item orçamentário', 'Verba', 'Descrição', 'Orçado', 'Realizado', 'Δ']]
+    for (const l of linhas) {
+      const m = new Map<string, { item: string | null; cod: string; desc: string; orc: number; real: number }>()
+      const juntar = (lista: VerbaReal[] | undefined, campo: 'orc' | 'real') => {
+        for (const v of lista || []) {
+          const k = `${v.item_orc_id || ''}|${v.verba_cod}`
+          const e = m.get(k) || { item: v.item_orc_id, cod: v.verba_cod, desc: v.verba_desc || '', orc: 0, real: 0 }
+          e[campo] += v.valor; if (!e.desc && v.verba_desc) e.desc = v.verba_desc
+          m.set(k, e)
+        }
+      }
+      juntar(orcDet[l.key], 'orc'); juntar(realDet[l.key], 'real')
+      for (const v of m.values())
+        verbas.push([l.codigo, l.nome, l.matricula, item(v.item), v.cod, v.desc, v.orc, v.real, v.orc - v.real])
+    }
+    add('Por verba', verbas)
+
+    // onde caiu — empresa × filial × CC, SEM os filtros da tela.
+    // As células guardam ID; planilha precisa de CÓDIGO, então resolve aqui —
+    // exportar uuid seria entregar uma aba que ninguém consegue cruzar.
+    const ids = (f: (c: DimCell) => string | null) =>
+      [...new Set(Object.values(dimFull).flat().map(f).filter(Boolean))] as string[]
+    const [eIds, fIds, cIds] = [ids(c => c.empId), ids(c => c.filId), ids(c => c.ccId)]
+    const cod: Record<string, Record<string, string>> = { e: {}, f: {}, c: {} }
+    await Promise.all(([['e', 'empresa', eIds], ['f', 'filial', fIds], ['c', 'centro_custo', cIds]] as const)
+      .map(async ([k, tabela, lista]) => {
+        if (!lista.length) return
+        const { data } = await supabase.from(tabela).select('id,codigo').in('id', lista)
+        for (const x of (data || []) as any[]) cod[k][x.id] = x.codigo
+      }))
+    const onde: any[][] = [['Posto', 'Ocupante', 'Matrícula', 'Empresa', 'Filial', 'CC', 'Orçado', 'Realizado', 'Δ']]
+    for (const l of linhas) for (const c of dimFull[l.key] || [])
+      onde.push([l.codigo, l.nome, l.matricula,
+        c.empId ? (cod.e[c.empId] || '?') : '', c.filId ? (cod.f[c.filId] || '?') : '',
+        c.ccId ? (cod.c[c.ccId] || '?') : '', c.orc, c.real, c.orc - c.real])
+    add('Onde caiu (sem filtro)', onde)
+
+    XLSX.writeFile(wb, `conciliacao_orcado_folha_${p.meses[0]?.ano}-${String(p.meses[0]?.mes).padStart(2, '0')}.xlsx`)
+  }
+
   // mesma tabela nos dois quadros: as colunas e o comportamento são os mesmos,
   // o que muda é quem entra em cada um.
   const tabela = (rows: Linha[], grps: Grupo[] | null, vazio: string, t: { orc: number; real: number }, unidade: string) => (
@@ -542,6 +629,13 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
             <option value="posto">Por posto (headcount)</option>
             <option value="rateado">Rateado (gerencial)</option>
           </select>
+        </div>
+        <div style={S.fld}><span style={S.lbl}>Exportar</span>
+          <button style={{ ...S.sel, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, color: 'var(--violet)', whiteSpace: 'nowrap' }}
+            title="Baixa a conciliação em XLSX: Resumo (com a prova de soma), Postos, Por verba e Onde caiu — achatado, pronto para tabela dinâmica."
+            onClick={exportarXlsx} disabled={loading}>
+            <FileDown size={13} /> Exportar
+          </button>
         </div>
         <div style={S.fld}><span style={S.lbl}>Buscar</span>
           <div style={{ position: 'relative' }}>

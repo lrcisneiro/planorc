@@ -4,7 +4,7 @@ import { supabase, TENANT_ID } from '../../lib/supabase'
 import { useLocalPref } from '../../lib/uiPrefs'
 import type { RefRelatorio } from '../../lib/refRelatorio'
 import { ConciliacaoQuadro } from './ConciliacaoQuadro'
-import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare, Search, X, Download } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare, Search, X, FileDown } from 'lucide-react'
 
 // Conciliação CONTÁBIL × FOLHA (camada 2), organizada por MODELO DE CONTRATAÇÃO
 // (v3_085) — porque é o modelo que decide por onde o dinheiro da pessoa chega à
@@ -524,7 +524,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
           <button style={{ ...S.inp, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, color: 'var(--violet)', whiteSpace: 'nowrap' }}
             title="Baixa a conciliação em XLSX, achatada em abas (CLT, Terceiros, Sem dono, Patrimoniais) — uma linha por verba/pessoa, com o contexto do pai em colunas, pronto para tabela dinâmica."
             onClick={exportarXlsx} disabled={loading}>
-            <Download size={14} /> XLSX
+            <FileDown size={13} /> Exportar
           </button>
         </div>
         <div style={S.fld}><span style={S.lbl}>Procurar pessoa</span>
