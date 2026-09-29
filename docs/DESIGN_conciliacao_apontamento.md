@@ -252,6 +252,35 @@ O corte é pelo recurso não ter `posto` com `recurso_cod` correspondente: é o 
 identifica sem depender de convenção de código (`TER***` não é regra, `001324` e `TC0044`
 seguem o padrão de quem está no cadastro).
 
+### Recurso duplicado: a regra de desempate
+
+Medido depois de importar: **12 recursos aparecem em mais de um posto** (315 postos com
+recurso, 566 no total). Três padrões, e nenhum é erro de cadastro:
+
+| padrão | casos | exemplo |
+|---|---|---|
+| A — mesma pessoa em duas filiais, **ambas ativas** | 3 | sócio com pró-labore em `2001` e `2101` |
+| B — transferência: um demitido, outro ativo | 7 | `2006` (D) → `2801` (A) |
+| C — os dois demitidos | 2 | duas matrículas na mesma filial |
+
+Cruzando com o extrato de julho: **os 3 do padrão A não apontam nenhuma hora** (a
+ambiguidade é teórica), os 7 do B apontam na filial **ativa**, e o C não aparece.
+
+Mas dois do padrão B apontam **também numa filial onde não têm posto** — `001640` com
+16 h em `2001` e `TC0052` com 2 h, tendo posto só em `2006` (D) e `2801` (A). Isso não é
+erro: é trabalho feito em outra unidade. A folha paga na filial **da pessoa**.
+
+**Regra de resolução, em ordem:**
+
+1. posto com o mesmo `recurso_cod` **e** a mesma filial do apontamento;
+2. senão, o **único posto ativo** com aquele recurso;
+3. senão, ambíguo — a tela mostra e não escolhe.
+
+Com os dados de julho a regra 2 resolve as horas órfãs e a 3 nunca dispara. E há uma
+consequência para a chave da conciliação: o lado do apontamento tem de usar a filial do
+**posto**, não a do apontamento, senão trabalho feito em outra unidade vira divergência
+falsa.
+
 ### Regra de competência
 
 | tipo | defasagem | exemplo |
