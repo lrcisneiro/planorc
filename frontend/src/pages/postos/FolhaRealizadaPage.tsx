@@ -384,9 +384,12 @@ export default function FolhaRealizadaPage() {
       // REDE, que acontece e passa. Então: tenta de novo o que for de rede, e se
       // ainda assim falhar, diz quantas linhas entraram, porque o estado do banco
       // deixou de ser o que a pessoa pediu e ela precisa saber disso.
+      // 200 e não 500: a linha ficou mais larga (horas, slots de moeda, dims) e
+      // requisição grande é a que a rede derruba. Mais chamadas, cada uma menor,
+      // e o retry acima cobre a que escapar.
       let gravados = 0
-      for (let i = 0; i < payload.length; i += 500) {
-        const fatia = payload.slice(i, i + 500)
+      for (let i = 0; i < payload.length; i += 200) {
+        const fatia = payload.slice(i, i + 200)
         let err: any = null
         for (let tent = 1; tent <= 3; tent++) {
           const r = await supabase.from('fat_folha').insert(fatia)
