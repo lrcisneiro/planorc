@@ -12,8 +12,16 @@ custo e na empresa do projeto**. A aba responde exatamente isso, e nada além.
 
 ## O que foi medido
 
-Arquivo `Extrato_Horas_Apontadas_20260701_20260731.xlsx`, 58 colunas, **4.943 linhas ·
-R$ 2.169.729,02 · 28.852 horas · 172 recursos**, todas de julho/2026.
+Dois extratos, 58 colunas cada:
+
+| arquivo | linhas | valor | recursos |
+|---|---|---|---|
+| `Extrato_Horas_Apontadas_20260601_20260630.xlsx` | 4.813 | 2.114.841,36 | 182 |
+| `Extrato_Horas_Apontadas_20260701_20260731.xlsx` | 4.943 | 2.169.729,02 | 172 |
+
+**A competência vem do nome do arquivo** — `yyyyMMdd_yyyyMMdd`, de/até. Não há coluna de
+competência no conteúdo, e `Dt. Pgto Fol` vem vazia. A importação lê o período do nome e
+confere contra a coluna `Data`; divergência é erro de arquivo, não de regra.
 
 **`Custo` = `CUSTO_HORA` × `Qt. Horas` nas 4.943 linhas, sem uma exceção** e sem taxa
 zerada. É a coluna de valor. (`TOTAL_SEMIMP`/`TOTAL_COMIMP` são valor de venda ao
@@ -103,9 +111,39 @@ Duas frentes, e a segunda não é opcional:
 | PJ | 1 mês | apontamento jul/2026 → folha ago/2026 |
 | CLT | 2 meses | apontamento jun/2026 → folha ago/2026 |
 
+A defasagem do PJ foi **testada**, comparando os dois extratos contra a mesma folha:
+
+| apontamento × folha ago, verba 222 | conciliados | folha sem apontamento |
+|---|---|---|
+| **julho** | **146** | **2** |
+| junho | 4 | 24 |
+| jun + jul somados | 19 | — |
+
+Sem ambiguidade. E é um teste que vale repetir a cada competência nova: se um mês parar
+de casar, a regra mudou no ERP e a tela avisaria em vez de acusar divergência falsa.
+
 A defasagem **depende do tipo de contrato**, que vem da folha. Consequência prática: uma
 competência da folha compara contra **dois** arquivos de apontamento diferentes, e a
 importação precisa gravar a competência-alvo por linha.
+
+### O CLT é outra pergunta, não a mesma com outro recorte
+
+Junho → agosto, só CLT: **702 linhas · R$ 250.804,40 · 62 chaves** `(filial, matrícula,
+CC_PROJETO)`.
+
+- **42 dessas 62 chaves — R$ 166.174,93 — estão num CC que a folha não pagou.** Dois
+  terços do custo-hora apontado pelo CLT apontam para um centro de custo que a folha
+  nunca tocou.
+- `CC_PROJETO` = `CC_RECURSO` em apenas **21 de 62**.
+
+Isso não é divergência a corrigir: é o desenho atual. A folha do CLT paga **salário no CC
+do recurso**, e o apontamento diz **onde o tempo foi**. Comparar os dois valores seria
+comparar coisas diferentes — um é folha, o outro é custo-hora.
+
+Então o bloco de CLT **não concilia valor**: mostra **alocação**. Para cada pessoa, quanto
+do custo-hora dela o apontamento colocou em cada projeto, e o fato de a folha ter
+alocado tudo no CC dela. O número que interessa ao líder é *"R$ 166 mil de custo de hora
+CLT pertencem a projetos de outros centros de custo"* — e hoje ninguém consegue dizer isso.
 
 ## A conciliação
 
@@ -155,12 +193,12 @@ de esconder. É específico da TOTVS Oeste.
 
 ## Em aberto
 
-- **Os ~353 mil de apontado sem folha.** Hipóteses a testar: cooperado pago por outra
-  verba, hora apontada e glosada, defasagem diferente para parte das pessoas, ou NF
-  emitida com valor diferente do custo-hora. **Decidir isto antes da fase 3** — se a
-  regra de competência ou de verba estiver incompleta, a tela nasce acusando divergência
-  onde não há.
+- **Os ~353 mil de apontado sem folha (PJ).** A defasagem já foi descartada como causa
+  (o teste acima). Sobram: cooperado pago por outra verba, hora apontada e glosada, ou NF
+  emitida com valor diferente do custo-hora. **Decidir isto antes da fase 3** — se a regra
+  de verba estiver incompleta, a tela nasce acusando divergência onde não há.
 - **Os 9 recursos `TER***` fora do cadastro** — existem com outro código, ou nunca
   entraram?
-- **`Dt. Pgto Fol` vem vazia** nas 4.943 linhas. Se o ERP puder preenchê-la, ela substitui
-  a regra de defasagem por um vínculo explícito, que é muito melhor.
+- **`Dt. Pgto Fol` vem vazia** nos dois extratos. Se o ERP puder preenchê-la, ela substitui
+  a regra de defasagem por um vínculo explícito, que é muito melhor — e resolveria de uma
+  vez a diferença de defasagem entre PJ e CLT.
