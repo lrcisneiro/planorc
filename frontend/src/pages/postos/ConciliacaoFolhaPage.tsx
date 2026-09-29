@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
-import { PostosPills, passoLabel } from './PostosPills'
+import { PostosPills, usePassoLabel } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro, useMoedaView, MoedaSelect } from '../dashboard/DashFiltros'
 import { ConciliacaoFolha } from './ConciliacaoFolha'
 import { ConciliacaoContabil } from './ConciliacaoContabil'
+import { ConciliacaoApontamento } from './ConciliacaoApontamento'
+import { useTenantFlags } from '../../lib/tenantFlags'
 import { usePostoCtx } from '../../lib/postoCtx'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
@@ -13,6 +15,7 @@ import { refDoRelatorio, contasDosMasters, mastersDaSelecao, linhasConciliaveis,
 import type { LinhaRel, RefRelatorio } from '../../lib/refRelatorio'
 import type { ConcilParams } from './ConciliacaoFolha'
 import type { ContabilParams } from './ConciliacaoContabil'
+import type { ApontParams } from './ConciliacaoApontamento'
 
 // Página AVULSA de conciliação de folha (a partir dos Postos): escolhe versão +
 // competência + escopo e compara TODAS as contas (Orçado motor × Realizado folha)
@@ -32,12 +35,14 @@ const S: Record<string, CSSProperties> = {
   empty: { padding: '30px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12 },
 }
 
-// Duas perguntas diferentes sobre a mesma folha, no mesmo lugar:
-//   orcado   — o que planejamos × o que a folha pagou (por posto)
-//   contabil — o que a contabilidade lançou × o que a folha pagou (por funcionário)
+// Três perguntas diferentes sobre a mesma folha, no mesmo lugar:
+//   orcado     — o que planejamos × o que a folha pagou (por posto)
+//   contabil   — o que a contabilidade lançou × o que a folha pagou (por funcionário)
+//   apontamento— as horas aprovadas × o que a folha pagou por hora (por CC do projeto)
 // A segunda é a que destrava a área: ela orça na conta contábil e recebe o
-// realizado agregado, sem conseguir ver quem compõe o número.
-type Aba = 'orcado' | 'contabil'
+// realizado agregado, sem conseguir ver quem compõe o número. A terceira só
+// existe onde se aponta hora em projeto, e por isso é ligada por tenant.
+type Aba = 'orcado' | 'contabil' | 'apontamento'
 
 const tab = (a: boolean): CSSProperties => ({ padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: a ? 'default' : 'pointer', borderRadius: 8, border: '1px solid ' + (a ? 'var(--violet)' : 'var(--border)'), background: a ? 'rgba(139,92,246,0.16)' : 'var(--panel)', color: a ? 'var(--violet)' : 'var(--text-mid)' })
 
@@ -84,7 +89,12 @@ function LinhasPicker({ linhas, sel, setSel }: { linhas: LinhaRel[]; sel: string
 
 export default function ConciliacaoFolhaPage() {
   const acesso = useUserAccess()
-  const [abaSel, setAbaSel] = useLocalPref<Aba>('planorc_concil_aba', 'orcado')
+  const passoLabel = usePassoLabel()
+  const flags = useTenantFlags()
+  const [abaRaw, setAbaSel] = useLocalPref<Aba>('planorc_concil_aba', 'orcado')
+  // a aba lembrada pode ter sido desligada depois: não deixar a tela presa numa
+  // aba que não existe mais neste tenant
+  const abaSel: Aba = abaRaw === 'apontamento' && !flags.usa_apontamento ? 'orcado' : abaRaw
   const { moedas, slot: moedaSlot, setSlot: setMoedaSlot } = useMoedaView()
   const [versoes, setVersoes] = useState<any[]>([])
   const [versaoSel, setVersaoSel] = usePostoCtx('versaoId', '')
@@ -207,6 +217,20 @@ export default function ConciliacaoFolhaPage() {
     }
   }, [compSel, versaoSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, filiais, empresas, ccs, acesso.loading, relSel, ref]) // eslint-disable-line
 
+  // o apontamento não usa versão nem relatório: confere HORAS, e a DRE não tem
+  // horas. A competência escolhida é a da FOLHA — o extrato correspondente vem
+  // pela comp_folha gravada na importação, que carrega a defasagem por contrato.
+  const paramsApont = useMemo<ApontParams | null>(() => {
+    if (!compSel) return null
+    const [a, m] = compSel.split('-').map(Number)
+    return {
+      ano: a, mes: m,
+      empresaSel: escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSee) ?? [],
+      filialFilter: escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSee),
+      ccFilter: escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee),
+    }
+  }, [compSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, filiais, empresas, ccs, acesso.loading]) // eslint-disable-line
+
   return (
     <div style={S.page}>
       <div style={S.top}>
@@ -214,6 +238,8 @@ export default function ConciliacaoFolhaPage() {
           <h1 style={S.title}>Conciliação de folha</h1>
           <p style={S.sub}>{abaSel === 'orcado'
             ? <>Orçado (postos aplicados) × Realizado (folha) por posto, na versão e competência escolhidas. Escolha as <b>linhas do relatório</b> para recortar o universo e ganhar a coluna de referência com o número da própria DRE; sem escolha, compara todas as contas.</>
+            : abaSel === 'apontamento'
+            ? <>Horas aprovadas no apontamento × horas que a folha pagou, por <b>centro de custo do projeto</b>. A conferência é em <b>horas</b>, não em reais: o apontamento carrega o custo/hora congelado e a folha usa o valor-hora do cadastro — são duas taxas para a mesma hora. O apontamento correspondente vem sozinho, com a defasagem de cada tipo de contrato já resolvida.</>
             : <>Realizado contábil (razão) × Realizado da folha, separado por <b>modelo de contratação</b> — é ele que decide por onde o dinheiro chega à contabilidade. O <b>CLT</b> a folha contabiliza, e o razão vem consolidado: compara por conta → verba. O <b>terceiro</b> chega por nota fiscal, que tem dono: compara por pessoa, mesmo quando a nota cai numa conta diferente da que a folha aponta.</>}</p>
         </div>
         <PostosPills />
@@ -222,6 +248,8 @@ export default function ConciliacaoFolhaPage() {
       <div style={{ display: 'flex', gap: 8, margin: '18px 0 0' }}>
         <button style={tab(abaSel === 'orcado')} onClick={() => setAbaSel('orcado')}>Orçado × Folha</button>
         <button style={tab(abaSel === 'contabil')} onClick={() => setAbaSel('contabil')}>Contábil × Folha</button>
+        {flags.usa_apontamento &&
+          <button style={tab(abaSel === 'apontamento')} onClick={() => setAbaSel('apontamento')}>Apontamento × Folha</button>}
       </div>
 
       <div style={S.bar}>
@@ -237,7 +265,8 @@ export default function ConciliacaoFolhaPage() {
             {comps.map(c => { const [a, m] = c.split('-'); return <option key={c} value={c}>{MESES[+m - 1]}/{a}</option> })}
           </select>
         </div>
-        <div style={S.fld}><span style={S.lbl}>Relatório</span>
+        {/* relatório e linhas recortam VALOR — o apontamento confere hora, e a DRE não tem horas */}
+        {abaSel !== 'apontamento' && <><div style={S.fld}><span style={S.lbl}>Relatório</span>
           <select style={S.sel} value={relSel} onChange={e => setRelSel(e.target.value)}
             title="De qual relatório vêm as linhas de referência. A conciliação passa a comparar com os números dele.">
             {!rels.length && <option value="">—</option>}
@@ -246,7 +275,7 @@ export default function ConciliacaoFolhaPage() {
         </div>
         <div style={S.fld}><span style={S.lbl}>Linhas do relatório</span>
           <LinhasPicker linhas={ofertadas} sel={linhasSel} setSel={setLinhasSel} />
-        </div>
+        </div></>}
         <div style={S.fld}><span style={S.lbl}>Filtros</span>
           <FiltrosButton empresas={acesso.filterList('empresa', empresas)} filiais={acesso.filterList('filial', filiais)} ccs={acesso.filterList('centro_custo', ccs as any) as any}
             empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel}
@@ -257,6 +286,8 @@ export default function ConciliacaoFolhaPage() {
       </div>
 
       {!comps.length ? <div style={S.empty}>Nenhuma folha importada ainda. Vá em <b>{passoLabel('/postos/folha')}</b> e importe o realizado antes de conciliar.</div>
+        : abaSel === 'apontamento'
+          ? (paramsApont ? <ConciliacaoApontamento params={paramsApont} /> : <div style={S.empty}>Selecione a competência.</div>)
         : abaSel === 'contabil'
           ? (paramsContabil ? <ConciliacaoContabil params={paramsContabil} podeConfigurar={acesso.isAdmin} /> : <div style={S.empty}>Selecione a competência.</div>)
           : params ? <ConciliacaoFolha params={params} />

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { supabase } from '../../lib/supabase'
+import { supabase, TENANT_ID } from '../../lib/supabase'
+import { limparCacheFlags } from '../../lib/tenantFlags'
 import { CAPACIDADES } from '../../lib/capacidades'
 import type { Papel } from '../../lib/capacidades'
 
@@ -479,22 +480,73 @@ function AccessSummary({ userId }: { userId: string }) {
   return <span style={{ color: '#e67700', fontSize: 12 }}>{count} dimensão(ões) restrita(s)</span>
 }
 
+// ── Funcionalidades do tenant ─────────────────────────────
+// O que EXISTE nesta instalação, que é pergunta diferente de quem pode ver
+// (isso é capacidade, por usuário). Um mecanismo muito específico do negócio de
+// alguém não deve aparecer como uma tela vazia para os outros.
+const FUNCIONALIDADES: { key: 'usa_apontamento'; label: string; desc: string }[] = [
+  { key: 'usa_apontamento', label: 'Apontamento de horas em projeto',
+    desc: 'Liga a importação do Extrato de Horas Apontadas e a conciliação Apontamento × Folha, em Posto de trabalho. Só faz sentido onde as pessoas apontam horas em projeto e a folha gera verba por centro de custo a partir delas.' },
+]
+
+function FuncionalidadesTab() {
+  const [flags, setFlags] = useState<Record<string, boolean> | null>(null)
+  const [erro, setErro] = useState('')
+
+  useEffect(() => {
+    supabase.from('tenant').select('usa_apontamento').eq('id', TENANT_ID).maybeSingle()
+      .then(({ data, error }) => error ? setErro(error.message) : setFlags((data as any) || {}))
+  }, [])
+
+  const alternar = async (key: string, v: boolean) => {
+    setErro('')
+    const { error } = await supabase.from('tenant').update({ [key]: v }).eq('id', TENANT_ID)
+    if (error) { setErro(error.message); return }
+    setFlags(f => ({ ...(f || {}), [key]: v }))
+    limparCacheFlags()   // a navegação lê de cache p/ não piscar — invalida agora
+  }
+
+  if (erro) return <div style={{ color: 'var(--red)', fontSize: 13 }}>{erro}</div>
+  if (!flags) return <div style={{ color: 'var(--muted)', fontSize: 13 }}>Carregando…</div>
+
+  return (
+    <div style={S.card}>
+      {FUNCIONALIDADES.map(f => (
+        <label key={f.key} style={{ display: 'flex', gap: 12, padding: '14px 16px', borderBottom: '1px solid var(--panel)', cursor: 'pointer', alignItems: 'flex-start' }}>
+          <input type="checkbox" checked={!!flags[f.key]} onChange={e => alternar(f.key, e.target.checked)} style={{ marginTop: 3 }} />
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{f.label}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.5, maxWidth: 680 }}>{f.desc}</div>
+          </div>
+        </label>
+      ))}
+      <div style={{ padding: '12px 16px', fontSize: 11.5, color: 'var(--faint)' }}>
+        Desligar não apaga nada — só esconde a tela. Os dados já importados continuam no banco.
+      </div>
+    </div>
+  )
+}
+
 // ── Página principal ──────────────────────────────────────
 export default function ConfiguracoesPage() {
-  const [aba, setAba] = useState<'usuarios'>('usuarios')
+  const [aba, setAba] = useState<'usuarios' | 'funcionalidades'>('usuarios')
 
   return (
     <div style={S.page}>
       <h1 style={S.title}>Configurações</h1>
-      <p style={S.sub}>Gerencie usuários e permissões do tenant</p>
+      <p style={S.sub}>Gerencie usuários, permissões e funcionalidades do tenant</p>
 
       <div style={S.tabs}>
         <button style={S.tab(aba === 'usuarios')} onClick={() => setAba('usuarios')}>
           Usuários
         </button>
+        <button style={S.tab(aba === 'funcionalidades')} onClick={() => setAba('funcionalidades')}>
+          Funcionalidades
+        </button>
       </div>
 
       {aba === 'usuarios' && <UsuariosTab />}
+      {aba === 'funcionalidades' && <FuncionalidadesTab />}
     </div>
   )
 }

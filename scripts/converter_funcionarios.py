@@ -102,6 +102,12 @@ RATEIO_POR_CC['317'] = 'RATEMP03'
 def rateio_por_cc(cc: str) -> str:
     return RATEIO_POR_CC.get((cc or '').strip(), '')
 
+# Quem recebe POR HORA não sai daqui. Tentei a categoria da folha (RA_CATFUNC) e
+# o cargo deste cadastro; nenhum dos dois serve: a categoria só separa PJ de CLT
+# (o que `regime` já faz) e o cargo é genérico demais — 214 dos 303 que apontam
+# são "ANAL. NEGOCIO III", e só 3 são "GESTOR DE PROJETOS". O que decide é a
+# FUNÇÃO no projeto, que vem na coluna `Cargo` do Extrato de Horas Apontadas e é
+# marcada em Posto de trabalho → Apontamento (tabela `apontamento_funcao`).
 COLS_SAIDA = ['posto_codigo', 'empresa', 'filial', 'cc', 'matricula',
               'nome', 'cargo', 'regime', 'salario', 'admissao', 'demissao', 'situacao', 'ativo', 'rateio',
               'recurso']

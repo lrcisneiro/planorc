@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react'
 import { X, AlertTriangle } from 'lucide-react'
 import { cascataRateio } from '../../lib/rateioFolha'
-import { passoLabel } from './PostosPills'
+import { usePassoLabel } from './PostosPills'
 
 // Modal de rateio por posto — cascata dos códigos anexados + resultado no grão final.
 // Compartilhado pela grade (/postos) e pela memória (/postos/memoria).
@@ -25,6 +25,7 @@ export function RateioModal({ posto, totMes, totAno, anexos, rateioCods, destByR
   ccById: Map<string, any>
   onClose: () => void
 }) {
+  const passoLabel = usePassoLabel()
   const { steps, cells: finais } = cascataRateio({ empresa_id: posto.empresa_id, cc_id: posto.cc_id || null }, anexos, rateioCods, destByRegra)
   const somaPct = finais.reduce((s, c) => s + c.pct, 0)
   const ok = Math.abs(somaPct - 1) < 0.0001

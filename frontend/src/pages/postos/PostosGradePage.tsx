@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
-import { PostosPills, passoLabel } from './PostosPills'
+import { PostosPills, usePassoLabel } from './PostosPills'
+import { useTenantFlags } from '../../lib/tenantFlags'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
@@ -116,6 +117,8 @@ type Posto = {
   id: string; codigo: string; nome: string | null; matricula: string | null; regime: string | null; ativo?: boolean
   salario_base: number; fte: number; ini_ano: number | null; ini_mes: number | null; fim_ano: number | null; fim_mes: number | null
   empresa_id: string; filial_id: string | null; cc_id: string | null; cargo_id: string | null; sindicato_id: string | null
+  recurso_cod?: string | null                  // SRA.RA_X_RECUR — liga ao apontamento
+  recebe_hora?: boolean | null                 // exceção sobre a função; null = segue a função
   cargo?: { nome: string } | null; empresa?: { codigo: string } | null; filial?: { codigo: string } | null
   centro_custo?: { codigo: string; descricao: string } | null; sindicato?: { codigo: string } | null
 }
@@ -123,6 +126,10 @@ type Posto = {
 export default function PostosGradePage() {
   const acesso = useUserAccess()
   const cap = useCapacidades()
+  const passoLabel = usePassoLabel()
+  const flags = useTenantFlags()
+  // a coluna "recebe por hora" só existe onde se aponta hora em projeto
+  const nCols = flags.usa_apontamento ? 14 : 13
   const editavel = cap.can('orcar')
 
   const [empresas, setEmpresas] = useState<any[]>([])
@@ -229,6 +236,12 @@ export default function PostosGradePage() {
       }
       const semEmp = new Set<string>(), semFil = new Set<string>(), semCc = new Set<string>()
       const foraEscopo = new Set<string>()   // linhas fora do que o usuário pode orçar (empresa/filial/CC)
+      // A coluna `recebe_hora` entra no upsert TUDO ou NADA. Incluí-la só em
+      // algumas linhas deixaria o resultado por conta de como o PostgREST une as
+      // chaves do lote — e o efeito seria apagar em silêncio a marcação de quem
+      // o export não classificou. Com o arquivo trazendo a categoria, o cadastro
+      // da folha manda em todo mundo; sem ela, a coluna nem é tocada.
+      const temCatFunc = rows.some(r => (r.recebe_hora || '').trim())
       const payload: any[] = []
       for (const r of rows) {
         if (!r.posto_codigo) continue
@@ -250,6 +263,10 @@ export default function PostosGradePage() {
           // posto ao Extrato de Horas Apontadas — lá a pessoa é identificada por recurso,
           // não por matrícula. Vazio em vaga planejada e em quem não aponta.
           recurso_cod: (r.recurso || '').trim() || null,
+          // roteiro AUT (RA_CATFUNC='A'): quem o integrador do apontamento paga
+          // POR HORA. Quem não é aponta para dizer onde o custo cai, e some da
+          // conferência Apontamento × Folha.
+          ...(temCatFunc ? { recebe_hora: (() => { const s = (r.recebe_hora || '').trim().toLowerCase(); return s ? s !== 'nao' : null })() } : {}),
           ini_ano: ay ? parseInt(ay, 10) : null, ini_mes: am ? parseInt(am, 10) : null, fte: 1, ativo: (r.ativo || 'sim') !== 'nao' })
       }
       if (!payload.length) {
@@ -603,6 +620,25 @@ export default function PostosGradePage() {
           : <span style={T.vaga}>VAGA{p.ini_mes ? ` · ${MESES[p.ini_mes - 1]}/${String(p.ini_ano || '').slice(2)}` : ''}</span>}</td>
         <td style={S.td}>{p.regime ? <span style={tagRegime(p.regime)}>{REGIMES_LABEL[p.regime] || p.regime}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
         <td style={S.td}>{p.sindicato?.codigo ? <span style={T.sind}>{p.sindicato.codigo}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
+        {/* Recebe por hora: só aparece onde há apontamento, e só é EXCEÇÃO.
+            O normal é a função decidir (Apontamento → Funções); esta coluna
+            existe para quem foge do padrão da própria função. Herdado em
+            itálico, exceção em destaque — mesma convenção das premissas
+            globais do formulário. */}
+        {flags.usa_apontamento && <td style={S.td}>{!p.recurso_cod
+          ? <span style={{ color: 'var(--faint)' }} title="Este posto não aponta horas (sem código de recurso)">—</span>
+          : editavel
+            ? <select style={{ ...S.inp, width: 116, fontStyle: p.recebe_hora === null || p.recebe_hora === undefined ? 'italic' : 'normal' }}
+                value={p.recebe_hora === null || p.recebe_hora === undefined ? '' : (p.recebe_hora ? 'sim' : 'nao')}
+                title="Vazio = segue a função do apontamento. Use só para quem foge do padrão da função."
+                onChange={e => salvar(p.id, { recebe_hora: e.target.value === '' ? null : e.target.value === 'sim' })}>
+                <option value="">segue a função</option>
+                <option value="sim">recebe por hora</option>
+                <option value="nao">só aponta</option>
+              </select>
+            : <span style={{ color: 'var(--muted)', fontStyle: p.recebe_hora == null ? 'italic' : 'normal' }}>
+                {p.recebe_hora == null ? 'segue a função' : p.recebe_hora ? 'recebe por hora' : 'só aponta'}</span>}
+        </td>}
         <td style={{ ...S.td, textAlign: 'right' }}>
           {editavel
             ? <input style={S.inp} defaultValue={inp2(p.salario_base)} onBlur={e => { const x = parseNum(e.target.value); if (!isNaN(x) && x !== p.salario_base) salvar(p.id, { salario_base: x }) }} />
@@ -752,6 +788,7 @@ export default function PostosGradePage() {
           <table style={S.table}>
             <thead><tr>
               <th style={S.th}>Posto</th><th style={S.th}>Empr·Fil·CC</th><th style={S.th}>Cargo</th><th style={S.th}>Ocupante</th><th style={S.th}>Modelo</th><th style={S.th}>Sind.</th>
+              {flags.usa_apontamento && <th style={S.th} title="Exceção sobre a função do apontamento. O normal é decidir pela função, em Apontamento → Funções.">Recebe por hora</th>}
               <th style={{ ...S.th, textAlign: 'right' }}>Salário</th><th style={{ ...S.th, textAlign: 'right' }}>FTE</th>
               <th style={S.th}>Vigência</th><th style={S.th}>Rateio</th>
               <th style={{ ...S.th, textAlign: 'right' }}>Custo/mês¹</th><th style={{ ...S.th, textAlign: 'right' }}>Custo ano</th><th style={S.th} />
@@ -762,7 +799,7 @@ export default function PostosGradePage() {
                 return (
                   <Fragment key={g.key}>
                     <tr onClick={() => toggle(k1)}>
-                      <td colSpan={13} style={S.gh}>
+                      <td colSpan={nCols} style={S.gh}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ flex: 1 }}>
                             {aberto ? <ChevronDown size={14} style={{ verticalAlign: -2 }} /> : <ChevronRight size={14} style={{ verticalAlign: -2 }} />}{' '}
@@ -780,7 +817,7 @@ export default function PostosGradePage() {
                   </Fragment>
                 )
               })}
-              {!filtrados.length && <tr><td colSpan={13} style={S.empty}>
+              {!filtrados.length && <tr><td colSpan={nCols} style={S.empty}>
                 {postos.length ? 'Nenhum posto para o filtro.' : 'Nenhum posto ainda. Use "Importar postos (RH)" para carregar do cadastro convertido.'}
               </td></tr>}
             </tbody>

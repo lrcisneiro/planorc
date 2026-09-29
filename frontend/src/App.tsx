@@ -18,6 +18,7 @@ import PostosGradePage from './pages/postos/PostosGradePage'
 import PostosMemoriaPage from './pages/postos/PostosMemoriaPage'
 import PostosRateioPage from './pages/postos/PostosRateioPage'
 import FolhaRealizadaPage from './pages/postos/FolhaRealizadaPage'
+import ApontamentoPage from './pages/postos/ApontamentoPage'
 import ConciliacaoFolhaPage from './pages/postos/ConciliacaoFolhaPage'
 import OrcadoDadosPage from './pages/orcamento/OrcadoDadosPage'
 import RealizadoDadosPage from './pages/realizado/RealizadoDadosPage'
@@ -250,6 +251,7 @@ function Shell({ session }: { session: Session }) {
             <Route path="/postos/memoria"  element={<PostosMemoriaPage />} />
             <Route path="/postos/rateio"   element={<PostosRateioPage />} />
             <Route path="/postos/folha"    element={<FolhaRealizadaPage />} />
+            <Route path="/postos/apontamento" element={<ApontamentoPage />} />
             <Route path="/postos/conciliacao" element={<ConciliacaoFolhaPage />} />
             <Route path="/postos/regras"   element={<PostosRegrasPage />} />
             <Route path="/dre"             element={<DrePage />} />

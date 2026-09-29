@@ -379,3 +379,80 @@ de esconder. É específico da TOTVS Oeste.
 - **`Dt. Pgto Fol` vem vazia** nos dois extratos. Se o ERP puder preenchê-la, ela substitui
   a regra de defasagem por um vínculo explícito, que é muito melhor — e resolveria de uma
   vez a diferença de defasagem entre PJ e CLT.
+
+---
+
+## Correções medidas na implementação (set/2026)
+
+A aba foi construída e três coisas escritas acima não sobreviveram ao dado real. Ficam
+aqui **corrigidas, não apagadas**, porque a hipótese errada é o que explica por que o
+código é como é.
+
+### O filtro de quem recebe por hora é a FUNÇÃO, não `RA_CATFUNC`
+
+A seção *Quatro regras do integrador* dá `RA_CATFUNC = 'A'` (roteiro `AUT`) como o
+recorte de quem o apontamento paga. Ele **separa PJ de CLT** — coisa que `posto.regime`
+já faz derivando da matrícula — e **não** diz quem recebe por hora. Prova: gerente de
+projeto e coordenador são PJ, têm `RA_CATFUNC = 'A'`, apontam horas e recebem salário.
+Sem esse recorte a aba acusava ~25 pessoas como divergentes todo mês.
+
+Os candidatos, medidos:
+
+| campo | valores distintos | serve? |
+|---|---|---|
+| `RA_CATFUNC` | 2 | não — é PJ × CLT |
+| `CARGO_RECURO` (cadastro) | 41, mas **214 de 303** no mesmo "ANAL. NEGOCIO III" | não — só 3 são "GESTOR DE PROJETOS" |
+| coluna **`Cargo` do extrato** (função no projeto) | **9** | **sim** |
+
+E a função se comporta como atributo da **pessoa no mês**: em jun e jul/2026, **0 de 172
+pessoas** aparecem com duas funções. Daí o catálogo `apontamento_funcao` (migration 114),
+descoberto na importação, com `posto.recebe_hora` (113) como **exceção** por pessoa.
+Precedência: `posto → função → confere`. Função nova entra como "confere" de propósito —
+uma função desconhecida que sumisse da conferência em silêncio é pior do que uma que
+aparece indevidamente e é corrigida na tela.
+
+Gestão em jul/2026: `GESTOR DE PROJETOS` 15 pessoas · 1.364,6 h e `GERENTE DE SERVICOS`
+1 · 14 h. Em junho, 17 pessoas · 1.560,3 h.
+
+### `recurso_cod` **nunca** é a matrícula
+
+A seção *O de-para recurso → pessoa* levanta a dúvida; a resposta é **0 de 303**. O
+recurso `001090` é a matrícula `900027` — a numeração é própria e por azar usa a faixa
+`001xxx`, que parece matrícula de CLT. Nenhum código de recurso coincide sequer com a
+matrícula de outra pessoa. Qualquer heurística de "parece nosso pelo formato" está errada
+por construção, e um aviso assim chegou a existir na tela de importação antes de ser
+medido.
+
+### CLT: o cálculo não é hora × valor, e por isso não há o que conciliar
+
+A folha do CLT é **fixo + prêmio calculado a partir dos apontamentos** — não valor-hora ×
+horas. Medido: a folha de ago/2026 não tem **nenhum** CLT nas verbas 222/223; as
+18.262,2 h de verba de hora são todas de PJ. Conferir horas de CLT contra a folha compara
+contra algo que não existe.
+
+O que o CLT permite é a pergunta do rateio, e ela é melhor do que a que este documento
+propunha: **o custo total do CLT deveria ser rateado entre empresa/filial/CC na proporção
+dos apontamentos**. Hoje isso é feito à mão depois da integração contábil, porque o ERP
+não está configurado para fazê-lo. A aba já entrega a proporção por pessoa e por
+empresa · filial · CC (na tela e no export), que é o número que o rateio manual deveria
+usar. Quando os valores entrarem dos dois lados, a comparação passa a ser
+*proporção esperada × o que foi de fato contabilizado*, sempre no grão empresa/filial/CC.
+
+### Resolução do recurso → posto: o primeiro teste é "há um só candidato?"
+
+A regra de três níveis da seção *Recurso duplicado* começava pelo desempate por filial e
+caía em "único posto **ativo**". Com isso, quem tem **um** posto e está demitido não era
+resolvido e saía rotulado de ambíguo sem haver nada a desambiguar — 6 pessoas e 800,4 h
+em jun/2026. Quem foi demitido em junho apontou horas em junho: o posto inativo é a pessoa
+certa. A ordem correta é: um só candidato → filial → único ativo → ambíguo (e ambíguo
+**não escolhe**, fica sem posto e aparece na tela).
+
+### A filial do extrato é a do PROJETO
+
+A seção *Recurso duplicado* trata "apontou fora da filial" como exceção de duas pessoas.
+Em jun/2026 são **56 pessoas e 14% das horas**: é o funcionamento normal — gente
+atendendo projeto de outra unidade. A conciliação usa a filial do **posto** (a folha paga
+lá) e guarda a do apontamento em `filial_apont_id`. E a **pessoa é o posto**, não o par
+filial+matrícula: quem for pago numa filial diferente da do posto viraria duas pessoas na
+tela — uma "sem folha" e outra "sem apontamento" — escondendo a divergência real atrás de
+dois falsos positivos.
