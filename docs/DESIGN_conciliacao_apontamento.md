@@ -220,11 +220,32 @@ O campo oficial é **`SRA.RA_X_RECUR`** (é o que o integrador usa), exportado c
   a informação existe no TOTVS e se perde no caminho;
 - dos 12 que não casam, **9 são `TER***`** — justamente terceiros.
 
-Duas frentes, e a segunda não é opcional:
+**Frente 1 — FEITA** (set/2026): o conversor extrai o código depois do último pipe
+(`P |01|AE8200||001075` → `001075`, descartando o placeholder `01 - INDEFINIDO`),
+`posto.recurso_cod` existe (v3_111) e o import grava. Medido: 315 de 558 linhas do
+cadastro têm recurso, cobrindo **160 dos 172** do extrato de julho.
 
-1. acrescentar `recurso_cod` ao converter de funcionários e a `posto` (pequeno);
-2. um de-para próprio para quem não está no cadastro, na linha do `posto_fornecedor`
-   que já resolve o PJ na conciliação contábil.
+**Frente 2 — os 12 que sobram não são caso de de-para.** Verificado nome a nome contra
+a folha de agosto e contra o cadastro de postos: **nenhum dos 12 está em nenhum dos
+dois**.
+
+```
+001324 SINVAL GEDOLIN       TER348 CARLOS AUGUSTO BATIST   TER373 PEDRO RAFAEL ALCANTARA
+TC0044 JORGE E. AREVALO     TER360 ANDREA GUNDIN           TER388 LUIZ R. SACRAMENTO
+TER073 JOHNY W. P. FELIPE   TER362 ROMILDA SANTOS SILVA    TER393 OPC SERVICOS LTDA
+TER341 TIAGO CASTILHO       TER367 WISLEY A. FERNANDES     TL9015 VITOR LOPES
+```
+
+Um deles (`TER393`) é **empresa**, não pessoa. Eles apontam horas e **não passam pela
+folha** — são pagos por outro caminho, quase certamente NF direta por contas a pagar, que
+é o território da aba *Contábil × Folha*.
+
+São **130 linhas · R$ 75.785,36 · 3,5%** do valor apontado em julho.
+
+**Consequência para a tela:** eles nunca vão casar, e não são divergência. Precisam de um
+estado próprio — *"aponta mas não passa pela folha"* — em rodapé, com valor visível, como
+os patrimoniais e o CLT. Tratá-los como "apontado sem folha" poluiria justamente a lista
+que o líder precisa olhar.
 
 ### Regra de competência
 
