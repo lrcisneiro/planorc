@@ -68,6 +68,70 @@ estoura o lado da folha.
   R$ 1.463.874,10 na verba 222. **Faltam ~353 mil na folha**, e essa é a questão maior
   — ver *Em aberto*.
 
+## O integrador do ERP (`OEFOLM02.PRW`) — a fonte da verdade
+
+O fonte ADVPL que leva o apontamento para a folha respondeu o que a medição não
+conseguia. **A conciliação é em HORAS, não em valor.**
+
+### Como a folha é gerada
+
+`RetHoras(recurso)` roda a MESMA consulta do extrato (`u_TRI0052A`, perg `TRI052`) e
+acumula por **`CC_PROJETO` + item contábil**, somando `AFU_HQUANT` (horas) e `AFU_XHRRV`
+(horas RV). Depois `IncHoras()` grava na folha:
+
+| verba (parâmetro) | default | quantidade | valor |
+|---|---|---|---|
+| `MV_XVBHRNO` | **222** | horas apontadas | `RetValHr(SRA)` |
+| `MV_XVBHRTR` | **223** | horas RV (traslado) | `RetValTr(SRA)` |
+| `MV_XVBAJUC` | 224 | 1 | `RA_X_AJCUS` |
+| `MV_XVBPREM` | 228 | 1 | prêmio meta |
+| `MV_XVBADIA` | 430 | 1 | `RA_SALARIO` |
+| `MV_XVBFIXO` | 228 | 1 | `RA_SALARIO` |
+
+**O valor da 222 vem de `RetValHr(SRA)` — o valor-hora do CADASTRO, não o `CUSTO_HORA`
+do extrato.** Era por isso que comparar valor não fechava: são duas taxas diferentes para
+a mesma hora. As verbas 224, 228 e 430 não nascem de apontamento — vêm do cadastro — e
+por isso incluí-las estourava o lado da folha.
+
+Os códigos são **parametrizados** (`MV_*`): não podem ser fixados no Planorc.
+
+### Medido em horas, e fecha
+
+Chave `(filial, matrícula, CC_PROJETO)`, só quem tem roteiro `AUT` na folha:
+
+| | apontado | folha | conciliado | apont s/ folha | folha s/ apont | diferença |
+|---|---|---|---|---|---|---|
+| **222** horas normais | 20.866,0 h | 17.731,1 h | **157** | 53 | **2** | 19 · **−1,4 h** |
+| **223** traslado | 555,4 h | 531,1 h | **222** | 5 | **0** | 2 · −9,9 h |
+
+Dezenove chaves divergindo 1,4 hora no total é ruído de arredondamento. O modelo está
+certo. Sobram **53 chaves · ~3.135 h apontadas que não viraram folha** — e *isso* é o
+produto.
+
+### Quatro regras do integrador que a tela tem de conhecer
+
+1. **PJ é `RA_CATFUNC = 'A'`** (roteiro `AUT`), com `RA_XCOOPER` separando cooperado. Vem
+   do cadastro da folha, não da conta contábil nem do `Cargo` do extrato.
+2. **O recurso mora em `SRA.RA_X_RECUR`** — o de-para é do próprio Protheus.
+3. **Quem já tem cálculo no período é PULADO** (`RegFunCal`/`TemSrcPd`), e o integrador
+   lista esses no fim. É candidato forte a explicar parte das 53 chaves.
+4. **Projeto `9999999999` é intercâmbio**: `CalPrjIn()` busca o CC em `AF8_CC` de outra
+   empresa (`AFU200/250/280/500/510`) e pode **espalhar as horas para outra empresa**.
+   Uma hora apontada em intercâmbio não cai onde o extrato sugere.
+
+O item contábil sai de `u_GetItemC(empresa, filial)` — o mesmo de-para que
+`converter_folha_realizada.py` já usa, e ele vem da **filial do recurso**, enquanto o CC
+vem do **projeto**. A chave `(filial da pessoa, matrícula, CC do projeto)` está correta.
+
+### Consequência para o modelo
+
+- A conciliação compara **horas**; valor entra como informação, não como critério.
+- `fat_folha` precisa guardar **quantidade** — o `prgper02` traz `HORAS_DIAS` e o
+  conversor não exporta. É pré-requisito da fase 3.
+- O CLT também tem vínculo: a verba de prêmio é
+  `max(horas × valor_hora − salário, 0) + traslado × valor_traslado`. Não é alocação pura
+  como eu havia escrito — mas continua não sendo comparável em valor.
+
 ## Modelo
 
 ### `fat_apontamento`
@@ -84,7 +148,8 @@ agregar na importação impede conferir depois.
 | `empresa_id`, `cc_projeto_id`, `cc_recurso_id` | `Empresa`+`Filial`, `CC_PROJETO`, `CC_RECURSO` |
 | `projeto_cod`, `projeto_desc`, `os_num`, `tarefa` | contexto |
 | `horas`, `custo_hora`, `valor` | `Qt. Horas`, `CUSTO_HORA`, `Custo` |
-| `status_aprov` | `A`/`R` — os 4 rejeitados não entram na conciliação |
+| `status_aprov` | `A`/`R` — o integrador só considera aprovado |
+| `horas`, `horas_rv` | `Qt. Horas` e `Horas RV` — as duas grandezas que viram verba |
 | `lote`, `origem`, `dims` | controle de carga |
 
 `lote` desde o início: reapontamento e correção retroativa vão acontecer, e foi o que
@@ -92,7 +157,8 @@ salvou a folha confidencial.
 
 ### O de-para recurso → pessoa
 
-`BK_RECURSO` existe no `Funcionarios.csv` e cobre **160 dos 172** recursos. Mas:
+O campo oficial é **`SRA.RA_X_RECUR`** (é o que o integrador usa), exportado como
+`BK_RECURSO` no `Funcionarios.csv`, onde cobre **160 dos 172** recursos. Mas:
 
 - `converter_funcionarios.py` **não o exporta** e `posto` **não tem campo para ele** —
   a informação existe no TOTVS e se perde no caminho;
