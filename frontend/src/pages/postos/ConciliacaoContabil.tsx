@@ -4,7 +4,7 @@ import { supabase, TENANT_ID } from '../../lib/supabase'
 import { useLocalPref } from '../../lib/uiPrefs'
 import type { RefRelatorio } from '../../lib/refRelatorio'
 import { ConciliacaoQuadro } from './ConciliacaoQuadro'
-import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare, Search, X } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronRight, Check, MessageSquare, Search, X, Download } from 'lucide-react'
 
 // Conciliação CONTÁBIL × FOLHA (camada 2), organizada por MODELO DE CONTRATAÇÃO
 // (v3_085) — porque é o modelo que decide por onde o dinheiro da pessoa chega à
@@ -71,6 +71,9 @@ type Lado = {
 }
 type SemDono = { conta_id: string; conta_cod: string; conta_desc: string; empresa_cod: string | null; filial_cod: string | null; data: string | null; documento: string | null; historico: string | null; lote: string | null; cc_cod: string | null; valor: number }
 type Nota = { id: string; conta_id: string; verba_cod: string | null; motivo: string }
+
+// SheetJS vem do CDN no index.html (mesmo padrão dos outros importadores/exportadores)
+declare const XLSX: any
 
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 // a granularidade é sempre empresa · filial · CC. Vazio = mais de um (rateio),
@@ -379,6 +382,75 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
     setAberto(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
     if (!drill[k]) { const d = await carregar(); setDrill(prev => ({ ...prev, [k]: d })) }
   }
+  // ── Exportar para XLSX ──
+  // ACHATADO de propósito: uma linha por folha da árvore, com o contexto do pai
+  // repetido em colunas. A tela é hierárquica porque se lê de cima para baixo;
+  // planilha dinâmica precisa do contrário — cada linha tem de se bastar.
+  // Números saem como NÚMERO, não texto formatado, senão não somam no Excel.
+  const exportarXlsx = () => {
+    const wb = XLSX.utils.book_new()
+    const add = (nome: string, linhas: any[][]) =>
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhas), nome)
+    const comp = `${String(p.mes).padStart(2, '0')}/${p.ano}`
+    const escopoTxt = (v: string[] | null) => v === null || !v.length ? 'todas' : `${v.length} selecionada(s)`
+
+    // 1) contexto — sem isto a planilha vira um monte de número sem recorte
+    add('Resumo', [
+      ['Conciliação Contábil × Folha'],
+      ['Competência', comp],
+      ['Relatório', p.ref?.relatorioNome || '(nenhum selecionado)'],
+      ['Linhas do relatório', p.ref ? p.ref.linhas.map(l => `${l.codigo} ${l.descricao}`).join(' · ') : 'todas as contas'],
+      ['Tolerância (R$)', tol],
+      ['Empresas', escopoTxt(p.empresaSel)],
+      ['Filiais', escopoTxt(p.filialFilter)],
+      ['Centros de custo', escopoTxt(p.ccFilter)],
+      [],
+      ['', 'Razão', 'Folha', 'Diferença', 'Outros'],
+      ['CLT', totC.razao, totC.folha, difC, totC.outros],
+      ['Terceiros', totT.razao, totT.folha, difT, ''],
+      ['Outros lançamentos', totSemDono, '', '', ''],
+      ['Patrimoniais (fora da conferência)', totPat.razao, totPat.folha, totPat.razao - totPat.folha, ''],
+      [],
+      ['Exportado em', new Date().toLocaleString('pt-BR')],
+      ['Obs.', 'A composição por pessoa de cada verba do CLT e os lançamentos do razão não entram aqui — são carregados sob demanda na tela.'],
+    ])
+
+    // 2) CLT — uma linha por verba, mais a linha FOR de cada conta
+    const clt_: any[][] = [['Item cód', 'Item', 'Conta', 'Descrição da conta', 'Plano',
+      'Verba', 'Descrição da verba', 'Origem', 'Razão', 'Folha', 'Diferença', 'Fora da tolerância', 'Justificativa']]
+    for (const it of itens) for (const c of it.contas) {
+      for (const v of c.verbas) {
+        const dif = v.razao - v.folha
+        clt_.push([it.cod, it.desc, c.cod, c.desc, c.plano, v.verba_cod, v.verba_desc || '',
+          'contabilização da folha', v.razao, v.folha, dif, Math.abs(dif) > tol ? 'sim' : 'não',
+          notas[chave(c.id, v.verba_cod)]?.motivo || ''])
+      }
+      // o que entrou na conta sem vir da folha entra como se fosse verba (FOR),
+      // com a coluna Origem para dar para separar de novo na dinâmica
+      if (c.outros) clt_.push([it.cod, it.desc, c.cod, c.desc, c.plano, 'FOR', 'Fora da folha',
+        'fora da folha', c.outros, 0, c.outros, '', notas[chave(c.id, null)]?.motivo || ''])
+    }
+    add('CLT', clt_)
+
+    // 3) Terceiros — uma linha por pessoa
+    add('Terceiros', [['Matrícula', 'Nome', 'Fornecedor', 'Nome fantasia',
+      'Empresa', 'Filial', 'Centro de custo', 'NF', 'Razão', 'Folha', 'Diferença', 'Status', 'Casou por'],
+      ...pessoas.map(t => [t.matricula || '', t.nome || '', t.fornecedor_cod || '', t.nome_fantasia || '',
+        t.empresa_cod || '', t.filial_cod || '', t.cc_cod || '', t.lancamentos,
+        t.razao, t.folha, t.razao - t.folha, ST[t.status].txt, t.via || ''])])
+
+    // 4) o que não achou dono
+    add('Sem dono', [['Texto do histórico', 'Fornecedor', 'Empresa', 'Filial', 'Centro de custo', 'Lançamentos', 'Razão', 'Status'],
+      ...semDono.map(t => [t.nome_fantasia || '', t.fornecedor_cod || '', t.empresa_cod || '',
+        t.filial_cod || '', t.cc_cod || '', t.lancamentos, t.razao, ST[t.status].txt])])
+
+    // 5) patrimoniais — fora da conferência, mas não fora da vista
+    add('Patrimoniais', [['Conta', 'Descrição', 'Natureza', 'Razão', 'Folha', 'Diferença'],
+      ...patrim.map(x => [x.conta_cod, x.conta_desc, x.natureza, x.razao, x.folha, x.razao - x.folha])])
+
+    XLSX.writeFile(wb, `conciliacao_contabil_${p.ano}-${String(p.mes).padStart(2, '0')}.xlsx`)
+  }
+
   const rpc = async (fn: string, args: any) => {
     const { data, error } = await supabase.rpc(fn, args)
     if (error) { setErro(error.message); return [] }
@@ -448,6 +520,13 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
             </select>
           </div>
         )}
+        <div style={S.fld}><span style={S.lbl}>Exportar</span>
+          <button style={{ ...S.inp, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, color: 'var(--violet)', whiteSpace: 'nowrap' }}
+            title="Baixa a conciliação em XLSX, achatada em abas (CLT, Terceiros, Sem dono, Patrimoniais) — uma linha por verba/pessoa, com o contexto do pai em colunas, pronto para tabela dinâmica."
+            onClick={exportarXlsx} disabled={loading}>
+            <Download size={14} /> XLSX
+          </button>
+        </div>
         <div style={S.fld}><span style={S.lbl}>Procurar pessoa</span>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <Search size={14} style={{ position: 'absolute', left: 9, color: 'var(--muted)' }} />
