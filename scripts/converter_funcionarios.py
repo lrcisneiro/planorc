@@ -89,8 +89,11 @@ def data_iso(v: str) -> str:
         return f'{s[0:4]}-{s[4:6]}-{s[6:8]}'
     return ''
 
-# Rateio por centro de custo (regra Ricardo, 12/jul): CC -> código de rateio (nome já
-# cadastrado em 4·Rateio). A coluna 'rateio' vira posto_rateio no import (casa por nome).
+# Rateio por centro de custo (regra Ricardo, 12/jul): CC -> código de rateio.
+# O nome tem de ser EXATAMENTE o cadastrado em "6 · Rateio": o import casa por
+# nome e só avisa no rodapé o que não encontrar. Renomear a regra na tela
+# desamarra o rateio de todos os postos daquele código — aconteceu em set/2026
+# com 72 postos, e o sintoma só aparece no Aplicar, lá na frente.
 RATEIO_POR_CC = {}
 for _cc in ('111', '141', '411', '210', '310'): RATEIO_POR_CC[_cc] = 'RATEMP01'
 for _cc in ('121', '122', '123', '131', '132', '133'): RATEIO_POR_CC[_cc] = 'RATEMP02'
