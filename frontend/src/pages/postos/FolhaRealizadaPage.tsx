@@ -379,7 +379,31 @@ export default function FolhaRealizadaPage() {
           if (error) { setErro('Erro ao limpar o lote: ' + error.message); return }
         }
       }
-      for (let i = 0; i < payload.length; i += 500) { const { error } = await supabase.from('fat_folha').insert(payload.slice(i, i + 500)); if (error) { setErro('Erro ao gravar (parcial): ' + error.message); return } }
+      // O "substituir" APAGA antes de gravar. Se um lote falha no meio, a
+      // competência fica pela metade — e "TypeError: Failed to fetch" é falha de
+      // REDE, que acontece e passa. Então: tenta de novo o que for de rede, e se
+      // ainda assim falhar, diz quantas linhas entraram, porque o estado do banco
+      // deixou de ser o que a pessoa pediu e ela precisa saber disso.
+      let gravados = 0
+      for (let i = 0; i < payload.length; i += 500) {
+        const fatia = payload.slice(i, i + 500)
+        let err: any = null
+        for (let tent = 1; tent <= 3; tent++) {
+          const r = await supabase.from('fat_folha').insert(fatia)
+          if (!r.error) { err = null; break }
+          err = r.error
+          // erro do PostgREST tem `code` (dado inválido): repetir não adianta.
+          // Sem code é rede/timeout — vale tentar de novo.
+          if (r.error.code || tent === 3) break
+          await new Promise(res => setTimeout(res, 400 * tent))
+        }
+        if (err) {
+          setErro(`Erro ao gravar: ${err.message}. Entraram ${gravados} de ${payload.length} linha(s) — a competência ficou INCOMPLETA. Importe de novo em "Substituir este lote".`)
+          loadComps()
+          return
+        }
+        gravados += fatia.length
+      }
       const compLabel = [...comps].map(c => { const [a, m] = c.split('|'); return `${MESES[+m - 1]}/${a}` }).join(', ')
       const postosDistintos = new Set(payload.filter(p => p.posto_id).map(p => p.posto_id)).size
       setInfo({ gravados: payload.length, postos: postosDistintos, semPosto, semConta, semItem, semItemDrop, semEmpresa: [...semEmpresa], errosPosto, incoerentes: [...incoerentes], rateadas, semTaxa, modo: modoImport, comp: compLabel })
