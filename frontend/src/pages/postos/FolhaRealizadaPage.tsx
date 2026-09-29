@@ -39,9 +39,9 @@ function parseCsv(text: string): Row[] {
   return linhas.slice(1).map(l => { const f = pl(l); const o: Row = {}; hdr.forEach((h, i) => o[h] = (f[i] ?? '').trim()); return o })
 }
 // colunas esperadas no arquivo (saída do converter_folha_realizada.py) + 1 linha de exemplo
-const COLS_FOLHA = ['ano', 'mes', 'empresa', 'filial', 'cc', 'matricula', 'nome', 'verba_cod', 'verba_desc', 'tipo_verba', 'valor', 'conta_deb', 'conta_cred', 'item_orc', 'item_orc_desc', 'competencia', 'posto_codigo', 'rateio']
+const COLS_FOLHA = ['ano', 'mes', 'empresa', 'filial', 'cc', 'matricula', 'nome', 'verba_cod', 'verba_desc', 'tipo_verba', 'valor', 'conta_deb', 'conta_cred', 'item_orc', 'item_orc_desc', 'competencia', 'posto_codigo', 'rateio', 'horas']
 //                    posto_codigo: opcional, amarra direto ao posto (precede filial+matrícula) · rateio: S = ratear na conciliação; branco/N = já rateado
-const EXEMPLO_FOLHA = ['2027', '1', '01', '2102', '214', '000003', 'FULANO DE TAL', '001', 'SALARIO', 'Provento', '4470.00', '41011001', '21012001', '20101', 'SALARIOS', '202701', '2102-000003', 'N']
+const EXEMPLO_FOLHA = ['2027', '1', '01', '2102', '214', '000003', 'FULANO DE TAL', '001', 'SALARIO', 'Provento', '4470.00', '41011001', '21012001', '20101', 'SALARIOS', '202701', '2102-000003', 'N', '220.00']
 function baixarModeloFolha() {
   const ws = XLSX.utils.aoa_to_sheet([COLS_FOLHA, EXEMPLO_FOLHA])
   const wb = XLSX.utils.book_new()
@@ -336,6 +336,9 @@ export default function FolhaRealizadaPage() {
           conta_deb_cod: (r.conta_deb || '').trim() || null, conta_cred_cod: (r.conta_cred || '').trim() || null, conta_id,
           item_orc_cod: item_orc_cod || null, item_orc_desc: (r.item_orc_desc || '').trim() || null, item_orc_id,
           competencia: (r.competencia || '').trim() || null, origem: 'FOLHA', tipo: 'REALIZADO',
+          // quantidade da verba — nas de hora (222/223) é a hora apontada, e é o que
+          // permite conciliar contra o apontamento, que não tem o valor-hora da folha
+          horas: (r.horas || '').trim() ? num(r.horas) : null,
           lote: lote.trim().toUpperCase() || 'FOLHA',
           // guarda por que não amarrou — é o que distingue substituição de aumento de quadro
           dims: motivoPosto ? { posto_cod: postoCod, posto_erro: motivoPosto } : {},

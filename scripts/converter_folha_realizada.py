@@ -104,7 +104,7 @@ def periodo_ano_mes(p):
 #     ITEM_CONTABIL), então a conciliação NÃO deve ratear de novo.
 COLS_SAIDA = ['ano', 'mes', 'empresa', 'filial', 'cc', 'matricula', 'nome',
               'verba_cod', 'verba_desc', 'tipo_verba', 'valor', 'conta_deb', 'conta_cred',
-              'item_orc', 'item_orc_desc', 'competencia', 'posto_codigo', 'rateio']
+              'item_orc', 'item_orc_desc', 'competencia', 'posto_codigo', 'rateio', 'horas']
 
 def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None):
     depara_item = depara_item or {}
@@ -208,6 +208,11 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
                 'tipo_verba': tipo_verba,
                 'competencia': f'{ano}{mes:02d}' if FORCE_ANO else str(g('PERIODO') or '').strip().split('.')[0],
                 'posto_codigo': f'{filial}-{mat}', 'rateio': 'N',
+                # QUANTIDADE. A folha grava as verbas de hora (222 normal, 223 traslado)
+                # com quantidade = horas apontadas e valor = valor-hora do CADASTRO. Sem a
+                # quantidade não há como conciliar contra o apontamento, que é em horas —
+                # comparar valor compara duas taxas diferentes para a mesma hora.
+                'horas': f"{float(g('HORAS_DIAS') or 0):.2f}",
             }
             # a conta que aparece em 'conta_deb' é sempre A CONTA AFETADA, e
             # 'conta_cred' a contrapartida — o import resolve conta_id pela

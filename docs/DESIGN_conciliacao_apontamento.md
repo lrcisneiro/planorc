@@ -123,6 +123,28 @@ O item contábil sai de `u_GetItemC(empresa, filial)` — o mesmo de-para que
 `converter_folha_realizada.py` já usa, e ele vem da **filial do recurso**, enquanto o CC
 vem do **projeto**. A chave `(filial da pessoa, matrícula, CC do projeto)` está correta.
 
+### O CC do razão herda a proporção das horas (`OEFOLM03.PRW`)
+
+O segundo fonte fecha o ciclo. `OEFOLM03` leva a folha calculada ao financeiro: emite o
+pedido de compra do PJ pelo **líquido** (`MV_XVBLIQU`, default `A14`) — é por isso que a
+NF não tem o valor do apontamento — e o **rateia entre centros de custo**.
+
+O rateio, em `RetRateio()`, é o **percentual do valor das verbas 222/223 por CC**; só se
+não houver nenhuma delas é que cai para o CC da própria `A14`.
+
+Ou seja: **o CC que chega ao razão herda a proporção das horas apontadas.** O ciclo é
+
+```
+apontamento (horas por CC do projeto)
+   → folha: verbas 222/223, quantidade = horas, por CC
+      → NF: líquido A14, rateado pelo % dessas horas
+         → razão: conta de terceiro, no CC resultante
+```
+
+Isso dá à nova aba um papel que as outras duas não têm: um CC errado no apontamento **se
+propaga até a contabilidade**, proporcionalmente. A conciliação Contábil × Folha mostra o
+efeito; só esta mostra a origem.
+
 ### Consequência para o modelo
 
 - A conciliação compara **horas**; valor entra como informação, não como critério.
