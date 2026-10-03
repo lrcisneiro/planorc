@@ -456,3 +456,38 @@ lá) e guarda a do apontamento em `filial_apont_id`. E a **pessoa é o posto**, 
 filial+matrícula: quem for pago numa filial diferente da do posto viraria duas pessoas na
 tela — uma "sem folha" e outra "sem apontamento" — escondendo a divergência real atrás de
 dois falsos positivos.
+
+
+### A unidade do destino é a do PROJETO, não a do posto (out/2026)
+
+Erro de implementação que durou até a primeira geração do arquivo de ajuste: a tela
+derivava a empresa do **destino** da filial do posto — a mesma da origem. Com isso o item
+contábil saía igual nos dois lados, e a troca de recurso entre unidades, que é comum,
+ficava invisível. `fat_apontamento.filial_apont_id` guardava a informação desde a
+importação; a conciliação simplesmente não a lia.
+
+Medido (jun+jul/2026, 9.751 linhas, `filial_apont_id` preenchida em todas):
+
+| | linhas | em outra filial | **em outra empresa** | horas em outra empresa |
+|---|---|---|---|---|
+| CLT | 1.538 | 668 | **98** | **802,3 h** (7,8%) |
+| PJ | 7.938 | 938 | **938** | **5.378,6 h** (12%) |
+
+Os pares de unidade do CLT concentram-se em um só: `01 → 05`, 8 pessoas e 780,3 h.
+
+E o que decidiu o desenho: **o mesmo CC vive em várias unidades** — `314` em 6, `324` e
+`317` em 7, e são os maiores volumes. O CC sozinho não identifica o destino.
+
+**Por isso existem duas agregações, e não uma.** A grade de *conferência* (quadro PJ) usa
+a filial do **posto**: a folha paga na filial da pessoa, e conciliar horas pela filial do
+projeto traz de volta 12% de divergência falsa. A grade de *distribuição* (quadro CLT e
+arquivo AJTCC) usa a filial do **projeto**: é de lá que o trabalho é, e é ela que decide o
+item contábil do destino. Responder as duas perguntas com a mesma agregação foi o erro.
+
+**Em aberto — o PJ.** A troca entre unidades é ainda maior nele, e o integrador leva o
+apontamento à folha no grão empresa+filial+CC, então o custo *talvez* já caia na unidade
+certa. Mas este documento registra que `u_GetItemC(empresa, filial)` deriva o item da
+filial do **recurso**, enquanto o CC vem do **projeto** — o que sugere o contrário: folha
+na unidade da pessoa com CC do projeto. Se for isso, a conferência de horas continua
+correta e mesmo assim o custo do PJ cai na unidade errada no razão. **A avaliação pendente
+é essa**, e ela se resolve olhando o item contábil das linhas de 222/223 na folha.

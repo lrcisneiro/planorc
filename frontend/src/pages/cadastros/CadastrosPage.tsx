@@ -275,14 +275,17 @@ function EmpresasTab() {
   const [erro, setErro] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
 
-  const HEADERS = ['codigo', 'descricao', 'plano_codigo', 'ativo']
-  const EXEMPLO = ['01', 'Empresa Matriz', 'TOTVS', 'SIM']
+  const HEADERS = ['codigo', 'descricao', 'plano_codigo', 'item_contabil', 'ativo']
+  const EXEMPLO = ['01', 'Empresa Matriz', 'TOTVS', '02', 'SIM']
   const COLS = [
     { key: 'codigo', placeholder: 'Código' },
     { key: 'descricao', placeholder: 'Descrição' },
     { key: 'plano_id', placeholder: 'Plano de contas (ERP)', type: 'select' as const, options: planos.map(p => ({ value: p.id, label: `${p.codigo} · ${p.nome}` })) },
     { key: 'moeda_slot', placeholder: 'Moeda funcional', type: 'select' as const, options: moedas.map(m => ({ value: String(m.slot), label: `${m.slot} · ${m.codigo}` })) },
     { key: 'pais', placeholder: 'País (folha)', type: 'select' as const, options: PAISES.map(p => ({ value: p.codigo, label: `${p.codigo} · ${p.nome}` })) },
+    // o item contábil do Protheus é esta mesma empresa em outro código; sem ele
+    // o lançamento de ajuste de CC (CTBA500) não fecha
+    { key: 'item_contabil', placeholder: 'Item contábil (ERP)' },
   ]
   const planoCod = (id: string) => planos.find(p => p.id === id)?.codigo || ''
   const moedaCod = (slot: number) => moedas.find(m => m.slot === slot)?.codigo || `slot ${slot}`
@@ -303,6 +306,7 @@ function EmpresasTab() {
     { key: 'plano', label: 'Plano (ERP)', get: e => planoCod(e.plano_id) },
     { key: 'moeda', label: 'Moeda', get: e => moedaCod(e.moeda_slot ?? 1) },
     { key: 'pais', label: 'País', get: e => paisNome(e.pais) || '—' },
+    { key: 'item_contabil', label: 'Item contábil', get: e => e.item_contabil || '—' },
     { key: 'ativo', label: 'Status', get: e => e.ativo ? 'Ativo' : 'Inativo' },
   ]
   const grid = useGrid(filtered, GRID)
@@ -310,7 +314,7 @@ function EmpresasTab() {
   const save = async (v: Record<string, string>, id?: string) => {
     if (!v.codigo || !v.descricao) { setErro('Código e descrição são obrigatórios'); return }
     setErro(null)
-    const payload = { codigo: v.codigo.trim(), descricao: v.descricao.trim(), plano_id: v.plano_id || null, moeda_slot: v.moeda_slot ? Number(v.moeda_slot) : 1, pais: v.pais || null }
+    const payload = { codigo: v.codigo.trim(), descricao: v.descricao.trim(), plano_id: v.plano_id || null, moeda_slot: v.moeda_slot ? Number(v.moeda_slot) : 1, pais: v.pais || null, item_contabil: (v.item_contabil || '').trim() || null }
     const { error } = id
       ? await supabase.from('empresa').update(payload).eq('id', id)
       : await supabase.from('empresa').insert({ tenant_id: TENANT_ID, ...payload, ativo: true })
@@ -337,6 +341,7 @@ function EmpresasTab() {
           codigo:    col(r, 'codigo', 'Código', 'CODIGO'),
           descricao: col(r, 'descricao', 'Descrição', 'DESCRICAO'),
           plano_id:  planoByCod[col(r, 'plano_codigo', 'plano', 'PLANO').toUpperCase()] || null,
+          item_contabil: col(r, 'item_contabil', 'Item contábil', 'ITEMCONTABIL') || null,
           ativo:     parseAtivo(col(r, 'ativo', 'Ativo', 'ATIVO')),
         }))
         .filter(r => r.codigo && r.descricao)
@@ -348,7 +353,7 @@ function EmpresasTab() {
     } catch (e: any) { setErro(String(e)); setInfo(null) }
   }
 
-  const exportar = () => exportarDados('empresas', HEADERS, data.map(e => [e.codigo, e.descricao, planoCod(e.plano_id), e.ativo ? 'SIM' : 'NAO']))
+  const exportar = () => exportarDados('empresas', HEADERS, data.map(e => [e.codigo, e.descricao, planoCod(e.plano_id), e.item_contabil || '', e.ativo ? 'SIM' : 'NAO']))
 
   return (
     <div style={S.card}>
@@ -365,9 +370,9 @@ function EmpresasTab() {
         <GridHead cols={GRID} grid={grid} thStyle={S.th} />
         <tbody>
           {adding && <AddRow cols={COLS} onSave={save} onCancel={() => setAdding(false)} />}
-          {grid.rows.length === 0 && !adding && <tr><td colSpan={7} style={S.empty}>{busca || grid.filtrosOn ? 'Nenhum resultado.' : <>Nenhuma empresa cadastrada.<br /><small>Use "Baixar modelo" e depois "Importar Excel".</small></>}</td></tr>}
+          {grid.rows.length === 0 && !adding && <tr><td colSpan={8} style={S.empty}>{busca || grid.filtrosOn ? 'Nenhum resultado.' : <>Nenhuma empresa cadastrada.<br /><small>Use "Baixar modelo" e depois "Importar Excel".</small></>}</td></tr>}
           {grid.rows.map(e => editId === e.id ? (
-            <AddRow key={e.id} cols={COLS} initial={{ codigo: e.codigo, descricao: e.descricao, plano_id: e.plano_id || '', moeda_slot: String(e.moeda_slot ?? 1), pais: e.pais || '' }} onSave={v => save(v, e.id)} onCancel={() => setEditId(null)} />
+            <AddRow key={e.id} cols={COLS} initial={{ codigo: e.codigo, descricao: e.descricao, plano_id: e.plano_id || '', moeda_slot: String(e.moeda_slot ?? 1), pais: e.pais || '', item_contabil: e.item_contabil || '' }} onSave={v => save(v, e.id)} onCancel={() => setEditId(null)} />
           ) : (
             <tr key={e.id}>
               <td style={S.tdMono}>{e.codigo}</td>
@@ -375,6 +380,7 @@ function EmpresasTab() {
               <td style={{ ...S.td, color: 'var(--muted)' }}>{planoCod(e.plano_id) || '—'}</td>
               <td style={{ ...S.td, color: 'var(--muted)' }}>{moedaCod(e.moeda_slot ?? 1)}</td>
               <td style={{ ...S.td, color: 'var(--muted)' }}>{paisNome(e.pais) || '—'}</td>
+              <td style={S.tdMono}>{e.item_contabil || <span style={{ color: 'var(--muted)' }}>—</span>}</td>
               <td style={S.td}><span style={S.badge(e.ativo)}>{e.ativo ? 'Ativo' : 'Inativo'}</span></td>
               <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
                 <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(e.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>

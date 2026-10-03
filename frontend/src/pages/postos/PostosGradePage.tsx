@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { PostosPills, usePassoLabel } from './PostosPills'
 import { useTenantFlags } from '../../lib/tenantFlags'
+import { nomeCurto } from '../../lib/nomePessoa'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
@@ -54,11 +55,7 @@ const milAno = (v: number) => v >= 1e6 ? `R$ ${(v / 1e6).toLocaleString('pt-BR',
 const REGIMES = ['BR-CLT', 'BR-PRESTADOR', 'BR-PROLABORE', 'PY-IPS', 'PY-CONTRATO']
 // sindicato por empresa (regra Ricardo): 06→MS, 08/YY/ZZ→PR, demais→SP. O import atribui (persiste no reimport).
 const sindCodPorEmp = (empCod: string) => empCod === '06' ? 'SINDPDMS' : ['08', 'YY', 'ZZ'].includes(empCod) ? 'SINDPDPR' : 'SINDPDSP'
-const abbrev = (nome: string) => {
-  const ps = nome.trim().split(/\s+/); if (!ps.length) return nome
-  const tc = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
-  return ps.length === 1 ? tc(ps[0]) : `${ps[0].charAt(0).toUpperCase()}. ${tc(ps[ps.length - 1])}`
-}
+// nome curto do ocupante: ver lib/nomePessoa.ts
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
@@ -616,7 +613,7 @@ export default function PostosGradePage() {
           {p.empresa?.codigo || '—'}·{p.filial?.codigo || '—'}·{p.centro_custo?.codigo || '—'}</td>
         <td style={S.td}>{p.cargo?.nome || '—'}</td>
         <td style={S.td}>{p.nome
-          ? <span style={T.ocup}>{abbrev(p.nome)}</span>
+          ? <span style={T.ocup}>{nomeCurto(p.nome)}</span>
           : <span style={T.vaga}>VAGA{p.ini_mes ? ` · ${MESES[p.ini_mes - 1]}/${String(p.ini_ano || '').slice(2)}` : ''}</span>}</td>
         <td style={S.td}>{p.regime ? <span style={tagRegime(p.regime)}>{REGIMES_LABEL[p.regime] || p.regime}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
         <td style={S.td}>{p.sindicato?.codigo ? <span style={T.sind}>{p.sindicato.codigo}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
