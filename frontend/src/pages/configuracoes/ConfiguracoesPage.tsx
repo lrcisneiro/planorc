@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { limparCacheFlags } from '../../lib/tenantFlags'
+import { AlertCircle } from 'lucide-react'
 import { CAPACIDADES } from '../../lib/capacidades'
 import type { Papel } from '../../lib/capacidades'
 
@@ -322,7 +323,11 @@ function ModalConvidarUsuario({ onClose, onSuccess }: { onClose: () => void; onS
       body: {
         email: email.trim(),
         role,
-        redirectTo: `${window.location.origin}/login`,
+        // mesmo destino do e-mail de recuperação: o convidado vai DEFINIR
+        // senha, não entrar. `/login` nem é rota da aplicação, e por não estar
+        // na allow-list do Supabase o convite caía no Site URL — mandando para
+        // produção quem estava testando em dev.
+        redirectTo: `${window.location.origin}/nova-senha`,
       },
     })
     setLoading(false)
@@ -388,7 +393,37 @@ function UsuariosTab() {
   const [loading, setLoading] = useState(true)
   const [selecionado, setSelecionado] = useState<TenantUser | null>(null)
   const [showConvidar, setShowConvidar] = useState(false)
+  // `erroAcesso` barra a tela (não é admin); `erroAcao` é falha de uma operação
+  // e NÃO pode levar a lista junto — quem acabou de errar uma exclusão precisa
+  // justamente de ver a lista para conferir o que aconteceu.
   const [erroAcesso, setErroAcesso] = useState('')
+  const [erroAcao, setErroAcao] = useState('')
+  const [excluindo, setExcluindo] = useState<string | null>(null)
+  const [eu, setEu] = useState<string | null>(null)
+
+  useEffect(() => { supabase.auth.getUser().then(({ data }) => setEu(data.user?.id || null)) }, [])
+
+  // Exclusão é definitiva: apaga o usuário da autenticação e as permissões
+  // dele. A confirmação pede o e-mail digitado de propósito — numa lista curta,
+  // um clique errado acerta a pessoa de cima e não há desfazer.
+  const excluir = async (u: TenantUser) => {
+    const resp = prompt(`Excluir ${u.email} em definitivo?\n\nIsso apaga o acesso e as permissões dele. Para confirmar, digite o e-mail:`)
+    if (resp === null) return
+    if (resp.trim().toLowerCase() !== u.email.toLowerCase()) { setErroAcao('O e-mail digitado não confere — nada foi excluído.'); return }
+    setErroAcao(''); setExcluindo(u.user_id)
+    const { data, error } = await supabase.functions.invoke('excluir-usuario', { body: { user_id: u.user_id } })
+    setExcluindo(null)
+    if (error || data?.error) {
+      const m = data?.error || error?.message || 'Erro ao excluir.'
+      // a mensagem crua do SDK quando a função não existe é "Failed to send a
+      // request to the Edge Function", que não ajuda ninguém a agir
+      setErroAcao(m.includes('Failed to send a request')
+        ? 'A função de exclusão ainda não está publicada no servidor. Rode: supabase functions deploy excluir-usuario'
+        : m)
+      return
+    }
+    carregar()
+  }
 
   const carregar = async () => {
     setLoading(true)
@@ -409,6 +444,16 @@ function UsuariosTab() {
   if (loading) return <p style={{ color: 'var(--muted)', padding: 16 }}>Carregando...</p>
   if (erroAcesso) return <p style={{ color: 'var(--red)', padding: 16 }}>{erroAcesso}</p>
 
+  const avisoAcao = erroAcao ? (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px', padding: '10px 14px',
+      background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 8,
+      color: 'var(--red)', fontSize: 13 }}>
+      <AlertCircle size={15} /> {erroAcao}
+      <button onClick={() => setErroAcao('')} style={{ marginLeft: 'auto', background: 'none', border: 'none',
+        color: 'var(--red)', cursor: 'pointer', fontSize: 12 }}>fechar</button>
+    </div>
+  ) : null
+
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
@@ -417,6 +462,8 @@ function UsuariosTab() {
         </button>
       </div>
 
+      {avisoAcao}
+
       <div style={S.card}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
@@ -424,7 +471,7 @@ function UsuariosTab() {
               <th style={S.th}>Email</th>
               <th style={S.th}>Perfil</th>
               <th style={S.th}>Acesso</th>
-              <th style={{ ...S.th, width: 120 }}></th>
+              <th style={{ ...S.th, width: 220 }}></th>
             </tr>
           </thead>
           <tbody>
@@ -439,10 +486,20 @@ function UsuariosTab() {
                 <td style={S.td}>
                   <AccessSummary userId={u.user_id} />
                 </td>
-                <td style={{ ...S.td, textAlign: 'right' }}>
+                <td style={{ ...S.td, textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <button style={S.btn('secondary')} onClick={() => setSelecionado(u)}>
                     Editar acesso
                   </button>
+                  {/* o próprio usuário não aparece com Excluir: a trava real
+                      está no servidor, mas oferecer o botão só para recusar
+                      depois seria convidar ao erro */}
+                  {u.user_id !== eu && (
+                    <button style={{ ...S.btn('secondary'), marginLeft: 6, color: 'var(--red)' }}
+                      disabled={excluindo === u.user_id} onClick={() => excluir(u)}
+                      title="Exclui o usuário e as permissões dele, sem volta">
+                      {excluindo === u.user_id ? 'Excluindo…' : 'Excluir'}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

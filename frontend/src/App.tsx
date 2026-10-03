@@ -34,6 +34,7 @@ import AmarracaoPage from './pages/amarracao/AmarracaoPage'
 import SaldoDadosPage from './pages/saldos/SaldoDadosPage'
 import ConfiguracoesPage from './pages/configuracoes/ConfiguracoesPage'
 import LoginPage from './pages/login/LoginPage'
+import NovaSenhaPage from './pages/login/NovaSenhaPage'
 
 // Menu agrupado por modo de interação (igual ao protótipo planorc-v2-menu-mesclado).
 // `soon: true` = item proposto (aparece, mas ainda não navega).
@@ -126,14 +127,32 @@ const S = {
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [carregando, setCarregando] = useState(true)
+  // Tanto o link de RECUPERAÇÃO quanto o de CONVITE criam uma sessão válida.
+  // Sem tratar isso, clicar no link do e-mail entra no sistema — no convite,
+  // sem nunca definir senha, o que deixa a pessoa sem como voltar quando o link
+  // expirar. Por isso este estado tem precedência sobre a sessão.
+  const [recuperando, setRecuperando] = useState(
+    // o evento chega depois do primeiro render; o hash da URL já está aqui
+    () => /type=recovery/.test(window.location.hash + window.location.search))
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setCarregando(false) })
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
+    const { data: sub } = supabase.auth.onAuthStateChange((e, s) => {
+      if (e === 'PASSWORD_RECOVERY') setRecuperando(true)
+      if (e === 'SIGNED_OUT') setRecuperando(false)
+      setSession(s)
+    })
     return () => sub.subscription.unsubscribe()
   }, [])
 
   if (carregando) return <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#868e96', fontFamily: 'system-ui' }}>Carregando…</div>
+  // `precisa_senha` vem do convite e mora no usuário, não na URL: sobrevive a
+  // recarregar a página e a abrir em outra aba, que é por onde a detecção pelo
+  // endereço escaparia.
+  const primeiroAcesso = !!session?.user?.user_metadata?.precisa_senha
+  // precedência deliberada: enquanto a senha não for definida, não há app
+  if (session && (recuperando || primeiroAcesso))
+    return <NovaSenhaPage email={session.user?.email} primeiroAcesso={primeiroAcesso} />
   if (!session) return <LoginPage />
 
   return <BrowserRouter><Shell session={session} /></BrowserRouter>
@@ -230,6 +249,11 @@ function Shell({ session }: { session: Session }) {
         <div style={S.content}>
           <Routes>
             <Route path="/" element={<Navigate to="/dashboards" replace />} />
+            {/* destino do link de recuperação: quem chega aqui em recuperação
+                nem vê o roteador (o App intercepta antes). Esta rota é só para
+                quem abre o endereço já logado e fora do fluxo — sem ela, tela
+                em branco. */}
+            <Route path="/nova-senha" element={<Navigate to="/dashboards" replace />} />
             <Route path="/dashboards"      element={<DashboardsHubPage />} />
             <Route path="/dashboards/anual"     element={<ComparativoAnualPage />} />
             <Route path="/dashboards/cagr"      element={<CagrPage />} />

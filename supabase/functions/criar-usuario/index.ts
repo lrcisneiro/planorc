@@ -38,10 +38,19 @@ Deno.serve(async (req) => {
     const { email, role = 'member', redirectTo } = await req.json()
     if (!email) throw new Error('Email obrigatório')
 
-    // Convida o usuário (envia email com link de acesso)
+    // Convida o usuário (envia email com link de acesso).
+    //
+    // `precisa_senha` vai no user_metadata e é o que obriga a definir senha no
+    // primeiro acesso. O link do convite AUTENTICA, e o convidado nasce sem
+    // senha — sem esta marca ele entraria direto e, quando o link expirasse,
+    // ficaria sem forma de voltar. A marca vem do servidor de propósito:
+    // detectar pelo `type=invite` da URL não sobreviveria a um F5.
     const { data: invited, error: inviteErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(
       email,
-      { redirectTo: redirectTo || Deno.env.get('APP_URL') || '' }
+      {
+        redirectTo: redirectTo || Deno.env.get('APP_URL') || '',
+        data: { precisa_senha: true },
+      }
     )
     if (inviteErr) throw new Error(inviteErr.message)
 
