@@ -65,6 +65,13 @@ def parse_bk_funcionario(bk: str):
     para SRA250/280. matricula = valor após o último pipe."""
     parts = [p.strip() for p in (bk or '').split('|')]
     matricula = parts[-1] if parts else ''
+    # zero à esquerda: o export perde o zero quando a matrícula vira número no
+    # ETL (medido: 1 de 560 veio com 5 dígitos). A folha normaliza com zfill(6),
+    # então sem isto aqui a MESMA pessoa fica com duas matrículas e o realizado
+    # dela não casa com o posto. Só dígitos — 'NFUNC' tem de continuar 'NFUNC'
+    # para ser descartado logo adiante.
+    if matricula.isdigit():
+        matricula = matricula.zfill(6)
     fiscal = filial = ''
     for i, p in enumerate(parts):
         if p.upper().startswith('SRA'):

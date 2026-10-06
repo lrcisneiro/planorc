@@ -124,11 +124,18 @@ def converter(folha_dir: str, saida: str, depara: dict, depara_item: dict = None
 
     for fn in arquivos:
         wb = openpyxl.load_workbook(fn, data_only=True, read_only=True); ws = wb.active
+        # O cabeçalho é PROCURADO, não fixado numa linha: o mesmo relatório saiu
+        # em out/2026 com um bloco de Dt.Ref/Hora/Emissão na frente, jogando os
+        # nomes das colunas da linha 2 para a 7. Com posição fixa, o conversor
+        # lia 13.864 linhas e gravava ZERO — sem erro, só "sem matrícula".
         hdr = None
         for i, r in enumerate(ws.iter_rows(values_only=True)):
-            if i == 1:
-                hdr = {h: j for j, h in enumerate(r)}; continue
-            if not hdr or i < 2:
+            if hdr is None:
+                rotulos = {str(c).strip().upper() for c in r if c is not None}
+                if {'EMPRESA', 'FILIAL', 'MATRICULA'} <= rotulos:
+                    hdr = {h: j for j, h in enumerate(r)}
+                continue
+            if not hdr:
                 continue
             def g(col):
                 j = hdr.get(col)
