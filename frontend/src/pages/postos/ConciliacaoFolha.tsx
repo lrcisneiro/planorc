@@ -343,7 +343,10 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
   const semOrc  = useMemo(() => filtrados.filter(l => l.semOrcado), [filtrados])
   const ordenar = (arr: Linha[]) => {
     const val = (l: Linha) => ordem.col === 'orcado' ? l.orcado : ordem.col === 'realizado' ? l.realizado : ordem.col === 'codigo' ? l.codigo : (l.orcado - l.realizado)
-    return [...arr].sort((a, b) => { const va = val(a) as any, vb = val(b) as any; return (typeof va === 'string' ? va.localeCompare(vb) : (Math.abs(vb) - Math.abs(va))) * ordem.dir })
+    // ordena pelo valor COM SINAL. Por módulo, o maior gasto a mais e a maior
+    // sobra ficavam lado a lado no topo, e a seta de direção não separava um do
+    // outro — a coluna parecia desordenada mesmo estando ordenada.
+    return [...arr].sort((a, b) => { const va = val(a) as any, vb = val(b) as any; return (typeof va === 'string' ? va.localeCompare(vb) : (vb - va)) * ordem.dir })
   }
   type Grupo = { key: string; label: string; linhas: Linha[]; orc: number; real: number }
   const agrupa = (rows: Linha[], pref: string): Grupo[] | null => {
@@ -836,7 +839,10 @@ function DimModal({ linha, cells, dentro, semVinculo, onClose }:
   const td: CSSProperties = { padding: '6px 12px', borderBottom: '1px solid var(--panel-2)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 120, padding: 20 }} onClick={onClose}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, width: 'min(720px, 96vw)', maxHeight: '86vh', overflow: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,0.4)' }} onClick={e => e.stopPropagation()}>
+      {/* 7 colunas, duas delas com texto longo (nome do CC e área·divisão·BU):
+          em 720px o Δ saía da tela e era preciso rolar para ver justamente o
+          número que a pessoa veio ver. */}
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, width: 'min(1120px, 96vw)', maxHeight: '86vh', overflow: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,0.4)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Onde caiu — {linha.nome}</div>
@@ -851,8 +857,10 @@ function DimModal({ linha, cells, dentro, semVinculo, onClose }:
           </div>
           <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 }} onClick={onClose} />
         </div>
-        <div style={{ padding: '4px 20px 16px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        {/* o scroll horizontal fica NA TABELA, não no modal: assim o cabeçalho
+            e o rodapé de total continuam visíveis em tela estreita */}
+        <div style={{ padding: '4px 20px 16px', overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, whiteSpace: 'nowrap' }}>
             <thead><tr>
               <th style={th}>Empresa</th><th style={th}>Filial</th><th style={th}>Centro de custo</th><th style={th}>Área · Divisão · BU</th>
               <th style={{ ...th, textAlign: 'right' }}>Orçado</th><th style={{ ...th, textAlign: 'right' }}>Realizado</th><th style={{ ...th, textAlign: 'right' }}>Δ</th>

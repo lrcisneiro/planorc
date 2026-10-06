@@ -502,7 +502,22 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
         <div style={S.kpi}><div style={S.kpiL}>CLT · diferença</div><div style={{ ...S.kpiV, color: Math.abs(difC) > tol ? 'var(--orange)' : 'var(--green)' }}>{money(difC)}</div><div style={S.kpiS}>razão {money(totC.razao)} · folha {money(totC.folha)}{totC.outros ? ` · outros ${money(totC.outros)}` : ''}</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Terceiros · diferença</div><div style={{ ...S.kpiV, color: Math.abs(difT) > tol ? 'var(--orange)' : 'var(--green)' }}>{money(difT)}</div><div style={S.kpiS}>razão {money(totT.razao)} · folha {money(totT.folha)}</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Outros lançamentos</div><div style={{ ...S.kpiV, color: 'var(--blue)' }}>{money(totSemDono)}</div><div style={S.kpiS}>{semDono.length} histórico(s) sem folha e sem pessoa</div></div>
-        <div style={S.kpi}><div style={S.kpiL}>Conciliados</div><div style={S.kpiV}>{pessoas.filter(t => t.status === 'CASADO').length}</div><div style={S.kpiS}>de {pessoas.length} pessoas no terceiro</div></div>
+        {/* o número acionável é o que FALTA conciliar: "209 de 216" obrigava a
+            subtrair de cabeça para saber quanto trabalho sobrou */}
+        {(() => {
+          const ok = pessoas.filter(t => t.status === 'CASADO').length
+          const falta = pessoas.length - ok
+          return (
+            <div style={S.kpi}><div style={S.kpiL}>Conciliados</div>
+              <div style={S.kpiV}>{ok}
+                <span style={{ fontSize: 15, fontWeight: 600, color: falta ? 'var(--orange)' : 'var(--green)', marginLeft: 8 }}>
+                  {falta ? `· ${falta} não` : '· todos'}
+                </span>
+              </div>
+              <div style={S.kpiS}>de {pessoas.length} pessoas no terceiro</div>
+            </div>
+          )
+        })()}
       </div>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', margin: '0 0 12px', flexWrap: 'wrap' }}>
@@ -560,7 +575,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
             <th style={{ ...S.th, textAlign: 'right' }}>Folha</th>
             <th style={{ ...S.th, textAlign: 'right' }}>Diferença</th>
             <th style={{ ...S.th, textAlign: 'right' }} title="Razão que entrou nesta conta sem vir da contabilização da folha: fatura do convênio, encargo lançado à mão, ajuste. Não é divergência da folha — por isso fica fora da diferença.">Outros</th>
-            <th style={{ ...S.th, textAlign: 'right' }} title="Razão + Outros: tudo o que a conferência enxerga nesta linha. É o número a comparar com o item da DRE ao lado.">Total</th>
+            <th style={{ ...S.th, textAlign: 'right' }} title="Razão + Outros: TODO o razão desta linha — o que veio da folha mais o que entrou por fora. É o número a comparar com o item da DRE ao lado.">Total razão</th>
             <th style={{ ...S.th, textAlign: 'right' }} title="O razão de TODAS as contas amarradas ao item, com o sinal da amarração — agregação desta tela, por master. A conferência cobre só o que a folha toca; a diferença é conta do item sem folha nenhuma.">Item na DRE</th>
             {p.ref && <th style={{ ...S.th, textAlign: 'right', color: 'var(--violet)' }} title="O mesmo número, calculado pela função que o relatório usa — incluindo Σ (soma da subárvore) e fórmulas. É a referência a confiar quando as duas divergirem.">No relatório</th>}
             <th style={S.th}>Status</th>

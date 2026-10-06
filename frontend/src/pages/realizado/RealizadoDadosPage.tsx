@@ -426,9 +426,16 @@ export default function RealizadoDadosPage() {
         downloadSheets('log_importacao_realizado.xlsx', [{ nome: 'Arquivos', aoa: arqAoa }, { nome: 'Ignorados', aoa: ignAoa }])
         if (ignDet.length >= CAP_IGN) setImpProg(p => p + ` (log truncado em ${CAP_IGN.toLocaleString('pt-BR')} linhas)`)
       }
-      setImpProg(p => p + ' Recalculando agregados…')
+      // O texto de progresso é TROCADO no fim, não só acrescentado quando dá
+      // erro: antes, terminando bem, a tela ficava para sempre em "Recalculando
+      // agregados…" — indistinguível de travada. A constante evita que a frase
+      // anexada e a removida saiam de sincronia.
+      const AGG = ' Recalculando agregados…'
+      setImpProg(p => p + AGG)
       const { error: aggErr } = await supabase.rpc('refresh_realizado_mensal')
-      if (aggErr) setImpProg(p => p + ` (⚠ recalcule os agregados manualmente: ${aggErr.message})`)
+      setImpProg(p => p.replace(AGG, aggErr
+        ? ` ⚠ Agregados NÃO recalculados (${aggErr.message}) — use o botão Recalcular; os lançamentos já estão gravados.`
+        : ' ✓ Agregados recalculados.'))
       load()
     } catch (e: any) { setImpProg('Erro: ' + (e?.message ?? JSON.stringify(e))) }
     setImpBusy(false)
