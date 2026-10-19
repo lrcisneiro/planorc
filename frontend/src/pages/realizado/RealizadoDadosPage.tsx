@@ -304,7 +304,7 @@ export default function RealizadoDadosPage() {
       const [contas, emps, fis, cc] = await Promise.all([
         pageAll(() => supabase.from('conta_contabil').select('id,codigo,plano_id,natureza')),
         pageAll(() => supabase.from('empresa').select('id,codigo,plano_id')),
-        pageAll(() => supabase.from('filial').select('id,codigo')),
+        pageAll(() => supabase.from('filial').select('id,codigo,empresa_id')),
         pageAll(() => supabase.from('centro_custo').select('id,codigo')),
       ])
       const norm = (s: string) => s.replace(/\s+/g, '').toUpperCase()
@@ -315,6 +315,15 @@ export default function RealizadoDadosPage() {
       const empMap: Record<string, string> = {}; emps.forEach((e: any) => { empMap[norm(e.codigo)] = e.id })
       const empPlano: Record<string, string> = {}; emps.forEach((e: any) => { empPlano[e.id] = e.plano_id })
       const filMap: Record<string, string> = {}; fis.forEach((f: any) => { filMap[norm(f.codigo)] = f.id })
+      // Plano pela FILIAL, não pela empresa. A filial é o CNPJ do ERP e define
+      // em que plano o lançamento foi escriturado; a empresa é agrupador
+      // GERENCIAL e pode ser trocada pelo item contábil na conversão. Procurar
+      // a conta no plano da empresa de destino descartava, em silêncio, tudo o
+      // que o item contábil reclassificava para uma empresa de outro plano —
+      // medido: 467 linhas e R$ 817 mil da XX por ano, com o motivo registrado
+      // como "conta não encontrada".
+      const filPlano: Record<string, string> = {}
+      fis.forEach((f: any) => { const pl = f.empresa_id ? empPlano[f.empresa_id] : null; if (pl) filPlano[f.id] = pl })
       const ccMap: Record<string, string> = {}; cc.forEach((c: any) => { ccMap[norm(c.codigo)] = c.id })
       const empSelCod = empresas.find(e => e.id === empresaId)?.codigo || ''
 
@@ -339,7 +348,7 @@ export default function RealizadoDadosPage() {
           (g.sublote == null || g.sublote === '' || norm(g.sublote) === norm(sub)) &&
           (g.empresa_id == null || g.empresa_id === empId))
 
-      if (modo === 'full' && !confirm(`Modo SUBSTITUIR: para cada arquivo, o realizado das competências (empresa/ano/mês) do arquivo será EXCLUÍDO antes de inserir.\n\n${files.length} arquivo(s). Confirmar?`)) { setImpProg('Cancelado.'); setImpBusy(false); return }
+      if (modo === 'full' && !confirm(`Modo SUBSTITUIR: para cada arquivo, o realizado das competências (empresa/ano/mês) do arquivo será EXCLUÍDO antes de inserir — só na moeda ${moedas.find((m: any) => m.slot === moedaArq)?.codigo || 'base'}, para não apagar o que a mesma empresa recebe de outra origem.\n\n${files.length} arquivo(s). Confirmar?`)) { setImpProg('Cancelado.'); setImpBusy(false); return }
 
       const log: string[] = []; let totIns = 0, totIgn = 0
       const faltaConta = new Set<string>(), faltaEmp = new Set<string>()
@@ -356,7 +365,11 @@ export default function RealizadoDadosPage() {
           const contaCod = txt(r, 'conta_codigo', 'conta', 'CONTA', 'conta_contabil')
           const empCod = txt(r, 'empresa_codigo', 'empresa', 'EMPRESA') || empSelCod
           const empresa_id = empMap[norm(empCod)]
-          const conta_id = empresa_id ? contaMap[`${empPlano[empresa_id]}|${norm(contaCod)}`] : undefined
+          const filCodR = txt(r, 'filial_codigo', 'filial', 'FILIAL')
+          const filial_id_r = filCodR ? (filMap[norm(filCodR)] || null) : null
+          // a filial manda; a empresa é o fallback de quem não tem filial no arquivo
+          const planoLin = (filial_id_r ? filPlano[filial_id_r] : null) || (empresa_id ? empPlano[empresa_id] : null)
+          const conta_id = planoLin ? contaMap[`${planoLin}|${norm(contaCod)}`] : undefined
           const comp = competencia(r)
           const deb = num(rawCol(r, 'debito', 'Débito', 'DEBITO'))
           const cre = num(rawCol(r, 'credito', 'Crédito', 'CREDITO'))
@@ -369,7 +382,6 @@ export default function RealizadoDadosPage() {
           const lote = txt(r, 'lote', 'LOTE')
           const sublote = txt(r, 'sublote', 'SUBLOTE', 'sub_lote')
           if (devePular(lote, sublote, empresa_id)) { ign++; addIgn(`lote ignorado (${lote}${sublote ? '/' + sublote : ''})`); continue }
-          const filCod = txt(r, 'filial_codigo', 'filial', 'FILIAL')
           const ccCod = txt(r, 'cc_codigo', 'cc', 'centro_custo', 'CENTRO DE CUSTO')
           const cc_id = ccCod ? (ccMap[norm(ccCod)] || null) : null
           // CC é obrigatório em conta de receita/despesa → detecta os que faltam
@@ -379,7 +391,7 @@ export default function RealizadoDadosPage() {
           if (!cv) { ign++; addIgn('sem cotação de câmbio da data'); continue }
           inserts.push({
             tenant_id: TENANT_ID, linha_id: null, conta_id, empresa_id,
-            filial_id: filCod ? (filMap[norm(filCod)] || null) : null,
+            filial_id: filial_id_r,
             cc_id,
             ano: comp.ano, mes: comp.mes, data: comp.dataISO,
             documento: txt(r, 'documento', 'doc', 'DOCUMENTO') || null,
@@ -395,7 +407,19 @@ export default function RealizadoDadosPage() {
         if (modo === 'full') {
           for (const ck of Object.keys(comboEmp)) {
             const [a, m] = ck.split('-').map(Number)
-            const { error: delErr } = await supabase.from('fat_realizado').delete().eq('ano', a).eq('mes', m).in('empresa_id', [...comboEmp[ck]])
+            // ⚠ O delete é por (ano, mes, empresa) MAIS A MOEDA DO ARQUIVO. Uma mesma
+            // empresa recebe lançamento de mais de uma origem: a empresa XX (Paraguai)
+            // tem o razão paraguaio em USD e, vindas do razão BRASILEIRO em BRL, as
+            // linhas que o item contábil reclassifica para lá. Sem o recorte de moeda
+            // os dois imports se derrubavam: reimportar o PY apagava o que veio do
+            // Brasil, e reimportar o Brasil apagava o Paraguai inteiro.
+            // Lançamento antigo, anterior ao multimoeda, tem moeda_origem nulo e conta
+            // como base (slot 1) — por isso o or() quando o arquivo é da moeda base.
+            let q = supabase.from('fat_realizado').delete().eq('ano', a).eq('mes', m).in('empresa_id', [...comboEmp[ck]])
+            q = moedaArq === 1
+              ? q.or('moeda_origem.is.null,moeda_origem.eq.1')
+              : q.eq('moeda_origem', moedaArq)
+            const { error: delErr } = await q
             if (delErr) throw delErr
           }
         }
