@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef, Fragment } from 'rea
 import type { CSSProperties, ChangeEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { pageAll } from '../../lib/pageAll'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import {
@@ -394,7 +395,11 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   }, [acesso.loading, empresas]) // eslint-disable-line
 
   const loadContas = useCallback(async () => {
-    const { data } = await supabase.from('conta_contabil').select('id,codigo,descricao,plano_id, plano_contas(codigo)').order('codigo')
+    // pageAll obrigatório: o PostgREST corta em 1000 SEM erro. São ~1.699 contas
+    // (dois planos povoados) e, ordenadas por código, as 3xxx/4xxx ficavam de
+    // fora — no drill do razão a coluna Conta saía "—" em TODA linha de receita
+    // e despesa, e a ordenação por conta e o export iam junto.
+    const data = await pageAll(() => supabase.from('conta_contabil').select('id,codigo,descricao,plano_id, plano_contas(codigo)').order('codigo'))
     setContas((data || []).map((c: any) => ({ id: c.id, codigo: c.codigo, descricao: c.descricao, plano_id: c.plano_id, plano: c.plano_contas?.codigo || '' })))
   }, [])
   const loadContaLinks = useCallback(async () => {
