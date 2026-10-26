@@ -17,10 +17,44 @@ Saída: funcionarios_convertido.csv — uma linha por POSTO (funcionário × emp
 filial/CC + vigência). Cargo/salário/regime moram no posto; salário NÃO existe
 neste arquivo (fica em branco p/ preencher depois pela folha).
 
+Benefícios: as verbas de VA/VR, assistência médica, multibenefícios, vale-transporte
+e seguro de vida viram UMA COLUNA CADA, nomeada com o código da verba. É o formato
+que a tela de Postos espera para gravar posto_verba — ela casa coluna com verba do
+catálogo. Os valores saem do movimento da folha (srd.csv, do mesmo RH.zip), na
+última competência fechada.
+
 Uso:  python3 scripts/converter_funcionarios.py [entrada.csv] [saida.csv]
+          [--srd=dados_rh/srd.csv] [--comp=202609] [--sem-beneficios]
 """
-import csv, sys, os
+import csv, sys, os, zipfile, tempfile
 from collections import Counter
+
+
+def do_zip(path: str, zips=('dados_rh/RH.zip', 'RH.zip')) -> str:
+    """Se `path` não existe, procura o mesmo nome dentro do RH.zip e extrai.
+
+    O export do GoodData vem zipado com Funcionarios.csv + srd.csv + srv.csv, e
+    o srd tem 43 MB — não vale versionar nem pedir que alguém extraia à mão todo
+    mês. Devolve o caminho utilizável, ou o original se não achar."""
+    if os.path.exists(path):
+        return path
+    alvo = os.path.basename(path)
+    for z in zips:
+        if not os.path.exists(z):
+            continue
+        try:
+            with zipfile.ZipFile(z) as zf:
+                nomes = [n for n in zf.namelist() if os.path.basename(n) == alvo]
+                if not nomes:
+                    continue
+                destino = os.path.join(tempfile.gettempdir(), alvo)
+                with zf.open(nomes[0]) as src, open(destino, 'wb') as dst:
+                    dst.write(src.read())
+                print(f'  ({alvo} extraído de {z})')
+                return destino
+        except zipfile.BadZipFile:
+            continue
+    return path
 
 _args  = [a for a in sys.argv[1:] if not a.startswith('--')]
 _flags = {a for a in sys.argv[1:] if a.startswith('--')}
@@ -34,6 +68,15 @@ ENTRADA = _args[0] if len(_args) > 0 else 'Funcionarios.csv'
 SAIDA   = _args[1] if len(_args) > 1 else 'funcionarios_convertido.csv'
 DEPARA  = _flag_val('--depara', 'dados_rh/depara_filial_empresa.csv')  # de-para filial -> empresa gerencial
 SOMENTE_ATIVOS = '--somente-ativos' in _flags   # descarta demitidos (SITFOLHA=D)
+SRD     = _flag_val('--srd', 'dados_rh/srd.csv')       # movimento da folha, p/ os benefícios
+COMP    = _flag_val('--comp', '')                      # competência AAAAMM; vazio = última FECHADA
+SEM_BENEF = '--sem-beneficios' in _flags
+
+# Verbas de benefício que viram coluna no arquivo de import. O nome da coluna é o
+# CÓDIGO da verba: é assim que a tela de Postos casa coluna -> posto_verba
+# (ela procura colunas cujo nome bate com uma verba do catálogo, tipo VALOR_FIXO).
+# Todas apontam para o master "Encargos e Benefícios" no SRV.
+VERBAS_BENEFICIO = ['D49', 'A76', 'D50', 'A15', 'A51']
 
 def apos_ultimo_pipe(v: str) -> str:
     return (v or '').split('|')[-1].strip()
@@ -115,12 +158,70 @@ def rateio_por_cc(cc: str) -> str:
 # são "ANAL. NEGOCIO III", e só 3 são "GESTOR DE PROJETOS". O que decide é a
 # FUNÇÃO no projeto, que vem na coluna `Cargo` do Extrato de Horas Apontadas e é
 # marcada em Posto de trabalho → Apontamento (tabela `apontamento_funcao`).
+def carregar_beneficios(path: str, comp_pedida: str = ''):
+    """Lê o movimento da folha (srd.csv do RH.zip) e devolve
+    ({posto_codigo: {verba: valor}}, competência usada, aviso).
+
+    A chave do posto é filial(BK_FILIAL) + matrícula(BK_SRA) — a mesma que o
+    cadastro monta. Medido em out/2026: 105 pessoas com benefício, todas casando
+    com um posto do cadastro, nenhuma órfã.
+
+    A competência default é a última FECHADA, não a última que aparece: o mês
+    corrente entra no export com a folha ainda rodando (out/2026 tinha só uma das
+    cinco verbas) e orçaria benefício a menos para todo mundo. "Fechada" aqui é o
+    último mês com pelo menos 60% das pessoas da mediana dos meses anteriores.
+    """
+    if not os.path.exists(path):
+        return {}, '', f'sem {path} — benefícios não incluídos'
+    alvo = set(VERBAS_BENEFICIO)
+    por_comp = {}            # comp -> {posto: {verba: valor}}
+    with open(path, newline='', encoding='latin-1') as f:
+        for r in csv.DictReader(f):
+            verba = apos_ultimo_pipe(r.get('BK_SRV', ''))
+            if verba not in alvo:
+                continue
+            try:
+                val = float(apos_ultimo_pipe(r.get('RD_VALOR', '')) or 0)
+            except ValueError:
+                continue
+            if not val:
+                continue
+            comp = apos_ultimo_pipe(r.get('DTCOMPET', ''))[:6]
+            filial = apos_ultimo_pipe(r.get('BK_FILIAL', ''))
+            matric = apos_ultimo_pipe(r.get('BK_SRA', ''))
+            if not (comp and filial and matric):
+                continue
+            chave = f'{filial}-{matric}'
+            d = por_comp.setdefault(comp, {}).setdefault(chave, {})
+            d[verba] = d.get(verba, 0) + val
+    if not por_comp:
+        return {}, '', 'nenhuma das verbas de benefício apareceu no movimento'
+
+    comps = sorted(por_comp)
+    if comp_pedida:
+        if comp_pedida not in por_comp:
+            return {}, '', f'competência {comp_pedida} não existe no movimento ({comps[0]}..{comps[-1]})'
+        escolhida, aviso = comp_pedida, ''
+    else:
+        tamanhos = [len(por_comp[c]) for c in comps]
+        mediana = sorted(tamanhos)[len(tamanhos) // 2]
+        fechadas = [c for c in comps if len(por_comp[c]) >= mediana * 0.6]
+        escolhida = fechadas[-1] if fechadas else comps[-1]
+        aviso = ''
+        if escolhida != comps[-1]:
+            aviso = (f'{comps[-1]} ignorada por parecer em aberto '
+                     f'({len(por_comp[comps[-1]])} pessoas contra mediana de {mediana})')
+    return por_comp[escolhida], escolhida, aviso
+
+
 COLS_SAIDA = ['posto_codigo', 'empresa', 'filial', 'cc', 'matricula',
               'nome', 'cargo', 'regime', 'salario', 'admissao', 'demissao', 'situacao', 'ativo', 'rateio',
-              'recurso']
+              'recurso'] + VERBAS_BENEFICIO
 
-def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=None):
+def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=None,
+              beneficios=None, comp_benef: str = '', aviso_benef: str = ''):
     depara = depara or {}
+    beneficios = beneficios or {}
     with open(entrada, newline='', encoding='utf-8-sig') as f:
         linhas = list(csv.DictReader(f))
 
@@ -171,6 +272,11 @@ def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=Non
                'regime': regime_por(matricula, cargo), 'salario': '',
                'admissao': admissao, 'demissao': demissao, 'situacao': situacao, 'ativo': ativo,
                'rateio': rateio_por_cc(cc), 'recurso': recurso}
+        # benefícios da última competência fechada; só quem tem valor leva número,
+        # o resto fica vazio (prestador não recebe benefício CLT e some daqui)
+        benef_pessoa = beneficios.get(posto_codigo, {})
+        for v in VERBAS_BENEFICIO:
+            row[v] = f'{benef_pessoa[v]:.2f}' if benef_pessoa.get(v) else ''
 
         if posto_codigo in vistos:   # colisão: mantém a admissão mais recente
             colisoes += 1
@@ -196,6 +302,21 @@ def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=Non
     print('Rateio: ' + ', '.join(f'{k}={v}' for k, v in sorted(rat.items())))
     print(f'\nEmpresas ({len(empresas)}): ' + ', '.join(f'{k}={v}' for k, v in sorted(empresas.items())))
     print(f'Filiais ({len(filiais)}): ' + ', '.join(f'{k}={v}' for k, v in sorted(filiais.items())))
+    if beneficios or aviso_benef:
+        com = sum(1 for r in saida_rows if any(r.get(v) for v in VERBAS_BENEFICIO))
+        if com:
+            print(f'\nBenefícios (competência {comp_benef}): {com} posto(s) com valor')
+            for v in VERBAS_BENEFICIO:
+                qt = sum(1 for r in saida_rows if r.get(v))
+                tot = sum(float(r[v]) for r in saida_rows if r.get(v))
+                print(f'   {v}  {qt:>4} posto(s)  {tot:>12,.2f}')
+            orfas = [k for k in beneficios if k not in vistos]
+            if orfas:
+                print(f'   ⚠ {len(orfas)} pessoa(s) com benefício sem posto no cadastro: ' + ', '.join(orfas[:6]))
+        else:
+            print('\n⚠ Benefícios: nenhum valor casou com posto do cadastro.')
+        if aviso_benef:
+            print(f'   nota: {aviso_benef}')
     print(f'CCs distintos: {len(ccs)}  |  Cargos distintos: {len(cargos)}')
     if filiais_sem_empresa:
         print('\n⚠ Filiais SEM empresa no de-para (empresa vazia — corrija o de-para): '
@@ -206,6 +327,7 @@ def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=Non
     print(f'\n→ {saida}')
 
 if __name__ == '__main__':
+    ENTRADA = do_zip(ENTRADA)
     if not os.path.exists(ENTRADA):
         print(f'ERRO: não achei "{ENTRADA}". Coloque o arquivo na raiz do projeto '
               f'ou passe o caminho: python3 scripts/converter_funcionarios.py <entrada.csv>')
@@ -215,4 +337,9 @@ if __name__ == '__main__':
         print(f'De-para filial→empresa: {len(depara)} filiais carregadas de "{DEPARA}" (BK_EMPRESA ignorado).')
     else:
         print(f'AVISO: de-para "{DEPARA}" não encontrado — usando BK_EMPRESA como fallback (não recomendado).')
-    converter(ENTRADA, SAIDA, SOMENTE_ATIVOS, depara)
+    benef, comp_b, aviso_b = ({}, '', '') if SEM_BENEF else carregar_beneficios(do_zip(SRD), COMP)
+    if benef:
+        print(f'Benefícios: {len(benef)} pessoa(s) em "{SRD}", competência {comp_b}.')
+    elif not SEM_BENEF:
+        print(f'AVISO: benefícios não carregados — {aviso_b or "motivo desconhecido"}.')
+    converter(ENTRADA, SAIDA, SOMENTE_ATIVOS, depara, benef, comp_b, aviso_b)
