@@ -1990,9 +1990,12 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
 
   const soma = rows.reduce((s, r) => s + dispVal(r), 0)
   const exportar = () => downloadSheet('razao.xlsx', [
-    [...(isReal ? ['Conta', 'Descrição Conta', 'Data', 'Documento', 'Lote', 'Sublote'] : []), 'Empresa', 'Filial', 'Linha', 'CC', 'Descrição CC', 'Área', 'Divisão', 'BU', 'Histórico', 'Valor'],
+    [...(isReal ? ['Conta', 'Descrição Conta', 'Data', 'Documento', 'Lote', 'Sublote'] : ['Competência']), 'Empresa', 'Filial', 'Linha', 'CC', 'Descrição CC', 'Área', 'Divisão', 'BU', 'Histórico', 'Valor'],
     ...rows.map(r => [
-      ...(isReal ? [contaById[r.conta_id]?.codigo || '', contaById[r.conta_id]?.descricao || '', r.data || '', r.documento || '', r.lote || '', r.sublote || ''] : []),
+      // sem a competência, um drill de vários meses exporta linhas iguais em
+      // tudo menos no valor, e não há como saber de que mês cada uma é
+      ...(isReal ? [contaById[r.conta_id]?.codigo || '', contaById[r.conta_id]?.descricao || '', r.data || '', r.documento || '', r.lote || '', r.sublote || '']
+                 : [r.mes && r.ano ? `${String(r.mes).padStart(2, '0')}/${r.ano}` : '']),
       empById[r.empresa_id]?.codigo || '', filById[r.filial_id]?.codigo || '',
       linhaById[r.linha_id ?? linhaId] || titulo, ccById[r.cc_id]?.codigo || '', ccById[r.cc_id]?.descricao || '',
       r.dims.area || '', r.dims.divisao || '', r.dims.bu || '', r.dims.historico || '', dispVal(r),
@@ -2044,11 +2047,14 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
   const td: CSSProperties = { padding: '6px 10px', fontSize: 12, borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }
   const inp: CSSProperties = { padding: '4px 6px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 5, outline: 'none', width: '100%', boxSizing: 'border-box' }
   const temPosto = !isReal && rows.some((r: any) => r.dims?.posto)   // orçado com origem POSTO → habilita o botão de conciliação
-  const colSpan = (editavel ? 11 : 10) + (isReal ? 4 : 0)
+  const colSpan = (editavel ? 11 : 10) + (isReal ? 4 : 1)   // orçado tem Compet.; realizado tem Conta/Data/Doc/Lote
   const keyOf = (r: any, col: string): string | number => {
     switch (col) {
       case 'conta': return contaById[r.conta_id]?.codigo || ''
       case 'data': return r.data || ''
+      // orçado não tem data de lançamento, tem COMPETÊNCIA. Numérico p/ ordenar
+      // cronologicamente (202601 < 202610), não como texto.
+      case 'compet': return (r.ano || 0) * 100 + (r.mes || 0)
       case 'documento': return r.documento || ''
       case 'lote': return (r.lote || '') + (r.sublote || '')
       case 'empresa': return empById[r.empresa_id]?.codigo || ''
@@ -2114,6 +2120,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
               {isReal && <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('data')}>Data{seta('data')}</th>}
               {isReal && <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('documento')}>Documento{seta('documento')}</th>}
               {isReal && <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('lote')}>Lote{seta('lote')}</th>}
+              {!isReal && <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('compet')}>Compet.{seta('compet')}</th>}
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('empresa')}>Empresa{seta('empresa')}</th>
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('filial')}>Filial{seta('filial')}</th>
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('cc')}>CC{seta('cc')}</th>
@@ -2135,6 +2142,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
                     {isReal && <td style={td}>{r.data ? String(r.data).split('-').reverse().join('/') : '—'}</td>}
                     {isReal && <td style={td}>{r.documento || '—'}</td>}
                     {isReal && <td style={{ ...td, fontFamily: 'monospace' }}>{r.lote ? `${r.lote}${r.sublote ? '/' + r.sublote : ''}` : '—'}</td>}
+                    {!isReal && <td style={{ ...td, fontVariantNumeric: 'tabular-nums' }}>{r.mes && r.ano ? `${String(r.mes).padStart(2, '0')}/${r.ano}` : '—'}</td>}
                     <td style={td} title={empById[r.empresa_id]?.descricao || ''}>{empById[r.empresa_id]?.codigo || '—'}</td>
                     <td style={td} title={filById[r.filial_id]?.descricao || ''}>{filById[r.filial_id]?.codigo || '—'}</td>
                     <td style={{ ...td, fontFamily: 'monospace', color: 'var(--muted)' }}>{ccById[r.cc_id]?.codigo || '—'}</td>
