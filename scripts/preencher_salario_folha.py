@@ -59,11 +59,19 @@ if not arquivos:
     print(f'ERRO: nenhum prgper02_emp*.xlsx em "{FOLHA_DIR}"'); sys.exit(1)
 for fn in arquivos:
     wb = openpyxl.load_workbook(fn, data_only=True, read_only=True); ws = wb.active
+    # O cabeçalho NÃO fica numa linha fixa: o prgper02 mudou de layout em set/2026
+    # e passou de linha 2 para linha 7 (ganhou Dt.Ref/Hora/Emissão no topo, com
+    # linhas em branco entre elas). Fixo em `i == 1`, o script lia o arquivo
+    # inteiro e indexava ZERO linhas, em silêncio — o salário saía 0 para todo
+    # mundo. Então procura-se a linha que tem os rótulos.
     hdr = None
-    for i, r in enumerate(ws.iter_rows(values_only=True)):
-        if i == 1:
-            hdr = {h: j for j, h in enumerate(r)}; continue
-        if not hdr or i < 2:
+    for r in ws.iter_rows(values_only=True):
+        if hdr is None:
+            rotulos = {str(c).strip().upper() for c in r if c is not None}
+            if {'EMPRESA', 'FILIAL', 'MATRICULA'} <= rotulos:
+                hdr = {h: j for j, h in enumerate(r)}
+            continue
+        if not r or all(c is None for c in r):
             continue
         try:
             fil = filial_folha(r[hdr['EMPRESA']], r[hdr['FILIAL']])
