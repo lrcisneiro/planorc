@@ -18,6 +18,7 @@ import { PeriodPicker } from '../dashboard/PeriodPicker'
 import type { CC as CCItem } from '../dashboard/DashFiltros'
 import { ConciliacaoFolhaModal } from '../postos/ConciliacaoFolhaModal'
 import type { ConcilParams } from '../postos/ConciliacaoFolha'
+import { nomeCurto } from '../../lib/nomePessoa'
 import {
   ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Settings2, X,
   Sigma, FunctionSquare, Percent, Minus, Type, Download, Upload, Link2, ChevronsUpDown, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Pencil, Eye, EyeOff, Strikethrough, ListTree, History, RotateCcw, RefreshCw, Save, GitCompareArrows,
@@ -1990,15 +1991,21 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
 
   const soma = rows.reduce((s, r) => s + dispVal(r), 0)
   const exportar = () => downloadSheet('razao.xlsx', [
-    [...(isReal ? ['Conta', 'Descrição Conta', 'Data', 'Documento', 'Lote', 'Sublote'] : ['Competência']), 'Empresa', 'Filial', 'Linha', 'CC', 'Descrição CC', 'Área', 'Divisão', 'BU', 'Histórico', 'Valor'],
+    [...(isReal ? ['Conta', 'Descrição Conta', 'Data', 'Documento', 'Lote', 'Sublote'] : []),
+     'Empresa', 'Filial', 'Linha', 'CC', 'Descrição CC',
+     // o export espelha a tela: com origem POSTO, o que identifica a linha é o
+     // posto (e a fatia de rateio), não área/divisão/BU, que vêm sempre vazias
+     ...(!isReal && temPosto ? ['Posto', 'Matrícula', 'Ocupante', 'CC de origem', '% rateio'] : ['Área', 'Divisão', 'BU']),
+     'Histórico', 'Valor'],
     ...rows.map(r => [
-      // sem a competência, um drill de vários meses exporta linhas iguais em
-      // tudo menos no valor, e não há como saber de que mês cada uma é
-      ...(isReal ? [contaById[r.conta_id]?.codigo || '', contaById[r.conta_id]?.descricao || '', r.data || '', r.documento || '', r.lote || '', r.sublote || '']
-                 : [r.mes && r.ano ? `${String(r.mes).padStart(2, '0')}/${r.ano}` : '']),
+      ...(isReal ? [contaById[r.conta_id]?.codigo || '', contaById[r.conta_id]?.descricao || '', r.data || '', r.documento || '', r.lote || '', r.sublote || ''] : []),
       empById[r.empresa_id]?.codigo || '', filById[r.filial_id]?.codigo || '',
       linhaById[r.linha_id ?? linhaId] || titulo, ccById[r.cc_id]?.codigo || '', ccById[r.cc_id]?.descricao || '',
-      r.dims.area || '', r.dims.divisao || '', r.dims.bu || '', r.dims.historico || '', dispVal(r),
+      ...(!isReal && temPosto
+        ? [r.dims.posto || '', r.dims.matricula || '', r.dims.nome || '',
+           r.dims.cc_origem ? (ccById[r.dims.cc_origem]?.codigo || '') : '', r.dims.rateio_pct ?? '']
+        : [r.dims.area || '', r.dims.divisao || '', r.dims.bu || '']),
+      r.dims.historico || '', dispVal(r),
     ]),
   ])
 
@@ -2047,14 +2054,13 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
   const td: CSSProperties = { padding: '6px 10px', fontSize: 12, borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }
   const inp: CSSProperties = { padding: '4px 6px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 5, outline: 'none', width: '100%', boxSizing: 'border-box' }
   const temPosto = !isReal && rows.some((r: any) => r.dims?.posto)   // orçado com origem POSTO → habilita o botão de conciliação
-  const colSpan = (editavel ? 11 : 10) + (isReal ? 4 : 1)   // orçado tem Compet.; realizado tem Conta/Data/Doc/Lote
+  const colSpan = (editavel ? 11 : 10) + (isReal ? 4 : 0) - (!isReal && temPosto ? 1 : 0)
   const keyOf = (r: any, col: string): string | number => {
     switch (col) {
       case 'conta': return contaById[r.conta_id]?.codigo || ''
       case 'data': return r.data || ''
-      // orçado não tem data de lançamento, tem COMPETÊNCIA. Numérico p/ ordenar
-      // cronologicamente (202601 < 202610), não como texto.
-      case 'compet': return (r.ano || 0) * 100 + (r.mes || 0)
+      case 'posto': return r.dims?.posto || ''
+      case 'pessoa': return r.dims?.nome || ''
       case 'documento': return r.documento || ''
       case 'lote': return (r.lote || '') + (r.sublote || '')
       case 'empresa': return empById[r.empresa_id]?.codigo || ''
@@ -2120,12 +2126,17 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
               {isReal && <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('data')}>Data{seta('data')}</th>}
               {isReal && <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('documento')}>Documento{seta('documento')}</th>}
               {isReal && <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('lote')}>Lote{seta('lote')}</th>}
-              {!isReal && <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('compet')}>Compet.{seta('compet')}</th>}
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('empresa')}>Empresa{seta('empresa')}</th>
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('filial')}>Filial{seta('filial')}</th>
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('cc')}>CC{seta('cc')}</th>
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('ccdesc')}>Descrição CC{seta('ccdesc')}</th>
-              {!isReal && <><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('area')}>Área{seta('area')}</th><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('divisao')}>Divisão{seta('divisao')}</th><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('bu')}>BU{seta('bu')}</th></>}
+              {/* orçado do POSTO não usa área/divisão/BU: o que distingue duas linhas
+                  idênticas em empresa·filial·CC é o POSTO, que mora em dims. Sem
+                  estas colunas a tela mostra duplicatas sem explicação e o export
+                  perde a única chave que as separa. */}
+              {!isReal && (temPosto
+                ? <><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('posto')}>Posto{seta('posto')}</th><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('pessoa')}>Ocupante{seta('pessoa')}</th></>
+                : <><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('area')}>Área{seta('area')}</th><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('divisao')}>Divisão{seta('divisao')}</th><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('bu')}>BU{seta('bu')}</th></>)}
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('historico')}>Histórico{seta('historico')}</th>
               <th style={{ ...th, textAlign: 'right', cursor: 'pointer' }} onClick={() => sortClick('valor')}>Valor{seta('valor')}</th>
               {editavel && <th style={th}>Origem</th>}
@@ -2142,14 +2153,16 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
                     {isReal && <td style={td}>{r.data ? String(r.data).split('-').reverse().join('/') : '—'}</td>}
                     {isReal && <td style={td}>{r.documento || '—'}</td>}
                     {isReal && <td style={{ ...td, fontFamily: 'monospace' }}>{r.lote ? `${r.lote}${r.sublote ? '/' + r.sublote : ''}` : '—'}</td>}
-                    {!isReal && <td style={{ ...td, fontVariantNumeric: 'tabular-nums' }}>{r.mes && r.ano ? `${String(r.mes).padStart(2, '0')}/${r.ano}` : '—'}</td>}
                     <td style={td} title={empById[r.empresa_id]?.descricao || ''}>{empById[r.empresa_id]?.codigo || '—'}</td>
                     <td style={td} title={filById[r.filial_id]?.descricao || ''}>{filById[r.filial_id]?.codigo || '—'}</td>
                     <td style={{ ...td, fontFamily: 'monospace', color: 'var(--muted)' }}>{ccById[r.cc_id]?.codigo || '—'}</td>
                     <td style={td}>{ccById[r.cc_id]?.descricao || ''}</td>
-                    {!isReal && <><td style={td}>{r.dims.area || ''}</td>
-                    <td style={td}>{r.dims.divisao || ''}</td>
-                    <td style={td}>{r.dims.bu || ''}</td></>}
+                    {!isReal && (temPosto
+                      ? <><td style={{ ...td, fontFamily: 'monospace' }} title={r.dims.cc_origem ? `CC de origem do posto: ${ccById[r.dims.cc_origem]?.codigo || r.dims.cc_origem}` : ''}>{r.dims.posto || '—'}</td>
+                      <td style={td} title={r.dims.nome || ''}>{r.dims.nome ? nomeCurto(r.dims.nome, 26) : ''}{r.dims.rateio_pct ? <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: 'var(--violet)' }}>{r.dims.rateio_pct}%</span> : null}</td></>
+                      : <><td style={td}>{r.dims.area || ''}</td>
+                      <td style={td}>{r.dims.divisao || ''}</td>
+                      <td style={td}>{r.dims.bu || ''}</td></>)}
                     <td style={td}>
                       {editavel && !prot
                         ? <input key={`h${r.id}`} style={inp} defaultValue={r.dims.historico || ''} onBlur={e => saveHist(r, e.target.value)} />
