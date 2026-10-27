@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { pageAll } from '../../lib/pageAll'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { limparCacheFlags } from '../../lib/tenantFlags'
 import { AlertCircle } from 'lucide-react'
@@ -112,7 +113,8 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
         const { data } = await supabase.from('verba_folha').select('id,codigo,descricao').order('codigo')
         opcoes = (data || []).map((v: any) => ({ id: v.id, label: `${v.codigo} — ${v.descricao}` }))
       } else if (dim.tabela_ref === 'conta_contabil') {
-        const { data } = await supabase.from('conta_contabil').select('id,codigo,descricao').order('codigo')
+        // plano de contas passa de 2.600 linhas somando BR + PY + BO
+        const data = await pageAll(() => supabase.from('conta_contabil').select('id,codigo,descricao').order('codigo'))
         opcoes = (data || []).map((v: any) => ({ id: v.id, label: `${v.codigo} — ${v.descricao}` }))
       } else {
         const { data } = await supabase.from('dimensao_valor').select('id,codigo,descricao').eq('dimensao_id', dim.id).eq('ativo', true).order('codigo')

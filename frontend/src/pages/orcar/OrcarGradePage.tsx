@@ -156,15 +156,16 @@ export default function OrcarGradePage() {
   useEffect(() => {
     if (!pronto) { setCells({}); setHist({}); return }
     (async () => {
+      // 300 contas x 12 meses numa empresa ja passa do corte de 1000 do PostgREST
       let q = supabase.from('fat_orcado').select('linha_id,mes,valor,val_m2,val_m3,val_m4,val_m5,expressao,dims,origem').eq('versao_id', versaoId).eq('empresa_id', empresaId).eq('ano', ano)
       q = filialId ? q.eq('filial_id', filialId) : q.is('filial_id', null)
       q = ccId ? q.eq('cc_id', ccId) : q.is('cc_id', null)
-      const { data } = await q
+      const data = await pageAll(() => q)
       const v: Record<string, Record<number, Cell>> = {}
       const meta: Record<string, Record<number, { count: number; inline: boolean }>> = {}
       const byCell: Record<string, any[]> = {}   // `${linha}|${mes}` → lançamentos (exclui notas de linha)
       const h: Record<string, string> = {}
-      for (const r of (data || []) as any[]) {
+      for (const r of data as any[]) {
         const isNota = r.valor == null && r.expressao == null   // linha "fantasma" só com dims.historico = nota da linha
         if (isNota) { const hh = r.dims?.historico; if (hh && !h[r.linha_id]) h[r.linha_id] = String(hh); continue }
         ;(byCell[`${r.linha_id}|${r.mes}`] = byCell[`${r.linha_id}|${r.mes}`] || []).push(r)
@@ -560,8 +561,8 @@ function LancamentosModal({ master, mes, linhaDesc, fac, versaoId, empresaId, fi
   }
   const load = async () => {
     setLoading(true)
-    const { data } = await scope(supabase.from('fat_orcado').select('id,valor,val_m2,val_m3,val_m4,val_m5,expressao,origem,dims'))
-    setRows(((data || []) as any[]).filter(r => r.valor != null || r.expressao != null))
+    const data = await pageAll(() => scope(supabase.from('fat_orcado').select('id,valor,val_m2,val_m3,val_m4,val_m5,expressao,origem,dims')))
+    setRows((data as any[]).filter(r => r.valor != null || r.expressao != null))
     setLoading(false)
   }
   useEffect(() => { load() }, [])   // eslint-disable-line

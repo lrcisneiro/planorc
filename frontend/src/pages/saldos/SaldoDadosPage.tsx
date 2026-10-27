@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
+import { pageAll } from '../../lib/pageAll'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { Upload, FileDown, AlertCircle, RefreshCw } from 'lucide-react'
 
@@ -116,8 +117,8 @@ export default function SaldoDadosPage() {
       for (const sn of wb.SheetNames) { const r = objectsFromSheet(wb.Sheets[sn]); if (r.length > recs.length) recs = r }
       if (!recs.length) { setErro('Arquivo vazio ou sem cabeçalho reconhecível (esperado: empresa_codigo, conta_codigo, ano, mes, saldo).'); setLoading(false); return }
 
-      const [{ data: contas }, { data: emps }, { data: fis }] = await Promise.all([
-        supabase.from('conta_contabil').select('id,codigo,plano_id'),
+      const [contas, { data: emps }, { data: fis }] = await Promise.all([
+        pageAll(() => supabase.from('conta_contabil').select('id,codigo,plano_id')),
         supabase.from('empresa').select('id,codigo,plano_id'),
         supabase.from('filial').select('id,codigo'),
       ])
