@@ -219,7 +219,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const [pickerOpen, setPickerOpen] = useState(false)
   const [masters, setMasters] = useState<any[]>([])
   const [views,     setViews]     = useState<ViewConfig[]>([])
-  const [activeView, setActiveView] = useState('')
+  const [activeView, setActiveView] = useState<string>(saved0.activeView || '')
   // Trocar de visão passa a ajustar o período para o(s) ano(s) das versões dela.
   // Antes, abrir a visão do orçamento 2027 com o filtro em 2026 mostrava a tela
   // inteira vazia, e o usuário tinha de descobrir sozinho que faltava mexer em
@@ -383,7 +383,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const { data } = await supabase.from('view_config').select('*').eq('relatorio_id', id).order('ordem', { nullsFirst: false })
     const vs = (data || []) as ViewConfig[]
     setViews(vs)
-    if (vs.length) setActiveView(prev => prev || vs[0].id)
+    // a visão salva pode ter sido excluída desde a última visita — nesse caso cai
+    // na primeira, em vez de ficar com um id que não resolve e a tela vazia
+    if (vs.length) setActiveView(prev => (prev && vs.some(v => v.id === prev)) ? prev : vs[0].id)
   }, [id])
 
   const loadDim = useCallback(async () => {
@@ -474,8 +476,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // Em modo preset (?card=), NÃO persiste no localStorage p/ o preset não "vazar" nos filtros próprios.
   useEffect(() => {
     if (!id || presetCardId) return
-    localStorage.setItem('planorc_filtro_' + id, JSON.stringify({ empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, hideEmpty, hideOff }))
-  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, hideEmpty, hideOff, id, presetCardId])
+    // activeView entra aqui: ela estava em getFiltros (preset de card) mas não no
+    // localStorage, então voltar ao relatório caía sempre na primeira visão
+    localStorage.setItem('planorc_filtro_' + id, JSON.stringify({ empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, activeView, hideEmpty, hideOff }))
+  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, activeView, hideEmpty, hideOff, id, presetCardId])
 
   // Relatório sem view_config ainda precisa mostrar alguma coisa. Antes o cenário
   // vinha do seletor de versão do cabeçalho; com ele removido, a visão sintética
