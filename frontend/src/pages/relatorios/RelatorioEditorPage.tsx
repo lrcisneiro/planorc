@@ -1873,10 +1873,13 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, linhaIds, cont
   // é de cada unidade" — que é a pergunta de quem abre um drill de conta rateada
   // e vê a mesma linha repetida por empresa.
   const [grupoPor, setGrupoPor] = useState<'empresa' | 'filial' | 'cc' | 'efc'>('empresa')
+  // Empresa pelo NOME: "05" não diz nada a quem lê, "RIO PRETO" diz. O código
+  // fica no title, que é onde ele ainda serve (conferir com o ERP).
+  const nomeEmp = (id: string) => empById[id]?.descricao || empById[id]?.codigo || '—'
   const resumo = useMemo(() => {
     const m = new Map<string, { label: string; valor: number; n: number }>()
     for (const r of rows) {
-      const e = empById[r.empresa_id]?.codigo || '—'
+      const e = nomeEmp(r.empresa_id)
       const f = filById[r.filial_id]?.codigo || '—'
       const c = ccById[r.cc_id]?.codigo || '—'
       const label = grupoPor === 'empresa' ? e : grupoPor === 'filial' ? f : grupoPor === 'cc' ? c : `${e}·${f}·${c}`
@@ -1888,14 +1891,14 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, linhaIds, cont
   }, [rows, grupoPor, empById, filById, ccById]) // eslint-disable-line
   const exportar = () => downloadSheet('razao.xlsx', [
     [...(isReal ? ['Conta', 'Descrição Conta', 'Data', 'Documento', 'Lote', 'Sublote'] : []),
-     'Empresa', 'Filial', 'Linha', 'CC', 'Descrição CC',
+     'Empresa', 'Unidade', 'Filial', 'Linha', 'CC', 'Descrição CC',
      // o export espelha a tela: com origem POSTO, o que identifica a linha é o
      // posto (e a fatia de rateio), não área/divisão/BU, que vêm sempre vazias
      ...(!isReal && temPosto ? ['Posto', 'Matrícula', 'Ocupante', 'CC de origem', '% rateio'] : ['Área', 'Divisão', 'BU']),
      'Histórico', 'Valor'],
     ...rows.map(r => [
       ...(isReal ? [contaById[r.conta_id]?.codigo || '', contaById[r.conta_id]?.descricao || '', r.data || '', r.documento || '', r.lote || '', r.sublote || ''] : []),
-      empById[r.empresa_id]?.codigo || '', filById[r.filial_id]?.codigo || '',
+      empById[r.empresa_id]?.codigo || '', nomeEmp(r.empresa_id), filById[r.filial_id]?.codigo || '',
       linhaById[r.linha_id ?? linhaId] || titulo, ccById[r.cc_id]?.codigo || '', ccById[r.cc_id]?.descricao || '',
       ...(!isReal && temPosto
         ? [r.dims.posto || '', r.dims.matricula || '', r.dims.nome || '',
@@ -1920,7 +1923,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, linhaIds, cont
       case 'pessoa': return r.dims?.nome || ''
       case 'documento': return r.documento || ''
       case 'lote': return (r.lote || '') + (r.sublote || '')
-      case 'empresa': return empById[r.empresa_id]?.codigo || ''
+      case 'empresa': return nomeEmp(r.empresa_id)
       case 'filial': return filById[r.filial_id]?.codigo || ''
       case 'cc': return ccById[r.cc_id]?.codigo || ''
       case 'ccdesc': return ccById[r.cc_id]?.descricao || ''
@@ -1978,7 +1981,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, linhaIds, cont
               {resumo.map(g => (
                 <span key={g.label} title={`${g.n} lançamento(s)`}
                   style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5, fontSize: 11.5, padding: '3px 9px', borderRadius: 99, background: 'var(--panel)', border: '1px solid var(--border)' }}>
-                  <b style={{ color: 'var(--text)', fontFamily: 'monospace' }}>{g.label}</b>
+                  <b style={{ color: 'var(--text)', fontFamily: grupoPor === 'empresa' ? undefined : 'monospace' }}>{g.label}</b>
                   <span style={{ color: 'var(--text-mid)', fontVariantNumeric: 'tabular-nums' }}>{formatValor(g.valor, 'NUMERO', 2)}</span>
                 </span>
               ))}
@@ -2017,7 +2020,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, linhaIds, cont
                     {isReal && <td style={td}>{r.data ? String(r.data).split('-').reverse().join('/') : '—'}</td>}
                     {isReal && <td style={td}>{r.documento || '—'}</td>}
                     {isReal && <td style={{ ...td, fontFamily: 'monospace' }}>{r.lote ? `${r.lote}${r.sublote ? '/' + r.sublote : ''}` : '—'}</td>}
-                    <td style={td} title={empById[r.empresa_id]?.descricao || ''}>{empById[r.empresa_id]?.codigo || '—'}</td>
+                    <td style={td} title={empById[r.empresa_id]?.codigo || ''}>{nomeEmp(r.empresa_id)}</td>
                     <td style={td} title={filById[r.filial_id]?.descricao || ''}>{filById[r.filial_id]?.codigo || '—'}</td>
                     <td style={{ ...td, fontFamily: 'monospace', color: 'var(--muted)' }}>{ccById[r.cc_id]?.codigo || '—'}</td>
                     <td style={td}>{ccById[r.cc_id]?.descricao || ''}</td>
