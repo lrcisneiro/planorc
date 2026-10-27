@@ -4,7 +4,6 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
 import { useUserAccess } from '../../hooks/useUserAccess'
-import { useCapacidades } from '../../hooks/useCapacidades'
 import {
   computeCenario, computeTotais, formatValor, parseNum, pkey,
 } from '../../lib/engine'
@@ -175,17 +174,20 @@ type Column = { key: string; label: string; cenarioKey?: string; period: Period;
 type Group  = { label: string; span: number; period?: Period; collapsible?: boolean; collapsed?: boolean }
 
 // ─── Component ───────────────────────────────────────────────
-export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'consulta' | 'orcar' | 'estrutura' } = {}) {
+export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'consulta' | 'estrutura' } = {}) {
   // F1 — split por modo de interação:
   //   consulta  = read-only (Relatórios/leitura)
   //   orcar     = edita valores do orçado (Orçamentação/escrita)
   //   estrutura = edita linhas/fórmulas/amarração (admin)
-  const podeOrcar = mode === 'orcar'
+  // O modo `orcar` foi removido em out/2026: a grade de Orçar (/orcar-grade/:id,
+  // F3) faz o mesmo com empresa × filial × CC e é a que está no menu. A rota
+  // /orcar/:id não aparecia em menu nenhum — só se chegava nela por um botão
+  // dentro deste cabeçalho —, então eram dois caminhos para a mesma tarefa, e o
+  // escondido era o antigo. Aqui `editavel` é sempre false: esta tela lê.
   const podeEstrutura = mode === 'estrutura'
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const acesso = useUserAccess()   // F2: escopo VER/ORÇAR + negar
-  const cap = useCapacidades()     // F2: capacidades (Orçar / Estrutura)
   const saved0 = savedFiltro(id)
 
   const [relatorio, setRelatorio] = useState<Relatorio | null>(null)
@@ -363,24 +365,14 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   }
   const moedaCod = (slot: number) => moedas.find(m => m.slot === slot)?.codigo || `M${slot}`
 
-  // Dimensões obrigatórias e únicas para edição: 1 empresa, 1 versão, 1 ano, sem filtro de filial/CC
+  // 1 empresa selecionada: usada pelo rótulo do cabeçalho e pelo recorte do drill
   const empresaUnica = empresaSel.length === 1 ? empresaSel[0] : null
-  // F2: só edita o orçado da empresa que o escopo ORÇAR permite (canEdit cai pra VER quando não há regra ORCAR)
-  const podeEditarEmpresa = !!empresaUnica && acesso.canEdit('empresa', empresaUnica)
-  // filial/CC "todas" = nada marcado OU tudo marcado (ambos = sem filtro)
-  const filialAll = filialSel.length === 0 || filialSel.length === filiais.length
-  const ccAll = (ccSel.length === 0 || ccSel.length === ccs.length) && !areaSel.length && !divisaoSel.length && !buSel.length
-  const editavel = podeOrcar && podeEditarEmpresa && !!versaoId && filialAll && ccAll
-  useEffect(() => { if (editavel) setAvisoLeituraOff(false) }, [editavel])   // reaparece num novo estado de leitura
-  // Aviso (toast) de somente-leitura: só quando há algo a FAZER a respeito. Em Consultar
-  // (e Estrutura) a leitura é o próprio modo — a tag "somente leitura" do topo já diz isso,
-  // e mandar "selecione 1 empresa e 1 versão" ali seria falso (edição é na tela Orçar).
+  const editavel = false   // Consultar é leitura; a edição vive na grade de Orçar
+  // Só sobra o aviso que vale em qualquer modo: sem versão cadastrada não há o
+  // que consultar. O resto do antigo toast falava de orçar nesta tela.
   const avisoLeitura = versoes.length === 0
     ? 'Nenhuma versão cadastrada. Crie em Cadastros → Versões/Cenários (ex.: Orçado 2026).'
-    : !podeOrcar ? null
-    : (!!empresaUnica && !podeEditarEmpresa)
-      ? 'Sem permissão para orçar esta empresa. Selecione uma empresa dentro do seu escopo de edição.'
-      : 'Somente leitura. Abra Filtros e selecione 1 empresa e 1 versão (Filial/CC em "todas") para editar.'
+    : null
 
   // ── Loads
   const loadRelatorio = useCallback(async () => {
@@ -892,7 +884,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       ? `${MESES[displayedMeses[0]?.mes - 1] ?? ''}/${displayedMeses[0]?.ano ?? ''} – ${MESES[displayedMeses[displayedMeses.length - 1]?.mes - 1] ?? ''}/${displayedMeses[displayedMeses.length - 1]?.ano ?? ''}`
       : lbl0
     // Editável: 1 mês, linha analítica, cenário = versão (orçado), e empresa no escopo ORÇAR
-    const editavelRazao = podeOrcar && podeEditarEmpresa && !ehReal(cen) && l.tipo_linha === 'ANALITICA' && meses.length === 1
+    const editavelRazao = false   // ver nota sobre o modo `orcar` no topo do arquivo
     // F2: orçado consulta por linha MESTRE (fat_orcado.linha_id agora é mestre)
     const linhaIdsRl = editavelRazao ? [l.id] : linhasAnaliticasDe(l.id)
     const linhaIds = linhaIdsRl.map(orcOf).filter(Boolean) as string[]
@@ -1480,15 +1472,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     <div style={S.page}>
       <div style={S.header}>
         <button style={S.back} onClick={() => navigate('/relatorios')}><ChevronLeft size={15} /> Relatórios</button>
-        <div style={{ display: 'flex', gap: 2, background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 8, padding: 2 }}>
-          {([['consulta', '/relatorios', 'Consultar'], ['orcar', '/orcar', 'Orçar'], ['estrutura', '/estrutura', 'Estrutura']] as const).filter(([m]) => m === 'consulta' || (m === 'orcar' ? cap.can('orcar') : cap.can('estrutura'))).map(([m, base, label]) => (
-            <button key={m} onClick={() => navigate(`${base}/${id}`)}
-              style={{ fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
-                background: mode === m ? 'rgba(139,92,246,0.18)' : 'transparent', color: mode === m ? '#cbb8ff' : 'var(--muted)' }}>
-              {label}
-            </button>
-          ))}
-        </div>
+        {/* Os botões Consultar/Orçar/Estrutura saíram daqui: cada rota tem entrada
+            própria no menu (Relatórios, Orçar (grade), Estruturas de relatórios),
+            e um atalho só visível depois de já estar dentro do relatório não é
+            navegação — é um caminho paralelo que precisa ser mantido junto. */}
         <span style={S.title}>{relatorio?.nome ?? '...'}</span>
 
         <select style={{ ...S.sel, borderColor: editavel ? 'var(--border-strong)' : 'var(--orange)' }} value={versaoId} onChange={e => setVersaoId(e.target.value)} title="Versão / cenário">

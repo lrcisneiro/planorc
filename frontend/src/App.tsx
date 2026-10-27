@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useParams } from 'react-router-dom'
 import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, Link2, Wallet, LogOut, Menu, X, SlidersHorizontal, Users, Layers, ShieldCheck, ListChecks, Sun, Moon, ListTree, Grid3x3, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { setTheme, getTheme } from './lib/theme'
@@ -39,6 +39,11 @@ import NovaSenhaPage from './pages/login/NovaSenhaPage'
 // Menu agrupado por modo de interação (igual ao protótipo planorc-v2-menu-mesclado).
 // `soon: true` = item proposto (aparece, mas ainda não navega).
 type NavItem = { label: string; icon: LucideIcon; to?: string; soon?: boolean; cap?: string }
+function RedirOrcar() {
+  const { id } = useParams()
+  return <Navigate to={id ? `/orcar-grade/${id}` : '/orcar-grade'} replace />
+}
+
 type NavGroup = { area: string; mode: string; dot: string; items: NavItem[] }
 
 const NAV_GROUPS: NavGroup[] = [
@@ -263,7 +268,9 @@ function Shell({ session }: { session: Session }) {
             <Route path="/balanco"         element={<BalancoDashboardPage />} />
             <Route path="/relatorios"      element={<RelatorioPage />} />
             <Route path="/relatorios/:id"  element={<RelatorioEditorPage mode="consulta" />} />
-            <Route path="/orcar/:id"       element={<RelatorioEditorPage mode="orcar" />} />
+            {/* /orcar/:id era o editor em modo de edição, anterior à grade de Orçar
+                (F3). Redireciona em vez de sumir: o link pode estar em favorito. */}
+            <Route path="/orcar/:id"       element={<RedirOrcar />} />
             <Route path="/estrutura/:id"   element={<RelatorioEditorPage mode="estrutura" />} />
             <Route path="/estruturas"      element={<RelatorioPage linkBase="/estrutura" titulo="Estruturas de Relatórios" subtitulo="Edite a árvore, fórmulas e amarração de cada relatório" />} />
             <Route path="/orcar-grade"     element={<RelatorioPage linkBase="/orcar-grade" titulo="Orçar (grade)" subtitulo="Escolha o relatório para orçar por empresa × filial × centro de custo" />} />
