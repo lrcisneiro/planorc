@@ -26,6 +26,11 @@ export type PostoCalc = {
   pais?: string | null              // país do posto (resolvido da empresa) — filtra as verbas aplicáveis
   ini_ano?: number | null; ini_mes?: number | null
   fim_ano?: number | null; fim_mes?: number | null
+  // Reajuste INDIVIDUAL (promoção, mérito) — v3_116. Vale a partir de
+  // reajuste_mes e COMPÕE com o dissídio do sindicato.
+  reajuste_mes?: number | null
+  reajuste_pct?: number | null      // em %, multiplica a base
+  reajuste_valor?: number | null    // salário novo absoluto, substitui a base
 }
 
 export type LinhaMemoria = {
@@ -127,8 +132,15 @@ export function calcularPosto(
   for (let mes = 1; mes <= 12; mes++) {
     if (mes < ini || mes > fim) continue
     mesesVigentes++
+    // Reajuste individual: a partir do mês dele, ou o salário novo entra no lugar
+    // da base, ou o percentual a multiplica. COMPÕE com o dissídio — promovido em
+    // março e reajustado pelo sindicato em setembro leva os dois.
+    const comReajuste = !!posto.reajuste_mes && mes >= posto.reajuste_mes
+    const salMes = comReajuste && posto.reajuste_valor != null
+      ? Number(posto.reajuste_valor)
+      : salBase * (comReajuste && posto.reajuste_pct ? 1 + Number(posto.reajuste_pct) / 100 : 1)
     const comDissidio = opts.dissidioPct > 0 && mes >= opts.mesBase
-    const base = salBase * fte * (comDissidio ? 1 + opts.dissidioPct / 100 : 1)
+    const base = salMes * fte * (comDissidio ? 1 + opts.dissidioPct / 100 : 1)
     const valores = custoMes(regVerbas, base, valoresFixos)
     for (const id in valores) {
       if (!valores[id]) continue

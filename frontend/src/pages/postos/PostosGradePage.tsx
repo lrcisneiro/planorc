@@ -113,6 +113,7 @@ const REGIMES_LABEL: Record<string, string> = { 'BR-CLT': 'BR · CLT', 'BR-PREST
 type Posto = {
   id: string; codigo: string; nome: string | null; matricula: string | null; regime: string | null; ativo?: boolean
   salario_base: number; fte: number; ini_ano: number | null; ini_mes: number | null; fim_ano: number | null; fim_mes: number | null
+  reajuste_mes: number | null; reajuste_pct: number | null; reajuste_valor: number | null   // v3_116
   empresa_id: string; filial_id: string | null; cc_id: string | null; cargo_id: string | null; sindicato_id: string | null
   recurso_cod?: string | null                  // SRA.RA_X_RECUR — liga ao apontamento
   recebe_hora?: boolean | null                 // exceção sobre a função; null = segue a função
@@ -459,8 +460,8 @@ export default function PostosGradePage() {
     setPostos(ps => ps.filter(p => p.id !== id))
   }
   // novo posto / vaga ou edição (código, ocupante, cargo, local, regime, salário, vigência)
-  const novoPosto = (pre?: { cc_id?: string; cargo_id?: string }) => setForm({ codigo: '', codigoAuto: true, nome: '', matricula: '', cargo_id: pre?.cargo_id || '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: pre?.cc_id || '', sindicato_id: '', regime: 'BR-CLT', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', rateios: [] })
-  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, codigoAuto: false, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', salario_base: p.salario_base != null ? String(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
+  const novoPosto = (pre?: { cc_id?: string; cargo_id?: string }) => setForm({ codigo: '', codigoAuto: true, nome: '', matricula: '', cargo_id: pre?.cargo_id || '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: pre?.cc_id || '', sindicato_id: '', regime: 'BR-CLT', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', reajuste_mes: '', reajuste_pct: '', reajuste_valor: '', rateios: [] })
+  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, codigoAuto: false, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', salario_base: p.salario_base != null ? String(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', reajuste_mes: p.reajuste_mes ? String(p.reajuste_mes) : '', reajuste_pct: p.reajuste_pct != null ? String(p.reajuste_pct) : '', reajuste_valor: p.reajuste_valor != null ? String(p.reajuste_valor) : '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
   const salvarPosto = async () => {
     if (!form) return
     if (!form.empresa_id) { setErro('Informe a empresa.'); return }
@@ -476,6 +477,12 @@ export default function PostosGradePage() {
       regime: form.regime || null, salario_base: parseNum(form.salario_base) || 0, fte: parseNum(form.fte) || 1,
       ini_ano: form.ini_ano ? parseInt(form.ini_ano, 10) : null, ini_mes: form.ini_mes ? parseInt(form.ini_mes, 10) : null,
       fim_ano: form.fim_ano ? parseInt(form.fim_ano, 10) : null, fim_mes: form.fim_mes ? parseInt(form.fim_mes, 10) : null,
+      // o CHECK da v3_116 exige mês quando há pct OU valor, e os dois são
+      // alternativos — limpar o par inteiro quando não há mês evita gravar um
+      // reajuste sem data, que o motor ignoraria em silêncio
+      reajuste_mes: form.reajuste_mes ? parseInt(form.reajuste_mes, 10) : null,
+      reajuste_pct: form.reajuste_mes && form.reajuste_pct && !form.reajuste_valor ? parseNum(form.reajuste_pct) : null,
+      reajuste_valor: form.reajuste_mes && form.reajuste_valor ? parseNum(form.reajuste_valor) : null,
       ativo: true,
     }
     const saved = form.id
@@ -943,6 +950,46 @@ export default function PostosGradePage() {
                   <select style={{ ...S.finp, flex: 1 }} value={form.fim_mes} onChange={e => setForm((f: any) => ({ ...f, fim_mes: e.target.value }))}><option value="">mês</option>{MESES_NUM.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
                   <input style={{ ...S.finp, width: 76 }} value={form.fim_ano} placeholder="ano" onChange={e => setForm((f: any) => ({ ...f, fim_ano: e.target.value }))} />
                 </div>
+              </div>
+            </div>
+
+            {/* Reajuste individual (v3_116): promoção/mérito com data. Sem isto,
+                planejar um aumento em março obrigava a escolher entre errar o ano
+                todo (salário novo desde janeiro) ou o resto dele (velho até
+                dezembro). Compõe com o dissídio do sindicato. */}
+            <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+              <span style={{ ...S.flbl, display: 'block', marginBottom: 6 }}>
+                Reajuste individual <span style={{ color: 'var(--muted)' }}>(promoção/mérito — soma ao dissídio do sindicato)</span>
+              </span>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div><span style={S.flbl}>A partir de</span>
+                  <select style={{ ...S.finp, width: 128 }} value={form.reajuste_mes}
+                    onChange={e => setForm((f: any) => ({ ...f, reajuste_mes: e.target.value }))}>
+                    <option value="">sem reajuste</option>
+                    {MESES_NUM.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+                  </select>
+                </div>
+                <div><span style={S.flbl}>%</span>
+                  <input style={{ ...S.finp, width: 90 }} value={form.reajuste_pct} placeholder="ex.: 8"
+                    disabled={!form.reajuste_mes || !!form.reajuste_valor}
+                    onChange={e => setForm((f: any) => ({ ...f, reajuste_pct: e.target.value }))} />
+                </div>
+                <span style={{ fontSize: 12, color: 'var(--muted)', paddingBottom: 8 }}>ou</span>
+                <div><span style={S.flbl}>Salário novo</span>
+                  <input style={{ ...S.finp, width: 120 }} value={form.reajuste_valor} placeholder="ex.: 17600"
+                    disabled={!form.reajuste_mes || !!form.reajuste_pct}
+                    onChange={e => setForm((f: any) => ({ ...f, reajuste_valor: e.target.value }))} />
+                </div>
+                {form.reajuste_mes && (form.reajuste_pct || form.reajuste_valor) && (
+                  <span style={{ fontSize: 11.5, color: 'var(--green)', paddingBottom: 8 }}>
+                    {MESES_NUM[Number(form.reajuste_mes) - 1]}–dez: {form.reajuste_valor
+                      ? `R$ ${parseNum(form.reajuste_valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                      : `R$ ${(parseNum(form.salario_base) * (1 + parseNum(form.reajuste_pct) / 100)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                Vale só para o salário — encargos e provisões acompanham por serem % sobre ele; benefício de valor fixo (VR, plano) não muda.
               </div>
             </div>
 
