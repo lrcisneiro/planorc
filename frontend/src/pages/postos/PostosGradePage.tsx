@@ -9,12 +9,14 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
 import { calcularPosto, regimeAplica, paisAplica, verbasDoRegime, CATEGORIAS } from '../../lib/motorFolha'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
-import { Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil } from 'lucide-react'
+import { Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil, Undo2 } from 'lucide-react'
 import { RateioModal } from './RateioModal'
 import { cascataRateio } from '../../lib/rateioFolha'
 import { usePostoCtx } from '../../lib/postoCtx'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
+import { resolvePosto, camposAlterados, overlayVazio, CAMPOS_CENARIO } from '../../lib/postoVersao'
+import type { PostoVersao, CampoCenario } from '../../lib/postoVersao'
 import { taxaOrcada, materializa } from '../../lib/cambio'
 
 // Grade de Postos (P1 step 3) — orçamento de folha por posto, agrupado por CC.
@@ -148,6 +150,13 @@ export default function PostosGradePage() {
   const [agruparPor, setAgruparPor] = useLocalPref<'cc' | 'cargo'>('planorc_postos_grade_agrupar', 'cc')
   const [regimeSel, setRegimeSel] = useState('')
   const [busca, setBusca] = useState('')
+  // CENÁRIO (v3_120). O quadro mestre é a realidade; a sobreposição por versão
+  // guarda as DECISÕES. O modo é explícito de propósito: sem ele, corrigir um
+  // salário errado viraria "decisão do cenário" sem ninguém perceber.
+  const [modoCenario, setModoCenario] = useState(false)
+  const [overlays, setOverlays] = useState<Map<string, PostoVersao>>(new Map())
+  const [soAlteradas, setSoAlteradas] = useState(false)
+  const [cenForm, setCenForm] = useState<{ posto: Posto; ov: PostoVersao | null } | null>(null)
   const [mostrarInativos, setMostrarInativos] = useState(false)
   const [editHora, setEditHora] = useState<string | null>(null)   // posto com o seletor de hora aberto
   const [erro, setErro] = useState<string | null>(null)
@@ -218,6 +227,32 @@ export default function PostosGradePage() {
     setPostoRateios(rm)
   }
   useEffect(() => { loadLookups(); loadPostos() }, [])
+
+  // sobreposição da versão selecionada (paginado: um por posto, 571 e subindo)
+  const loadOverlays = async (versaoId: string) => {
+    if (!versaoId) { setOverlays(new Map()); return }
+    try {
+      const rows = await pageAll(() => supabase.from('posto_versao').select('*').eq('versao_id', versaoId))
+      setOverlays(new Map((rows || []).map((r: any) => [r.posto_id, r as PostoVersao])))
+    } catch (e: any) { setErro('Cenário: ' + (e?.message || e)) }
+  }
+  useEffect(() => { loadOverlays(versaoSel) }, [versaoSel])   // eslint-disable-line
+
+  const mestreById = useMemo(() => new Map(postos.map(p => [p.id, p])), [postos])
+  // O quadro EFETIVO do cenário. Fora do modo cenário é o mestre, pela mesma
+  // referência — nada muda para quem só cuida do cadastro.
+  const postosEf = useMemo(() =>
+    modoCenario ? postos.map(p => resolvePosto(p, overlays.get(p.id))) : postos,
+    [postos, overlays, modoCenario])
+  const alterados = useMemo(() => {
+    const m = new Map<string, CampoCenario[]>()
+    if (!modoCenario) return m
+    for (const p of postos) {
+      const c = camposAlterados(p, overlays.get(p.id))
+      if (c.length) m.set(p.id, c)
+    }
+    return m
+  }, [postos, overlays, modoCenario])
 
   const importar = async (rows: Row[]) => {
     setErro(null); setImportInfo(null)
@@ -392,7 +427,9 @@ export default function PostosGradePage() {
       return
     }
     if (!temMotor) { setErro('Sem verbas cadastradas — cadastre a Estrutura antes de aplicar.'); return }
-    const ativos = postos.filter(p => p.ativo !== false)
+    // O Aplicar grava o quadro EFETIVO: no modo cenário são as decisões da versão,
+    // fora dele é o mestre. Sem isto o cenário existiria só na tela.
+    const ativos = postosEf.filter(p => p.ativo !== false)
     const versaoCod = versoes.find(v => v.id === versaoSel)?.codigo || String(anoCalc)
     if (!confirm(`Aplicar ${ativos.length} postos ativos no orçado da versão ${versaoCod} (ano ${anoCalc})?\n\nIsto SUBSTITUI todo o orçado de origem POSTO desta versão. Lançamentos manuais e de formulário não são afetados.\n\nDespesa é gravada com sinal NEGATIVO, como o orçado manual e o realizado.`)) return
     setAplicando(true)
@@ -498,6 +535,43 @@ export default function PostosGradePage() {
       setAplicarInfo({ linhas: rows.length, postos: postosAplicados, contas: contasTocadas.size, ano: anoCalc, fundidas: gerados - rows.length, semTaxa: semTaxaOrc, semConta: [...semConta], natEstranha: [...natEstranha] })
     } finally { setAplicando(false) }
   }
+  // Grava a DECISÃO na versão, não no cadastro. `limpar` marca campos
+  // explicitamente vazios no cenário (o mestre demite em maio, o cenário mantém).
+  // Overlay que ficou sem nenhuma decisão é APAGADO: cenário não guarda "igual
+  // ao mestre" — senão o filtro "só alteradas" encheria de linhas sem mudança.
+  const salvarCenario = async (postoId: string, patch: Partial<PostoVersao>, limpar: CampoCenario[] = []) => {
+    if (!versaoSel) { setErro('Selecione a versão para editar o cenário.'); return }
+    const atual = overlays.get(postoId)
+    const limpos = new Set([...(atual?.limpos || [])])
+    for (const c of limpar) limpos.add(c)
+    for (const k of Object.keys(patch)) if ((patch as any)[k] != null) limpos.delete(k)
+    const novo: PostoVersao = { ...(atual || { versao_id: versaoSel, posto_id: postoId }), ...patch, limpos: [...limpos] }
+    if (overlayVazio(novo)) {
+      if (atual?.id) {
+        const { error } = await supabase.from('posto_versao').delete().eq('id', atual.id)
+        if (error) { setErro(error.message); return }
+      }
+      setOverlays(m => { const n = new Map(m); n.delete(postoId); return n })
+      return
+    }
+    const row: any = { tenant_id: TENANT_ID, versao_id: versaoSel, posto_id: postoId, limpos: novo.limpos, nota: novo.nota ?? null }
+    for (const c of CAMPOS_CENARIO) row[c] = (novo as any)[c] ?? null
+    const { data, error } = await supabase.from('posto_versao')
+      .upsert(row, { onConflict: 'versao_id,posto_id' }).select('*').single()
+    if (error) { setErro(error.message); return }
+    setOverlays(m => new Map(m).set(postoId, data as PostoVersao))
+  }
+
+  // Roteador: no modo cenário a edição vira DECISÃO da versão; fora dele, cadastro.
+  const grava = (id: string, patch: any) => modoCenario ? salvarCenario(id, patch) : salvar(id, patch)
+
+  // Some com a sobreposição inteira: a linha volta a herdar o cadastro.
+  const limparCenario = async (postoId: string) => {
+    const ov = overlays.get(postoId)
+    if (ov?.id) { const { error } = await supabase.from('posto_versao').delete().eq('id', ov.id); if (error) { setErro(error.message); return } }
+    setOverlays(m => { const n = new Map(m); n.delete(postoId); return n })
+  }
+
   const salvar = async (id: string, patch: Partial<Posto>) => {
     const { error } = await supabase.from('posto').update(patch).eq('id', id)
     if (error) { setErro(error.message); return }
@@ -583,15 +657,16 @@ export default function PostosGradePage() {
     const q = busca.trim().toLowerCase()
     const match = (p: Posto) => !q || [p.nome, p.matricula, p.cargo?.nome, p.codigo, p.centro_custo?.descricao, p.centro_custo?.codigo]
       .some(x => (x || '').toString().toLowerCase().includes(q))
-    return postos.filter(p =>
+    return postosEf.filter(p =>
+      (!soAlteradas || alterados.has(p.id)) &&
       (mostrarInativos || p.ativo !== false) &&
       (!sEmp || sEmp.has(p.empresa_id)) &&
       (!sFil || (p.filial_id != null && sFil.has(p.filial_id))) &&
       (!sCc || (p.cc_id != null && sCc.has(p.cc_id))) &&
       (!regimeSel || p.regime === regimeSel) && match(p)
     )
-  }, [postos, mostrarInativos, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, regimeSel, busca, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
-  const nInativos = useMemo(() => postos.filter(p => p.ativo === false).length, [postos])
+  }, [postosEf, soAlteradas, alterados, mostrarInativos, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, regimeSel, busca, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
+  const nInativos = useMemo(() => postosEf.filter(p => p.ativo === false).length, [postosEf])
 
   // ── motor: custo por posto (com encargos/provisões/benefícios) ──
   const anoCalc = useMemo(() => {
@@ -603,14 +678,31 @@ export default function PostosGradePage() {
   const custos = useMemo(() => {
     const map = new Map<string, ResultadoPosto>()
     if (!temMotor) return map
-    for (const p of postos) map.set(p.id, calcularPosto({ ...(p as any), pais: empPais.get(p.empresa_id) ?? null }, verbas, {
+    for (const p of postosEf) map.set(p.id, calcularPosto({ ...(p as any), pais: empPais.get(p.empresa_id) ?? null }, verbas, {
       dissidioPct: p.sindicato_id ? (dissidio[p.sindicato_id] || 0) : 0,
       mesBase: p.sindicato_id ? (sindMesBase[p.sindicato_id] || 1) : 1,
       ano: anoCalc,
       valoresFixos: postoVerbas[p.id] || {},
     }))
     return map
-  }, [postos, verbas, dissidio, sindMesBase, anoCalc, temMotor, postoVerbas, empPais])
+  }, [postosEf, verbas, dissidio, sindMesBase, anoCalc, temMotor, postoVerbas, empPais])
+  // Custo do quadro MESTRE, só no modo cenário: é o que dá o "quanto este
+  // cenário muda" sem sair da tela. O EBITDA inteiro continua no relatório —
+  // aqui é só a folha.
+  const custoBaseAno = useMemo(() => {
+    if (!modoCenario || !temMotor) return null
+    let t = 0
+    for (const p of postos) {
+      if (p.ativo === false) continue
+      t += calcularPosto({ ...(p as any), pais: empPais.get(p.empresa_id) ?? null }, verbas, {
+        dissidioPct: p.sindicato_id ? (dissidio[p.sindicato_id] || 0) : 0,
+        mesBase: p.sindicato_id ? (sindMesBase[p.sindicato_id] || 1) : 1,
+        ano: anoCalc, valoresFixos: postoVerbas[p.id] || {},
+      }).totalAno
+    }
+    return t
+  }, [modoCenario, postos, verbas, dissidio, sindMesBase, anoCalc, temMotor, postoVerbas, empPais])
+
   const custoAnoP = (p: Posto) => custos.get(p.id)?.totalAno ?? (Number(p.salario_base) || 0) * (Number(p.fte) || 1) * 12
   const custoMesP = (p: Posto) => custos.get(p.id)?.totalMes ?? (Number(p.salario_base) || 0) * (Number(p.fte) || 1)
   const empById = useMemo(() => new Map(empresas.map((e: any) => [e.id, e])), [empresas])
@@ -707,10 +799,25 @@ export default function PostosGradePage() {
       && Math.abs(custoMes * mesesVig - custoAno) > 0.01
     const fa = afast(p)
     const v = vig(p)
+    // No modo cenário `p` já é o posto RESOLVIDO; o mestre serve para dizer, no
+    // title, de onde a célula saiu. Decisão em violeta, herdado normal — mesma
+    // convenção da premissa global do formulário.
+    const alt = alterados.get(p.id)
+    const mestre = mestreById.get(p.id)
+    const mud = (c: CampoCenario) => !!alt?.includes(c)
+    const cel = (c: CampoCenario): CSSProperties | undefined =>
+      mud(c) ? { color: 'var(--violet)', fontWeight: 700 } : undefined
+    const titCen = (c: CampoCenario, fmt: (x: any) => string = String) =>
+      mud(c) ? `Decisão deste cenário. No cadastro: ${(mestre as any)?.[c] == null ? '—' : fmt((mestre as any)[c])}` : undefined
     return (
       <tr key={p.id} style={p.ativo === false ? { opacity: 0.55 } : undefined}>
         <td style={{ ...S.td, fontFamily: 'monospace', color: 'var(--muted)' }}>{p.codigo}
-          {p.ativo === false && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 5, color: 'var(--red)', border: '1px solid var(--red)55', background: 'rgba(248,113,113,0.12)' }}>DEMITIDO</span>}</td>
+          {p.ativo === false && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 5,
+            color: mud('ativo') ? 'var(--violet)' : 'var(--red)',
+            border: '1px solid ' + (mud('ativo') ? 'var(--violet)55' : 'var(--red)55'),
+            background: mud('ativo') ? 'rgba(139,92,246,0.14)' : 'rgba(248,113,113,0.12)' }}
+            title={mud('ativo') ? 'Cortado por decisão deste cenário — no cadastro continua ativo' : undefined}>
+            {mud('ativo') ? 'CORTADO' : 'DEMITIDO'}</span>}</td>
         <td style={{ ...S.td, fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)' }}
           title={`${p.empresa?.codigo || '?'} · ${p.filial?.codigo || '?'} · ${p.centro_custo?.codigo || '?'} ${p.centro_custo?.descricao || ''}`}>
           {p.empresa?.codigo || '—'}·{p.filial?.codigo || '—'}·{p.centro_custo?.codigo || '—'}</td>
@@ -756,19 +863,22 @@ export default function PostosGradePage() {
                     border: '1px solid ' + (p.recebe_hora ? 'rgba(52,211,153,0.30)' : 'rgba(251,191,36,0.30)') }}>
                   {p.recebe_hora ? 'por hora' : 'só aponta'}</span>}
         </td>}
-        <td style={{ ...S.td, textAlign: 'right' }}>
+        <td style={{ ...S.td, textAlign: 'right', ...cel('salario_base') }} title={titCen('salario_base', x => money(Number(x)))}>
           {editavel
-            ? <input style={S.inp} defaultValue={inp2(p.salario_base)} onBlur={e => { const x = parseNum(e.target.value); if (!isNaN(x) && x !== p.salario_base) salvar(p.id, { salario_base: x }) }} />
+            ? <input style={{ ...S.inp, ...cel('salario_base') }} defaultValue={inp2(p.salario_base)}
+                onBlur={e => { const x = parseNum(e.target.value); if (!isNaN(x) && x !== p.salario_base) grava(p.id, { salario_base: x }) }} />
             : money(Number(p.salario_base) || 0)}{!p.nome && <span style={{ color: 'var(--muted)', marginLeft: 4 }}>(ref.)</span>}
         </td>
-        <td style={{ ...S.td, textAlign: 'right' }}>
+        <td style={{ ...S.td, textAlign: 'right', ...cel('fte') }} title={titCen('fte')}>
           {editavel
-            ? <input style={{ ...S.inp, width: 50 }} defaultValue={inpNum(p.fte ?? 1)} onBlur={e => { const x = parseNum(e.target.value); if (!isNaN(x) && x !== p.fte) salvar(p.id, { fte: x }) }} />
+            ? <input style={{ ...S.inp, width: 50, ...cel('fte') }} defaultValue={inpNum(p.fte ?? 1)}
+                onBlur={e => { const x = parseNum(e.target.value); if (!isNaN(x) && x !== p.fte) grava(p.id, { fte: x }) }} />
             : (Number(p.fte) || 1).toLocaleString('pt-BR', { minimumFractionDigits: 1 })}
         </td>
         {/* A saída já aparecia aqui ("jan–mai"); o que faltava era dizer quanto
             ela custa. O ✂ marca a demissão e o título abre a estimativa. */}
-        <td style={{ ...S.td, color: v.alerta ? 'var(--orange)' : 'var(--muted)' }}
+        <td style={{ ...S.td, fontWeight: (mud('fim_ano') || mud('fim_mes') || mud('ini_ano') || mud('ini_mes')) ? 700 : undefined,
+          color: (mud('fim_ano') || mud('fim_mes') || mud('ini_ano') || mud('ini_mes')) ? 'var(--violet)' : (v.alerta ? 'var(--orange)' : 'var(--muted)') }}
           title={rescAno ? `Sai em ${MESES_NUM[(rc?.mesFimVigencia || 1) - 1]}/${anoCalc} · rescisão estimada ${money(rescAno)} (${(rescAno / Math.max(1, Number(p.salario_base) || 1)).toFixed(1)} salários). Clique no custo/mês para a memória.` : undefined}>
           {v.txt}{rescAno > 0 && <span style={{ color: 'var(--red)', marginLeft: 4, fontWeight: 700 }}>✂</span>}</td>
         <td style={S.td}>{(() => {
@@ -785,10 +895,15 @@ export default function PostosGradePage() {
           {mudaNoAno && <span style={{ color: 'var(--orange)', marginLeft: 3 }}>*</span>}
         </td>
         <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, cursor: 'pointer' }} title="Ver memória de cálculo" onClick={() => setDrill(p)}>{money(custoAno)}</td>
-        <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{editavel && <>
+        <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{editavel && (modoCenario ? <>
+          <button style={{ ...S.del, color: alt ? 'var(--violet)' : undefined }} title="Decisões deste cenário para este posto"
+            onClick={() => setCenForm({ posto: mestre as Posto, ov: overlays.get(p.id) || null })}><Pencil size={14} /></button>
+          {alt && <button style={S.del} title="Voltar a herdar do cadastro (desfaz as decisões deste cenário)"
+            onClick={() => { if (confirm(`Desfazer as decisões do cenário para ${p.nome || p.codigo}?`)) limparCenario(p.id) }}><Undo2 size={15} /></button>}
+        </> : <>
           <button style={S.del} title="Editar posto" onClick={() => editarPosto(p)}><Pencil size={14} /></button>
           <button style={S.del} title="Excluir" onClick={() => excluir(p.id, p.codigo)}><Trash2 size={15} /></button>
-        </>}</td>
+        </>)}</td>
       </tr>
     )
   }
@@ -810,6 +925,30 @@ export default function PostosGradePage() {
             {versoes.map((v: any) => <option key={v.id} value={v.id}>{v.codigo}{v.bloqueada ? ' 🔒' : ''}</option>)}
           </select>
         </div>
+        {/* Cadastro × Cenário. Explícito de propósito: no modo Cadastro você
+            corrige a REALIDADE (vale em todas as versões); no Cenário você
+            decide hipóteses (valem só nesta). Misturar os dois faria uma
+            correção de salário virar decisão de cenário sem ninguém notar. */}
+        <div style={S.fld}><span style={S.lbl}>Editando</span>
+          <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}>
+            {([[false, 'Cadastro', 'O quadro real, válido em todas as versões'],
+               [true, 'Cenário', 'Decisões desta versão (demitir, adiar, promover) — o cadastro não muda']] as const).map(([v, lbl, tit]) => (
+              <button key={String(v)} title={tit} onClick={() => { setModoCenario(v); if (!v) setSoAlteradas(false) }}
+                style={{ padding: '7px 11px', fontSize: 12.5, fontWeight: modoCenario === v ? 700 : 500, cursor: 'pointer', border: 'none',
+                  background: modoCenario === v ? (v ? 'rgba(139,92,246,0.18)' : 'var(--panel-2)') : 'transparent',
+                  color: modoCenario === v ? (v ? 'var(--violet)' : 'var(--text)') : 'var(--muted)' }}>{lbl}</button>
+            ))}
+          </div>
+        </div>
+        {modoCenario && <div style={S.fld}><span style={S.lbl}>Decisões</span>
+          <button onClick={() => setSoAlteradas(x => !x)}
+            title="Mostra só os postos que ESTE cenário muda — é o diff que se apresenta junto com o EBITDA"
+            style={{ ...S.sel, cursor: 'pointer', fontWeight: soAlteradas ? 700 : 500, width: 'auto',
+              color: soAlteradas ? 'var(--violet)' : 'var(--text)',
+              borderColor: soAlteradas ? 'var(--violet)' : 'var(--border)' }}>
+            {soAlteradas ? '✓ ' : ''}só as alteradas ({alterados.size})
+          </button>
+        </div>}
         <div style={S.fld}><span style={S.lbl}>Buscar</span>
           <div style={{ position: 'relative' }}>
             <Search size={14} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--muted)' }} />
@@ -847,7 +986,9 @@ export default function PostosGradePage() {
             {mostrarInativos ? `Mostrando ${nInativos}` : `Ocultos (${nInativos})`}</button>
         </div>}
         <div style={{ flex: 1 }} />
-        {editavel && <button style={S.btn} onClick={() => novoPosto()}><Plus size={14} /> Posto / vaga</button>}
+        {editavel && <button style={{ ...S.btn, opacity: modoCenario ? 0.45 : 1, cursor: modoCenario ? 'not-allowed' : 'pointer' }}
+          title={modoCenario ? 'Posto novo entra no CADASTRO, não no cenário — vaga que existe só numa versão ainda não é suportada (P3). Troque para Cadastro.' : undefined}
+          onClick={() => { if (modoCenario) { setErro('Posto novo entra no cadastro, não no cenário. Troque para "Cadastro" — vaga que existe só numa versão ainda não é suportada.'); return } novoPosto() }}><Plus size={14} /> Posto / vaga</button>}
         {editavel && <button style={S.btnPri} disabled={aplicando || !versaoSel || !temMotor} onClick={aplicarNoOrcado}
           title="Grava o custo do quadro ativo desta versão no orçado (origem POSTO), aplicando o rateio.">
           <Play size={13} /> {aplicando ? 'Aplicando…' : 'Aplicar no orçado'}</button>}
@@ -869,6 +1010,20 @@ export default function PostosGradePage() {
       <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = '' }} />
 
       {erro && <div style={S.erro}><AlertCircle size={14} /> {erro}</div>}
+      {/* No modo cenário a tela inteira passa a falar de hipótese, e isso precisa
+          ficar óbvio: a edição aqui NÃO muda o cadastro. */}
+      {modoCenario && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '0 0 12px', padding: '9px 12px', borderRadius: 8,
+          border: '1px solid var(--violet)55', background: 'rgba(139,92,246,0.10)', fontSize: 12.5, color: 'var(--text-mid)' }}>
+          <b style={{ color: 'var(--violet)' }}>Cenário {versoes.find((v: any) => v.id === versaoSel)?.codigo || '—'}</b>
+          <span>o que você editar vale <b>só nesta versão</b> — o cadastro não muda. {alterados.size
+            ? <>Este cenário decide <b>{alterados.size} posto(s)</b>.</>
+            : <>Nenhuma decisão ainda: tudo herdado do cadastro.</>}</span>
+          <span style={{ flex: 1 }} />
+          <span style={{ color: 'var(--muted)' }}>O EBITDA do cenário sai no relatório, comparando as versões. Aqui é só a folha.</span>
+        </div>
+      )}
+
       {aplicarInfo && (
         <div style={S.info}><CheckCircle2 size={16} style={{ color: 'var(--green)', flexShrink: 0, marginTop: 1 }} />
           <div>Orçado aplicado na versão (ano {aplicarInfo.ano}): <b>{aplicarInfo.linhas.toLocaleString('pt-BR')} linhas</b> gravadas em <b>{aplicarInfo.postos} postos</b> e {aplicarInfo.contas} conta(s), origem POSTO.
@@ -909,7 +1064,15 @@ export default function PostosGradePage() {
             <div style={S.kpi}><div style={S.kpiL}>Headcount</div><div style={S.kpiV}>{tot.pessoas}</div>
               <div style={S.kpiH}>{tot.head > tot.pessoas ? `${tot.head - tot.pessoas} posto(s) a mais que pessoas` : 'uma pessoa por posto'}</div></div>
             <div style={S.kpi}><div style={S.kpiL}>FTE total</div><div style={S.kpiV}>{tot.fte.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}</div><div style={S.kpiH}>inclui ½ períodos</div></div>
-            <div style={S.kpi}><div style={S.kpiL}>Custo anual {temMotor ? '(c/ encargos)' : '(base)'}</div><div style={S.kpiV}>{milAno(tot.ano)}</div><div style={S.kpiH}>{comp}</div></div>
+            <div style={S.kpi}><div style={S.kpiL}>Custo anual {temMotor ? '(c/ encargos)' : '(base)'}</div><div style={S.kpiV}>{milAno(tot.ano)}</div>
+              {/* Só com filtro limpo o delta é comparável: `tot.ano` respeita os
+                  filtros da tela e o base é o quadro inteiro. */}
+              {modoCenario && custoBaseAno != null && filtrados.length === postosEf.filter(x => mostrarInativos || x.ativo !== false).length
+                ? <div style={{ ...S.kpiH, color: tot.ano < custoBaseAno ? 'var(--green)' : tot.ano > custoBaseAno ? 'var(--red)' : 'var(--muted)' }}>
+                    {tot.ano === custoBaseAno ? 'igual ao cadastro' : `${tot.ano < custoBaseAno ? '−' : '+'}${milAno(Math.abs(tot.ano - custoBaseAno))} vs cadastro`}
+                  </div>
+                : <div style={S.kpiH}>{comp}</div>}
+            </div>
             {/* só aparece quando há demissão no ano: o card vazio vira ruído */}
             {tot.resc > 0 && <div style={S.kpi}><div style={S.kpiL}>Rescisões</div><div style={{ ...S.kpiV, color: 'var(--red)' }}>{milAno(tot.resc)}</div>
               <div style={S.kpiH}>{tot.saindo} saída{tot.saindo === 1 ? '' : 's'} no ano · fora do custo médio</div></div>}
@@ -1027,6 +1190,124 @@ export default function PostosGradePage() {
                   </div>
                 )
               })()}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Decisões do cenário ──────────────────────────────────────────
+          Modal PRÓPRIO, não o do cadastro: aqui só entram campos de DECISÃO, e
+          cada um mostra o que herda. O do cadastro gera código, sincroniza
+          rateio e grava fatos — nada disso faz sentido num cenário. */}
+      {cenForm && (() => {
+        const m: any = cenForm.posto, ov: any = cenForm.ov || {}
+        const limpos = new Set<string>(ov.limpos || [])
+        const efet: any = resolvePosto(m, cenForm.ov)
+        const decidido = (c: string) => limpos.has(c) || (ov[c] != null && ov[c] !== '')
+        const set = (patch: any, limpar: CampoCenario[] = []) => {
+          salvarCenario(m.id, patch, limpar)
+          setCenForm(f => f && ({ ...f, ov: { ...(f.ov || { versao_id: versaoSel, posto_id: m.id }), ...patch,
+            limpos: [...new Set([...(f.ov?.limpos || []), ...limpar])].filter(x => !(x in patch) || patch[x] == null) } as PostoVersao }))
+        }
+        // "voltar a herdar" de um par (ano+mês): se o mestre tem valor, LIMPAR é
+        // uma decisão (ficar); se não tem, é só apagar o que o cenário pôs.
+        const herda = (campos: CampoCenario[]) => {
+          const mestreTem = campos.some(c => m[c] != null)
+          set(Object.fromEntries(campos.map(c => [c, null])), mestreTem ? campos : [])
+        }
+        const lbl = (c: string) => decidido(c)
+          ? { color: 'var(--violet)', fontWeight: 700 }
+          : { color: 'var(--muted)', fontStyle: 'italic' as const }
+        const parMes = (campoMes: CampoCenario, campoAno: CampoCenario, titulo: string) => (
+          <div><span style={{ ...S.flbl, ...lbl(campoAno) }}>{titulo}</span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <select style={{ ...S.finp, width: 92 }} value={efet[campoMes] ?? ''}
+                onChange={e => set({ [campoMes]: e.target.value ? parseInt(e.target.value, 10) : null,
+                                     [campoAno]: e.target.value ? (efet[campoAno] ?? anoCalc) : null })}>
+                <option value="">—</option>
+                {MESES_NUM.map((x, i) => <option key={i} value={i + 1}>{x}</option>)}
+              </select>
+              <input style={{ ...S.finp, width: 70 }} placeholder="ano" value={efet[campoAno] ?? ''}
+                onChange={e => set({ [campoAno]: e.target.value ? parseInt(e.target.value, 10) : null })} />
+              {decidido(campoAno) || decidido(campoMes)
+                ? <button style={{ ...S.del, padding: '0 6px' }} title="Voltar a herdar do cadastro" onClick={() => herda([campoAno, campoMes])}><Undo2 size={14} /></button>
+                : null}
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 3 }}>cadastro: {m[campoMes] ? `${MESES[m[campoMes] - 1]}/${m[campoAno] ?? '?'}` : '—'}</div>
+          </div>
+        )
+        const alt = camposAlterados(m, cenForm.ov)
+        return (
+          <div style={S.overlay} onClick={() => setCenForm(null)}>
+            <div style={S.modal} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>{m.nome || 'Vaga'} <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)', fontWeight: 400 }}>{m.codigo}</span></div>
+                  <div style={{ fontSize: 12.5, color: 'var(--violet)', marginTop: 3 }}>
+                    Decisões do cenário <b>{versoes.find((v: any) => v.id === versaoSel)?.codigo || '—'}</b> · {alt.length ? `${alt.length} campo(s) decidido(s)` : 'herda tudo do cadastro'}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>O cadastro não muda. Em itálico, o que é herdado; em violeta, o que este cenário decide.</div>
+                </div>
+                <button onClick={() => setCenForm(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
+                <div><span style={{ ...S.flbl, ...lbl('salario_base') }}>Salário base</span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input style={{ ...S.finp, flex: 1 }} defaultValue={inp2(efet.salario_base)} key={`s${ov.salario_base}`}
+                      onBlur={e => { const x = parseNum(e.target.value); if (!isNaN(x) && x !== efet.salario_base) set({ salario_base: x }) }} />
+                    {decidido('salario_base') && <button style={{ ...S.del, padding: '0 6px' }} title="Voltar a herdar" onClick={() => herda(['salario_base'])}><Undo2 size={14} /></button>}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 3 }}>cadastro: {money(Number(m.salario_base) || 0)}</div>
+                </div>
+                <div><span style={{ ...S.flbl, ...lbl('fte') }}>FTE</span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input style={{ ...S.finp, flex: 1 }} defaultValue={inpNum(efet.fte ?? 1)} key={`f${ov.fte}`}
+                      onBlur={e => { const x = parseNum(e.target.value); if (!isNaN(x) && x !== efet.fte) set({ fte: x }) }} />
+                    {decidido('fte') && <button style={{ ...S.del, padding: '0 6px' }} title="Voltar a herdar" onClick={() => herda(['fte'])}><Undo2 size={14} /></button>}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 3 }}>cadastro: {m.fte ?? 1}</div>
+                </div>
+                {parMes('ini_mes', 'ini_ano', 'Entrada (adiar/antecipar)')}
+                {parMes('fim_mes', 'fim_ano', 'Saída (demissão simulada)')}
+                {parMes('afast_ini_mes', 'afast_ini_ano', 'Afastado desde')}
+                {parMes('afast_fim_mes', 'afast_fim_ano', 'Retorno previsto')}
+                <div><span style={{ ...S.flbl, ...lbl('reajuste_mes') }}>Reajuste — a partir de</span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <select style={{ ...S.finp, flex: 1 }} value={efet.reajuste_mes ?? ''}
+                      onChange={e => set({ reajuste_mes: e.target.value ? parseInt(e.target.value, 10) : null })}>
+                      <option value="">sem reajuste</option>
+                      {MESES_NUM.map((x, i) => <option key={i} value={i + 1}>{x}</option>)}
+                    </select>
+                    {decidido('reajuste_mes') && <button style={{ ...S.del, padding: '0 6px' }} title="Voltar a herdar" onClick={() => herda(['reajuste_mes', 'reajuste_pct', 'reajuste_valor'])}><Undo2 size={14} /></button>}
+                  </div>
+                </div>
+                <div><span style={{ ...S.flbl, ...lbl('reajuste_pct') }}>Reajuste %</span>
+                  <input style={S.finp} defaultValue={efet.reajuste_pct ?? ''} key={`r${ov.reajuste_pct}`} placeholder="ex.: 8"
+                    onBlur={e => set({ reajuste_pct: e.target.value ? parseNum(e.target.value) : null })} />
+                </div>
+              </div>
+
+              <div style={{ marginTop: 14, display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', color: decidido('ativo') ? 'var(--violet)' : 'var(--text)' }}>
+                  <input type="checkbox" checked={efet.ativo === false}
+                    onChange={e => set({ ativo: e.target.checked ? false : null })} />
+                  <b>Cortar neste cenário</b> <span style={{ color: 'var(--muted)' }}>(sai do quadro só aqui; o cadastro continua ativo)</span>
+                </label>
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <span style={S.flbl}>Por quê <span style={{ color: 'var(--muted)' }}>(vai junto quando você apresentar o cenário)</span></span>
+                <input style={{ ...S.finp, width: '100%' }} defaultValue={ov.nota || ''} placeholder="ex.: corte estrutural 2027 · contratação adiada p/ jul"
+                  onBlur={e => set({ nota: e.target.value.trim() || null })} />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
+                <button style={S.btn} disabled={!alt.length}
+                  onClick={() => { limparCenario(m.id); setCenForm(null) }}>
+                  <Undo2 size={14} /> Voltar a herdar tudo
+                </button>
+                <button style={S.btnP} onClick={() => setCenForm(null)}>Fechar</button>
+              </div>
             </div>
           </div>
         )

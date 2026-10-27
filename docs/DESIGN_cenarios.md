@@ -222,12 +222,24 @@ pessoa.
 
 ### 7.6 Ordem de implementação
 
-- **P0 — guarda do `bloqueada` no "Aplicar"** da grade de postos. Não espera nada: hoje uma
+- **P0 — guarda do `bloqueada` no "Aplicar"** ✅ *(out/2026)* da grade de postos. Não espera nada: hoje uma
   versão aprovada pode ser sobrescrita por engano (o formulário respeita `bloqueada`; a
   folha, não). Custa uma condição e protege 2026, que está validado.
-- **P1 — `posto_versao` + seletor de versão na grade + herança visual + "só alteradas"**.
-  Entrega o cenário de folha inteiro para o caso comum (demitir/adiar/promover).
-- **P2 — motor lê o overlay** (`resolvePosto`) e o "Aplicar" usa o quadro resolvido da versão.
+- **P1 — `posto_versao` + grade + motor + Aplicar.** ✅ *(out/2026 — v3_120/121)*
+  P1 e P2 eram **a mesma coisa**: a grade mostra custo calculado pelo motor, então para
+  ver o efeito da decisão o motor já tem que ler a sobreposição. Separá-los entregaria
+  uma tela que não mostra o que se acabou de decidir. Entregue:
+  `posto_versao` (v3_120); `lib/postoVersao.ts` com `resolvePosto`/`camposAlterados`
+  (funções puras — o motor segue recebendo um posto comum e não sabe o que é cenário);
+  alternador **Cadastro × Cenário** na grade; decisão em violeta e herdado em itálico;
+  filtro **"só as alteradas (N)"**; modal de decisão próprio (só campos de decisão, com
+  "voltar a herdar" por campo); o *Aplicar* grava o quadro **resolvido**; e o card de
+  custo anual mostra **−X vs cadastro**.
+  Junto veio `copiar_versao_cenario` (v3_121): a cópia de versão só levava `fat_orcado` —
+  e nem ele inteiro, deixava `moeda_origem`/`val_m2..m5` para trás, perdendo a visão em
+  US$ em silêncio. Agora leva também `versao_taxa`, `premissa_dissidio`,
+  `formulario_valor` e `posto_versao`, senão o cenário derivado nasce incoerente e a
+  folha dele volta ao quadro mestre no primeiro reaplicar.
 - **P3 — `posto.so_versao_id`**: vaga que só existe no cenário.
 - **P4 — publicar/promover** um cenário no mestre (o *publish* do SAC): as decisões que
   viraram realidade descem para o cadastro e o overlay se esvazia.
