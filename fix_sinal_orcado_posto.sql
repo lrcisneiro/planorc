@@ -70,3 +70,19 @@ SELECT ano, count(*) AS linhas,
   FROM fat_orcado WHERE origem = 'POSTO'
  GROUP BY ano ORDER BY ano DESC;
 */
+
+
+-- ─────────── PARTE 3 · conferir o estado (só leitura, rode sozinha) ───────────
+-- Dentro da MESMA conta e do MESMO ano, POSTO e MANUAL têm de estar os dois
+-- negativos. POSTO com `positivas > 0` = a PARTE 2 não rodou nesse ano.
+-- Misturado dentro de uma origem = rodou parcial; filtre o resto pelo ano.
+select o.ano, o.origem, con.codigo as conta, con.natureza,
+       count(*)                            as linhas,
+       count(*) filter (where o.valor > 0) as positivas,
+       count(*) filter (where o.valor < 0) as negativas,
+       round(sum(o.valor), 2)              as soma
+  from fat_orcado o
+  join conta_orcamentaria con on con.id = o.linha_id
+ where con.natureza = 'DESPESA'
+ group by 1, 2, 3, 4
+ order by o.ano desc, con.codigo, o.origem;
