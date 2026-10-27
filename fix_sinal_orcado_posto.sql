@@ -86,3 +86,35 @@ select o.ano, o.origem, con.codigo as conta, con.natureza,
  where con.natureza = 'DESPESA'
  group by 1, 2, 3, 4
  order by o.ano desc, con.codigo, o.origem;
+
+
+-- ─────────── PARTE 4 · positiva em conta de DESPESA: inversão ou estorno? ───────────
+-- A PARTE 3 mostrou positivas no orçado MANUAL. Positiva em despesa PODE ser
+-- legítima (recuperação de despesa, estorno de provisão). O que não costuma ser
+-- é um grupo 100% positivo: aí o padrão é sinal trocado na digitação/importação.
+-- Esta consulta separa os dois casos por versão (a PARTE 3 não agrupava por ela,
+-- então ali MANUAL e POSTO de versões DIFERENTES apareciam lado a lado).
+--
+-- NADA é alterado aqui. Decidir caso a caso: o Planorc não tem como saber se
+-- aquele + é um crédito de verdade.
+select ver.codigo                                 as versao,
+       o.ano, o.origem, con.codigo                as conta, con.descricao as conta_desc,
+       count(*)                                   as linhas,
+       count(*) filter (where o.valor > 0)        as positivas,
+       round(sum(o.valor), 2)                     as soma,
+       round(sum(o.valor) filter (where o.valor > 0), 2) as soma_positiva,
+       case
+         when count(*) filter (where o.valor > 0) = count(*)
+           then '*** 100% POSITIVA: cara de sinal trocado ***'
+         when sum(o.valor) > 0
+           then '*** soma POSITIVA numa conta de despesa ***'
+         else 'misto — provavelmente estorno legítimo'
+       end                                        as leitura
+  from fat_orcado o
+  join conta_orcamentaria con on con.id = o.linha_id
+  left join versao_orcamento ver on ver.id = o.versao_id
+ where con.natureza = 'DESPESA'
+   and o.valor > 0
+ group by 1, 2, 3, 4, 5
+ order by (count(*) filter (where o.valor > 0) = count(*)) desc,
+          abs(sum(o.valor) filter (where o.valor > 0)) desc;
