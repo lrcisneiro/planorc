@@ -9,6 +9,7 @@ import { ChevronLeft, Lock, Upload, Download } from 'lucide-react'
 import FormulaCellInput from '../relatorios/FormulaCellInput'
 import { importBaseline, modeloBaseline, type ImportModo } from '../../lib/importOrcado'
 import { taxaOrcada, materializa } from '../../lib/cambio'
+import { pageAll } from '../../lib/pageAll'
 import type { VersaoTaxaRow } from '../../lib/cambio'
 
 // Grade de Orçar dedicada (F3.1): escrita do orçado por empresa × filial × CC, escopada pelos
@@ -183,9 +184,26 @@ export default function OrcarGradePage() {
   useEffect(() => {
     const masterIds = linhas.map(l => l.linha_orc_id).filter(Boolean) as string[]
     if (!versaoId || !ano || !masterIds.length) { setScopeRows([]); return }
-    (async () => {
-      const { data } = await supabase.from('fat_orcado').select('empresa_id,filial_id,cc_id').eq('versao_id', versaoId).eq('ano', ano).in('linha_id', masterIds)
-      setScopeRows((data || []) as any[])
+    ;(async () => {
+      // pageAll + masters em lotes: o PostgREST corta em 1000 linhas SEM erro, e
+      // uma versão com o orçamento inteiro tem dezenas de milhares. Sem isto a
+      // bolinha saía só das empresas que por acaso caíam na primeira página —
+      // o seed de 2027 entrou com 13 mil lançamentos e só 3 empresas marcavam.
+      // O `.in()` também vai em lotes: a lista inteira de masters estoura a URL.
+      const out: any[] = []
+      for (let i = 0; i < masterIds.length; i += 150) {
+        const lote = masterIds.slice(i, i + 150)
+        out.push(...await pageAll(() => supabase.from('fat_orcado')
+          .select('empresa_id,filial_id,cc_id')
+          .eq('versao_id', versaoId).eq('ano', ano).in('linha_id', lote)))
+      }
+      // só as combinações distintas interessam (o Set as consome); sem isto
+      // guardaríamos no estado uma linha por lançamento, à toa
+      const vistos = new Set<string>()
+      setScopeRows(out.filter(r => {
+        const k = `${r.empresa_id}|${r.filial_id}|${r.cc_id}`
+        return vistos.has(k) ? false : (vistos.add(k), true)
+      }) as any[])
     })()
   }, [versaoId, ano, linhas.length, scopesRefresh, refresh])
   const empresasComDados = useMemo(() => new Set(scopeRows.filter(r => r.empresa_id).map(r => r.empresa_id)), [scopeRows])
