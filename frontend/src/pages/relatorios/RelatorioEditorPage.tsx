@@ -139,7 +139,7 @@ const S: Record<string, CSSProperties> = {
   page:      { display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg)' },
   header:    { background: 'var(--panel)', borderBottom: '1px solid var(--border)', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, flexWrap: 'wrap' },
   back:      { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, padding: '4px 8px', borderRadius: 6 },
-  title:     { fontSize: 15, fontWeight: 600, color: 'var(--text)', flex: 1, whiteSpace: 'nowrap' },
+  title:     { fontSize: 15, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', marginRight: 4 },
   sel:       { padding: '5px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', color: 'var(--text-mid)', cursor: 'pointer' },
   tableWrap: { flex: 1, overflow: 'auto' },
   table:     { borderCollapse: 'collapse', fontSize: 13 },
@@ -1298,6 +1298,40 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             <button onClick={expandirTudo} title="Expandir tudo" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '4px 8px', border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)', borderRadius: 6, cursor: 'pointer' }}><ChevronsUpDown size={12} /> Tudo</button>
           </div>
           <button onClick={() => setSimShow(s => !s)} style={{ ...S.sel, color: simShow ? 'var(--violet)' : 'var(--text-mid)', borderColor: simShow ? 'var(--violet)' : 'var(--border-strong)' }}>{simShow ? '✓ Simulação' : 'Simular fórmulas'}</button>
+        <div style={{ position: 'relative' }}>
+            <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => { setSnapOpen(o => !o); loadSnaps() }} title="Pontos de restauração (desfazer alterações)">
+              <History size={13} /> Pontos {snapBusy && '…'}
+            </button>
+            {snapOpen && (
+              <>
+                <div onClick={() => setSnapOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1400 }} />
+                <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.18)', zIndex: 1500, width: 320, maxHeight: 380, overflow: 'auto' }}>
+                  <div style={{ padding: 10, borderBottom: '1px solid var(--panel)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <strong style={{ fontSize: 13, color: 'var(--text)', flex: 1 }}>Pontos de restauração</strong>
+                    <button style={{ ...S.btnGreen, padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 5 }} disabled={snapBusy}
+                      onClick={() => { const d = prompt('Nome do ponto (opcional):') ; if (d !== null) criarSnap(false, d || 'manual') }}>
+                      <Save size={12} /> Salvar ponto
+                    </button>
+                  </div>
+                  {snaps.length === 0 && <div style={{ padding: 14, fontSize: 12, color: 'var(--muted)' }}>Nenhum ponto ainda.</div>}
+                  {snaps.map(s => (
+                    <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--bg)', fontSize: 12 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {new Date(s.criado_em).toLocaleString('pt-BR')}
+                          {s.auto ? <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--muted)', background: 'var(--panel)', borderRadius: 4, padding: '1px 5px' }}>auto</span> : null}
+                        </div>
+                        {s.descricao && !s.auto && <div style={{ color: 'var(--muted)' }}>{s.descricao}</div>}
+                      </div>
+                      <button style={{ ...S.btnGray, padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 5 }} disabled={snapBusy} onClick={() => restaurarSnap(s.id)} title="Restaurar este ponto">
+                        <RotateCcw size={12} /> Restaurar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           {/* Importar linhas é construção de ESTRUTURA — ficava no menu Importar da
               tela de Consultar, que é leitura. */}
           <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }}
@@ -1414,6 +1448,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             {moedas.map(m => <option key={m.slot} value={m.slot}>{m.simbolo ? `${m.simbolo} ` : ''}{m.codigo}</option>)}
           </select>
         )}
+        <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
           {(empresaSel.length === 0 ? 'nenhuma empresa' : empresaSel.length === empresas.length ? 'Todas empresas' : empresaSel.length === 1 ? (empresas.find(e => e.id === empresaSel[0])?.codigo || '1 empresa') : `${empresaSel.length} empresas`)}
           {' · '}{view.cenarios.filter(c => c !== REALIZADO).map(c => versoes.find(v => v.id === c)?.codigo).filter(Boolean).join(' + ') || '—'}{' · '}{pIni.ano === pFim.ano ? pIni.ano : `${pIni.ano}–${pFim.ano}`}
@@ -1470,40 +1505,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => loadValores()} title="Atualizar os dados (após aplicar um formulário ou orçar em outra aba)">
           <RefreshCw size={13} /> Atualizar
         </button>
-        <div style={{ position: 'relative' }}>
-          <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => { setSnapOpen(o => !o); loadSnaps() }} title="Pontos de restauração (desfazer alterações)">
-            <History size={13} /> Pontos {snapBusy && '…'}
-          </button>
-          {snapOpen && (
-            <>
-              <div onClick={() => setSnapOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1400 }} />
-              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.18)', zIndex: 1500, width: 320, maxHeight: 380, overflow: 'auto' }}>
-                <div style={{ padding: 10, borderBottom: '1px solid var(--panel)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <strong style={{ fontSize: 13, color: 'var(--text)', flex: 1 }}>Pontos de restauração</strong>
-                  <button style={{ ...S.btnGreen, padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 5 }} disabled={snapBusy}
-                    onClick={() => { const d = prompt('Nome do ponto (opcional):') ; if (d !== null) criarSnap(false, d || 'manual') }}>
-                    <Save size={12} /> Salvar ponto
-                  </button>
-                </div>
-                {snaps.length === 0 && <div style={{ padding: 14, fontSize: 12, color: 'var(--muted)' }}>Nenhum ponto ainda.</div>}
-                {snaps.map(s => (
-                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--bg)', fontSize: 12 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {new Date(s.criado_em).toLocaleString('pt-BR')}
-                        {s.auto ? <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--muted)', background: 'var(--panel)', borderRadius: 4, padding: '1px 5px' }}>auto</span> : null}
-                      </div>
-                      {s.descricao && !s.auto && <div style={{ color: 'var(--muted)' }}>{s.descricao}</div>}
-                    </div>
-                    <button style={{ ...S.btnGray, padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 5 }} disabled={snapBusy} onClick={() => restaurarSnap(s.id)} title="Restaurar este ponto">
-                      <RotateCcw size={12} /> Restaurar
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        {/* "Pontos" (restauração) saiu de Consultar e foi para Estrutura: os
+            snapshots são criados por quem ALTERA — linha, fórmula, amarração,
+            import — e esta tela não altera nada. Oferecer "restaurar" onde não
+            se edita convida a desfazer o trabalho de outra tela. */}
         <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }} onClick={exportMatrix} title="Exportar para Excel (modelo preenchível)">
           <Download size={13} /> Excel
         </button>
@@ -1559,10 +1564,12 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                     <ChevronLeft size={13} /> Só último período
                   </button>
             )}
-            {sep}
+            {/* o alvo da seleção só interessa onde existem ações sobre a linha
+                (mover, indentar, editar, excluir) — todas são de Estrutura */}
+            {podeEstrutura && <>{sep}
             <span style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {sel ? <>Linha: <b style={{ color: 'var(--text)' }}>{sel.descricao}</b></> : 'Selecione uma linha'}
-            </span>
+            </span></>}
             <div style={{ flex: 1 }} />
             {podeEstrutura && (<>
             <button style={ab} title="Mover para cima" onClick={act(l => moveLinha(l, -1))}><ArrowUp size={13} /></button>
