@@ -302,9 +302,13 @@ porque o erro conservador no orçamento é sobrar custo.
 > o que este escopo decidiu não construir ainda.
 
 **Import do RH.** `converter_funcionarios.py` deriva a coluna `afastado_desde` de
-`SITFOLHA` casando pelo **rótulo** (`AFAST`/`LICEN`/`AUXÍLIO`) e não pelo código
-numérico, que varia por instalação; e imprime a contagem de `SITFOLHA` inteira
-para conferir o que o filtro pegou. O ERP sabe que a pessoa *está* afastada, não
+`SRA.RA_SITFOLH`, que neste export vem como **código de uma letra**: vazio=ativo,
+`D`=demitido, `F`=férias, `A`=afastado (medido no export de out/2026: 304 / 243 /
+14 / 2). **`F` fica fora de propósito** — férias a empresa paga, e a provisão 1/12
+já cobre o custo; zerar o salário ali erraria duas vezes. O teste por rótulo
+(`AFAST`/`LICEN`/`AUXÍLIO`) ficou como *fallback* para instalações que exportam o
+texto em vez do código. O conversor imprime a contagem de `SITFOLHA` inteira, para
+a próxima carga mostrar se apareceu um código novo. O ERP sabe que a pessoa *está* afastada, não
 *até quando* — então o import grava o início e deixa o retorno **em aberto**, que
 é o pior caso (12 meses sem salário), e a grade marca cada linha com o chip
 `AFASTADO` para a conferência pessoa a pessoa. A coluna entra no upsert **tudo ou

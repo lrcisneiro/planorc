@@ -219,11 +219,20 @@ COLS_SAIDA = ['posto_codigo', 'empresa', 'filial', 'cc', 'matricula',
               'nome', 'cargo', 'regime', 'salario', 'admissao', 'demissao', 'situacao', 'ativo', 'rateio',
               'recurso', 'afastado_desde'] + VERBAS_BENEFICIO
 
-# SITFOLHA vem rotulada ('03 - AFASTADO INSS'), e o CÓDIGO numérico varia por
-# instalação — o rótulo, não. Daí casar pelo texto. 'D' (demitido) já sai antes,
-# por `ativo`, e demitido não é afastado.
+# SRA.RA_SITFOLH neste export vem como CÓDIGO de uma letra, não rotulada:
+# vazio=ativo, D=demitido, F=férias, A=afastado.
+#
+# `F` (férias) fica FORA de propósito: férias a empresa paga, e a provisão 1/12
+# do motor já cobre o custo — zerar o salário ali seria errado duas vezes.
+# `D` já sai antes por `ativo`, e demitido não é afastado.
+#
+# O teste por texto é fallback: outras instalações exportam o rótulo
+# ('03 - AFASTADO INSS'), e aí o código numérico é que varia.
+AFAST_COD = {'A'}
 def eh_afastado(situacao: str) -> bool:
-    t = (situacao or '').upper()
+    t = (situacao or '').strip().upper()
+    if t in AFAST_COD:
+        return True
     return 'AFAST' in t or 'LICEN' in t or 'AUXILIO' in t or 'AUXÍLIO' in t
 
 def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=None,
