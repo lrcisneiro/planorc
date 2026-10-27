@@ -348,6 +348,32 @@ o ano orçado e é editável na tela, enquanto o aviso prévio progressivo e o s
 do FGTS precisam da admissão real. Sem ela o motor cai em `ini_*` (que o import
 do RH preenche com a admissão) — e aí o aviso vira 30 dias e a multa, zero.
 
+**Conferido contra o catálogo real do tenant (out/2026), três achados:**
+
+- **faltava o INSS sobre o 13º proporcional** (v3_119). O padrão da casa é
+  explícito — `A37 INSS s/ prov. 13º` = 26,8% sobre `A36` (20 INSS + 1 RAT + 5,8
+  Terceiros). Na rescisão o 13º tem INSS igual; o aviso prévio indenizado **não**
+  (não integra o salário de contribuição) e as férias indenizadas também não. Daí
+  `RESC_INSS_13` incidir só sobre `RESC_13`, enquanto o FGTS (`RESC_FGTS_V`) pega
+  aviso **e** 13º, porque nos dois é devido;
+- **colisão de ordem**: `RESC_AVISO` nasceu em 70, igual a `A36`. Não quebrava
+  (ninguém referenciava ninguém ali), mas a cascata resolve referência pela ordem
+  e empate é bug esperando. Foram para 200–205;
+- **não há provisão mensal de rescisão** nesta instalação (`RESC (interna
+  Planorc)` está inativa, e confirmado pelo Ricardo). Sem dupla contagem.
+
+As verbas de rescisão do ERP já existiam como `INFORMATIVA` — `057` Aviso Previo
+Indeniz, `A28` Fgts Mes Rescisao, `A29` Fgts-Art.22 40% Mult: são o lado
+**realizado**. A v3_119 faz as `RESC_*` **herdarem a conta de destino** delas
+(com fallback para a provisão mensal equivalente), para orçado e realizado caírem
+na mesma linha da DRE, e grava o de-para em `aglutina_em` na direção que a v3_054
+definiu (ERP → orçamentária). ⚠ `aglutina_em` hoje é só cadastro: nenhuma tela o
+consome.
+
+Medido com o catálogo real (salário 10.000, saída em maio): **10 anos de casa =
+7,25 salários; 3 anos = 3,67; 1 ano = 2,69**. A diferença é quase toda a multa do
+FGTS.
+
 **Limites, por serem estimativa:**
 - a multa de 40% supõe **salário constante** — o saldo real está no extrato do
   FGTS, que o orçamento não tem. Erra para quem ganhava muito menos anos atrás;
