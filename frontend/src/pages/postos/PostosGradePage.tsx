@@ -145,6 +145,7 @@ export default function PostosGradePage() {
   const [regimeSel, setRegimeSel] = useState('')
   const [busca, setBusca] = useState('')
   const [mostrarInativos, setMostrarInativos] = useState(false)
+  const [editHora, setEditHora] = useState<string | null>(null)   // posto com o seletor de hora aberto
   const [erro, setErro] = useState<string | null>(null)
   const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[] } | null>(null)
   const [importando, setImportando] = useState(false)
@@ -624,17 +625,31 @@ export default function PostosGradePage() {
             globais do formulário. */}
         {flags.usa_apontamento && <td style={S.td}>{!p.recurso_cod
           ? <span style={{ color: 'var(--faint)' }} title="Este posto não aponta horas (sem código de recurso)">—</span>
-          : editavel
-            ? <select style={{ ...S.inp, width: 116, fontStyle: p.recebe_hora === null || p.recebe_hora === undefined ? 'italic' : 'normal' }}
-                value={p.recebe_hora === null || p.recebe_hora === undefined ? '' : (p.recebe_hora ? 'sim' : 'nao')}
+          : (editavel && editHora === p.id)
+            ? <select autoFocus style={{ ...S.inp, width: 116 }}
+                value={p.recebe_hora == null ? '' : (p.recebe_hora ? 'sim' : 'nao')}
                 title="Vazio = segue a função do apontamento. Use só para quem foge do padrão da função."
-                onChange={e => salvar(p.id, { recebe_hora: e.target.value === '' ? null : e.target.value === 'sim' })}>
+                onBlur={() => setEditHora(null)}
+                onChange={e => { salvar(p.id, { recebe_hora: e.target.value === '' ? null : e.target.value === 'sim' }); setEditHora(null) }}>
                 <option value="">segue a função</option>
                 <option value="sim">recebe por hora</option>
                 <option value="nao">só aponta</option>
               </select>
-            : <span style={{ color: 'var(--muted)', fontStyle: p.recebe_hora == null ? 'italic' : 'normal' }}>
-                {p.recebe_hora == null ? 'segue a função' : p.recebe_hora ? 'recebe por hora' : 'só aponta'}</span>}
+            : p.recebe_hora == null
+              // O padrão é "segue a função", e ele é a maioria esmagadora das
+              // linhas: um combo em cada uma domina a coluna com a informação
+              // menos relevante da tela. Em repouso vira um traço discreto, como
+              // quem não aponta; o seletor abre no clique.
+              ? <span onClick={() => editavel && setEditHora(p.id)}
+                  title="Segue a função do apontamento. Clique para definir uma exceção para esta pessoa."
+                  style={{ color: 'var(--faint)', cursor: editavel ? 'pointer' : 'default' }}>·</span>
+              : <span onClick={() => editavel && setEditHora(p.id)}
+                  title={`Exceção: ${p.recebe_hora ? 'recebe por hora' : 'só aponta'} (clique para mudar)`}
+                  style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99, cursor: editavel ? 'pointer' : 'default',
+                    color: p.recebe_hora ? 'var(--green)' : 'var(--orange)',
+                    background: p.recebe_hora ? 'rgba(52,211,153,0.12)' : 'rgba(251,191,36,0.12)',
+                    border: '1px solid ' + (p.recebe_hora ? 'rgba(52,211,153,0.30)' : 'rgba(251,191,36,0.30)') }}>
+                  {p.recebe_hora ? 'por hora' : 'só aponta'}</span>}
         </td>}
         <td style={{ ...S.td, textAlign: 'right' }}>
           {editavel
