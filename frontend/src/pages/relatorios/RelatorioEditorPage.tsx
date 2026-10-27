@@ -11,7 +11,6 @@ import type { LinhaCalc, RawValues, Computed, Periodo, TipoLinha, Formato, CellR
 import { taxaOrcada, materializa } from '../../lib/cambio'
 import type { VersaoTaxaRow } from '../../lib/cambio'
 import FormulaCellInput from './FormulaCellInput'
-import { importBaseline as importBaselineLib, modeloBaseline as modeloBaselineLib } from '../../lib/importOrcado'
 import { effectiveCcFilter, FiltrosButton, PeriodoButton, Checklist, opcoesAttr, SalvarCardButton, useCardPreset } from '../dashboard/DashFiltros'
 import { PeriodPicker } from '../dashboard/PeriodPicker'
 import type { CC as CCItem } from '../dashboard/DashFiltros'
@@ -272,9 +271,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const [simVals, setSimVals] = useState<Record<string, number[]>>({})
   const [addAfterId, setAddAfterId] = useState<string | null>(null)   // abre o "incluir linha" logo abaixo desta linha
   const [detalhado,  setDetalhado]  = useState<Record<string, Set<string>>>({})  // [cenario] -> Set(`linhaId-mes`) com detalhe (read-only)
-  const [impMenu,    setImpMenu]    = useState(false)
   const [viewMenu,   setViewMenu]   = useState(false)
-  const [impMode,    setImpMode]    = useState<'linhas' | 'baseline_full' | 'baseline_add'>('baseline_full')
   const [colW,       setColW]       = useState<Record<string, number>>({})
   const [valErro,   setValErro]   = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -297,10 +294,11 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // `periodos` depende dele.
   const cenariosAtivos = useMemo(() => {
     const f = views.find(v => v.id === activeView)
-    const set = new Set<string>(f ? f.cenarios : [])
-    if (versaoId) set.add(versaoId)
-    return Array.from(set)
-  }, [views, activeView, versaoId])
+    // Só os cenários da visão. Injetar aqui uma versão escolhida fora dela fazia
+    // o carregamento buscar um cenário que NENHUMA coluna exibia (as colunas
+    // saem de view.cenarios) — uma chamada de RPC por período, jogada fora.
+    return Array.from(new Set<string>(f ? f.cenarios : []))
+  }, [views, activeView])
   const anoDoCenario = useMemo(() => {
     const m: Record<string, number> = {}
     for (const c of cenariosAtivos) { if (c === REALIZADO) continue; const v = versoes.find(x => x.id === c); if (v) m[c] = v.ano }
@@ -482,11 +480,20 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     localStorage.setItem('planorc_filtro_' + id, JSON.stringify({ empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, hideEmpty, hideOff }))
   }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, hideEmpty, hideOff, id, presetCardId])
 
+  // Relatório sem view_config ainda precisa mostrar alguma coisa. Antes o cenário
+  // vinha do seletor de versão do cabeçalho; com ele removido, a visão sintética
+  // adota a versão MAIS RECENTE (maior ano, depois código) — um padrão que o
+  // usuário troca editando a visão, que é onde o cenário é configurado.
+  const versaoPadrao = useMemo(() => {
+    if (!versoes.length) return ''
+    return [...versoes].sort((a, b) => (b.ano - a.ano) || b.codigo.localeCompare(a.codigo))[0].id
+  }, [versoes])
   const view: ViewConfig = useMemo(() => {
     const f = views.find(v => v.id === activeView)
     if (f) return f
-    return { id: '__default', nome: 'Mensal', ordem: 0, funcao: 'MENSAL', cenarios: versaoId ? [versaoId] : [], filtros: {}, _synthetic: true }
-  }, [views, activeView, versaoId])
+    return { id: '__default', nome: 'Mensal', ordem: 0, funcao: 'MENSAL',
+             cenarios: versaoPadrao ? [versaoPadrao] : [], filtros: {}, _synthetic: true }
+  }, [views, activeView, versaoPadrao])
 
   // (cenariosAtivos / anoDoCenario / cicloMode definidos acima, antes do período)
 
@@ -938,10 +945,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // ── Colunas conforme view
   const cenarioLabel = (key: string) => key === REALIZADO ? 'Real.' : ehRealAno(key) ? `Real. ${anoDeRealAno(key)}` : (versoes.find(v => v.id === key)?.codigo ?? '—')
   // Lista de cenários EXIBIDOS (colunas): no overlay expande 'REALIZADO' por ano.
-  const censDisplay = useMemo(() => expandirCens(view.cenarios.length ? view.cenarios : (versaoId ? [versaoId] : [])), [view.cenarios, versaoId, cicloMode, anos, versoes]) // eslint-disable-line
+  const censDisplay = useMemo(() => expandirCens(view.cenarios), [view.cenarios, cicloMode, anos, versoes]) // eslint-disable-line
   const { columns, groups, twoRow } = useMemo<{ columns: Column[]; groups: Group[]; twoRow: boolean }>(() => {
     const cens = censDisplay
-    const primary = cens[0] || versaoId
+    const primary = cens[0] || ''
     // Por empresa: cada empresa é um grupo; embaixo repetem os períodos (+ Total) do cenário primário
     if (colEmpresa) {
       const base: { label: string; period: Period }[] = buckets.map((b, i) => ({ label: b.label, period: i as Period }))
@@ -1094,7 +1101,6 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const modeloLinhas = () => downloadSheet('modelo_linhas.xlsx', [
     ['codigo', 'descricao'], ['2', 'DESPESAS'], ['220', 'Despesas Administrativas'], ['22004', 'Aluguel de imóveis'],
   ])
-  const modeloBaseline = () => modeloBaselineLib(pIni.ano)
   // ── Importar estrutura de linhas (Linhas Orçamentárias)
   const importLinhas = async (file: File) => {
     if (!id) return
@@ -1155,24 +1161,6 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   }
 
   // ── Importar orçado Baseline (largo, detalhado por empresa/filial/CC/dims) — lógica em lib/importOrcado
-  const importBaseline = async (file: File, modo: 'full' | 'add') => {
-    if (!versaoId) { alert('Selecione a versão de destino no topo.'); return }
-    const verCod = versoes.find(v => v.id === versaoId)?.codigo
-    const msgModo = modo === 'full'
-      ? `SUBSTITUIR (full load): apaga TODO o orçado manual da versão "${verCod}" das empresas presentes no arquivo e importa de novo.`
-      : `ADICIONAR: soma os valores ao orçado já existente da versão "${verCod}" (não apaga nada).`
-    const moedaMsg = moedaView !== 1 ? `\n\nOs valores do arquivo serão lidos em ${moedaCod(moedaView)} e convertidos pela taxa orçada da versão.` : ''
-    if (!confirm(`${msgModo}${moedaMsg}\n\nConfirmar importação?`)) return
-    setSaving(true)
-    await ensureSnapshot()
-    try {
-      const res = await importBaselineLib({ file, modo, versaoId, taxas: versaoTaxas, slotOrigem: moedaView })   // sem canWrite: editor de estrutura importa sem trava de escopo
-      alert(res.message)
-      if (res.ok) await loadValores()
-    } catch (e: any) { alert('Erro ao importar: ' + (e?.message ?? JSON.stringify(e))) }
-    setSaving(false)
-  }
-
   // ── Linhas CRUD
   const addLinha = async () => {
     if (!newDesc.trim() || !id) return
@@ -1390,6 +1378,16 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             <button onClick={expandirTudo} title="Expandir tudo" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '4px 8px', border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)', borderRadius: 6, cursor: 'pointer' }}><ChevronsUpDown size={12} /> Tudo</button>
           </div>
           <button onClick={() => setSimShow(s => !s)} style={{ ...S.sel, color: simShow ? 'var(--violet)' : 'var(--text-mid)', borderColor: simShow ? 'var(--violet)' : 'var(--border-strong)' }}>{simShow ? '✓ Simulação' : 'Simular fórmulas'}</button>
+          {/* Importar linhas é construção de ESTRUTURA — ficava no menu Importar da
+              tela de Consultar, que é leitura. */}
+          <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }}
+            onClick={() => fileRef.current?.click()} title="Importar linhas orçamentárias (cria a hierarquia pelo código)">
+            <Upload size={13} /> Importar linhas
+          </button>
+          <span style={{ fontSize: 11, color: 'var(--violet)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+            onClick={modeloLinhas} title="Baixar planilha modelo">⬇ modelo</span>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" style={{ display: 'none' }}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) { importLinhas(f); e.target.value = '' } }} />
           <button title={selId ? 'Adiciona no mesmo nível da linha selecionada' : 'Adiciona na raiz (nenhuma linha selecionada)'}
             onClick={() => { const s = selId ? linhas.find(x => x.id === selId) : null; setAdding({ paiId: s ? s.pai_id : null }); setAddAfterId(s ? selId : null); setNewDesc('') }} style={{ ...S.btnPri, padding: '6px 12px' }}><Plus size={14} /> Nova linha</button>
         </div>
@@ -1478,9 +1476,6 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             navegação — é um caminho paralelo que precisa ser mantido junto. */}
         <span style={S.title}>{relatorio?.nome ?? '...'}</span>
 
-        <select style={{ ...S.sel, borderColor: editavel ? 'var(--border-strong)' : 'var(--orange)' }} value={versaoId} onChange={e => setVersaoId(e.target.value)} title="Versão / cenário">
-          <option value="">— Versão —</option>{versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}</option>)}
-        </select>
         <PeriodoButton resumo={`${pIni.ano === pFim.ano ? pIni.ano : pIni.ano + '–' + pFim.ano} · ${MESES[pIni.mes - 1]}–${MESES[pFim.mes - 1]}`}
           onOpen={() => setPeriodosDraft(periodosSel)} onApply={() => setPeriodosSel(periodosDraft)}>
           <label style={S.label}>Período</label>
@@ -1501,7 +1496,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         )}
         <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
           {(empresaSel.length === 0 ? 'nenhuma empresa' : empresaSel.length === empresas.length ? 'Todas empresas' : empresaSel.length === 1 ? (empresas.find(e => e.id === empresaSel[0])?.codigo || '1 empresa') : `${empresaSel.length} empresas`)}
-          {' · '}{versoes.find(v => v.id === versaoId)?.codigo || '—'}{' · '}{pIni.ano === pFim.ano ? pIni.ano : `${pIni.ano}–${pFim.ano}`}
+          {' · '}{view.cenarios.filter(c => c !== REALIZADO).map(c => versoes.find(v => v.id === c)?.codigo).filter(Boolean).join(' + ') || '—'}{' · '}{pIni.ano === pFim.ano ? pIni.ano : `${pIni.ano}–${pFim.ano}`}
           {filialSel.length ? ` · ${filialSel.length} filial` : ''}{ccSel.length ? ` · ${ccSel.length} CC` : ''}
         </span>
         {!editavel && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--orange)', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.30)', borderRadius: 99, padding: '2px 8px' }}>somente leitura</span>}
@@ -1592,37 +1587,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           <Download size={13} /> Excel
         </button>
         {presetBase && <SalvarCardButton base={presetBase} getFiltros={getFiltros} cardId={presetCardId} />}
-        <div style={{ position: 'relative' }}>
-          <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setImpMenu(o => !o)}>
-            <Upload size={13} /> Importar ▾
-          </button>
-          {impMenu && (
-            <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', zIndex: 1000, minWidth: 240 }}>
-              {[
-                { m: 'linhas' as const,        label: 'Linhas (estrutura)',                modelo: modeloLinhas },
-                { m: 'baseline_full' as const, label: 'Orçado Baseline — substituir (full)', modelo: modeloBaseline },
-                { m: 'baseline_add' as const,  label: 'Orçado Baseline — adicionar',         modelo: modeloBaseline },
-              ].map(o => (
-                <div key={o.m} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 12px', fontSize: 13 }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,0.14)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'var(--panel)')}>
-                  <span style={{ cursor: 'pointer', flex: 1 }} onClick={() => { setImpMode(o.m); setImpMenu(false); fileRef.current?.click() }}>{o.label}</span>
-                  <span style={{ cursor: 'pointer', color: 'var(--violet)', fontSize: 11, whiteSpace: 'nowrap' }}
-                    onClick={e => { e.stopPropagation(); o.modelo() }} title="Baixar planilha modelo">⬇ modelo</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <input ref={fileRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" style={{ display: 'none' }}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => {
-            const f = e.target.files?.[0]
-            if (f) {
-              if (impMode === 'linhas') importLinhas(f)
-              else importBaseline(f, impMode === 'baseline_full' ? 'full' : 'add')
-              e.target.value = ''
-            }
-          }} />
+        {/* O menu Importar saiu de Consultar: o Orçado Baseline grava em fat_orcado
+            e já existe na grade de Orçar (/orcar-grade/:id), que é a tela de
+            escrita; o de Linhas foi para Estrutura, onde a árvore é construída. */}
         {saving && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Salvando...</span>}
       </div>
 
