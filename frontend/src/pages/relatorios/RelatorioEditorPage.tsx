@@ -1955,7 +1955,10 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, linhaIds, cont
           </div>
         </div>
 
-        {resumo.length > 1 && (
+        {/* A faixa não pode depender do agrupamento ESCOLHIDO: num drill em que
+            todos os lançamentos têm o mesmo CC, escolher "CC" deixaria um grupo
+            só, a faixa sumiria junto com os botões e não haveria como voltar. */}
+        {rows.length > 1 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 18px', borderBottom: '1px solid var(--border)', background: 'var(--bg-soft)' }}>
             <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>TOTAL POR</span>
             {([['empresa', 'Empresa'], ['filial', 'Filial'], ['cc', 'CC'], ['efc', 'Emp·Fil·CC']] as const).map(([k, lbl]) => (
@@ -1967,6 +1970,11 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, linhaIds, cont
             ))}
             <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flex: 1 }}>
+              {resumo.length === 1 && (
+                <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>
+                  tudo em um só — veja por outra dimensão
+                </span>
+              )}
               {resumo.map(g => (
                 <span key={g.label} title={`${g.n} lançamento(s)`}
                   style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5, fontSize: 11.5, padding: '3px 9px', borderRadius: 99, background: 'var(--panel)', border: '1px solid var(--border)' }}>
