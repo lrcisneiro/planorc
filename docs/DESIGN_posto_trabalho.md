@@ -315,6 +315,61 @@ a próxima carga mostrar se apareceu um código novo. O ERP sabe que a pessoa *e
 nada**, como `recebe_hora`: sem ela no arquivo, o import não toca na janela — uma
 carga de export antigo apagaria o retorno que alguém já previu.
 
+## Rescisão / demissão futura (implementado — out/2026, schema_v3_118)
+
+**A data já existia.** `posto.fim_ano`/`fim_mes` (vigência fim) é a data da
+demissão, e `vigencia()` já parava o custo depois dela. O que faltava é que uma
+demissão não só para de custar — **custa mais uma vez**, no mês da saída.
+
+**Três `tipo_calculo` novos**, porque cada parcela tem uma *forma de quantidade*
+diferente — não é um parâmetro a mais numa fórmula só:
+
+| tipo | conta | `parametro` |
+|---|---|---|
+| `RESC_AVISO` | `sal × min(90, 30+3×anos)/30 × param` | multiplicador: 1 indenizado, 0,5 acordo (Lei 13.467/17), 0 aviso trabalhado |
+| `RESC_PROP` | `sal × meses do ano/12 × param` | fator: 13º = 1, férias+1/3 = 1,3333 |
+| `RESC_SALDO_FGTS` | `sal × meses de casa × param%` | 3,2 = 40% × 8% |
+
+Todas valem **zero** fora do mês do fim de vigência. Daí o FGTS sobre as verbas
+rescisórias **não** precisar de tipo novo: é um `PCT_VERBA` comum apontando para
+`RESC_AVISO,RESC_13`, que rende 8% de zero nos outros onze meses. O **regime**
+faz o recorte — as cinco verbas são `BR-CLT`; prestador e pró-labore têm fim de
+contrato, não rescisão, e o filtro por regime já existia.
+
+**O mês representativo exclui a rescisão.** No mês da saída o motor roda a
+cascata **duas vezes**, com e sem rescisão: `totalMes` (o "custo/mês" da grade)
+fica com o recorrente e `rescisaoAno` carrega o evento. Sem isso a coluna diria
+que a pessoa custa 7 salários *todo mês*. Rodar duas vezes também resolve o
+`PCT_VERBA`, que de outra forma exigiria rastrear a referência transitivamente.
+A rescisão **entra** em `porContaMes`, então vai ao `fat_orcado` no mês certo.
+
+**`posto.admissao`** é coluna própria, não a vigência de início: `ini_*` descreve
+o ano orçado e é editável na tela, enquanto o aviso prévio progressivo e o saldo
+do FGTS precisam da admissão real. Sem ela o motor cai em `ini_*` (que o import
+do RH preenche com a admissão) — e aí o aviso vira 30 dias e a multa, zero.
+
+**Limites, por serem estimativa:**
+- a multa de 40% supõe **salário constante** — o saldo real está no extrato do
+  FGTS, que o orçamento não tem. Erra para quem ganhava muito menos anos atrás;
+  `parametro` é onde calibrar;
+- **férias vencidas** não entram: `RESC_PROP` usa os meses do ano, não o período
+  aquisitivo. Quem tem período vencido sai subestimado em ~1,33 salário;
+- 13º proporcional ignora a regra dos 15 dias e a projeção do aviso indenizado.
+
+**Dupla contagem** é o risco real: se o catálogo já provisionar rescisão mês a mês
+(o padrão contábil — a `PY_IND` do Paraguai faz isso), ela e as `RESC_*` se somam.
+A migration procura candidatas por descrição e avisa por `RAISE NOTICE`, com os
+dois caminhos: ou a provisão mensal, ou o evento no mês da saída.
+
+**Aviso de conta não amarrada.** `porContaMes` só indexa verba com
+`conta_destino_id`, então verba sem conta aparece na grade e **não** chega ao
+`fat_orcado`. As `RESC_*` nascem sem conta, então o Aplicar passou a listar quem
+tem valor e não tem conta. Era perda silenciosa antes também.
+
+**O que ficou de fora, por decisão:** `motivo_fim` (o regime já separa demissão de
+fim de contrato) e o botão "Repor" — reposição é cadastro de dois postos e, no
+volume atual, se faz à mão.
+
 ## Pendências / a discutir
 
 - Origem no fat_orcado: 'FORMULARIO' reuso vs novo valor 'POSTO' (preferir POSTO).

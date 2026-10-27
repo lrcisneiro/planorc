@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { PostosPills } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
-import { calcularPosto } from '../../lib/motorFolha'
+import { calcularPosto, CATEGORIAS } from '../../lib/motorFolha'
 import { usePostoCtx } from '../../lib/postoCtx'
 import { pageAll } from '../../lib/pageAll'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
@@ -14,7 +14,7 @@ import { RateioModal } from './RateioModal'
 // Memória de cálculo (P1, pill 5) — read-only. Cascata por posto + totais por conta de destino.
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const milAno = (v: number) => v >= 1e6 ? `R$ ${(v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} mi` : `R$ ${money(v)}`
-const catCor: Record<string, string> = { 'Salário': 'var(--green)', Encargos: 'var(--orange)', 'Provisões': 'var(--blue)', 'Benefícios': 'var(--violet)' }
+const catCor: Record<string, string> = { 'Rescisão': 'var(--red)', 'Salário': 'var(--green)', Encargos: 'var(--orange)', 'Provisões': 'var(--blue)', 'Benefícios': 'var(--violet)' }
 
 type Posto = {
   id: string; codigo: string; nome: string | null; regime: string | null; salario_base: number; fte: number; ativo?: boolean
@@ -145,7 +145,7 @@ export default function PostosMemoriaPage() {
 
   // agregados do escopo
   const agg = useMemo(() => {
-    const cat = { 'Salário': 0, Encargos: 0, 'Provisões': 0, 'Benefícios': 0 } as Record<string, number>
+    const cat = Object.fromEntries(CATEGORIAS.map(c => [c, 0])) as Record<string, number>
     const porConta: Record<string, number> = {}
     let ano = 0
     for (const p of filtrados) {
@@ -159,7 +159,7 @@ export default function PostosMemoriaPage() {
       .sort((a, b) => b.valor - a.valor)
     return { head: filtrados.length, ano, cat, linhasConta }
   }, [filtrados, custos, contas])
-  const compTot = agg.cat['Salário'] + agg.cat.Encargos + agg.cat['Provisões'] + agg.cat['Benefícios']
+  const compTot = CATEGORIAS.reduce((t, c) => t + agg.cat[c], 0)
   const pct = (v: number) => compTot ? Math.round(v / compTot * 100) : 0
 
   const empById = useMemo(() => new Map(empresas.map((e: any) => [e.id, e])), [empresas])
@@ -200,9 +200,11 @@ export default function PostosMemoriaPage() {
 
       <div style={S.kpis}>
         <div style={S.kpi}><div style={S.kpiL}>Headcount</div><div style={S.kpiV}>{agg.head}</div></div>
-        <div style={S.kpi}><div style={S.kpiL}>Custo anual (c/ encargos)</div><div style={S.kpiV}>{milAno(agg.ano)}</div><div style={S.kpiH}>{verbas.length ? `salários ${pct(agg.cat['Salário'])}% · encargos ${pct(agg.cat.Encargos + agg.cat['Provisões'])}% · benef ${pct(agg.cat['Benefícios'])}%` : 'sem verbas cadastradas'}</div></div>
+        <div style={S.kpi}><div style={S.kpiL}>Custo anual (c/ encargos)</div><div style={S.kpiV}>{milAno(agg.ano)}</div><div style={S.kpiH}>{verbas.length ? `salários ${pct(agg.cat['Salário'])}% · encargos ${pct(agg.cat.Encargos + agg.cat['Provisões'])}% · benef ${pct(agg.cat['Benefícios'])}%${agg.cat['Rescisão'] ? ` · rescisão ${pct(agg.cat['Rescisão'])}%` : ''}` : 'sem verbas cadastradas'}</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Salários + encargos</div><div style={S.kpiV}>{milAno(agg.cat['Salário'] + agg.cat.Encargos + agg.cat['Provisões'])}</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Benefícios</div><div style={S.kpiV}>{milAno(agg.cat['Benefícios'])}</div></div>
+        {/* só com demissão no ano — card zerado em 11 de 12 meses é ruído */}
+        {!!agg.cat['Rescisão'] && <div style={S.kpi}><div style={S.kpiL}>Rescisões</div><div style={{ ...S.kpiV, color: 'var(--red)' }}>{milAno(agg.cat['Rescisão'])}</div><div style={S.kpiH}>evento, não custo corrente</div></div>}
       </div>
 
       <div style={S.grid2}>

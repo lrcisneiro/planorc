@@ -47,6 +47,10 @@ const TIPO_CALCULO: { value: string; label: string }[] = [
   { value: 'PROVISAO_1_12', label: 'Provisão 1/12' },
   { value: 'VALOR_FIXO',    label: 'Valor fixo' },
   { value: 'INFORMATIVA',   label: 'Informativa (não orça)' },
+  // Rescisão (v3_118) — disparam só no mês do fim de vigência do posto.
+  { value: 'RESC_AVISO',      label: 'Rescisão · aviso prévio (30d+3d/ano)' },
+  { value: 'RESC_PROP',       label: 'Rescisão · proporcional aos meses' },
+  { value: 'RESC_SALDO_FGTS', label: 'Rescisão · % × tempo de casa' },
 ]
 const REGIME_OPTS: { value: string; label: string }[] = [
   { value: 'BR-CLT',       label: 'BR · CLT' },
@@ -60,6 +64,7 @@ const CATEGORIA_OPTS: { value: string; label: string }[] = [
   { value: 'ENCARGOS', label: 'Encargos' },
   { value: 'PROVISOES', label: 'Provisões' },
   { value: 'BENEFICIOS', label: 'Benefícios' },
+  { value: 'RESCISAO', label: 'Rescisão' },
 ]
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 const MESES_OPTS = MESES.map((m, i) => ({ value: String(i + 1), label: m }))

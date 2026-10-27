@@ -7,7 +7,7 @@ import { nomeCurto } from '../../lib/nomePessoa'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
-import { calcularPosto, regimeAplica, paisAplica } from '../../lib/motorFolha'
+import { calcularPosto, regimeAplica, paisAplica, CATEGORIAS } from '../../lib/motorFolha'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
 import { Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil } from 'lucide-react'
 import { RateioModal } from './RateioModal'
@@ -93,7 +93,7 @@ const S: Record<string, CSSProperties> = {
   btnPri2:{ padding: '8px 16px', fontSize: 13, background: 'var(--violet)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 },
 }
 const MESES_NUM = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
-const catCor: Record<string, string> = { 'Salário': 'var(--green)', Encargos: 'var(--orange)', 'Provisões': 'var(--blue)', 'Benefícios': 'var(--violet)' }
+const catCor: Record<string, string> = { 'Rescisão': 'var(--red)', 'Salário': 'var(--green)', Encargos: 'var(--orange)', 'Provisões': 'var(--blue)', 'Benefícios': 'var(--violet)' }
 const tag = (bg: string, cor: string, brd: string): CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 6, background: bg, color: cor, border: `1px solid ${brd}` })
 const T = {
   ocup: tag('rgba(52,211,153,0.12)', 'var(--green)', 'rgba(52,211,153,0.35)'),
@@ -116,6 +116,7 @@ type Posto = {
   reajuste_mes: number | null; reajuste_pct: number | null; reajuste_valor: number | null   // v3_116
   afast_ini_ano: number | null; afast_ini_mes: number | null                                 // v3_117
   afast_fim_ano: number | null; afast_fim_mes: number | null; afast_motivo: string | null
+  admissao: string | null                                                                    // v3_118 (rescisão)
   empresa_id: string; filial_id: string | null; cc_id: string | null; cargo_id: string | null; sindicato_id: string | null
   recurso_cod?: string | null                  // SRA.RA_X_RECUR — liga ao apontamento
   recebe_hora?: boolean | null                 // exceção sobre a função; null = segue a função
@@ -283,6 +284,10 @@ export default function PostosGradePage() {
             return { afast_ini_ano: parseInt(fy, 10), afast_ini_mes: parseInt(fm, 10), afast_fim_ano: null, afast_fim_mes: null,
               afast_motivo: `${(r.situacao || 'afastado').trim()} (do RH em ${r.afastado_desde}) — confirmar retorno` }
           })() : {}),
+          // a admissão alimenta DUAS coisas: a vigência de início (o posto começa
+          // a custar quando a pessoa entrou) e o tempo de casa da rescisão. A
+          // segunda fica na sua própria coluna porque a vigência é editável.
+          admissao: (r.admissao || '').trim() || null,
           ini_ano: ay ? parseInt(ay, 10) : null, ini_mes: am ? parseInt(am, 10) : null, fte: 1, ativo: (r.ativo || 'sim') !== 'nao' })
       }
       if (!payload.length) {
@@ -373,7 +378,7 @@ export default function PostosGradePage() {
 
   // ── Aplicar no orçado (step 5): grava fat_orcado (origem POSTO) do quadro ativo da versão ──
   const [aplicando, setAplicando] = useState(false)
-  const [aplicarInfo, setAplicarInfo] = useState<{ linhas: number; postos: number; contas: number; ano: number; fundidas: number; semTaxa: number } | null>(null)
+  const [aplicarInfo, setAplicarInfo] = useState<{ linhas: number; postos: number; contas: number; ano: number; fundidas: number; semTaxa: number; semConta: string[] } | null>(null)
   const aplicarNoOrcado = async () => {
     setErro(null); setAplicarInfo(null)
     if (!versaoSel) { setErro('Selecione a versão do orçamento.'); return }
@@ -403,6 +408,10 @@ export default function PostosGradePage() {
       }
       const byKey = new Map<string, any>()   // dedup pela chave da uq_fat_orcado (soma colisões)
       const contasTocadas = new Set<string>(); let postosAplicados = 0; let gerados = 0
+      // Verba COM valor e SEM conta destino não entra no fat_orcado: porContaMes
+      // só indexa quem tem conta. O número aparece na grade e não chega à DRE —
+      // perda silenciosa, e a rescisão nasce justamente sem conta amarrada.
+      const semConta = new Set<string>()
       const verbaById = new Map(verbas.map(v => [v.id, v]))   // p/ orçado por verba (fat_folha ORCADO)
       const folhaRows: any[] = []            // orçado por posto × verba × mês (NÃO rateado)
       for (const p of ativos) {
@@ -433,6 +442,7 @@ export default function PostosGradePage() {
         // orçado POR VERBA (paralelo, não rateado) — na empresa/CC do próprio posto
         for (const vid in r.porVerbaMes) {
           const mensal = r.porVerbaMes[vid]; const vinfo = verbaById.get(vid)
+          if (!vinfo?.conta_destino_id && mensal.some(x => x)) semConta.add(vinfo?.codigo || vid)
           for (let mi = 0; mi < 12; mi++) {
             const valor = round2(mensal[mi]); if (!valor) continue
             folhaRows.push({
@@ -462,7 +472,7 @@ export default function PostosGradePage() {
         const { error } = await supabase.from('fat_folha').insert(folhaOk.slice(i, i + 500))
         if (error) { setErro('Aviso — orçado por verba (gravação): ' + error.message); break }
       }
-      setAplicarInfo({ linhas: rows.length, postos: postosAplicados, contas: contasTocadas.size, ano: anoCalc, fundidas: gerados - rows.length, semTaxa: semTaxaOrc })
+      setAplicarInfo({ linhas: rows.length, postos: postosAplicados, contas: contasTocadas.size, ano: anoCalc, fundidas: gerados - rows.length, semTaxa: semTaxaOrc, semConta: [...semConta] })
     } finally { setAplicando(false) }
   }
   const salvar = async (id: string, patch: Partial<Posto>) => {
@@ -477,8 +487,8 @@ export default function PostosGradePage() {
     setPostos(ps => ps.filter(p => p.id !== id))
   }
   // novo posto / vaga ou edição (código, ocupante, cargo, local, regime, salário, vigência)
-  const novoPosto = (pre?: { cc_id?: string; cargo_id?: string }) => setForm({ codigo: '', codigoAuto: true, nome: '', matricula: '', cargo_id: pre?.cargo_id || '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: pre?.cc_id || '', sindicato_id: '', regime: 'BR-CLT', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', reajuste_mes: '', reajuste_pct: '', reajuste_valor: '', afast_ini_ano: '', afast_ini_mes: '', afast_fim_ano: '', afast_fim_mes: '', afast_motivo: '', rateios: [] })
-  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, codigoAuto: false, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', salario_base: p.salario_base != null ? String(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', reajuste_mes: p.reajuste_mes ? String(p.reajuste_mes) : '', reajuste_pct: p.reajuste_pct != null ? String(p.reajuste_pct) : '', reajuste_valor: p.reajuste_valor != null ? String(p.reajuste_valor) : '', afast_ini_ano: p.afast_ini_ano ? String(p.afast_ini_ano) : '', afast_ini_mes: p.afast_ini_mes ? String(p.afast_ini_mes) : '', afast_fim_ano: p.afast_fim_ano ? String(p.afast_fim_ano) : '', afast_fim_mes: p.afast_fim_mes ? String(p.afast_fim_mes) : '', afast_motivo: p.afast_motivo || '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
+  const novoPosto = (pre?: { cc_id?: string; cargo_id?: string }) => setForm({ codigo: '', codigoAuto: true, nome: '', matricula: '', cargo_id: pre?.cargo_id || '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: pre?.cc_id || '', sindicato_id: '', regime: 'BR-CLT', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', reajuste_mes: '', reajuste_pct: '', reajuste_valor: '', admissao: '', afast_ini_ano: '', afast_ini_mes: '', afast_fim_ano: '', afast_fim_mes: '', afast_motivo: '', rateios: [] })
+  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, codigoAuto: false, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', salario_base: p.salario_base != null ? String(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', reajuste_mes: p.reajuste_mes ? String(p.reajuste_mes) : '', reajuste_pct: p.reajuste_pct != null ? String(p.reajuste_pct) : '', reajuste_valor: p.reajuste_valor != null ? String(p.reajuste_valor) : '', afast_ini_ano: p.afast_ini_ano ? String(p.afast_ini_ano) : '', afast_ini_mes: p.afast_ini_mes ? String(p.afast_ini_mes) : '', afast_fim_ano: p.afast_fim_ano ? String(p.afast_fim_ano) : '', afast_fim_mes: p.afast_fim_mes ? String(p.afast_fim_mes) : '', afast_motivo: p.afast_motivo || '', admissao: p.admissao || '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
   const salvarPosto = async () => {
     if (!form) return
     if (!form.empresa_id) { setErro('Informe a empresa.'); return }
@@ -509,6 +519,7 @@ export default function PostosGradePage() {
       afast_fim_ano: afastOn && form.afast_fim_ano && form.afast_fim_mes ? parseInt(form.afast_fim_ano, 10) : null,
       afast_fim_mes: afastOn && form.afast_fim_ano && form.afast_fim_mes ? parseInt(form.afast_fim_mes, 10) : null,
       afast_motivo: afastOn ? ((form.afast_motivo || '').trim() || null) : null,
+      admissao: (form.admissao || '').trim() || null,   // só a rescisão usa (tempo de casa)
       ativo: true,
     }
     const saved = form.id
@@ -628,9 +639,14 @@ export default function PostosGradePage() {
     const pessoas = new Set(filtrados.map(p => (p.matricula || '').trim() || `__posto_${p.id}`)).size
     const fte = filtrados.reduce((s, p) => s + (Number(p.fte) || 0), 0)
     const ano = filtrados.reduce((s, p) => s + custoAnoP(p), 0)
-    const cat = { 'Salário': 0, Encargos: 0, 'Provisões': 0, 'Benefícios': 0 } as Record<string, number>
+    const cat = Object.fromEntries(CATEGORIAS.map(c => [c, 0])) as Record<string, number>
     for (const p of filtrados) { const r = custos.get(p.id); if (r) for (const k in r.porCategoria) cat[k] += (r.porCategoria as any)[k] }
-    return { head, vagas, pessoas, fte, ano, cat, medioFte: fte ? (ano / 12) / fte : 0 }
+    // Rescisão é EVENTO, não custo corrente: entra no custo anual (é desembolso
+    // do ano) mas sai do custo médio/FTE, que responde "quanto custa manter uma
+    // pessoa por mês" — somá-la ali inflaria o unitário de todo o quadro.
+    const resc = filtrados.reduce((s, p) => s + (custos.get(p.id)?.rescisaoAno || 0), 0)
+    const saindo = filtrados.filter(p => (custos.get(p.id)?.rescisaoAno || 0) > 0).length
+    return { head, vagas, pessoas, fte, ano, cat, resc, saindo, medioFte: fte ? ((ano - resc) / 12) / fte : 0 }
   }, [filtrados, custos]) // eslint-disable-line
 
   // janela de vigência DENTRO do ano da versão (bate com o motor)
@@ -660,10 +676,11 @@ export default function PostosGradePage() {
     const rc = custos.get(p.id)
     const mesesVig = rc?.mesesVigentes ?? 12
     const mesesAfast = rc?.mesesAfastado ?? 0
-    // Afastamento parcial faz o custo mudar no meio do ano igual ao reajuste, e
-    // pelo mesmo motivo merece o asterisco. Afastada o ano todo não entra: aí
-    // custoMes × meses volta a bater com o anual.
-    const mudaNoAno = !!custoMes && (!!p.reajuste_mes || mesesAfast > 0)
+    const rescAno = rc?.rescisaoAno || 0
+    // Afastamento parcial e rescisão fazem o custo mudar no meio do ano igual ao
+    // reajuste, e pelo mesmo motivo merecem o asterisco. Afastada o ano todo não
+    // entra: aí custoMes × meses volta a bater com o anual.
+    const mudaNoAno = !!custoMes && (!!p.reajuste_mes || mesesAfast > 0 || rescAno > 0)
       && Math.abs(custoMes * mesesVig - custoAno) > 0.01
     const fa = afast(p)
     const v = vig(p)
@@ -726,7 +743,11 @@ export default function PostosGradePage() {
             ? <input style={{ ...S.inp, width: 50 }} defaultValue={inpNum(p.fte ?? 1)} onBlur={e => { const x = parseNum(e.target.value); if (!isNaN(x) && x !== p.fte) salvar(p.id, { fte: x }) }} />
             : (Number(p.fte) || 1).toLocaleString('pt-BR', { minimumFractionDigits: 1 })}
         </td>
-        <td style={{ ...S.td, color: v.alerta ? 'var(--orange)' : 'var(--muted)' }}>{v.txt}</td>
+        {/* A saída já aparecia aqui ("jan–mai"); o que faltava era dizer quanto
+            ela custa. O ✂ marca a demissão e o título abre a estimativa. */}
+        <td style={{ ...S.td, color: v.alerta ? 'var(--orange)' : 'var(--muted)' }}
+          title={rescAno ? `Sai em ${MESES_NUM[(rc?.mesFimVigencia || 1) - 1]}/${anoCalc} · rescisão estimada ${money(rescAno)} (${(rescAno / Math.max(1, Number(p.salario_base) || 1)).toFixed(1)} salários). Clique no custo/mês para a memória.` : undefined}>
+          {v.txt}{rescAno > 0 && <span style={{ color: 'var(--red)', marginLeft: 4, fontWeight: 700 }}>✂</span>}</td>
         <td style={S.td}>{(() => {
           const rr = postoRateios[p.id] || []
           if (!rr.length) return <span style={{ color: 'var(--muted)' }}>—</span>
@@ -735,7 +756,7 @@ export default function PostosGradePage() {
         })()}</td>
         <td style={{ ...S.td, textAlign: 'right', cursor: 'pointer' }} onClick={() => setDrill(p)}
           title={mudaNoAno
-            ? `Mês de dezembro (${[p.reajuste_mes ? `reajuste em ${MESES_NUM[p.reajuste_mes - 1]}` : '', mesesAfast ? `${mesesAfast} ${mesesAfast > 1 ? 'meses' : 'mês'} de afastamento` : ''].filter(Boolean).join(', ')}). Nos outros meses o custo é outro — o anual de ${money(custoAno)} soma mês a mês. Clique para a memória.`
+            ? `Custo recorrente do último mês vigente (${[p.reajuste_mes ? `reajuste em ${MESES_NUM[p.reajuste_mes - 1]}` : '', mesesAfast ? `${mesesAfast} ${mesesAfast > 1 ? 'meses' : 'mês'} de afastamento` : '', rescAno ? `rescisão de ${money(rescAno)} em ${MESES_NUM[(rc?.mesFimVigencia || 1) - 1]}, fora desta coluna` : ''].filter(Boolean).join('; ')}). O anual de ${money(custoAno)} soma mês a mês. Clique para a memória.`
             : 'Ver memória de cálculo'}>
           {money(custoMes)}
           {mudaNoAno && <span style={{ color: 'var(--orange)', marginLeft: 3 }}>*</span>}
@@ -830,6 +851,7 @@ export default function PostosGradePage() {
           <div>Orçado aplicado na versão (ano {aplicarInfo.ano}): <b>{aplicarInfo.linhas.toLocaleString('pt-BR')} linhas</b> gravadas em <b>{aplicarInfo.postos} postos</b> e {aplicarInfo.contas} conta(s), origem POSTO.
             <div style={{ color: 'var(--muted)' }}>Substituiu o orçado POSTO anterior desta versão. Veja em Orçar / DRE (some com o manual/formulário na mesma célula).</div>
             {aplicarInfo.fundidas > 0 && <div style={{ color: 'var(--orange)' }}>⚠ {aplicarInfo.fundidas} lançamento(s) caíram na mesma célula e foram somados — pode indicar posto duplicado nos dados. Confira se há códigos de posto repetidos.</div>}
+            {aplicarInfo.semConta.length > 0 && <div style={{ color: 'var(--red)', fontWeight: 600 }}>⚠ {aplicarInfo.semConta.length} verba(s) com valor e <b>sem conta destino</b> — ficaram FORA do orçado (aparecem na grade, não na DRE): {aplicarInfo.semConta.join(', ')}. Amarre a conta em {passoLabel('/postos/regras')} e reaplique.</div>}
             {aplicarInfo.semTaxa > 0 && <div style={{ color: 'var(--red)', fontWeight: 600 }}>⚠ {aplicarInfo.semTaxa} linha(s) DESCARTADA(S) por falta de taxa orçada da moeda de origem (empresa em moeda estrangeira). Cadastre a taxa em Cadastros → Taxa orçada para esta versão e reaplique.</div>}
           </div>
         </div>
@@ -852,10 +874,10 @@ export default function PostosGradePage() {
       )}
 
       {(() => {
-        const t = tot.cat['Salário'] + tot.cat.Encargos + tot.cat['Provisões'] + tot.cat['Benefícios']
+        const t = CATEGORIAS.reduce((s, c) => s + tot.cat[c], 0)
         const pct = (v: number) => t ? Math.round(v / t * 100) : 0
         const comp = temMotor && t
-          ? `salários ${pct(tot.cat['Salário'])}% · encargos ${pct(tot.cat.Encargos + tot.cat['Provisões'])}% · benef ${pct(tot.cat['Benefícios'])}%`
+          ? `salários ${pct(tot.cat['Salário'])}% · encargos ${pct(tot.cat.Encargos + tot.cat['Provisões'])}% · benef ${pct(tot.cat['Benefícios'])}%${tot.cat['Rescisão'] ? ` · rescisão ${pct(tot.cat['Rescisão'])}%` : ''}`
           : 'sem motor — cadastre verbas em Estrutura'
         return (
           <div style={S.kpis}>
@@ -864,6 +886,9 @@ export default function PostosGradePage() {
               <div style={S.kpiH}>{tot.head > tot.pessoas ? `${tot.head - tot.pessoas} posto(s) a mais que pessoas` : 'uma pessoa por posto'}</div></div>
             <div style={S.kpi}><div style={S.kpiL}>FTE total</div><div style={S.kpiV}>{tot.fte.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}</div><div style={S.kpiH}>inclui ½ períodos</div></div>
             <div style={S.kpi}><div style={S.kpiL}>Custo anual {temMotor ? '(c/ encargos)' : '(base)'}</div><div style={S.kpiV}>{milAno(tot.ano)}</div><div style={S.kpiH}>{comp}</div></div>
+            {/* só aparece quando há demissão no ano: o card vazio vira ruído */}
+            {tot.resc > 0 && <div style={S.kpi}><div style={S.kpiL}>Rescisões</div><div style={{ ...S.kpiV, color: 'var(--red)' }}>{milAno(tot.resc)}</div>
+              <div style={S.kpiH}>{tot.saindo} saída{tot.saindo === 1 ? '' : 's'} no ano · fora do custo médio</div></div>}
             <div style={S.kpi}><div style={S.kpiL}>Custo médio / FTE</div><div style={S.kpiV}>R$ {money(tot.medioFte)}<span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)' }}>/mês</span></div><div style={S.kpiH}>{temMotor ? 'com encargos' : 'base'}</div></div>
           </div>
         )
@@ -926,6 +951,10 @@ export default function PostosGradePage() {
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 3 }}>{drill.cargo?.nome || '—'} · {drill.regime || '—'} · {drill.sindicato?.codigo || 'sem sindicato'}{dis ? ` · dissídio ${dis}%` : ''} · base R$ {money((Number(drill.salario_base) || 0) * (Number(drill.fte) || 1))}/mês</div>
                   {/* Sem esta linha, a coluna "Mês" zerada no salário parece erro
                       de cadastro — o mês representativo é um mês de afastamento. */}
+                  {!!r?.rescisaoAno && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 4 }}>
+                    Sai em {MESES_NUM[(r.mesFimVigencia || 1) - 1]}/{anoCalc} · rescisão estimada <b>R$ {money(r.rescisaoAno)}</b>.
+                    Ela está no total do <b>ano</b>, não no mês — a coluna "Mês" é o custo recorrente.
+                  </div>}
                   {fAfast && <div style={{ fontSize: 12, color: 'var(--violet)', marginTop: 4 }}>
                     Afastado {fAfast.txt}{fAfast.aberto ? ' (sem previsão de retorno)' : ''}{drill.afast_motivo ? ` — ${drill.afast_motivo}` : ''}.
                     Nesses {r?.mesesAfastado || 0} {(r?.mesesAfastado || 0) > 1 ? 'meses' : 'mês'} o orçamento leva só os benefícios devidos no afastamento.
@@ -950,7 +979,7 @@ export default function PostosGradePage() {
                 </table>
               )}
               {r && <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
-                {(['Salário', 'Encargos', 'Provisões', 'Benefícios'] as const).map(c => r.porCategoria[c] ? (
+                {CATEGORIAS.map(c => r.porCategoria[c] ? (
                   <span key={c} style={{ ...tag('var(--bg)', catCor[c], 'var(--border)'), fontSize: 11.5 }}>{c}: R$ {money(r.porCategoria[c])}/ano</span>
                 ) : null)}
               </div>}
@@ -1019,6 +1048,52 @@ export default function PostosGradePage() {
                 </div>
               </div>
             </div>
+
+            {/* Saída (v3_118). A DATA é a vigência fim, logo acima — aqui fica só o
+                que a rescisão precisa e não dava para derivar: a admissão (aviso
+                prévio progressivo + saldo do FGTS) e a prévia do que isso custa.
+                Prestador/pró-labore não aparecem: o filtro por regime das verbas
+                já os deixa de fora, e contrato que acaba não gera rescisão. */}
+            {form.fim_ano && Number(form.fim_ano) === anoCalc && (() => {
+              const regCLT = (form.regime || '').includes('CLT')
+              const prev = regCLT ? calcularPosto({
+                salario_base: parseNum(form.salario_base) || 0, fte: parseNum(form.fte) || 1,
+                regime: form.regime || null, pais: empPais.get(form.empresa_id) ?? null,
+                ini_ano: form.ini_ano ? parseInt(form.ini_ano, 10) : null, ini_mes: form.ini_mes ? parseInt(form.ini_mes, 10) : null,
+                fim_ano: parseInt(form.fim_ano, 10), fim_mes: form.fim_mes ? parseInt(form.fim_mes, 10) : 12,
+                admissao: (form.admissao || '').trim() || null,
+                reajuste_mes: form.reajuste_mes ? parseInt(form.reajuste_mes, 10) : null,
+                reajuste_pct: form.reajuste_pct ? parseNum(form.reajuste_pct) : null,
+                reajuste_valor: form.reajuste_valor ? parseNum(form.reajuste_valor) : null,
+              }, verbas, {
+                dissidioPct: form.sindicato_id ? (dissidio[form.sindicato_id] || 0) : 0,
+                mesBase: form.sindicato_id ? (sindMesBase[form.sindicato_id] || 1) : 1,
+                ano: anoCalc, valoresFixos: form.id ? (postoVerbas[form.id] || {}) : {},
+              }) : null
+              const sal = parseNum(form.salario_base) || 0
+              return (
+                <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+                  <span style={{ ...S.flbl, display: 'block', marginBottom: 6 }}>
+                    Saída em {MESES_NUM[(form.fim_mes ? Number(form.fim_mes) : 12) - 1]}/{form.fim_ano} <span style={{ color: 'var(--muted)' }}>(a data é a vigência fim, acima)</span>
+                  </span>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div><span style={S.flbl}>Admissão <span style={{ color: 'var(--muted)' }}>(tempo de casa)</span></span>
+                      <input type="date" style={{ ...S.finp, width: 150 }} value={form.admissao}
+                        onChange={e => setForm((f: any) => ({ ...f, admissao: e.target.value }))} />
+                    </div>
+                    {prev && <div style={{ fontSize: 12.5, paddingBottom: 6 }}>
+                      <div style={{ color: 'var(--red)', fontWeight: 600 }}>Rescisão estimada: R$ {money(prev.rescisaoAno)}{sal ? ` (${(prev.rescisaoAno / sal).toFixed(1)} salários)` : ''}</div>
+                      <div style={{ color: 'var(--muted)' }}>{prev.linhas.filter(l => l.categoria === 'Rescisão').map(l => `${l.verba.codigo} ${money(l.valorAno)}`).join(' · ') || 'sem verbas de rescisão no catálogo deste regime'}</div>
+                    </div>}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                    {regCLT
+                      ? <>Sem a admissão o aviso prévio vai a 30 dias e a multa do FGTS a zero — o motor cai na vigência de início. A multa é <b>estimada</b> por salário × tempo de casa; o saldo real está no extrato do FGTS. Os fatores ficam em <b>Postos → Regras</b> (<code>RESC_*</code>).</>
+                      : <>Regime <b>{form.regime || '—'}</b>: contrato que termina, sem rescisão. Só <code>BR-CLT</code> tem as verbas <code>RESC_*</code>.</>}
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Reajuste individual (v3_116): promoção/mérito com data. Sem isto,
                 planejar um aumento em março obrigava a escolher entre errar o ano
