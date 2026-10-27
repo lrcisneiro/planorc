@@ -396,6 +396,24 @@ tem valor e não tem conta. Era perda silenciosa antes também.
 fim de contrato) e o botão "Repor" — reposição é cadastro de dois postos e, no
 volume atual, se faz à mão.
 
+## Sinal do Aplicar (corrigido — out/2026)
+
+O motor gravava a despesa **positiva** no `fat_orcado`, enquanto o orçado MANUAL
+e o realizado guardam despesa **negativa**. Na DRE as duas origens se cancelavam
+em vez de somar — EBITDA inflado em 517% quando medimos. O Aplicar passou a
+decidir pela **`natureza` da conta de destino** (não por "folha é despesa"), e
+avisa quando escreve numa conta que não é `DESPESA` — sinal de cadastro errado.
+
+**`fat_folha` NÃO foi tocada.** Lá o lado realizado vem da folha do ERP, que é
+positiva, e as três conciliações (`ConciliacaoFolha`, `ConciliacaoQuadro`,
+`ConciliacaoContabil`) leem `fat_folha`, nunca `fat_orcado` — então inverter só o
+`fat_orcado` é autocontido.
+
+Para os dados **já gravados**, `fix_sinal_orcado_posto.sql` troca o sinal in
+place, sem recalcular. Reaplicar pela tela também corrige, mas recalcula: em 2026,
+que está em validação mês a mês, isso traria as regras novas (afastamento,
+rescisão) e mudaria números já conferidos. Daí o script existir.
+
 ## Pendências / a discutir
 
 - Origem no fat_orcado: 'FORMULARIO' reuso vs novo valor 'POSTO' (preferir POSTO).

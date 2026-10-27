@@ -378,24 +378,36 @@ export default function PostosGradePage() {
 
   // ── Aplicar no orçado (step 5): grava fat_orcado (origem POSTO) do quadro ativo da versão ──
   const [aplicando, setAplicando] = useState(false)
-  const [aplicarInfo, setAplicarInfo] = useState<{ linhas: number; postos: number; contas: number; ano: number; fundidas: number; semTaxa: number; semConta: string[] } | null>(null)
+  const [aplicarInfo, setAplicarInfo] = useState<{ linhas: number; postos: number; contas: number; ano: number; fundidas: number; semTaxa: number; semConta: string[]; natEstranha: string[] } | null>(null)
   const aplicarNoOrcado = async () => {
     setErro(null); setAplicarInfo(null)
     if (!versaoSel) { setErro('Selecione a versão do orçamento.'); return }
     if (!temMotor) { setErro('Sem verbas cadastradas — cadastre a Estrutura antes de aplicar.'); return }
     const ativos = postos.filter(p => p.ativo !== false)
     const versaoCod = versoes.find(v => v.id === versaoSel)?.codigo || String(anoCalc)
-    if (!confirm(`Aplicar ${ativos.length} postos ativos no orçado da versão ${versaoCod} (ano ${anoCalc})?\n\nIsto SUBSTITUI todo o orçado de origem POSTO desta versão. Lançamentos manuais e de formulário não são afetados.`)) return
+    if (!confirm(`Aplicar ${ativos.length} postos ativos no orçado da versão ${versaoCod} (ano ${anoCalc})?\n\nIsto SUBSTITUI todo o orçado de origem POSTO desta versão. Lançamentos manuais e de formulário não são afetados.\n\nDespesa é gravada com sinal NEGATIVO, como o orçado manual e o realizado.`)) return
     setAplicando(true)
     try {
       const round2 = (n: number) => Math.round(n * 100) / 100
       // MULTIMOEDA: moeda_origem = moeda funcional da empresa do POSTO (fonte do custo);
       // converte pela taxa ORÇADA da versão. BR (slot 1) = valor fica base, só preenche val_m2.
-      const [{ data: moedasD }, { data: empMoedaD }, vtaxas] = await Promise.all([
+      const [{ data: moedasD }, { data: empMoedaD }, vtaxas, contasNat] = await Promise.all([
         supabase.from('moeda').select('slot').eq('ativo', true).order('slot'),
         supabase.from('empresa').select('id,moeda_slot'),
         pageAll(() => supabase.from('versao_taxa').select('moeda_slot,ano,mes,taxa').eq('versao_id', versaoSel)),
+        pageAll(() => supabase.from('conta_orcamentaria').select('id,codigo,natureza')),
       ])
+      // SINAL: fat_orcado guarda despesa NEGATIVA — é a convenção do orçado
+      // MANUAL e do realizado. O motor gravava positivo, e na DRE as duas
+      // origens se cancelavam em vez de somar (EBITDA inflado em 517% quando
+      // medimos). Decide pela `natureza` da conta, não por "folha é despesa":
+      // se amanhã o motor escrever numa conta de outra natureza, acerta sozinho.
+      // Não vale para a `fat_folha`: lá o lado realizado vem da folha do ERP,
+      // que é positiva, e a conciliação compara os dois crus.
+      const natConta = new Map<string, string | null>((contasNat || []).map((c: any) => [c.id, c.natureza]))
+      const codConta = new Map<string, string>((contasNat || []).map((c: any) => [c.id, c.codigo]))
+      const sinalDe = (conta: string) => natConta.get(conta) === 'DESPESA' ? -1 : 1
+      const natEstranha = new Set<string>()   // conta que o motor escreve e não é DESPESA
       const slotsAtivos = (moedasD?.length ? moedasD.map((m: any) => m.slot) : [1]) as number[]
       const empMoeda = new Map<string, number>((empMoedaD || []).map((e: any) => [e.id, e.moeda_slot || 1]))
       let semTaxaOrc = 0
@@ -420,8 +432,10 @@ export default function PostosGradePage() {
         let algo = false
         for (const conta in r.porContaMes) {
           const mensal = r.porContaMes[conta]
+          const sin = sinalDe(conta)
+          if (sin > 0) natEstranha.add(`${codConta.get(conta) || conta} (${natConta.get(conta) || 'sem natureza'})`)
           for (let mi = 0; mi < 12; mi++) {
-            const base = mensal[mi]; if (!base) continue
+            const base = mensal[mi] * sin; if (!base) continue
             for (const cell of cells) {
               const valor = round2(base * cell.pct); if (!valor) continue
               const mudouEmpresa = cell.empresa_id !== p.empresa_id
@@ -472,7 +486,7 @@ export default function PostosGradePage() {
         const { error } = await supabase.from('fat_folha').insert(folhaOk.slice(i, i + 500))
         if (error) { setErro('Aviso — orçado por verba (gravação): ' + error.message); break }
       }
-      setAplicarInfo({ linhas: rows.length, postos: postosAplicados, contas: contasTocadas.size, ano: anoCalc, fundidas: gerados - rows.length, semTaxa: semTaxaOrc, semConta: [...semConta] })
+      setAplicarInfo({ linhas: rows.length, postos: postosAplicados, contas: contasTocadas.size, ano: anoCalc, fundidas: gerados - rows.length, semTaxa: semTaxaOrc, semConta: [...semConta], natEstranha: [...natEstranha] })
     } finally { setAplicando(false) }
   }
   const salvar = async (id: string, patch: Partial<Posto>) => {
@@ -851,6 +865,7 @@ export default function PostosGradePage() {
           <div>Orçado aplicado na versão (ano {aplicarInfo.ano}): <b>{aplicarInfo.linhas.toLocaleString('pt-BR')} linhas</b> gravadas em <b>{aplicarInfo.postos} postos</b> e {aplicarInfo.contas} conta(s), origem POSTO.
             <div style={{ color: 'var(--muted)' }}>Substituiu o orçado POSTO anterior desta versão. Veja em Orçar / DRE (some com o manual/formulário na mesma célula).</div>
             {aplicarInfo.fundidas > 0 && <div style={{ color: 'var(--orange)' }}>⚠ {aplicarInfo.fundidas} lançamento(s) caíram na mesma célula e foram somados — pode indicar posto duplicado nos dados. Confira se há códigos de posto repetidos.</div>}
+            {aplicarInfo.natEstranha.length > 0 && <div style={{ color: 'var(--orange)' }}>⚠ {aplicarInfo.natEstranha.length} conta(s) de destino não são de natureza DESPESA, então foram gravadas com sinal <b>positivo</b>: {aplicarInfo.natEstranha.join(', ')}. Confira a natureza em Cadastros → Estrutura — custo de folha deveria ser despesa.</div>}
             {aplicarInfo.semConta.length > 0 && <div style={{ color: 'var(--red)', fontWeight: 600 }}>⚠ {aplicarInfo.semConta.length} verba(s) com valor e <b>sem conta destino</b> — ficaram FORA do orçado (aparecem na grade, não na DRE): {aplicarInfo.semConta.join(', ')}. Amarre a conta em {passoLabel('/postos/regras')} e reaplique.</div>}
             {aplicarInfo.semTaxa > 0 && <div style={{ color: 'var(--red)', fontWeight: 600 }}>⚠ {aplicarInfo.semTaxa} linha(s) DESCARTADA(S) por falta de taxa orçada da moeda de origem (empresa em moeda estrangeira). Cadastre a taxa em Cadastros → Taxa orçada para esta versão e reaplique.</div>}
           </div>
