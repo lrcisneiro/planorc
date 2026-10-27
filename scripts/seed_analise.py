@@ -35,6 +35,15 @@ ENTRADA = _pos[0] if _pos else os.path.join(RAIZ, 'seed2027_grao.csv')
 ANO     = int(_flag('ano', '2027'))
 SAIDA   = _pos[1] if len(_pos) > 1 else os.path.join(RAIZ, f'seed{ANO}_analise.xlsx')
 CC_FILTRO = [c.strip() for c in _flag('cc').split(',') if c.strip()]
+# --cc-fora=1 : o complemento de --cc=1. Serve para fatiar a revisão em dois
+# lotes que, juntos, cobrem tudo — o administrativo (CC 1xx) vai para um
+# responsável e o resto para outro, sem linha caindo no vão entre os dois.
+CC_FORA = [c.strip() for c in _flag('cc-fora').split(',') if c.strip()]
+# --unica: tudo numa aba só. Abas por empresa servem para despesa direta — o
+# aluguel de cada unidade é um número por unidade. Mas despesa RATEADA aparece
+# fatiada em várias empresas, e com uma aba por empresa não dá para ver o
+# conjunto: o filtro por conta numa aba única mostra as fatias lado a lado.
+ABA_UNICA = '--unica' in sys.argv[1:]
 
 ANO_BASE = ANO - 1
 MESES   = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out']   # out = em aberto
@@ -90,6 +99,8 @@ def main():
     for r in rows:
         fil, cc = destino(r)
         if CC_FILTRO and not any(cc == f or cc.startswith(f) for f in CC_FILTRO):
+            continue
+        if CC_FORA and any(cc == f or cc.startswith(f) for f in CC_FORA):
             continue
         vals10 = [num(r[c]) for c in COL_CSV]
         fech = vals10[:FECHADOS]
@@ -162,10 +173,18 @@ def main():
         ws.freeze_panes = f'{get_column_letter(IX["Classe"])}2'
 
     por_aba = defaultdict(list)
-    for k in sorted(prop, key=lambda k: (k[1], sum(prop[k]))):
-        por_aba[k[0]].append(k)
+    if ABA_UNICA:
+        # agrupado por conta (as fatias de um rateio ficam juntas) e, dentro da
+        # conta, da maior para a menor — as contas maiores primeiro
+        peso = defaultdict(float)
+        for k in prop: peso[k[2]] += sum(prop[k])
+        por_aba['Dados'] = sorted(prop, key=lambda k: (peso[k[2]], k[2], sum(prop[k])))
+    else:
+        for k in sorted(prop, key=lambda k: (k[1], sum(prop[k]))):
+            por_aba[k[0]].append(k)
 
     def aba_nome(emp):
+        if ABA_UNICA: return 'Dados'
         d = nome_emp.get(emp, '')
         n = f'{emp} · {d}' if d else emp
         for ch in ':\\/?*[]': n = n.replace(ch, '-')
@@ -174,17 +193,30 @@ def main():
     wb = Workbook(); wb.remove(wb.active)
     resumo = wb.create_sheet('Resumo')
     ordem = sorted(por_aba, key=lambda e: sum(sum(prop[k]) for k in por_aba[e]))
-    resumo.append(['Empresa', 'Unidade', 'Filiais', 'Linhas', f'Realizado {ANO_BASE}', f'Proposto {ANO}', 'Var %'])
+    cab_res = (['Conta', 'Descrição da conta', 'Empresas', 'Linhas'] if ABA_UNICA
+               else ['Empresa', 'Unidade', 'Filiais', 'Linhas'])
+    resumo.append(cab_res + [f'Realizado {ANO_BASE}', f'Proposto {ANO}', 'Var %'])
     for c in range(1, 8):
         cel = resumo.cell(1, c); cel.font = Font(bold=True, color='FFFFFF')
         cel.fill = PatternFill('solid', fgColor='1F3864'); cel.alignment = Alignment(horizontal='center')
-    for emp in ordem:
-        ks = por_aba[emp]
-        resumo.append([emp, nome_emp.get(emp, ''), len({k[1] for k in ks}), len(ks), None, None, None])
+    if ABA_UNICA:
+        # na aba única o resumo é por CONTA — é a pergunta que a aba única serve
+        por_conta = defaultdict(list)
+        for k in prop: por_conta[k[2]].append(k)
+        ordem_res = sorted(por_conta, key=lambda c: sum(sum(prop[k]) for k in por_conta[c]))
+        for ct in ordem_res:
+            ks = por_conta[ct]
+            resumo.append([ct, nome_master.get(ct, ''), len({k[0] for k in ks}), len(ks),
+                           sum(sum(real[k][:9]) for k in ks), sum(sum(prop[k]) for k in ks), None])
+    else:
+        for emp in ordem:
+            ks = por_aba[emp]
+            resumo.append([emp, nome_emp.get(emp, ''), len({k[1] for k in ks}), len(ks), None, None, None])
     lin_tot = resumo.max_row + 1
     resumo.append(['TOTAL', '', '', len(prop), None, None, None])
     resumo[f'A{lin_tot}'].font = Font(bold=True)
-    for col, w in {'A': 9, 'B': 22, 'C': 8, 'D': 8, 'E': 16, 'F': 16, 'G': 9}.items():
+    for col, w in ({'A': 9, 'B': 34, 'C': 10, 'D': 8, 'E': 16, 'F': 16, 'G': 9} if ABA_UNICA
+                   else {'A': 9, 'B': 22, 'C': 8, 'D': 8, 'E': 16, 'F': 16, 'G': 9}).items():
         resumo.column_dimensions[col].width = w
 
     for emp in ordem:
@@ -192,11 +224,19 @@ def main():
 
     cR = get_column_letter(IX[f'Realizado {ANO_BASE}'])
     cP = get_column_letter(IX[f'Proposto {ANO}'])
-    for i, emp in enumerate(ordem, start=2):
-        n = aba_nome(emp).replace("'", "''")
-        resumo.cell(i, 5).value = f"=SUM('{n}'!{cR}2:{cR}100000)"
-        resumo.cell(i, 6).value = f"=SUM('{n}'!{cP}2:{cP}100000)"
-        resumo.cell(i, 7).value = f'=IF(E{i}=0,"",(F{i}/E{i}-1)*100)'
+    if ABA_UNICA:
+        # resumo por conta usa SOMASE sobre a própria aba: continua vivo ao editar
+        cC = get_column_letter(IX['Conta'])
+        for i in range(2, lin_tot):
+            resumo.cell(i, 5).value = f"=SUMIF(Dados!{cC}:{cC},A{i},Dados!{cR}:{cR})"
+            resumo.cell(i, 6).value = f"=SUMIF(Dados!{cC}:{cC},A{i},Dados!{cP}:{cP})"
+            resumo.cell(i, 7).value = f'=IF(E{i}=0,"",(F{i}/E{i}-1)*100)'
+    else:
+        for i, emp in enumerate(ordem, start=2):
+            n = aba_nome(emp).replace("'", "''")
+            resumo.cell(i, 5).value = f"=SUM('{n}'!{cR}2:{cR}100000)"
+            resumo.cell(i, 6).value = f"=SUM('{n}'!{cP}2:{cP}100000)"
+            resumo.cell(i, 7).value = f'=IF(E{i}=0,"",(F{i}/E{i}-1)*100)'
     resumo.cell(lin_tot, 5).value = f'=SUM(E2:E{lin_tot - 1})'
     resumo.cell(lin_tot, 6).value = f'=SUM(F2:F{lin_tot - 1})'
     resumo.cell(lin_tot, 7).value = f'=IF(E{lin_tot}=0,"",(F{lin_tot}/E{lin_tot}-1)*100)'

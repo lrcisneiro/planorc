@@ -48,3 +48,11 @@ DePara*.csv
 # razão do ERP e lotes mensais gerados (dados grandes)
 LancamentoContabil.csv
 lotes_saida/
+
+# dados de trabalho do seed (saida de consulta, regeravel pelo SQL do passo 3)
+# nao versionar: e o detalhe de despesa por empresa/filial/CC do grupo
+seed20*_grao.csv
+seed20*_analise.xlsx
+seed20*_import*.xlsx
+seed20*_admin*.xlsx
+seed20*_operacao*.xlsx
