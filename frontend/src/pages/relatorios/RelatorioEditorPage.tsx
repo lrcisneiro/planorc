@@ -323,6 +323,11 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const as = Object.values(anoDoCenario).filter(Boolean) as number[]
     return (as.length ? Math.max(...as) : pIni.ano) - 1
   }, [anoDoCenario, pIni.ano])
+  // Usados nos TRÊS laços que carregam cenário (geral, por empresa, escopo de
+  // indicador): qual ano buscar e com que ano a célula é chaveada. O realizado
+  // do ano anterior busca fora do período e exibe no ano de referência.
+  const anosDoCen = (cen: string) => ehRealAnt(cen) ? [anoRealAnt] : anos
+  const anoChave = (cen: string, ano: number) => ehRealAnt(cen) ? refAno : ano
 
   const anos = useMemo(() => [...new Set(periodosSel.map(p => p.ano))].sort((a, b) => a - b), [periodosSel])
   // No modo overlay, expande 'REALIZADO' em um pseudo-cenário por ano (REALIZADO@2025, @2026…).
@@ -614,17 +619,17 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         const m: ValMap = {}
         for (const cen of cenariosAtivos) {
           const map: RawValues = {}
-          if (cen === REALIZADO) {
+          if (ehReal(cen)) {
             if (isBalanco) {
-              for (const y of anos) {
+              for (const y of anosDoCen(cen)) {
                 const { data, error } = await supabase.rpc('relatorio_saldo_agg', { p_empresas: [eid], p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
                 if (error) throw new Error(error.message)
-                for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${y}-${r.mes}`] = { valor: Number(r.saldo) || 0 } }
+                for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${anoChave(cen, y)}-${r.mes}`] = { valor: Number(r.saldo) || 0 } }
               }
             } else {
-              const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: [eid], p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
+              const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: [eid], p_anos: anosDoCen(cen), p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
               if (error) throw new Error(error.message)
-              for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0 } }
+              for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${anoChave(cen, r.ano)}-${r.mes}`] = { valor: Number(r.valor) || 0 } }
             }
           } else {
             const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: [eid], p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
@@ -661,17 +666,17 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         for (const cen of cenariosAtivos) {
           const rawSc: RawValues = {}
           const setMaster = (master: string, pk: string, cell: { valor?: number; expressao?: string }) => { for (const lid of (masterToLines[master] || [])) (rawSc[lid] ||= {})[pk] = cell }
-          if (cen === REALIZADO) {
+          if (ehReal(cen)) {
             if (isBalanco) {
-              for (const y of anos) {
+              for (const y of anosDoCen(cen)) {
                 const { data, error } = await supabase.rpc('relatorio_saldo_agg', { p_empresas: empresaSel, p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
                 if (error) throw new Error(error.message)
-                for (const r of data || []) setMaster(r.linha_id, `${y}-${r.mes}`, { valor: Number(r.saldo) || 0 })
+                for (const r of data || []) setMaster(r.linha_id, `${anoChave(cen, y)}-${r.mes}`, { valor: Number(r.saldo) || 0 })
               }
             } else {
-              const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: empresaSel, p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccList, p_slot: moedaView })
+              const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: empresaSel, p_anos: anosDoCen(cen), p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccList, p_slot: moedaView })
               if (error) throw new Error(error.message)
-              for (const r of data || []) setMaster(r.linha_id, `${r.ano}-${r.mes}`, { valor: Number(r.valor) || 0 })
+              for (const r of data || []) setMaster(r.linha_id, `${anoChave(cen, r.ano)}-${r.mes}`, { valor: Number(r.valor) || 0 })
             }
           } else {
             const anosCen = cicloMode ? [anoDoCenario[cen] ?? refAno] : anos
