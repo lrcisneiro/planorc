@@ -66,7 +66,6 @@ function bucketLabel(gran: string, start: number, ano: number, showYear: boolean
 // Aritmética de período (multi-ano)
 const perIdx = (p: Periodo) => p.ano * 12 + (p.mes - 1)
 const addMes = (p: Periodo, d: number): Periodo => { const z = perIdx(p) + d; return { ano: Math.floor(z / 12), mes: (z % 12) + 1 } }
-const samePer = (a: Periodo | null | undefined, b: Periodo | null | undefined) => !!a && !!b && a.ano === b.ano && a.mes === b.mes
 const mesesNoRange = (ini: Periodo, fim: Periodo): Periodo[] => {
   const n = perIdx(fim) - perIdx(ini) + 1
   return Array.from({ length: Math.max(0, n) }, (_, i) => addMes(ini, i))
@@ -182,7 +181,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // F3) faz o mesmo com empresa × filial × CC e é a que está no menu. A rota
   // /orcar/:id não aparecia em menu nenhum — só se chegava nela por um botão
   // dentro deste cabeçalho —, então eram dois caminhos para a mesma tarefa, e o
-  // escondido era o antigo. Aqui `editavel` é sempre false: esta tela lê.
+  // escondido era o antigo. Esta tela e so leitura: o que se edita aqui e a
+  // ESTRUTURA (modo `estrutura`), nunca o valor do orcado.
   const podeEstrutura = mode === 'estrutura'
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -248,8 +248,6 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const aplicarPeriodoDaVisao = (vid: string) =>
     aplicarPeriodoDeCenarios(views.find(x => x.id === vid)?.cenarios || [])
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-  const [editCell,  setEditCell]  = useState<{ linhaId: string; period: number } | null>(null)
-  const [editVal,   setEditVal]   = useState('')
   const [adding,    setAdding]    = useState<{ paiId: string | null } | null>(null)
   const [newDesc,   setNewDesc]   = useState('')
   const [loading,   setLoading]   = useState(true)
@@ -365,7 +363,6 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
 
   // 1 empresa selecionada: usada pelo rótulo do cabeçalho e pelo recorte do drill
   const empresaUnica = empresaSel.length === 1 ? empresaSel[0] : null
-  const editavel = false   // Consultar é leitura; a edição vive na grade de Orçar
   // Só sobra o aviso que vale em qualquer modo: sem versão cadastrada não há o
   // que consultar. O resto do antigo toast falava de orçar nesta tela.
   const avisoLeitura = versoes.length === 0
@@ -890,10 +887,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const periodoLabel = period === 'TOTAL'
       ? `${MESES[displayedMeses[0]?.mes - 1] ?? ''}/${displayedMeses[0]?.ano ?? ''} – ${MESES[displayedMeses[displayedMeses.length - 1]?.mes - 1] ?? ''}/${displayedMeses[displayedMeses.length - 1]?.ano ?? ''}`
       : lbl0
-    // Editável: 1 mês, linha analítica, cenário = versão (orçado), e empresa no escopo ORÇAR
-    const editavelRazao = false   // ver nota sobre o modo `orcar` no topo do arquivo
     // F2: orçado consulta por linha MESTRE (fat_orcado.linha_id agora é mestre)
-    const linhaIdsRl = editavelRazao ? [l.id] : linhasAnaliticasDe(l.id)
+    const linhaIdsRl = linhasAnaliticasDe(l.id)
     const linhaIds = linhaIdsRl.map(orcOf).filter(Boolean) as string[]
     // Realizado: resolve as contas amarradas (conta_linha) à linha e sua subárvore + sinal
     const subtreeIds = (rootId: string): string[] => { const out = [rootId]; const rec = (pid: string) => { for (const c of linhas.filter(x => x.pai_id === pid)) { out.push(c.id); rec(c.id) } }; rec(rootId); return out }
@@ -916,7 +911,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       linhaById: Object.fromEntries(linhas.map(x => [x.linha_orc_id, x.descricao])),
       empById: Object.fromEntries(empresas.map(e => [e.id, e])),
       filById: Object.fromEntries(filiais.map(f => [f.id, f])),
-      editavel: editavelRazao, versaoId: cen, linhaId: orcOf(l.id) || l.id,
+      versaoId: cen, linhaId: orcOf(l.id) || l.id,
       empresasList: empresas, filiaisList: filiais, ccsList: ccs,
       isBalanco: relatorio?.categoria === 'BP',
       onChanged: loadValores,
@@ -996,84 +991,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const soUltimoMes = () => { const last = buckets.length - 1; setColapsados(new Set(buckets.map((_, i) => i).filter(i => i !== last))) }
   const expandirMeses = () => setColapsados(new Set())
 
-  // ── Salvar célula (valor OU fórmula =)
-  const saveCell = async (linhaId: string, per: Periodo) => {
-    const master = orcOf(linhaId)
-    if (!versaoId || !empresaUnica || !master) { setEditCell(null); return }
-    setSaving(true)
-    await ensureSnapshot()
-    const fac = facOf(linById[linhaId] || ({} as Linha))   // exibe positivo p/ despesa → grava com sinal
-    const txt = editVal.trim()
-    const isFormula = txt.startsWith('=')
-    const valor = isFormula ? null : fac * parseNum(txt)   // valor DIGITADO na moeda em exibição (moedaView)
-    const expressao = isFormula ? toStored(txt) : null
-    const mat = matOrc(valor, per.ano, per.mes)            // materializa nos slots (base + val_m2..m5)
-    if (!mat) { setValErro(`Sem taxa orçada de ${moedaCod(moedaView)} em ${per.mes}/${per.ano} — cadastre em Cadastros › Taxa orçada.`); setSaving(false); return }
-    const { data: ex } = await supabase.from('fat_orcado').select('id')
-      .eq('versao_id', versaoId).eq('linha_id', master).eq('empresa_id', empresaUnica)
-      .eq('ano', per.ano).eq('mes', per.mes).is('filial_id', null).is('cc_id', null).maybeSingle()
-    if (ex) await supabase.from('fat_orcado').update({ ...mat, expressao, origem: 'MANUAL' }).eq('id', ex.id)
-    else await supabase.from('fat_orcado').insert({
-      tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaUnica,
-      filial_id: null, cc_id: null, ano: per.ano, mes: per.mes, ...mat, expressao, origem: 'MANUAL', dims: {},
-    })
-    // raw guarda o valor NA MOEDA EM EXIBIÇÃO (o que a RPC devolveria via p_slot)
-    setRaw(prev => ({ ...prev, [versaoId]: { ...(prev[versaoId] || {}),
-      [linhaId]: { ...(prev[versaoId]?.[linhaId] || {}), [pkey(per)]: { valor, expressao } } } }))
-    setEditCell(null); setSaving(false)
-  }
-
-  // Salva a fórmula NO NÍVEL DA LINHA (vale p/ todas as empresas; não grava na fato)
-  const saveLineExpr = async (l: Linha, txt: string) => {
-    const t = txt.trim()
-    const expr = t ? toStored(t.startsWith('=') ? t : '=' + t) : null
-    setSaving(true)
-    await ensureSnapshot()
-    const { error } = await supabase.from('relatorio_linha').update({ expressao: expr }).eq('id', l.id)
-    if (!error) setLinhas(prev => prev.map(x => x.id === l.id ? { ...x, expressao: expr } : x))
-    setEditCell(null); setSaving(false)
-  }
-  // Decide onde gravar a edição da célula: fórmula de linha (FORMULA/INDICADOR) vs valor na fato
-  const commitCell = (linhaId: string, period: number) => {
-    const l = linhas.find(x => x.id === linhaId)
-    if (l && (l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR')) { saveLineExpr(l, editVal); return }
-    const perUnico = mpb === 1 ? buckets[period]?.meses[0] : null
-    if (perUnico) saveCell(linhaId, perUnico); else setEditCell(null)
-  }
-
-  // ── Replicar célula até o fim do período exibido (fill-to-right, multi-ano)
-  const fillRight = async (linhaId: string, fromPer: Periodo, txt: string) => {
-    const master = orcOf(linhaId)
-    if (!versaoId || !empresaUnica || !master) { setEditCell(null); return }
-    setSaving(true)
-    await ensureSnapshot()
-    const fac = facOf(linById[linhaId] || ({} as Linha))
-    const t = txt.trim()
-    const isFormula = t.startsWith('=')
-    const valor = isFormula ? null : fac * parseNum(t)   // na moeda em exibição (moedaView)
-    const expressao = isFormula ? toStored(t) : null
-    const updates: Record<string, { valor: number | null; expressao: string | null }> = {}
-    const start = displayedMeses.findIndex(p => samePer(p, fromPer))
-    const alvos = start >= 0 ? displayedMeses.slice(start) : [fromPer]
-    const semTaxa: string[] = []
-    for (const per of alvos) {
-      const mat = matOrc(valor, per.ano, per.mes)   // taxa orçada pode variar por mês
-      if (!mat) { semTaxa.push(`${per.mes}/${per.ano}`); continue }   // sem taxa da origem nesse mês → pula
-      const { data: ex } = await supabase.from('fat_orcado').select('id')
-        .eq('versao_id', versaoId).eq('linha_id', master).eq('empresa_id', empresaUnica)
-        .eq('ano', per.ano).eq('mes', per.mes).is('filial_id', null).is('cc_id', null).maybeSingle()
-      if (ex) await supabase.from('fat_orcado').update({ ...mat, expressao, origem: 'MANUAL' }).eq('id', ex.id)
-      else await supabase.from('fat_orcado').insert({
-        tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaUnica,
-        filial_id: null, cc_id: null, ano: per.ano, mes: per.mes, ...mat, expressao, origem: 'MANUAL', dims: {},
-      })
-      updates[pkey(per)] = { valor, expressao }
-    }
-    if (semTaxa.length) setValErro(`Sem taxa orçada de ${moedaCod(moedaView)} em ${semTaxa.join(', ')} — meses pulados (cadastre em Cadastros › Taxa orçada).`)
-    setRaw(prev => ({ ...prev, [versaoId]: { ...(prev[versaoId] || {}),
-      [linhaId]: { ...(prev[versaoId]?.[linhaId] || {}), ...updates } } }))
-    setEditCell(null); setSaving(false)
-  }
+  // A gravação de célula (saveCell / saveLineExpr / commitCell / fillRight) foi
+  // removida em out/2026 junto com o modo `orcar`: esta tela é leitura. Valor de
+  // orçado se digita na grade de Orçar; fórmula de linha, na tela de Estrutura.
 
   // ── Exportar / Importar matriz (Excel) desta empresa/versão/ano
   const exportMatrix = () => {
@@ -1490,7 +1410,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         {moedas.length > 1 && (
           <select value={moedaView} onChange={e => setMoedaView(Number(e.target.value))}
             style={{ ...S.sel, borderColor: moedaView === 1 ? 'var(--border-strong)' : 'var(--green)', color: moedaView === 1 ? 'var(--text)' : 'var(--green)', fontWeight: 500 }}
-            title={editavel ? 'Moeda exibida e moeda de origem ao digitar (converte pela taxa orçada da versão)' : 'Moeda exibida (valor já convertido)'}>
+            title="Moeda exibida (valor já convertido)">
             {moedas.map(m => <option key={m.slot} value={m.slot}>{m.simbolo ? `${m.simbolo} ` : ''}{m.codigo}</option>)}
           </select>
         )}
@@ -1499,7 +1419,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           {' · '}{view.cenarios.filter(c => c !== REALIZADO).map(c => versoes.find(v => v.id === c)?.codigo).filter(Boolean).join(' + ') || '—'}{' · '}{pIni.ano === pFim.ano ? pIni.ano : `${pIni.ano}–${pFim.ano}`}
           {filialSel.length ? ` · ${filialSel.length} filial` : ''}{ccSel.length ? ` · ${ccSel.length} CC` : ''}
         </span>
-        {!editavel && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--orange)', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.30)', borderRadius: 99, padding: '2px 8px' }}>somente leitura</span>}
+        {/* a tag "somente leitura" saiu: Consultar é leitura por definição, e um
+            aviso permanente não informa nada */}
 
         {/* Quebra forçada: o header é um flex com wrap, e a Visão abre a 2ª linha.
             Sem isto ela sobe e desce conforme o nome do relatório e a largura da
@@ -1706,7 +1627,6 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
               const depth = l._depth ?? 0
               const isAgg = l.tipo_linha === 'SOMAR_FILHOS'
               const isSpac = l.tipo_linha === 'ESPACO'
-              const editable = l.tipo_linha === 'ANALITICA'
               const hasKids = temFilhos(l.id)
               const isOpen = !collapsed.has(l.id)
               const rowBg = isAgg ? 'rgba(139,92,246,0.07)' : isSpac ? 'transparent' : 'var(--panel)'
@@ -1766,48 +1686,17 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                     const perUnico = mpb === 1 && typeof c.period === 'number' ? buckets[c.period as number]?.meses[0] ?? null : null
                     const pk = perUnico ? pkey(perUnico) : ''
                     const isDet = !!perUnico && !!detalhado[cen]?.has(`${l.id}-${pk}`)
-                    const isLineFx = l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR'
-                    const editLineFx = isLineFx && cen === versaoId && typeof c.period === 'number'
-                    const canEditCell = editable && cen === versaoId && !!perUnico && editavel && !isDet && !l.nao_soma   // linha de apoio escopada = read-only
-                    const canEdit = canEditCell || editLineFx
-                    const isEditing = editCell?.linhaId === l.id && editCell?.period === c.period
                     const hasFx = !!perUnico && !!raw[cen]?.[l.id]?.[pk]?.expressao
-                    const naoUltimo = !!perUnico && !samePer(perUnico, displayedMeses[displayedMeses.length - 1])
-                    const display = isSpac ? '' : (val !== 0 ? formatValor(fac * val, l.formato, l.casas_decimais) : (canEditCell ? <span style={{ color: 'var(--border)' }}>—</span> : ''))
+                    const display = isSpac ? '' : (val !== 0 ? formatValor(fac * val, l.formato, l.casas_decimais) : '')
                     return (
                       <td key={c.key}
-                        style={{ ...S.td, color: clr, fontWeight: fw, textDecoration: off ? 'line-through' : undefined, cursor: canEdit ? 'text' : (isSpac ? 'default' : 'pointer'), background: isSel ? 'rgba(59,130,246,0.30)' : (cen !== versaoId && !isSpac ? 'var(--bg-soft)' : undefined) }}
-                        onClick={() => {
-                          setSelId(l.id)
-                          if (canEditCell) {
-                            setEditCell({ linhaId: l.id, period: c.period as number })
-                            const cell = raw[versaoId]?.[l.id]?.[pk]
-                            setEditVal(cell?.expressao ? toDisplay(cell.expressao) : (val ? formatValor(fac * val, l.formato, l.casas_decimais) : ''))
-                          } else if (editLineFx) {
-                            setEditCell({ linhaId: l.id, period: c.period as number })
-                            setEditVal(toDisplay(l.expressao))
-                          } else {
-                            abrirRazao(l, c.period, cen)
-                          }
-                        }}
+                        style={{ ...S.td, color: clr, fontWeight: fw, textDecoration: off ? 'line-through' : undefined, cursor: isSpac ? 'default' : 'pointer', background: isSel ? 'rgba(59,130,246,0.30)' : undefined }}
+                        onClick={() => { setSelId(l.id); abrirRazao(l, c.period, cen) }}
                         onContextMenu={e => { e.preventDefault(); abrirRazao(l, c.period, cen) }}
-                        title={editLineFx ? 'Fórmula da linha (vale p/ todas as empresas). Clique p/ editar.' : isDet ? 'Detalhado por filial/CC (somado). Clique p/ ver o razão.' : (hasFx ? raw[cen]?.[l.id]?.[pk]?.expressao ?? '' : 'Botão direito: ver razão (detalhe)')}>
-                        {isEditing ? (
-                          <FormulaCellInput
-                            value={editVal}
-                            onChange={setEditVal}
-                            onCommit={() => commitCell(l.id, c.period as number)}
-                            onCancel={() => setEditCell(null)}
-                            onFill={canEditCell && naoUltimo && perUnico ? () => fillRight(l.id, perUnico, editVal) : undefined}
-                            onDetail={canEditCell ? () => { setEditCell(null); abrirRazao(l, c.period, cen) } : undefined}
-                            linhas={linhas.map(x => ({ codigo: x.codigo, descricao: x.descricao }))}
-                            inputStyle={S.cellInput}
-                          />
-                        ) : (
-                          <span style={{ display: 'block', minWidth: 54 }}>
-                            {hasFx && <span style={{ color: 'var(--violet)', fontSize: 9, marginRight: 3 }}>ƒ</span>}{display}
-                          </span>
-                        )}
+                        title={isDet ? 'Detalhado por filial/CC (somado). Clique p/ ver o razão.' : (hasFx ? raw[cen]?.[l.id]?.[pk]?.expressao ?? '' : 'Clique: ver razão (detalhe)')}>
+                        <span style={{ display: 'block', minWidth: 54 }}>
+                          {hasFx && <span style={{ color: 'var(--violet)', fontSize: 9, marginRight: 3 }}>ƒ</span>}{display}
+                        </span>
                       </td>
                     )
                   })}
@@ -1852,7 +1741,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         </table>
       </div>
 
-      {!editavel && !avisoLeituraOff && avisoLeitura && (
+      {!avisoLeituraOff && avisoLeitura && (
         <div style={{ position: 'fixed', bottom: 16, right: 16, display: 'flex', alignItems: 'flex-start', gap: 8, background: 'rgba(251,191,36,0.14)', border: '1px solid var(--orange)', borderRadius: 8, padding: '8px 10px 8px 14px', fontSize: 13, color: 'var(--orange)', maxWidth: 320, boxShadow: '0 6px 18px rgba(0,0,0,0.12)', zIndex: 1400 }}>
           <span>{avisoLeitura}</span>
           <X size={16} style={{ cursor: 'pointer', flexShrink: 0, color: '#b8902a' }} onClick={() => setAvisoLeituraOff(true)} />
@@ -1876,11 +1765,11 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
 }
 
 // ─── Modal: Razão (detalhe + edição dos lançamentos de uma célula) ────
-function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaIds, contaIds, contaSinal, contaItemMap, empresaSel, filialFilter, ccFilter, ccById, contaById, linhaById, empById, filById, editavel, linhaId, isBalanco, empresasList, filiaisList, ccsList, moedaSlot, matOrc, moedaCod, onChanged, onBeforeChange, onClose, onConciliar }: {
+function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, linhaIds, contaIds, contaSinal, contaItemMap, empresaSel, filialFilter, ccFilter, ccById, contaById, linhaById, empById, filById, linhaId, isBalanco, moedaSlot, moedaCod, onClose, onConciliar }: {
   titulo: string; cen: string; cenLabel: string; periodoLabel: string; meses: Periodo[]; perAdd: Periodo | null
   linhaIds: string[]; contaIds: string[]; contaSinal: Record<string, number>; contaItemMap?: Record<string, string>; empresaSel: string[]; filialFilter: string[] | null; ccFilter: string[] | null
   ccById: Record<string, any>; contaById: Record<string, any>; linhaById: Record<string, string>; empById: Record<string, any>; filById: Record<string, any>
-  editavel: boolean; linhaId: string; isBalanco?: boolean
+  linhaId: string; isBalanco?: boolean
   empresasList: { id: string; codigo: string; descricao: string }[]
   filiaisList: { id: string; codigo: string; descricao: string }[]
   ccsList: { id: string; codigo: string; descricao: string }[]
@@ -1893,17 +1782,14 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
   const slotVal = (r: any, base: string) => slot >= 2 ? Number(r['val_m' + slot] ?? 0) : Number(r[base] ?? 0)
   const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [showAdd, setShowAdd] = useState(false)
   const [sort, setSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'valor', dir: 'desc' })
   const sortClick = (col: string) => setSort(s => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: col === 'valor' ? 'desc' : 'asc' })
   const seta = (col: string) => sort.col === col ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''
-  const emptyForm = { empresa_id: empresaSel.length === 1 ? empresaSel[0] : (empresaSel[0] || ''), filial_id: '', cc_id: '', area: '', divisao: '', bu: '', historico: '', valor: '' }
-  const [form, setForm] = useState<any>(emptyForm)
 
   const isReal = ehReal(cen)
   // valor em EXIBIÇÃO: realizado/saldo/orçado-consulta já vêm agregados no slot em r.valor;
   // orçado editável mantém a linha crua (r.valor = base) → converte pela coluna do slot.
-  const dispVal = (r: any) => (editavel && !isReal) ? slotVal(r, 'valor') : Number(r.valor || 0)
+  const dispVal = (r: any) => Number(r.valor || 0)
   const load = async () => {
     setLoading(true)
     if (isReal && !contaIds.length) { setRows([]); setLoading(false); return }
@@ -1932,7 +1818,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
     const raw = await fetchAllRows(() => {
       let q = isReal
         ? supabase.from('fat_realizado').select('conta_id,empresa_id,filial_id,cc_id,ano,mes,data,valor,val_m2,val_m3,val_m4,val_m5,historico,documento,dims,lote,sublote').in('conta_id', contaIds)
-        : supabase.from('fat_orcado').select(editavel ? 'id,empresa_id,filial_id,cc_id,ano,mes,valor,val_m2,val_m3,val_m4,val_m5,dims,origem' : 'linha_id,empresa_id,filial_id,cc_id,ano,mes,valor,val_m2,val_m3,val_m4,val_m5,dims').in('linha_id', linhaIds).eq('versao_id', cen)
+        : supabase.from('fat_orcado').select('linha_id,empresa_id,filial_id,cc_id,ano,mes,valor,val_m2,val_m3,val_m4,val_m5,dims').in('linha_id', linhaIds).eq('versao_id', cen)
       q = q.in('empresa_id', empresaSel).in('ano', anosQ).in('mes', mesesQ)
       if (filialFilter) q = q.in('filial_id', filialFilter)
       if (ccFilter) q = q.in('cc_id', ccFilter)
@@ -1960,8 +1846,6 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
         else agg.set(k, { conta_id: r.conta_id, empresa_id: r.empresa_id, filial_id: r.filial_id, cc_id: r.cc_id, data: r.data || '', documento: r.documento || '', lote: r.lote || '', sublote: r.sublote || '', dims: { historico: r.historico || '' }, valor: v })
       }
       setRows(Array.from(agg.values()).sort((a, b) => (a.data || '').localeCompare(b.data || '') || (contaById[a.conta_id]?.codigo || '').localeCompare(contaById[b.conta_id]?.codigo || '')))
-    } else if (editavel) {
-      setRows((data as any[]).map(r => ({ ...r, dims: r.dims || {} })).sort((a, b) => (a.dims.historico || '').localeCompare(b.dims.historico || '')))
     } else {
       const agg = new Map<string, any>()
       for (const r of data as any[]) {
@@ -1996,52 +1880,13 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
     ]),
   ])
 
-  // ── edição (modo editável) ──
-  const saveValor = async (r: any, str: string) => {
-    const vView = parseNum(str); if (vView === slotVal(r, 'valor')) return   // digitado na moeda em exibição
-    const mat = matOrc ? matOrc(vView, r.ano, r.mes) : { valor: vView }
-    if (!mat) { alert(`Sem taxa orçada de ${moedaCod?.(slot) ?? 'moeda'} em ${r.mes}/${r.ano} — cadastre em Cadastros › Taxa orçada.`); return }
-    await onBeforeChange?.()
-    await supabase.from('fat_orcado').update({ ...mat, origem: 'MANUAL' }).eq('id', r.id)
-    setRows(prev => prev.map(x => x.id === r.id ? { ...x, ...mat } : x)); onChanged()
-  }
-  const saveHist = async (r: any, str: string) => {
-    const h = str.trim(); if (h === (r.dims.historico || '')) return
-    const dims = { ...r.dims }; if (h) dims.historico = h; else delete dims.historico
-    await onBeforeChange?.()
-    const { error } = await supabase.from('fat_orcado').update({ dims }).eq('id', r.id)
-    if (error) { alert('Erro: ' + error.message); return }
-    setRows(prev => prev.map(x => x.id === r.id ? { ...x, dims } : x)); onChanged()
-  }
-  const delRow = async (r: any) => {
-    if (!confirm('Excluir este lançamento?')) return
-    await onBeforeChange?.()
-    await supabase.from('fat_orcado').delete().eq('id', r.id)
-    setRows(prev => prev.filter(x => x.id !== r.id)); onChanged()
-  }
-  const addRow = async () => {
-    if (perAdd == null) { alert('Adição disponível só em célula de mês.'); return }
-    if (!form.empresa_id) { alert('Selecione a empresa.'); return }
-    const valorView = parseNum(form.valor)   // digitado na moeda em exibição
-    if (!valorView) { alert('Informe um valor.'); return }
-    const mat = matOrc ? matOrc(valorView, perAdd.ano, perAdd.mes) : { valor: valorView }
-    if (!mat) { alert(`Sem taxa orçada de ${moedaCod?.(slot) ?? 'moeda'} em ${perAdd.mes}/${perAdd.ano} — cadastre em Cadastros › Taxa orçada.`); return }
-    const dims: any = {}
-    for (const k of ['area', 'divisao', 'bu', 'historico']) if (form[k]?.trim()) dims[k] = form[k].trim()
-    await onBeforeChange?.()
-    const { error } = await supabase.from('fat_orcado').insert({
-      tenant_id: TENANT_ID, versao_id: cen, linha_id: linhaId, empresa_id: form.empresa_id,
-      filial_id: form.filial_id || null, cc_id: form.cc_id || null, ano: perAdd.ano, mes: perAdd.mes, ...mat, expressao: null, origem: 'MANUAL', dims,
-    })
-    if (error) { alert('Erro ao adicionar: ' + (error.message.includes('uq_fat_orcado') ? 'já existe um lançamento com essas dimensões — edite o existente.' : error.message)); return }
-    setForm(emptyForm); setShowAdd(false); await load(); onChanged()
-  }
+  // O drill é só leitura: saveValor/saveHist/delRow/addRow saíram com o modo
+  // `orcar`. Lançamento de orçado se cria e edita na grade de Orçar.
 
   const th: CSSProperties = { textAlign: 'left', padding: '7px 10px', fontSize: 11, color: 'var(--muted)', fontWeight: 600, borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, background: 'var(--bg)' }
   const td: CSSProperties = { padding: '6px 10px', fontSize: 12, borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }
-  const inp: CSSProperties = { padding: '4px 6px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 5, outline: 'none', width: '100%', boxSizing: 'border-box' }
   const temPosto = !isReal && rows.some((r: any) => r.dims?.posto)   // orçado com origem POSTO → habilita o botão de conciliação
-  const colSpan = (editavel ? 11 : 10) + (isReal ? 4 : 0) - (!isReal && temPosto ? 1 : 0)
+  const colSpan = 10 + (isReal ? 4 : 0) - (!isReal && temPosto ? 1 : 0)
   const keyOf = (r: any, col: string): string | number => {
     switch (col) {
       case 'conta': return contaById[r.conta_id]?.codigo || ''
@@ -2074,7 +1919,7 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Razão — {titulo}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{cenLabel} · {periodoLabel}{editavel ? ' · editável' : ''}{slot >= 2 ? ` · em ${moedaCod?.(slot) ?? `M${slot}`}` : ''}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{cenLabel} · {periodoLabel}{slot >= 2 ? ` · em ${moedaCod?.(slot) ?? `M${slot}`}` : ''}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {temPosto && onConciliar && <button title="Comparar orçado × realizado da folha por posto"
@@ -2084,27 +1929,6 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
             <X size={20} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} />
           </div>
         </div>
-
-        {editavel && (
-          <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--panel)', background: 'var(--bg-soft)' }}>
-            {!showAdd ? (
-              <button style={{ ...S.btnPri, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setShowAdd(true)}><Plus size={14} /> Novo lançamento</button>
-            ) : (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
-                <Campo label="Empresa *"><select style={{ ...inp, width: 150 }} value={form.empresa_id} onChange={e => setForm({ ...form, empresa_id: e.target.value })}><option value="">—</option>{empresasList.map(e => <option key={e.id} value={e.id}>{e.codigo} · {e.descricao}</option>)}</select></Campo>
-                <Campo label="Filial"><select style={{ ...inp, width: 140 }} value={form.filial_id} onChange={e => setForm({ ...form, filial_id: e.target.value })}><option value="">(todas)</option>{filiaisList.map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.descricao}</option>)}</select></Campo>
-                <Campo label="Centro de Custo"><select style={{ ...inp, width: 150 }} value={form.cc_id} onChange={e => setForm({ ...form, cc_id: e.target.value })}><option value="">(nenhum)</option>{ccsList.map(c => <option key={c.id} value={c.id}>{c.codigo} · {c.descricao}</option>)}</select></Campo>
-                <Campo label="Área"><input style={{ ...inp, width: 90 }} value={form.area} onChange={e => setForm({ ...form, area: e.target.value })} /></Campo>
-                <Campo label="Divisão"><input style={{ ...inp, width: 90 }} value={form.divisao} onChange={e => setForm({ ...form, divisao: e.target.value })} /></Campo>
-                <Campo label="BU"><input style={{ ...inp, width: 80 }} value={form.bu} onChange={e => setForm({ ...form, bu: e.target.value })} /></Campo>
-                <Campo label="Histórico"><input style={{ ...inp, width: 200 }} value={form.historico} onChange={e => setForm({ ...form, historico: e.target.value })} /></Campo>
-                <Campo label="Valor *"><input style={{ ...inp, width: 110, textAlign: 'right' }} value={form.valor} onChange={e => setForm({ ...form, valor: e.target.value })} placeholder="0,00" /></Campo>
-                <button style={S.btnGreen} onClick={addRow}>Adicionar</button>
-                <button style={S.btnGray} onClick={() => { setShowAdd(false); setForm(emptyForm) }}>Cancelar</button>
-              </div>
-            )}
-          </div>
-        )}
 
         <div style={{ overflow: 'auto', flex: 1 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -2126,14 +1950,11 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
                 : <><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('area')}>Área{seta('area')}</th><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('divisao')}>Divisão{seta('divisao')}</th><th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('bu')}>BU{seta('bu')}</th></>)}
               <th style={{ ...th, cursor: 'pointer' }} onClick={() => sortClick('historico')}>Histórico{seta('historico')}</th>
               <th style={{ ...th, textAlign: 'right', cursor: 'pointer' }} onClick={() => sortClick('valor')}>Valor{seta('valor')}</th>
-              {editavel && <th style={th}>Origem</th>}
-              {editavel && <th style={th} />}
             </tr></thead>
             <tbody>
               {loading && <tr><td colSpan={colSpan} style={{ ...td, textAlign: 'center', color: 'var(--muted)', padding: 24 }}>Carregando...</td></tr>}
-              {!loading && rows.length === 0 && <tr><td colSpan={colSpan} style={{ ...td, textAlign: 'center', color: 'var(--muted)', padding: 24 }}>{isReal && !contaIds.length ? 'Nenhuma conta contábil amarrada a esta linha. Use o botão 🔗 no editor para mapear contas → linha (conta_linha).' : `Sem lançamentos.${editavel ? ' Use "Novo lançamento".' : ''}`}</td></tr>}
+              {!loading && rows.length === 0 && <tr><td colSpan={colSpan} style={{ ...td, textAlign: 'center', color: 'var(--muted)', padding: 24 }}>{isReal && !contaIds.length ? 'Nenhuma conta contábil amarrada a esta linha. Use o botão 🔗 no editor para mapear contas → linha (conta_linha).' : 'Sem lançamentos.'}</td></tr>}
               {!loading && rowsSorted.map((r, i) => {
-                const prot = editavel && r.origem === 'FORMULARIO'
                 return (
                   <tr key={r.id ?? i}>
                     {isReal && <td style={{ ...td, fontFamily: 'monospace' }} title={contaById[r.conta_id]?.descricao || ''}>{contaById[r.conta_id]?.codigo || '—'}{contaById[r.conta_id]?.descricao ? ` · ${contaById[r.conta_id].descricao}` : ''}</td>}
@@ -2151,17 +1972,11 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
                       <td style={td}>{r.dims.divisao || ''}</td>
                       <td style={td}>{r.dims.bu || ''}</td></>)}
                     <td style={td}>
-                      {editavel && !prot
-                        ? <input key={`h${r.id}`} style={inp} defaultValue={r.dims.historico || ''} onBlur={e => saveHist(r, e.target.value)} />
-                        : (r.dims.historico || '')}
+                      {r.dims.historico || ''}
                     </td>
                     <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      {editavel && !prot
-                        ? <input key={`v${r.id}`} style={{ ...inp, textAlign: 'right' }} defaultValue={String(dispVal(r))} onBlur={e => saveValor(r, e.target.value)} />
-                        : formatValor(dispVal(r), 'NUMERO', 2)}
+                      {formatValor(dispVal(r), 'NUMERO', 2)}
                     </td>
-                    {editavel && <td style={{ ...td, fontSize: 10, color: r.origem === 'FORMULARIO' ? 'var(--cyan)' : 'var(--muted)' }}>{r.origem || 'MANUAL'}</td>}
-                    {editavel && <td style={td}>{!prot && <button style={{ ...S.iconBtn, color: 'var(--red)' }} onClick={() => delRow(r)}><Trash2 size={13} /></button>}</td>}
                   </tr>
                 )
               })}
@@ -2175,9 +1990,6 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, perAdd, linhaI
       </div>
     </div>
   )
-}
-function Campo({ label, children }: { label: string; children: any }) {
-  return <div><label style={{ display: 'block', fontSize: 10, color: 'var(--muted)', marginBottom: 2 }}>{label}</label>{children}</div>
 }
 
 // ─── Modal: adicionar linhas da estrutura compartilhada (F4) ──
