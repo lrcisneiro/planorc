@@ -73,9 +73,15 @@ const mesesNoRange = (ini: Periodo, fim: Periodo): Periodo[] => {
 const REALIZADO = 'REALIZADO'
 // Sobreposição de realizado ano-a-ano: pseudo-cenário 'REALIZADO@2025' etc. (só em runtime; o
 // view_config.cenarios continua guardando 'REALIZADO'). O ano vive na chave.
-const ehRealAno = (k: string) => k.startsWith(REALIZADO + '@')
+const ehRealAno = (k: string) => k.startsWith(REALIZADO + '@') && !k.endsWith('@-1')
 const anoDeRealAno = (k: string) => Number(k.slice(REALIZADO.length + 1))
-const ehReal = (k: string) => k === REALIZADO || ehRealAno(k)
+// Realizado do ano ANTERIOR ao do orçamento: o cenário guarda o deslocamento, não
+// o ano. Assim a visão não envelhece — em 2028 ela compara 2028 com 2027 sozinha,
+// sem ninguém editar. É o mesmo princípio do REALIZADO comum, que nunca teve ano
+// próprio; aqui só fica explícito QUAL ano ele segue.
+const REALIZADO_ANT = REALIZADO + '@-1'
+const ehRealAnt = (k: string) => k === REALIZADO_ANT
+const ehReal = (k: string) => k === REALIZADO || ehRealAno(k) || ehRealAnt(k)
 const FUNCAO_LABEL: Record<Funcao, string> = { MENSAL: 'Períodos', ACM: 'Acumulado', MENSAL_ACM: 'Acum. + Períodos', COMPARATIVO: 'Comparativo' }
 const TIPO_INFO: Record<TipoLinha, { label: string; icon: any; cor: string }> = {
   SOMAR_FILHOS: { label: 'Subtotal — soma das filhas',                 icon: Sigma,          cor: 'var(--blue)' },
@@ -311,6 +317,12 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     return funcao === 'COMPARATIVO' && cenariosAtivos.includes(REALIZADO) && multiAno
   }, [anoDoCenario, views, activeView, periodosSel, cenariosAtivos])
   const refAno = pIni.ano
+  // "anterior" a quê: ao ano das VERSÕES da visão (a maior, se houver mais de uma).
+  // Sem versão nenhuma, ao primeiro ano do período.
+  const anoRealAnt = useMemo(() => {
+    const as = Object.values(anoDoCenario).filter(Boolean) as number[]
+    return (as.length ? Math.max(...as) : pIni.ano) - 1
+  }, [anoDoCenario, pIni.ano])
 
   const anos = useMemo(() => [...new Set(periodosSel.map(p => p.ano))].sort((a, b) => a - b), [periodosSel])
   // No modo overlay, expande 'REALIZADO' em um pseudo-cenário por ano (REALIZADO@2025, @2026…).
@@ -318,10 +330,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const out: string[] = []
     for (const c of lista) {
       if (cicloMode && c === REALIZADO) { for (const a of anos) out.push(`${REALIZADO}@${a}`) }
-      else out.push(c)
+      else out.push(c)   // REALIZADO_ANT fica como está: o ano é resolvido no rótulo e na carga
     }
     // ordena: ORÇADO (versões) antes do REALIZADO; alfabético (versão) / por ano (realizado) dentro do grupo
-    const key = (c: string) => ehRealAno(c) ? `1_${anoDeRealAno(c)}` : c === REALIZADO ? '1_0' : `0_${versoes.find(v => v.id === c)?.codigo ?? c}`
+    const key = (c: string) => ehRealAno(c) ? `1_${anoDeRealAno(c)}` : ehRealAnt(c) ? `1_${anoRealAnt}` : c === REALIZADO ? '1_0' : `0_${versoes.find(v => v.id === c)?.codigo ?? c}`
     return out.sort((a, b) => key(a).localeCompare(key(b)))
   }
   const cenariosExpandidos = useMemo(() => expandirCens(cenariosAtivos), [cenariosAtivos, cicloMode, anos, versoes]) // eslint-disable-line
@@ -527,7 +539,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const det: Record<string, Set<string>> = {}
     // Aviso de DE-PARA: conta amarrada a >1 linha deste relatório (consulta pequena)
     const dups = new Set<string>()
-    if (cenariosAtivos.includes(REALIZADO) && masterIds.length) {
+    if (cenariosAtivos.some(ehReal) && masterIds.length) {
       const cl = await fetchAllRows(() => supabase.from('conta_linha').select('conta_id,linha_id').in('linha_id', masterIds))
       const seen: Record<string, string> = {}
       for (const m of cl || []) { if (seen[m.conta_id] && seen[m.conta_id] !== m.linha_id) dups.add(m.conta_id); seen[m.conta_id] = m.linha_id }
@@ -537,7 +549,23 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     for (const cen of cenariosAtivos) {
       const map: RawValues = {}
       if (!masterIds.length) { next[cen] = map; continue }
-      if (cen === REALIZADO) {
+      if (ehRealAnt(cen)) {
+        // Busca o ano ANTERIOR mesmo que ele não esteja no filtro de períodos, e
+        // re-chaveia para o ano de referência: assim o realizado de 2026 cai nas
+        // mesmas colunas do orçado de 2027 e sobram DUAS séries — com Δ%, que só
+        // aparece quando há exatamente dois cenários.
+        if (isBalanco) {
+          const { data, error } = await supabase.rpc('relatorio_saldo_agg',
+            { p_empresas: empresaSel, p_ano: anoRealAnt, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
+          if (error) throw new Error(error.message)
+          for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${refAno}-${r.mes}`] = { valor: Number(r.saldo) || 0 } }
+        } else {
+          const { data, error } = await supabase.rpc('relatorio_realizado_agg',
+            { p_empresas: empresaSel, p_anos: [anoRealAnt], p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
+          if (error) throw new Error(error.message)
+          for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${refAno}-${r.mes}`] = { valor: Number(r.valor) || 0 } }
+        }
+      } else if (cen === REALIZADO) {
         if (isBalanco) {
           // Balanço: realizado = SALDO (balancete) por mês, lido do fat_saldo
           for (const y of anos) {
@@ -884,9 +912,11 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const filialFilter = aplicaEscopo(filialFilter0, filiais, 'filial')
     const ccFilter = aplicaEscopo(ccFilter0, ccs as any, 'centro_custo')
     const meses: Periodo[] = period === 'TOTAL' ? displayedMeses : (buckets[period as number]?.meses ?? [])
-    // modo ciclo: o eixo usa o ano de referência, mas o razão/edição consulta o ANO REAL da versão
-    const anoCen = ehRealAno(cen) ? anoDeRealAno(cen) : anoDoCenario[cen]
-    const mesesCen: Periodo[] = (cicloMode && anoCen) ? meses.map(m => ({ ano: anoCen, mes: m.mes })) : meses
+    // O eixo exibe tudo no ano de referência, mas o razão precisa do ANO REAL do
+    // cenário: no ciclo é o ano da versão, e no "realizado do ano anterior" é o
+    // ano deslocado — sem isto o drill buscaria 2027 e voltaria vazio.
+    const anoCen = ehRealAnt(cen) ? anoRealAnt : ehRealAno(cen) ? anoDeRealAno(cen) : anoDoCenario[cen]
+    const mesesCen: Periodo[] = ((cicloMode || ehRealAnt(cen)) && anoCen) ? meses.map(m => ({ ano: anoCen, mes: m.mes })) : meses
     const lbl0 = period === 'TOTAL' ? 'Período' : (buckets[period as number]?.label ?? '')
     const periodoLabel = period === 'TOTAL'
       ? `${MESES[displayedMeses[0]?.mes - 1] ?? ''}/${displayedMeses[0]?.ano ?? ''} – ${MESES[displayedMeses[displayedMeses.length - 1]?.mes - 1] ?? ''}/${displayedMeses[displayedMeses.length - 1]?.ano ?? ''}`
@@ -942,7 +972,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   )
 
   // ── Colunas conforme view
-  const cenarioLabel = (key: string) => key === REALIZADO ? 'Real.' : ehRealAno(key) ? `Real. ${anoDeRealAno(key)}` : (versoes.find(v => v.id === key)?.codigo ?? '—')
+  const cenarioLabel = (key: string) => key === REALIZADO ? 'Real.' : ehRealAnt(key) ? `Real. ${anoRealAnt}` : ehRealAno(key) ? `Real. ${anoDeRealAno(key)}` : (versoes.find(v => v.id === key)?.codigo ?? '—')
   // Lista de cenários EXIBIDOS (colunas): no overlay expande 'REALIZADO' por ano.
   const censDisplay = useMemo(() => expandirCens(view.cenarios), [view.cenarios, cicloMode, anos, versoes]) // eslint-disable-line
   const { columns, groups, twoRow } = useMemo<{ columns: Column[]; groups: Group[]; twoRow: boolean }>(() => {
@@ -2352,7 +2382,9 @@ function ViewModal({ view, versoes, onClose, onSave }: { view: ViewConfig; verso
               <input type="checkbox" checked={v.cenarios.includes(ver.id)} onChange={() => toggleCen(ver.id)} /> {ver.codigo}
             </label>
           ))}
-          <label style={S.chk}><input type="checkbox" checked={v.cenarios.includes(REALIZADO)} onChange={() => toggleCen(REALIZADO)} /> Realizado</label>
+          <label style={S.chk}><input type="checkbox" checked={v.cenarios.includes(REALIZADO)} onChange={() => toggleCen(REALIZADO)} /> Realizado <span style={{ color: 'var(--muted)', fontSize: 11 }}>· do ano do período</span></label>
+          <label style={S.chk}><input type="checkbox" checked={v.cenarios.includes(REALIZADO_ANT)} onChange={() => toggleCen(REALIZADO_ANT)} /> Realizado <span style={{ color: 'var(--muted)', fontSize: 11 }}>· do ano ANTERIOR ao do orçamento</span></label>
+          <div style={S.help}>Use "ano anterior" para comparar o orçamento novo com o realizado do ano que passou: ele acompanha a versão, então a visão continua certa no ano seguinte sem ser editada.</div>
         </div>
         <div style={S.mFooter}>
           <button style={S.btnSec} onClick={onClose}>Cancelar</button>
