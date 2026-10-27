@@ -587,11 +587,17 @@ export default function PostosGradePage() {
 
   const tot = useMemo(() => {
     const head = filtrados.length, vagas = filtrados.filter(p => !p.nome).length
+    // Headcount ≠ postos: a mesma pessoa pode ter mais de um posto (sócio com
+    // prestação de serviço E pró-labore, por exemplo). Para CUSTO os dois contam,
+    // são pagamentos reais; para QUADRO, não — "45 pessoas" seria falso se
+    // algumas aparecem duas vezes. Conta por matrícula; sem matrícula (vaga
+    // planejada ou cadastro incompleto) cada posto é um, que é o mais seguro.
+    const pessoas = new Set(filtrados.map(p => (p.matricula || '').trim() || `__posto_${p.id}`)).size
     const fte = filtrados.reduce((s, p) => s + (Number(p.fte) || 0), 0)
     const ano = filtrados.reduce((s, p) => s + custoAnoP(p), 0)
     const cat = { 'Salário': 0, Encargos: 0, 'Provisões': 0, 'Benefícios': 0 } as Record<string, number>
     for (const p of filtrados) { const r = custos.get(p.id); if (r) for (const k in r.porCategoria) cat[k] += (r.porCategoria as any)[k] }
-    return { head, vagas, fte, ano, cat, medioFte: fte ? (ano / 12) / fte : 0 }
+    return { head, vagas, pessoas, fte, ano, cat, medioFte: fte ? (ano / 12) / fte : 0 }
   }, [filtrados, custos]) // eslint-disable-line
 
   // janela de vigência DENTRO do ano da versão (bate com o motor)
@@ -787,7 +793,9 @@ export default function PostosGradePage() {
           : 'sem motor — cadastre verbas em Estrutura'
         return (
           <div style={S.kpis}>
-            <div style={S.kpi}><div style={S.kpiL}>Headcount</div><div style={S.kpiV}>{tot.head}</div><div style={S.kpiH}>{tot.vagas} vaga{tot.vagas === 1 ? '' : 's'} planejada{tot.vagas === 1 ? '' : 's'}</div></div>
+            <div style={S.kpi}><div style={S.kpiL}>Postos</div><div style={S.kpiV}>{tot.head}</div><div style={S.kpiH}>{tot.vagas} vaga{tot.vagas === 1 ? '' : 's'} planejada{tot.vagas === 1 ? '' : 's'}</div></div>
+            <div style={S.kpi}><div style={S.kpiL}>Headcount</div><div style={S.kpiV}>{tot.pessoas}</div>
+              <div style={S.kpiH}>{tot.head > tot.pessoas ? `${tot.head - tot.pessoas} posto(s) a mais que pessoas` : 'uma pessoa por posto'}</div></div>
             <div style={S.kpi}><div style={S.kpiL}>FTE total</div><div style={S.kpiV}>{tot.fte.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}</div><div style={S.kpiH}>inclui ½ períodos</div></div>
             <div style={S.kpi}><div style={S.kpiL}>Custo anual {temMotor ? '(c/ encargos)' : '(base)'}</div><div style={S.kpiV}>{milAno(tot.ano)}</div><div style={S.kpiH}>{comp}</div></div>
             <div style={S.kpi}><div style={S.kpiL}>Custo médio / FTE</div><div style={S.kpiV}>R$ {money(tot.medioFte)}<span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)' }}>/mês</span></div><div style={S.kpiH}>{temMotor ? 'com encargos' : 'base'}</div></div>
