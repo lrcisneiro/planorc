@@ -266,6 +266,51 @@ Solução (Opção A, mínima): dimensão de país em `empresa.pais` e `verba_fo
   (`incide_encargos`); encargos com bases distintas usam `PCT_VERBA`. Outros países
   estressam mais isso — considerar base explícita por verba no futuro.
 
+## Afastamento (implementado — out/2026, schema_v3_117)
+
+**Escopo deliberadamente estreito.** Só o caso concreto: a pessoa que **já está
+afastada hoje** e seguirá afastada durante o ano que se orça. Dois casos vizinhos
+ficaram de fora, de propósito:
+
+- **licença-maternidade prevista** — a empresa paga o salário integral e compensa
+  na GPS, então é efeito de **caixa**, não de despesa, e o FGTS continua *sem*
+  compensação. Reduzir a despesa ali seria errado;
+- **absenteísmo esperado** — é premissa percentual sobre a folha, não cadastro
+  por pessoa. Entraria como verba/premissa, não como janela.
+
+**Modelo.** Janela no próprio posto (`afast_ini_ano/mes`, `afast_fim_ano/mes`,
+`afast_motivo`), espelhando a vigência que já existia. `afast_fim_*` nulo = sem
+previsão de retorno → vale até dezembro. Não há tabela de histórico: o cadastro de
+posto descreve o **ano orçado**, não a vida funcional da pessoa — essa é do ERP.
+
+**A regra no motor é uma linha.** Do 16º dia o auxílio por incapacidade é pago
+pelo INSS, então a empresa não paga o salário nem nada que incida sobre ele —
+INSS patronal, FGTS (suspenso em doença comum B31), 13º e férias. `calcularPosto`
+**zera a base** no mês afastado e a cascata inteira cai sozinha, porque toda ela é
+% sobre a base. Sobram os `VALOR_FIXO`, que não dependem da base — e aí a regra é
+verba a verba, não uma lei só: plano de saúde e seguro de vida continuam devidos
+por CCT/contrato; vale-transporte e VA/VR, não (são por dia trabalhado). Daí a
+coluna `verba_folha.mantem_afastado`, marcada em Postos → Regras, default `true`
+porque o erro conservador no orçamento é sobrar custo.
+
+> **Limite conhecido:** o motor trata todo afastamento como **doença comum
+> (B31)**. Em **acidente de trabalho (B91)** o FGTS *continua* devido, e
+> `mantem_afastado` não resolve — a verba de FGTS é `PCT_BASE` e segue a base, que
+> está zerada. Se o caso aparecer, a saída é uma verba `VALOR_FIXO` de
+> FGTS-acidente com o valor da pessoa; se virar rotina, aí sim o afastamento
+> precisa de um **tipo** (o catálogo da Tabela 18 do eSocial), que foi justamente
+> o que este escopo decidiu não construir ainda.
+
+**Import do RH.** `converter_funcionarios.py` deriva a coluna `afastado_desde` de
+`SITFOLHA` casando pelo **rótulo** (`AFAST`/`LICEN`/`AUXÍLIO`) e não pelo código
+numérico, que varia por instalação; e imprime a contagem de `SITFOLHA` inteira
+para conferir o que o filtro pegou. O ERP sabe que a pessoa *está* afastada, não
+*até quando* — então o import grava o início e deixa o retorno **em aberto**, que
+é o pior caso (12 meses sem salário), e a grade marca cada linha com o chip
+`AFASTADO` para a conferência pessoa a pessoa. A coluna entra no upsert **tudo ou
+nada**, como `recebe_hora`: sem ela no arquivo, o import não toca na janela — uma
+carga de export antigo apagaria o retorno que alguém já previu.
+
 ## Pendências / a discutir
 
 - Origem no fat_orcado: 'FORMULARIO' reuso vs novo valor 'POSTO' (preferir POSTO).

@@ -327,8 +327,8 @@ function VerbasTab({ editavel }: { editavel: boolean }) {
   const [contas, setContas] = useState<any[]>([])
   useEffect(() => { pageAll(() => supabase.from('conta_orcamentaria').select('id,codigo,descricao').order('codigo')).then(setContas) }, [])
   return <CrudTable editavel={editavel} table="verba_folha" orderBy={['pais', 'ordem']} filterKey="pais" lookups={{ conta: contas }}
-    hint="Regra de cálculo de cada rubrica, agrupada por país. A ordem importa (encargos calculam sobre verbas anteriores). A conta destino recebe o valor no Aplicar."
-    defaults={{ tipo_calculo: 'BASE', incide_encargos: true, ativo: true }}
+    hint="Regra de cálculo de cada rubrica, agrupada por país. A ordem importa (encargos calculam sobre verbas anteriores). A conta destino recebe o valor no Aplicar. “No afastamento” só vale para valor fixo — o resto segue o salário, que é zero nesses meses."
+    defaults={{ tipo_calculo: 'BASE', incide_encargos: true, mantem_afastado: true, ativo: true }}
     cols={[
       { key: 'pais',             label: 'País',             kind: 'select', options: PAIS_OPTS, width: 120, importSample: 'BR' },
       { key: 'ordem',            label: 'Ordem',            kind: 'num',   width: 70,  importSample: '10' },
@@ -339,6 +339,10 @@ function VerbasTab({ editavel }: { editavel: boolean }) {
       { key: 'verba_ref',        label: 'Verbas ref. (base do %)', kind: 'self_multi', width: 200, importHeader: 'verba_ref', importSample: '' },
       { key: 'conta_destino_id', label: 'Conta destino',    kind: 'select', lookup: 'conta', width: 220, importHeader: 'conta_destino', importSample: '' },
       { key: 'incide_encargos',  label: 'Base p/ encargos', kind: 'check', width: 100, importSample: 'sim' },
+      // Só os VALOR_FIXO precisam disso: salário, encargos e provisões seguem a
+      // base, que o motor zera no mês afastado. Plano de saúde e seguro de vida
+      // continuam devidos; vale-transporte e VA/VR, não.
+      { key: 'mantem_afastado',  label: 'No afastamento',   kind: 'check', width: 100, importSample: 'sim' },
       { key: 'categoria',        label: 'Categoria',        kind: 'select', options: CATEGORIA_OPTS, width: 130, importSample: '' },
       { key: 'regime',           label: 'Regime(s)',        kind: 'regimes', width: 210, importSample: 'CLT,PROLABORE' },
       { key: 'aglutina_em',      label: 'Aglutina em',      kind: 'select', lookup: 'self_cod', width: 150, importSample: '' },

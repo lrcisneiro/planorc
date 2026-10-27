@@ -114,6 +114,8 @@ type Posto = {
   id: string; codigo: string; nome: string | null; matricula: string | null; regime: string | null; ativo?: boolean
   salario_base: number; fte: number; ini_ano: number | null; ini_mes: number | null; fim_ano: number | null; fim_mes: number | null
   reajuste_mes: number | null; reajuste_pct: number | null; reajuste_valor: number | null   // v3_116
+  afast_ini_ano: number | null; afast_ini_mes: number | null                                 // v3_117
+  afast_fim_ano: number | null; afast_fim_mes: number | null; afast_motivo: string | null
   empresa_id: string; filial_id: string | null; cc_id: string | null; cargo_id: string | null; sindicato_id: string | null
   recurso_cod?: string | null                  // SRA.RA_X_RECUR — liga ao apontamento
   recebe_hora?: boolean | null                 // exceção sobre a função; null = segue a função
@@ -148,7 +150,7 @@ export default function PostosGradePage() {
   const [mostrarInativos, setMostrarInativos] = useState(false)
   const [editHora, setEditHora] = useState<string | null>(null)   // posto com o seletor de hora aberto
   const [erro, setErro] = useState<string | null>(null)
-  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[] } | null>(null)
+  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[]; afastados: number } | null>(null)
   const [importando, setImportando] = useState(false)
   const [fechados, setFechados] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
@@ -175,7 +177,7 @@ export default function PostosGradePage() {
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
       supabase.from('cargo').select('id,codigo,nome').order('nome'),
       supabase.from('versao_orcamento').select('id,codigo').order('codigo'),
-      supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,regime,pais,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
+      supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,mantem_afastado,regime,pais,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
       supabase.from('sindicato').select('id,codigo,mes_database'),
       supabase.from('rateio_regra').select('id,nome,dimensao').eq('ativo', true).order('nome'),
       supabase.from('rateio_destino').select('regra_id,empresa_id,cc_id,pct'),
@@ -241,6 +243,11 @@ export default function PostosGradePage() {
       // o export não classificou. Com o arquivo trazendo a categoria, o cadastro
       // da folha manda em todo mundo; sem ela, a coluna nem é tocada.
       const temCatFunc = rows.some(r => (r.recebe_hora || '').trim())
+      // Mesma regra para o afastamento: sem a coluna no arquivo, o import não
+      // toca na janela — senão uma carga de um export antigo apagaria o retorno
+      // que alguém já previu na grade.
+      const temAfast = rows.some(r => 'afastado_desde' in r)
+      let nAfast = 0
       const payload: any[] = []
       for (const r of rows) {
         if (!r.posto_codigo) continue
@@ -266,6 +273,16 @@ export default function PostosGradePage() {
           // POR HORA. Quem não é aponta para dizer onde o custo cai, e some da
           // conferência Apontamento × Folha.
           ...(temCatFunc ? { recebe_hora: (() => { const s = (r.recebe_hora || '').trim().toLowerCase(); return s ? s !== 'nao' : null })() } : {}),
+          // afastado_desde = 'AAAA-MM' do export. O ERP não sabe o retorno, então
+          // ele entra em aberto (motor zera os 12 meses) e a grade marca a linha
+          // com o chip AFASTADO para ser conferida.
+          ...(temAfast ? (() => {
+            const [fy, fm] = (r.afastado_desde || '').trim().split('-')
+            if (!fy || !fm) return { afast_ini_ano: null, afast_ini_mes: null, afast_fim_ano: null, afast_fim_mes: null, afast_motivo: null }
+            nAfast++
+            return { afast_ini_ano: parseInt(fy, 10), afast_ini_mes: parseInt(fm, 10), afast_fim_ano: null, afast_fim_mes: null,
+              afast_motivo: `${(r.situacao || 'afastado').trim()} (do RH em ${r.afastado_desde}) — confirmar retorno` }
+          })() : {}),
           ini_ano: ay ? parseInt(ay, 10) : null, ini_mes: am ? parseInt(am, 10) : null, fte: 1, ativo: (r.ativo || 'sim') !== 'nao' })
       }
       if (!payload.length) {
@@ -345,7 +362,7 @@ export default function PostosGradePage() {
         if (prRows.length) { const { error: prErr } = await supabase.from('posto_rateio').upsert(prRows, { onConflict: 'tenant_id,posto_id,regra_id' }); if (prErr) setErro('Aviso — rateio: ' + prErr.message) }
       }
 
-      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], foraEscopo: foraEscopo.size, cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length, rateioPostos, rateioCol: !!rateioCol, rateioNaoAchados: [...rateioNaoAchados] })
+      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], foraEscopo: foraEscopo.size, cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length, rateioPostos, rateioCol: !!rateioCol, rateioNaoAchados: [...rateioNaoAchados], afastados: nAfast })
       loadPostos()
     } finally { setImportando(false) }
   }
@@ -460,8 +477,8 @@ export default function PostosGradePage() {
     setPostos(ps => ps.filter(p => p.id !== id))
   }
   // novo posto / vaga ou edição (código, ocupante, cargo, local, regime, salário, vigência)
-  const novoPosto = (pre?: { cc_id?: string; cargo_id?: string }) => setForm({ codigo: '', codigoAuto: true, nome: '', matricula: '', cargo_id: pre?.cargo_id || '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: pre?.cc_id || '', sindicato_id: '', regime: 'BR-CLT', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', reajuste_mes: '', reajuste_pct: '', reajuste_valor: '', rateios: [] })
-  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, codigoAuto: false, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', salario_base: p.salario_base != null ? String(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', reajuste_mes: p.reajuste_mes ? String(p.reajuste_mes) : '', reajuste_pct: p.reajuste_pct != null ? String(p.reajuste_pct) : '', reajuste_valor: p.reajuste_valor != null ? String(p.reajuste_valor) : '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
+  const novoPosto = (pre?: { cc_id?: string; cargo_id?: string }) => setForm({ codigo: '', codigoAuto: true, nome: '', matricula: '', cargo_id: pre?.cargo_id || '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: pre?.cc_id || '', sindicato_id: '', regime: 'BR-CLT', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', reajuste_mes: '', reajuste_pct: '', reajuste_valor: '', afast_ini_ano: '', afast_ini_mes: '', afast_fim_ano: '', afast_fim_mes: '', afast_motivo: '', rateios: [] })
+  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, codigoAuto: false, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', salario_base: p.salario_base != null ? String(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', reajuste_mes: p.reajuste_mes ? String(p.reajuste_mes) : '', reajuste_pct: p.reajuste_pct != null ? String(p.reajuste_pct) : '', reajuste_valor: p.reajuste_valor != null ? String(p.reajuste_valor) : '', afast_ini_ano: p.afast_ini_ano ? String(p.afast_ini_ano) : '', afast_ini_mes: p.afast_ini_mes ? String(p.afast_ini_mes) : '', afast_fim_ano: p.afast_fim_ano ? String(p.afast_fim_ano) : '', afast_fim_mes: p.afast_fim_mes ? String(p.afast_fim_mes) : '', afast_motivo: p.afast_motivo || '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
   const salvarPosto = async () => {
     if (!form) return
     if (!form.empresa_id) { setErro('Informe a empresa.'); return }
@@ -469,6 +486,7 @@ export default function PostosGradePage() {
     const codigo = ((form.codigoAuto ? gerarCodigoPosto(form.filial_id, form.matricula) : form.codigo) || '').trim()
     if (!codigo) { setErro('Código não gerado — confira a filial.'); return }
     const empCod = empresas.find(e => e.id === form.empresa_id)?.codigo || ''
+    const afastOn = !!(form.afast_ini_ano && form.afast_ini_mes)
     const payload: any = {
       tenant_id: TENANT_ID, codigo,
       nome: (form.nome || '').trim() || null, matricula: (form.matricula || '').trim() || null,
@@ -483,6 +501,14 @@ export default function PostosGradePage() {
       reajuste_mes: form.reajuste_mes ? parseInt(form.reajuste_mes, 10) : null,
       reajuste_pct: form.reajuste_mes && form.reajuste_pct && !form.reajuste_valor ? parseNum(form.reajuste_pct) : null,
       reajuste_valor: form.reajuste_mes && form.reajuste_valor ? parseNum(form.reajuste_valor) : null,
+      // Afastamento: o CHECK da v3_117 exige ano E mês no início. Sem início não
+      // há janela, e aí o fim e o motivo não querem dizer nada — por isso o
+      // trio é limpo junto, como no reajuste.
+      afast_ini_ano: afastOn ? parseInt(form.afast_ini_ano, 10) : null,
+      afast_ini_mes: afastOn ? parseInt(form.afast_ini_mes, 10) : null,
+      afast_fim_ano: afastOn && form.afast_fim_ano && form.afast_fim_mes ? parseInt(form.afast_fim_ano, 10) : null,
+      afast_fim_mes: afastOn && form.afast_fim_ano && form.afast_fim_mes ? parseInt(form.afast_fim_mes, 10) : null,
+      afast_motivo: afastOn ? ((form.afast_motivo || '').trim() || null) : null,
       ativo: true,
     }
     const saved = form.id
@@ -615,15 +641,31 @@ export default function PostosGradePage() {
     return { txt: `${MESES[iniM - 1]}–${MESES[fimM - 1]}`, alerta: iniM > 1 || fimM < 12 }
   }
 
+  // janela de afastamento recortada no ano da versão (bate com afastadoNoMes do motor)
+  const afast = (p: Posto) => {
+    if (!p.afast_ini_ano) return null
+    const ini = p.afast_ini_ano > anoCalc ? 13 : (p.afast_ini_ano === anoCalc ? (p.afast_ini_mes || 1) : 1)
+    const fim = p.afast_fim_ano == null ? 12
+      : (p.afast_fim_ano < anoCalc ? 0 : (p.afast_fim_ano === anoCalc ? (p.afast_fim_mes || 12) : 12))
+    if (ini > 12 || fim < 1 || ini > fim) return null   // afastamento fora do ano orçado
+    return { ini, fim, txt: `${MESES[ini - 1]}–${MESES[fim - 1]}`, aberto: p.afast_fim_ano == null }
+  }
+
   const linhaPosto = (p: Posto) => {
     const custoMes = custoMesP(p), custoAno = custoAnoP(p)
     // CUSTO/MÊS é o mês REPRESENTATIVO (o último vigente), não a média: ele
     // responde "quanto essa pessoa custa daqui em diante". Quando há reajuste no
     // meio do ano, custoMes × 12 ≠ custoAno — e sem avisar isso parece erro de
     // conta. O motor já guarda a base do último mês; aqui só marcamos a linha.
-    const mesesVig = custos.get(p.id)?.mesesVigentes ?? 12
-    const mudaNoAno = !!p.reajuste_mes && p.reajuste_mes > 1 && !!custoMes
+    const rc = custos.get(p.id)
+    const mesesVig = rc?.mesesVigentes ?? 12
+    const mesesAfast = rc?.mesesAfastado ?? 0
+    // Afastamento parcial faz o custo mudar no meio do ano igual ao reajuste, e
+    // pelo mesmo motivo merece o asterisco. Afastada o ano todo não entra: aí
+    // custoMes × meses volta a bater com o anual.
+    const mudaNoAno = !!custoMes && (!!p.reajuste_mes || mesesAfast > 0)
       && Math.abs(custoMes * mesesVig - custoAno) > 0.01
+    const fa = afast(p)
     const v = vig(p)
     return (
       <tr key={p.id} style={p.ativo === false ? { opacity: 0.55 } : undefined}>
@@ -635,7 +677,10 @@ export default function PostosGradePage() {
         <td style={S.td}>{p.cargo?.nome || '—'}</td>
         <td style={S.td}>{p.nome
           ? <span style={T.ocup}>{nomeCurto(p.nome)}</span>
-          : <span style={T.vaga}>VAGA{p.ini_mes ? ` · ${MESES[p.ini_mes - 1]}/${String(p.ini_ano || '').slice(2)}` : ''}</span>}</td>
+          : <span style={T.vaga}>VAGA{p.ini_mes ? ` · ${MESES[p.ini_mes - 1]}/${String(p.ini_ano || '').slice(2)}` : ''}</span>}
+          {fa && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 5, color: 'var(--violet)', border: '1px solid var(--violet)55', background: 'rgba(139,92,246,0.14)' }}
+            title={`Afastado ${fa.txt}${fa.aberto ? ' (sem previsão de retorno)' : ''}${p.afast_motivo ? ` — ${p.afast_motivo}` : ''}. Nesses meses o orçamento não leva salário, INSS, FGTS nem provisões; só os benefícios marcados como devidos no afastamento.`}>
+            AFASTADO {fa.txt}</span>}</td>
         <td style={S.td}>{p.regime ? <span style={tagRegime(p.regime)}>{REGIMES_LABEL[p.regime] || p.regime}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
         <td style={S.td}>{p.sindicato?.codigo ? <span style={T.sind}>{p.sindicato.codigo}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
         {/* Recebe por hora: só aparece onde há apontamento, e só é EXCEÇÃO.
@@ -690,7 +735,7 @@ export default function PostosGradePage() {
         })()}</td>
         <td style={{ ...S.td, textAlign: 'right', cursor: 'pointer' }} onClick={() => setDrill(p)}
           title={mudaNoAno
-            ? `Mês de dezembro (com o reajuste de ${MESES_NUM[(p.reajuste_mes || 1) - 1]}). Antes dele o custo é outro — o anual de ${money(custoAno)} já considera os dois. Clique para a memória.`
+            ? `Mês de dezembro (${[p.reajuste_mes ? `reajuste em ${MESES_NUM[p.reajuste_mes - 1]}` : '', mesesAfast ? `${mesesAfast} ${mesesAfast > 1 ? 'meses' : 'mês'} de afastamento` : ''].filter(Boolean).join(', ')}). Nos outros meses o custo é outro — o anual de ${money(custoAno)} soma mês a mês. Clique para a memória.`
             : 'Ver memória de cálculo'}>
           {money(custoMes)}
           {mudaNoAno && <span style={{ color: 'var(--orange)', marginLeft: 3 }}>*</span>}
@@ -796,6 +841,7 @@ export default function PostosGradePage() {
               ? `${importInfo.beneficios} valores de benefício por posto (posto_verba) atualizados, em ${importInfo.benefColunas} verba(s) da folha.`
               : '⚠ Nenhuma coluna do arquivo casou com verba do catálogo — benefícios NÃO atualizados. Cadastre as verbas (D49, A76, D50, A15, A51…) em Estrutura → Verbas e reimporte.'}</div>
             {importInfo.rateioCol && <div style={{ color: 'var(--text-mid)' }}>{importInfo.rateioPostos} posto(s) com rateio anexado (posto_rateio) pela coluna RATEIO.</div>}
+            {importInfo.afastados > 0 && <div style={{ color: 'var(--violet)' }}>{importInfo.afastados} posto(s) marcados como <b>afastados</b> pela coluna <code>afastado_desde</code>, <b>sem previsão de retorno</b> — assim o motor zera salário, encargos e provisões os 12 meses. Procure o chip AFASTADO na grade e informe o retorno de quem voltar.</div>}
             {importInfo.rateioNaoAchados.length > 0 && <div style={{ color: 'var(--orange)' }}>Códigos de rateio não encontrados (ignorados): {importInfo.rateioNaoAchados.join(', ')} — confira os nomes em {passoLabel('/postos/rateio')}.</div>}
             {importInfo.foraEscopo > 0 && <div style={{ color: 'var(--orange)' }}>{importInfo.foraEscopo} posto(s) fora do seu escopo de edição (empresa/filial/CC) — ignorados.</div>}
             {importInfo.semEmp.length > 0 && <div style={{ color: 'var(--red)' }}>⚠ Empresas não encontradas (postos ignorados): {importInfo.semEmp.join(', ')}</div>}
@@ -865,11 +911,12 @@ export default function PostosGradePage() {
         </div>
       </div>
       <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>¹ {temMotor ? 'Custo com encargos/provisões/benefícios pelo motor (clique no valor p/ ver a memória). Rateio entra no step 4.' : 'Custo base (salário × FTE) — cadastre as verbas em Estrutura para o custo com encargos.'}
-        <br /><span style={{ color: 'var(--orange)' }}>*</span> o custo mudou durante o ano (reajuste): a coluna mostra o <b>último mês</b>, não a média — por isso ela × 12 não dá o custo ano, que já soma mês a mês.</p>
+        <br /><span style={{ color: 'var(--orange)' }}>*</span> o custo mudou durante o ano (reajuste ou afastamento): a coluna mostra o <b>último mês</b>, não a média — por isso ela × 12 não dá o custo ano, que já soma mês a mês.</p>
 
       {drill && (() => {
         const r = custos.get(drill.id)
         const dis = drill.sindicato_id ? (dissidio[drill.sindicato_id] || 0) : 0
+        const fAfast = afast(drill)
         return (
           <div style={S.overlay} onClick={() => setDrill(null)}>
             <div style={S.modal} onClick={e => e.stopPropagation()}>
@@ -877,6 +924,12 @@ export default function PostosGradePage() {
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{drill.nome || 'Vaga'} <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)', fontWeight: 400 }}>{drill.codigo}</span></div>
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 3 }}>{drill.cargo?.nome || '—'} · {drill.regime || '—'} · {drill.sindicato?.codigo || 'sem sindicato'}{dis ? ` · dissídio ${dis}%` : ''} · base R$ {money((Number(drill.salario_base) || 0) * (Number(drill.fte) || 1))}/mês</div>
+                  {/* Sem esta linha, a coluna "Mês" zerada no salário parece erro
+                      de cadastro — o mês representativo é um mês de afastamento. */}
+                  {fAfast && <div style={{ fontSize: 12, color: 'var(--violet)', marginTop: 4 }}>
+                    Afastado {fAfast.txt}{fAfast.aberto ? ' (sem previsão de retorno)' : ''}{drill.afast_motivo ? ` — ${drill.afast_motivo}` : ''}.
+                    Nesses {r?.mesesAfastado || 0} {(r?.mesesAfastado || 0) > 1 ? 'meses' : 'mês'} o orçamento leva só os benefícios devidos no afastamento.
+                  </div>}
                 </div>
                 <button onClick={() => setDrill(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
               </div>
@@ -1004,6 +1057,63 @@ export default function PostosGradePage() {
               </div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
                 Vale só para o salário — encargos e provisões acompanham por serem % sobre ele; benefício de valor fixo (VR, plano) não muda.
+              </div>
+            </div>
+
+            {/* Afastamento (v3_117). Escopo: quem JÁ está afastado e segue no ano
+                orçado. Do 16º dia o salário é do INSS, então a empresa não paga
+                salário nem nada que incida sobre ele — o motor zera a base
+                nesses meses. Só sobram os benefícios marcados como devidos no
+                afastamento (Postos → Regras). Absenteísmo esperado é premissa
+                percentual, não cadastro por pessoa, e não entra aqui. */}
+            <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+              <span style={{ ...S.flbl, display: 'block', marginBottom: 6 }}>
+                Afastamento <span style={{ color: 'var(--muted)' }}>(INSS, licença — a empresa não paga o salário nesses meses)</span>
+              </span>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div><span style={S.flbl}>Afastado desde</span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <select style={{ ...S.finp, width: 100 }} value={form.afast_ini_mes}
+                      onChange={e => setForm((f: any) => ({ ...f, afast_ini_mes: e.target.value, afast_ini_ano: f.afast_ini_ano || (e.target.value ? String(anoCalc) : '') }))}>
+                      <option value="">não afastado</option>
+                      {MESES_NUM.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+                    </select>
+                    <input style={{ ...S.finp, width: 76 }} value={form.afast_ini_ano} placeholder="ano"
+                      onChange={e => setForm((f: any) => ({ ...f, afast_ini_ano: e.target.value }))} />
+                  </div>
+                </div>
+                <div><span style={S.flbl}>Retorno previsto <span style={{ color: 'var(--muted)' }}>(vazio = sem previsão)</span></span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <select style={{ ...S.finp, width: 100 }} value={form.afast_fim_mes} disabled={!form.afast_ini_mes}
+                      onChange={e => setForm((f: any) => ({ ...f, afast_fim_mes: e.target.value, afast_fim_ano: f.afast_fim_ano || (e.target.value ? String(anoCalc) : '') }))}>
+                      <option value="">—</option>
+                      {MESES_NUM.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+                    </select>
+                    <input style={{ ...S.finp, width: 76 }} value={form.afast_fim_ano} placeholder="ano" disabled={!form.afast_ini_mes}
+                      onChange={e => setForm((f: any) => ({ ...f, afast_fim_ano: e.target.value }))} />
+                  </div>
+                </div>
+                <div style={{ flex: 1, minWidth: 220 }}><span style={S.flbl}>Motivo</span>
+                  <input style={{ ...S.finp, width: '100%' }} value={form.afast_motivo} disabled={!form.afast_ini_mes}
+                    placeholder="ex.: auxílio-doença desde 08/2026, sem alta prevista"
+                    onChange={e => setForm((f: any) => ({ ...f, afast_motivo: e.target.value }))} />
+                </div>
+              </div>
+              {form.afast_ini_mes && form.afast_ini_ano && (() => {
+                const ia = parseInt(form.afast_ini_ano, 10), im = parseInt(form.afast_ini_mes, 10)
+                const fa2 = form.afast_fim_ano ? parseInt(form.afast_fim_ano, 10) : null
+                const fm = form.afast_fim_mes ? parseInt(form.afast_fim_mes, 10) : null
+                const ini = ia > anoCalc ? 13 : (ia === anoCalc ? im : 1)
+                const fim = fa2 == null ? 12 : (fa2 < anoCalc ? 0 : (fa2 === anoCalc ? (fm || 12) : 12))
+                const n = Math.max(0, Math.min(12, fim) - Math.max(1, ini) + 1)
+                return <div style={{ fontSize: 11.5, color: n ? 'var(--violet)' : 'var(--muted)', marginTop: 6 }}>
+                  {n === 0
+                    ? `O afastamento não alcança ${anoCalc} — o orçamento deste ano sai cheio.`
+                    : `Em ${anoCalc}: ${MESES_NUM[Math.max(1, ini) - 1]}–${MESES_NUM[Math.min(12, fim) - 1]} (${n} ${n > 1 ? 'meses' : 'mês'}) sem salário, INSS, FGTS e provisões.`}
+                </div>
+              })()}
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                Quais benefícios continuam devidos (plano de saúde sim, vale-transporte não) é regra da verba — marca-se em <b>Postos → Regras</b>.
               </div>
             </div>
 

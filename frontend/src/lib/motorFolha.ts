@@ -13,6 +13,7 @@ export type VerbaRegra = {
   verba_ref: string | null          // p/ PCT_VERBA: CÓDIGOS separados por vírgula (a base é a soma deles)
   conta_destino_id: string | null
   incide_encargos: boolean          // entra na base de PCT_BASE/PROVISAO?
+  mantem_afastado?: boolean         // VALOR_FIXO: continua devido no mês afastado? (v3_117)
   regime: string | null             // null = vale p/ todos os regimes
   pais?: string | null              // país da regra; null = compartilhada (vale p/ todos os países)
   ordem: number | null
@@ -31,6 +32,10 @@ export type PostoCalc = {
   reajuste_mes?: number | null
   reajuste_pct?: number | null      // em %, multiplica a base
   reajuste_valor?: number | null    // salário novo absoluto, substitui a base
+  // Afastamento (v3_117) — pessoa já afastada que segue no ano orçado. Janela
+  // em ano/mês; fim nulo = indeterminado (vai até dezembro).
+  afast_ini_ano?: number | null; afast_ini_mes?: number | null
+  afast_fim_ano?: number | null; afast_fim_mes?: number | null
 }
 
 export type LinhaMemoria = {
@@ -47,6 +52,7 @@ export type ResultadoPosto = {
   totalMes: number         // custo total do mês representativo
   totalAno: number         // custo total do ano
   mesesVigentes: number
+  mesesAfastado: number    // dos vigentes, quantos a pessoa passa afastada
   porCategoria: Record<Categoria, number>   // anual
   porConta: Record<string, number>          // conta_destino_id -> anual
   porContaMes: Record<string, number[]>     // conta_destino_id -> [12] valor por mês (Jan=0), respeita vigência/dissídio
@@ -86,9 +92,20 @@ function vigencia(p: PostoCalc, ano: number): [number, number] {
   return [ini, fim]
 }
 
+// A pessoa está afastada neste mês do ano orçado?
+// Janela aberta à esquerda (afastado desde antes do ano → vale desde janeiro) e
+// à direita (sem alta prevista → vale até dezembro).
+export function afastadoNoMes(p: PostoCalc, ano: number, mes: number): boolean {
+  if (!p.afast_ini_ano) return false
+  const ini = p.afast_ini_ano > ano ? 13 : (p.afast_ini_ano === ano ? (p.afast_ini_mes || 1) : 1)
+  const fim = p.afast_fim_ano == null ? 12
+    : (p.afast_fim_ano < ano ? 0 : (p.afast_fim_ano === ano ? (p.afast_fim_mes || 12) : 12))
+  return mes >= ini && mes <= fim
+}
+
 // custo de UM mês: aplica a cascata e devolve o valor por verba (id -> valor).
 // `valoresFixos` = valores por posto das verbas VALOR_FIXO (benefícios); ausente = a pessoa não tem.
-function custoMes(regVerbas: VerbaRegra[], base: number, valoresFixos: Record<string, number>): Record<string, number> {
+function custoMes(regVerbas: VerbaRegra[], base: number, valoresFixos: Record<string, number>, afastado = false): Record<string, number> {
   const valores: Record<string, number> = {}
   const idPorCod: Record<string, string> = Object.fromEntries(regVerbas.map(v => [v.codigo, v.id]))
   const somaRefs = (ref: string | null) => (ref || '').split(',').map(s => s.trim()).filter(Boolean)
@@ -102,7 +119,9 @@ function custoMes(regVerbas: VerbaRegra[], base: number, valoresFixos: Record<st
       case 'PCT_BASE': val = baseEncargos * p / 100; break
       case 'PROVISAO_1_12': val = baseEncargos * p / 12; break
       case 'PCT_VERBA': val = somaRefs(v.verba_ref) * p / 100; break
-      case 'VALOR_FIXO': val = valoresFixos[v.id] ?? 0; break   // por posto, não do catálogo
+      // VALOR_FIXO é o único que não segue a base — no mês afastado ele só
+      // continua se a verba disser que continua (plano de saúde sim, VT não).
+      case 'VALOR_FIXO': val = (afastado && v.mantem_afastado === false) ? 0 : (valoresFixos[v.id] ?? 0); break
       default: val = 0
     }
     valores[v.id] = val
@@ -127,7 +146,7 @@ export function calcularPosto(
   const porContaMes: Record<string, number[]> = {}   // conta -> [12] por mês
   const porVerbaMes: Record<string, number[]> = {}   // verba.id -> [12] por mês
   let ultimo: Record<string, number> = {}    // valores do último mês vigente (mês representativo)
-  let baseMes = 0, mesesVigentes = 0
+  let baseMes = 0, mesesVigentes = 0, mesesAfastado = 0
 
   for (let mes = 1; mes <= 12; mes++) {
     if (mes < ini || mes > fim) continue
@@ -140,8 +159,14 @@ export function calcularPosto(
       ? Number(posto.reajuste_valor)
       : salBase * (comReajuste && posto.reajuste_pct ? 1 + Number(posto.reajuste_pct) / 100 : 1)
     const comDissidio = opts.dissidioPct > 0 && mes >= opts.mesBase
-    const base = salMes * fte * (comDissidio ? 1 + opts.dissidioPct / 100 : 1)
-    const valores = custoMes(regVerbas, base, valoresFixos)
+    // Afastado: a empresa não paga o salário (do 16º dia é o INSS) e por isso
+    // nada que incida sobre ele — INSS patronal, FGTS (suspenso em doença
+    // comum), 13º e férias. Zerar a base derruba a cascata inteira de uma vez;
+    // só os benefícios de valor fixo seguem, verba a verba.
+    const afastado = afastadoNoMes(posto, opts.ano, mes)
+    if (afastado) mesesAfastado++
+    const base = afastado ? 0 : salMes * fte * (comDissidio ? 1 + opts.dissidioPct / 100 : 1)
+    const valores = custoMes(regVerbas, base, valoresFixos, afastado)
     for (const id in valores) {
       if (!valores[id]) continue
       anoMap.set(id, (anoMap.get(id) || 0) + valores[id]);
@@ -165,5 +190,5 @@ export function calcularPosto(
   }
   const totalMes = Object.values(ultimo).reduce((s, x) => s + x, 0)
   const totalAno = [...anoMap.values()].reduce((s, x) => s + x, 0)
-  return { linhas, baseMes, totalMes, totalAno, mesesVigentes, porCategoria, porConta, porContaMes, porVerbaMes }
+  return { linhas, baseMes, totalMes, totalAno, mesesVigentes, mesesAfastado, porCategoria, porConta, porContaMes, porVerbaMes }
 }

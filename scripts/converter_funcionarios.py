@@ -28,6 +28,7 @@ Uso:  python3 scripts/converter_funcionarios.py [entrada.csv] [saida.csv]
 """
 import csv, sys, os, zipfile, tempfile
 from collections import Counter
+from datetime import date
 
 
 def do_zip(path: str, zips=('dados_rh/RH.zip', 'RH.zip')) -> str:
@@ -216,7 +217,14 @@ def carregar_beneficios(path: str, comp_pedida: str = ''):
 
 COLS_SAIDA = ['posto_codigo', 'empresa', 'filial', 'cc', 'matricula',
               'nome', 'cargo', 'regime', 'salario', 'admissao', 'demissao', 'situacao', 'ativo', 'rateio',
-              'recurso'] + VERBAS_BENEFICIO
+              'recurso', 'afastado_desde'] + VERBAS_BENEFICIO
+
+# SITFOLHA vem rotulada ('03 - AFASTADO INSS'), e o CÓDIGO numérico varia por
+# instalação — o rótulo, não. Daí casar pelo texto. 'D' (demitido) já sai antes,
+# por `ativo`, e demitido não é afastado.
+def eh_afastado(situacao: str) -> bool:
+    t = (situacao or '').upper()
+    return 'AFAST' in t or 'LICEN' in t or 'AUXILIO' in t or 'AUXÍLIO' in t
 
 def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=None,
               beneficios=None, comp_benef: str = '', aviso_benef: str = ''):
@@ -226,6 +234,10 @@ def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=Non
         linhas = list(csv.DictReader(f))
 
     saida_rows, vistos = [], {}
+    # competência de referência do afastamento: a dos benefícios quando houve
+    # movimento, senão o mês corrente — em ambos os casos "a pessoa está
+    # afastada agora"
+    comp_afast = f'{comp_benef[:4]}-{comp_benef[4:6]}' if len(comp_benef) >= 6 else date.today().strftime('%Y-%m')
     lidas = puladas = colisoes = pulados_inativos = 0
     cargos, empresas, filiais, ccs = Counter(), Counter(), Counter(), Counter()
     filiais_sem_empresa = Counter()
@@ -271,7 +283,13 @@ def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=Non
                'cc': cc, 'matricula': matricula, 'nome': nome, 'cargo': cargo,
                'regime': regime_por(matricula, cargo), 'salario': '',
                'admissao': admissao, 'demissao': demissao, 'situacao': situacao, 'ativo': ativo,
-               'rateio': rateio_por_cc(cc), 'recurso': recurso}
+               'rateio': rateio_por_cc(cc), 'recurso': recurso,
+               # O ERP diz que a pessoa ESTÁ afastada; não diz até quando. Então
+               # sai só o início (a competência do export) e o retorno fica em
+               # aberto, para ser previsto pessoa a pessoa na grade de Postos.
+               # Em aberto o motor zera o salário nos 12 meses — é o pior caso,
+               # e é por isso que a conferência não é opcional.
+               'afastado_desde': (comp_afast if eh_afastado(situacao) else '')}
         # benefícios da última competência fechada; só quem tem valor leva número,
         # o resto fica vazio (prestador não recebe benefício CLT e some daqui)
         benef_pessoa = beneficios.get(posto_codigo, {})
@@ -317,6 +335,17 @@ def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=Non
             print('\n⚠ Benefícios: nenhum valor casou com posto do cadastro.')
         if aviso_benef:
             print(f'   nota: {aviso_benef}')
+    # SITFOLHA inteira, para conferir o que o eh_afastado() pegou e o que deixou
+    sit = Counter(r['situacao'] or '(vazio)' for r in saida_rows)
+    print('\nSituação na folha: ' + ', '.join(f'{k}={v}' for k, v in sorted(sit.items())))
+    afast = [r for r in saida_rows if r['afastado_desde']]
+    if afast:
+        print(f'⚠ {len(afast)} afastado(s) em {comp_afast}, SEM previsão de retorno — '
+              'o motor zera salário/encargos/provisões os 12 meses. Confira pessoa a pessoa na grade.')
+        for r in afast[:12]:
+            print(f'   {r["posto_codigo"]:<14} {r["nome"][:34]:<34} {r["situacao"]}')
+        if len(afast) > 12:
+            print(f'   … e outros {len(afast) - 12}')
     print(f'CCs distintos: {len(ccs)}  |  Cargos distintos: {len(cargos)}')
     if filiais_sem_empresa:
         print('\n⚠ Filiais SEM empresa no de-para (empresa vazia — corrija o de-para): '
