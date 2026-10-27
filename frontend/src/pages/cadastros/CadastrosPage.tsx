@@ -9,7 +9,7 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 
 // SheetJS carregado via CDN no index.html
 declare const XLSX: any
-import { Plus, Trash2, Check, X, Upload, AlertCircle, Download, FileDown, Pencil, Copy, Link2 } from 'lucide-react'
+import { Plus, Trash2, Check, X, Upload, AlertCircle, Download, FileDown, Pencil, Copy, CopyPlus, Link2 } from 'lucide-react'
 
 type Aba = 'empresas' | 'filiais' | 'cc' | 'planos' | 'contas' | 'estrutura' | 'funcionarios' | 'verbas' | 'versoes' | 'lotes' | 'moedas' | 'cambio' | 'taxaorcada' | 'metas'
 
@@ -1097,10 +1097,19 @@ function VersoesTab() {
   const [editId, setEditId] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
   const [erro, setErro] = useState<string | null>(null)
-  const [copia, setCopia] = useState<{ destino: any } | null>(null)
+  // Duas operações diferentes com a mesma máquina por trás:
+  //   'para'     — trazer de outra versão PARA esta (o que já existia)
+  //   'duplicar' — clonar ESTA numa versão nova (o que se quer ao criar cenário)
+  const [copia, setCopia] = useState<{ destino?: any; origem?: any; modo: 'para' | 'duplicar' } | null>(null)
   const [copiaOrigem, setCopiaOrigem] = useState('')
   const [copiaSubst, setCopiaSubst] = useState(true)
   const [copiando, setCopiando] = useState(false)
+  // Cenário completo é o padrão: copiar só o fat_orcado deixa a versão derivada
+  // sem câmbio, sem dissídio, sem drivers e sem as decisões de folha — ela nasce
+  // incoerente e volta ao quadro mestre no primeiro "Aplicar".
+  const [copiaCompleta, setCopiaCompleta] = useState(true)
+  const [novaVersao, setNovaVersao] = useState({ codigo: '', descricao: '', ano: '' })
+  const [copiaResumo, setCopiaResumo] = useState<{ tabela: string; linhas: number }[] | null>(null)
 
   const VS_COLS = [
     { key: 'codigo', placeholder: 'Ex: ORCADO_2026' },
@@ -1108,14 +1117,38 @@ function VersoesTab() {
     { key: 'ano', placeholder: 'Ano (ex: 2026)' },
   ]
 
+  const copiarPara = async (origemId: string, destinoId: string, substituir: boolean) => {
+    if (copiaCompleta) {
+      const { data, error } = await supabase.rpc('copiar_versao_cenario', { p_origem: origemId, p_destino: destinoId, p_substituir: substituir })
+      if (error) throw new Error(error.message)
+      return (data || []) as { tabela: string; linhas: number }[]
+    }
+    const { data: n, error } = await supabase.rpc('copiar_versao_orcado', { p_origem: origemId, p_destino: destinoId, p_substituir: substituir })
+    if (error) throw new Error(error.message)
+    return [{ tabela: 'fat_orcado', linhas: n ?? 0 }]
+  }
+
   const copiarVersao = async () => {
-    if (!copia || !copiaOrigem) { setErro('Selecione a versão de origem.'); return }
-    setCopiando(true); setErro(null)
-    const { data: n, error } = await supabase.rpc('copiar_versao_orcado', { p_origem: copiaOrigem, p_destino: copia.destino.id, p_substituir: copiaSubst })
-    setCopiando(false)
-    if (error) { setErro('Erro ao copiar: ' + error.message); return }
-    setCopia(null); setCopiaOrigem('')
-    alert(`${n ?? 0} lançamento(s) copiado(s) para "${copia.destino.codigo}".`)
+    if (!copia) return
+    setCopiando(true); setErro(null); setCopiaResumo(null)
+    try {
+      if (copia.modo === 'duplicar') {
+        const nv = { codigo: novaVersao.codigo.trim(), descricao: novaVersao.descricao.trim(), ano: Number(novaVersao.ano) }
+        if (!nv.codigo || !nv.descricao || !nv.ano) { setErro('Código, descrição e ano da nova versão são obrigatórios.'); return }
+        // Cria e copia num passo só — era isso que faltava: hoje é preciso criar
+        // a versão vazia e depois lembrar de copiar para ela.
+        const { data: criada, error: e1 } = await supabase.from('versao_orcamento')
+          .insert({ tenant_id: TENANT_ID, ...nv, ativa: true, bloqueada: false }).select('id,codigo').single()
+        if (e1) { setErro('Erro ao criar a versão: ' + e1.message); return }
+        const res = await copiarPara(copia.origem.id, criada.id, true)
+        setCopiaResumo(res); load()
+        return
+      }
+      if (!copiaOrigem) { setErro('Selecione a versão de origem.'); return }
+      const res = await copiarPara(copiaOrigem, copia.destino.id, copiaSubst)
+      setCopiaResumo(res)
+    } catch (e: any) { setErro('Erro ao copiar: ' + (e?.message || e)) }
+    finally { setCopiando(false) }
   }
 
   const load = async () => {
@@ -1162,7 +1195,9 @@ function VersoesTab() {
               <td style={S.td}>{v.descricao}</td>
               <td style={S.td}>{v.ano}</td>
               <td style={{ ...S.td, width: 100, whiteSpace: 'nowrap' }}>
-                <button style={{ ...S.btnDel, color: 'var(--blue)' }} title="Copiar lançamentos de outra versão para esta" onClick={() => { setCopia({ destino: v }); setCopiaOrigem(''); setCopiaSubst(true); setErro(null) }}><Copy size={14} /></button>
+                <button style={{ ...S.btnDel, color: 'var(--violet)' }} title="Duplicar esta versão num cenário novo (leva orçado, câmbio, dissídio, drivers e as decisões de folha)"
+                  onClick={() => { setCopia({ origem: v, modo: 'duplicar' }); setNovaVersao({ codigo: `${v.codigo}_B`, descricao: `${v.descricao} — cenário B`, ano: String(v.ano ?? '') }); setCopiaCompleta(true); setCopiaResumo(null); setErro(null) }}><CopyPlus size={14} /></button>
+                <button style={{ ...S.btnDel, color: 'var(--blue)' }} title="Copiar de outra versão PARA esta" onClick={() => { setCopia({ destino: v, modo: 'para' }); setCopiaOrigem(''); setCopiaSubst(true); setCopiaCompleta(true); setCopiaResumo(null); setErro(null) }}><Copy size={14} /></button>
                 <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(v.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
                 <button style={S.btnDel} title="Excluir" onClick={() => del(v.id)}><Trash2 size={14} /></button>
               </td>
@@ -1174,23 +1209,65 @@ function VersoesTab() {
       {copia && (
         <div style={S.overlay} onClick={() => !copiando && setCopia(null)}>
           <div style={S.modal} onClick={e => e.stopPropagation()}>
-            <div style={S.mTitle}>Copiar orçado → <span style={{ color: 'var(--blue)' }}>{copia.destino.codigo}</span></div>
-            <div style={S.field}>
-              <label style={S.label}>Versão de origem</label>
-              <select style={S.input} value={copiaOrigem} onChange={e => setCopiaOrigem(e.target.value)}>
-                <option value="">— selecione —</option>
-                {data.filter(v => v.id !== copia.destino.id).map(v => <option key={v.id} value={v.id}>{v.codigo} · {v.descricao}</option>)}
-              </select>
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-mid)' }}>
-              <input type="checkbox" checked={copiaSubst} onChange={e => setCopiaSubst(e.target.checked)} />
-              Substituir (apaga o orçado atual de "{copia.destino.codigo}" antes de copiar)
+            <div style={S.mTitle}>{copia.modo === 'duplicar'
+              ? <>Duplicar <span style={{ color: 'var(--violet)' }}>{copia.origem.codigo}</span> num cenário novo</>
+              : <>Copiar → <span style={{ color: 'var(--blue)' }}>{copia.destino.codigo}</span></>}</div>
+
+            {copia.modo === 'duplicar' ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={S.field}><label style={S.label}>Código da nova versão</label>
+                  <input style={S.input} value={novaVersao.codigo} onChange={e => setNovaVersao(v => ({ ...v, codigo: e.target.value }))} placeholder="Ex: ORCADO_2027_CORTE" /></div>
+                <div style={S.field}><label style={S.label}>Ano</label>
+                  <input style={S.input} value={novaVersao.ano} onChange={e => setNovaVersao(v => ({ ...v, ano: e.target.value }))} /></div>
+                <div style={{ ...S.field, gridColumn: '1 / -1' }}><label style={S.label}>Descrição</label>
+                  <input style={S.input} value={novaVersao.descricao} onChange={e => setNovaVersao(v => ({ ...v, descricao: e.target.value }))} placeholder="Ex: 2027 com reestruturação" /></div>
+              </div>
+            ) : (
+              <>
+                <div style={S.field}>
+                  <label style={S.label}>Versão de origem</label>
+                  <select style={S.input} value={copiaOrigem} onChange={e => setCopiaOrigem(e.target.value)}>
+                    <option value="">— selecione —</option>
+                    {data.filter(v => v.id !== copia.destino.id).map(v => <option key={v.id} value={v.id}>{v.codigo} · {v.descricao}</option>)}
+                  </select>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-mid)' }}>
+                  <input type="checkbox" checked={copiaSubst} onChange={e => setCopiaSubst(e.target.checked)} />
+                  Substituir (apaga o conteúdo atual de "{copia.destino.codigo}" antes de copiar)
+                </label>
+              </>
+            )}
+
+            {/* O padrão é o cenário COMPLETO. Copiar só os lançamentos deixa a
+                versão sem câmbio, dissídio, drivers e decisões de folha — e aí
+                o primeiro "Aplicar" nela recalcula do quadro mestre e desfaz o
+                cenário sem avisar. */}
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: 'var(--text-mid)', marginTop: 12 }}>
+              <input type="checkbox" checked={copiaCompleta} onChange={e => setCopiaCompleta(e.target.checked)} style={{ marginTop: 3 }} />
+              <span><b>Cenário completo</b> — leva também câmbio orçado, dissídio por sindicato, valores de formulário e as <b>decisões de folha</b> (posto por versão).
+                <br /><span style={{ color: 'var(--muted)' }}>Desmarcado, copia só os lançamentos do orçado — a versão nova nasce sem premissas e a folha dela volta ao quadro mestre no primeiro Aplicar.</span></span>
             </label>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Copia todos os lançamentos do orçado (todas as empresas/linhas/períodos) da origem para esta versão.</div>
+
+            {copiaResumo && (
+              <div style={{ marginTop: 14, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                <div style={{ padding: '7px 10px', fontSize: 12, fontWeight: 700, background: 'var(--panel-2)' }}>Copiado</div>
+                {copiaResumo.map(r => (
+                  <div key={r.tabela} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', fontSize: 12.5, borderTop: '1px solid var(--border)' }}>
+                    <span style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{r.tabela}</span>
+                    <b style={{ color: r.linhas ? 'var(--text)' : 'var(--faint)' }}>{r.linhas.toLocaleString('pt-BR')}</b>
+                  </div>
+                ))}
+                <div style={{ padding: '7px 10px', fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid var(--border)' }}>
+                  Zero em <code>posto_versao</code> só quer dizer que a origem não tinha decisões de folha.
+                </div>
+              </div>
+            )}
+
             {erro && <div style={{ ...S.erro, margin: '12px 0 0' }}><AlertCircle size={15} />{erro}</div>}
             <div style={S.mFooter}>
-              <button style={S.btnImp} disabled={copiando} onClick={() => setCopia(null)}>Cancelar</button>
-              <button style={S.btnAdd} disabled={copiando || !copiaOrigem} onClick={copiarVersao}>{copiando ? 'Copiando…' : 'Copiar'}</button>
+              <button style={S.btnImp} disabled={copiando} onClick={() => { setCopia(null); setCopiaResumo(null) }}>{copiaResumo ? 'Fechar' : 'Cancelar'}</button>
+              {!copiaResumo && <button style={S.btnAdd} disabled={copiando || (copia.modo === 'para' && !copiaOrigem)} onClick={copiarVersao}>
+                {copiando ? 'Copiando…' : copia.modo === 'duplicar' ? 'Criar e copiar' : 'Copiar'}</button>}
             </div>
           </div>
         </div>

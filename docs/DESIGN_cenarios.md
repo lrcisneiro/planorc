@@ -240,6 +240,12 @@ pessoa.
   US$ em silêncio. Agora leva também `versao_taxa`, `premissa_dissidio`,
   `formulario_valor` e `posto_versao`, senão o cenário derivado nasce incoerente e a
   folha dele volta ao quadro mestre no primeiro reaplicar.
+  E a UI: **Duplicar** (ícone próprio em Cadastros → Versões) cria a versão nova e copia
+  num passo só, partindo da versão que se quer clonar. Antes era preciso criar a versão
+  vazia e lembrar de copiar *para* ela — o sentido invertido do que se pensa ao criar um
+  cenário. O "copiar para esta" continua, para trazer de outra versão. Nos dois, a opção
+  **cenário completo** vem marcada e o resultado sai por tabela, para não haver dúvida do
+  que veio junto.
 - **P3 — `posto.so_versao_id`**: vaga que só existe no cenário.
 - **P4 — publicar/promover** um cenário no mestre (o *publish* do SAC): as decisões que
   viraram realidade descem para o cadastro e o overlay se esvazia.
