@@ -617,6 +617,13 @@ export default function PostosGradePage() {
 
   const linhaPosto = (p: Posto) => {
     const custoMes = custoMesP(p), custoAno = custoAnoP(p)
+    // CUSTO/MÊS é o mês REPRESENTATIVO (o último vigente), não a média: ele
+    // responde "quanto essa pessoa custa daqui em diante". Quando há reajuste no
+    // meio do ano, custoMes × 12 ≠ custoAno — e sem avisar isso parece erro de
+    // conta. O motor já guarda a base do último mês; aqui só marcamos a linha.
+    const mesesVig = custos.get(p.id)?.mesesVigentes ?? 12
+    const mudaNoAno = !!p.reajuste_mes && p.reajuste_mes > 1 && !!custoMes
+      && Math.abs(custoMes * mesesVig - custoAno) > 0.01
     const v = vig(p)
     return (
       <tr key={p.id} style={p.ativo === false ? { opacity: 0.55 } : undefined}>
@@ -681,7 +688,13 @@ export default function PostosGradePage() {
           const nomes = rr.map(x => rateioCods.find(c => c.id === x.regra_id)?.nome || '?').join(' → ')
           return <button title={`${nomes} — clique para ver a memória`} onClick={() => setRateModal(p)} style={{ display: 'inline-block', fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 6, cursor: 'pointer', color: 'var(--violet)', border: '1px solid var(--violet)55', background: 'rgba(139,92,246,0.14)' }}>{rr.length} cód.</button>
         })()}</td>
-        <td style={{ ...S.td, textAlign: 'right', cursor: 'pointer' }} title="Ver memória de cálculo" onClick={() => setDrill(p)}>{money(custoMes)}</td>
+        <td style={{ ...S.td, textAlign: 'right', cursor: 'pointer' }} onClick={() => setDrill(p)}
+          title={mudaNoAno
+            ? `Mês de dezembro (com o reajuste de ${MESES_NUM[(p.reajuste_mes || 1) - 1]}). Antes dele o custo é outro — o anual de ${money(custoAno)} já considera os dois. Clique para a memória.`
+            : 'Ver memória de cálculo'}>
+          {money(custoMes)}
+          {mudaNoAno && <span style={{ color: 'var(--orange)', marginLeft: 3 }}>*</span>}
+        </td>
         <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, cursor: 'pointer' }} title="Ver memória de cálculo" onClick={() => setDrill(p)}>{money(custoAno)}</td>
         <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{editavel && <>
           <button style={S.del} title="Editar posto" onClick={() => editarPosto(p)}><Pencil size={14} /></button>
@@ -851,7 +864,8 @@ export default function PostosGradePage() {
           </table>
         </div>
       </div>
-      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>¹ {temMotor ? 'Custo com encargos/provisões/benefícios pelo motor (clique no valor p/ ver a memória). Rateio entra no step 4.' : 'Custo base (salário × FTE) — cadastre as verbas em Estrutura para o custo com encargos.'}</p>
+      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>¹ {temMotor ? 'Custo com encargos/provisões/benefícios pelo motor (clique no valor p/ ver a memória). Rateio entra no step 4.' : 'Custo base (salário × FTE) — cadastre as verbas em Estrutura para o custo com encargos.'}
+        <br /><span style={{ color: 'var(--orange)' }}>*</span> o custo mudou durante o ano (reajuste): a coluna mostra o <b>último mês</b>, não a média — por isso ela × 12 não dá o custo ano, que já soma mês a mês.</p>
 
       {drill && (() => {
         const r = custos.get(drill.id)
