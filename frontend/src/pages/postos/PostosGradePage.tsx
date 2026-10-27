@@ -7,7 +7,7 @@ import { nomeCurto } from '../../lib/nomePessoa'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
-import { calcularPosto, regimeAplica, paisAplica, CATEGORIAS } from '../../lib/motorFolha'
+import { calcularPosto, regimeAplica, paisAplica, verbasDoRegime, CATEGORIAS } from '../../lib/motorFolha'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
 import { Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil } from 'lucide-react'
 import { RateioModal } from './RateioModal'
@@ -1086,6 +1086,13 @@ export default function PostosGradePage() {
                 ano: anoCalc, valoresFixos: form.id ? (postoVerbas[form.id] || {}) : {},
               }) : null
               const sal = parseNum(form.salario_base) || 0
+              // Rescisão zerada tem DUAS causas e elas pedem conserto diferente:
+              // não existir verba no catálogo, ou existir e o filtro de
+              // país/regime do motor tirá-la do posto. Dizer só "sem verbas"
+              // manda procurar no lugar errado.
+              const ehResc = (t: string) => t === 'RESC_AVISO' || t === 'RESC_PROP' || t === 'RESC_SALDO_FGTS'
+              const noCat = verbas.filter(v => ehResc(v.tipo_calculo))
+              const aplicaveis = verbasDoRegime(verbas, form.regime || null, empPais.get(form.empresa_id) ?? null).filter(v => ehResc(v.tipo_calculo))
               return (
                 <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
                   <span style={{ ...S.flbl, display: 'block', marginBottom: 6 }}>
@@ -1098,7 +1105,14 @@ export default function PostosGradePage() {
                     </div>
                     {prev && <div style={{ fontSize: 12.5, paddingBottom: 6 }}>
                       <div style={{ color: 'var(--red)', fontWeight: 600 }}>Rescisão estimada: R$ {money(prev.rescisaoAno)}{sal ? ` (${(prev.rescisaoAno / sal).toFixed(1)} salários)` : ''}</div>
-                      <div style={{ color: 'var(--muted)' }}>{prev.linhas.filter(l => l.categoria === 'Rescisão').map(l => `${l.verba.codigo} ${money(l.valorAno)}`).join(' · ') || 'sem verbas de rescisão no catálogo deste regime'}</div>
+                      <div style={{ color: aplicaveis.length ? 'var(--muted)' : 'var(--orange)' }}>
+                        {prev.linhas.filter(l => l.categoria === 'Rescisão').map(l => `${l.verba.codigo} ${money(l.valorAno)}`).join(' · ')
+                          || (!noCat.length
+                            ? 'Nenhuma verba de rescisão no catálogo — rode a migration v3_118.'
+                            : !aplicaveis.length
+                              ? `As ${noCat.length} verbas de rescisão existem (${noCat.map(v => v.codigo).join(', ')}) mas NÃO se aplicam a este posto. O motor filtra por país e regime: confira o país da empresa contra o país da verba, e o regime "${form.regime || '—'}" contra o regime da verba, em Postos → Regras.`
+                              : 'As verbas se aplicam mas deram zero — confira os parâmetros em Postos → Regras.')}
+                      </div>
                     </div>}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
