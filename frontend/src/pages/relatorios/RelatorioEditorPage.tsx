@@ -1506,6 +1506,11 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         </span>
         {!editavel && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--orange)', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.30)', borderRadius: 99, padding: '2px 8px' }}>somente leitura</span>}
 
+        {/* Quebra forçada: o header é um flex com wrap, e a Visão abre a 2ª linha.
+            Sem isto ela sobe e desce conforme o nome do relatório e a largura da
+            janela — e a posição de um controle não deve depender disso. */}
+        <div style={{ flexBasis: '100%', height: 0 }} />
+
         {/* Seletor de VISÃO (colapsa a antiga fileira de abas num único botão que mostra a visão ativa) */}
         <div style={{ position: 'relative' }}>
           <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, borderColor: 'var(--violet)', color: 'var(--violet)', fontWeight: 500 }}
