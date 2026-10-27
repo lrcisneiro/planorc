@@ -219,6 +219,33 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const [masters, setMasters] = useState<any[]>([])
   const [views,     setViews]     = useState<ViewConfig[]>([])
   const [activeView, setActiveView] = useState('')
+  // Trocar de visão passa a ajustar o período para o(s) ano(s) das versões dela.
+  // Antes, abrir a visão do orçamento 2027 com o filtro em 2026 mostrava a tela
+  // inteira vazia, e o usuário tinha de descobrir sozinho que faltava mexer em
+  // outro controle. O ano da versão é dado, não preferência — e quando a visão
+  // compara 2026 com 2027, os dois anos entram.
+  const anosDosCenarios = (cens: string[]): number[] => {
+    const as = new Set<number>()
+    for (const c of cens || []) {
+      if (c === REALIZADO) continue
+      const ver = versoes.find(x => x.id === c)
+      if (ver?.ano) as.add(ver.ano)
+    }
+    return [...as].sort((a, b) => a - b)
+  }
+  // por cenários (o saveView tem os novos em mãos antes de `views` recarregar)
+  const aplicarPeriodoDeCenarios = (cens: string[]) => {
+    const as = anosDosCenarios(cens)
+    if (!as.length) return                       // só REALIZADO: o período é escolha do usuário
+    const novos: Periodo[] = []
+    for (const a of as) for (let m = 1; m <= 12; m++) novos.push({ ano: a, mes: m })
+    // não mexe se já está exatamente assim (evita refetch e perder o que o usuário ajustou)
+    const igual = novos.length === periodosSel.length &&
+      novos.every(n => periodosSel.some(p => p.ano === n.ano && p.mes === n.mes))
+    if (!igual) { setPeriodosSel(novos); setPeriodosDraft(novos) }
+  }
+  const aplicarPeriodoDaVisao = (vid: string) =>
+    aplicarPeriodoDeCenarios(views.find(x => x.id === vid)?.cenarios || [])
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [editCell,  setEditCell]  = useState<{ linhaId: string; period: number } | null>(null)
   const [editVal,   setEditVal]   = useState('')
@@ -1293,6 +1320,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       if (error) { alert('Erro: ' + error.message); return }
       await loadViews()
     }
+    aplicarPeriodoDeCenarios(v.cenarios)   // trocar os cenários muda o ano em jogo
     setViewModal(null)
   }
   const deleteView = async (vid: string) => {
@@ -1506,7 +1534,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                 {(views.length ? views : [view]).map(v => {
                   const ativa = v.id === view.id
                   return (
-                    <div key={v.id} onClick={() => { setActiveView(v.id); setViewMenu(false) }}
+                    <div key={v.id} onClick={() => { setActiveView(v.id); aplicarPeriodoDaVisao(v.id); setViewMenu(false) }}
                       style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', background: ativa ? 'rgba(139,92,246,0.14)' : 'var(--panel)', borderBottom: '1px solid var(--bg)' }}
                       onMouseEnter={e => { if (!ativa) e.currentTarget.style.background = 'rgba(139,92,246,0.07)' }}
                       onMouseLeave={e => { if (!ativa) e.currentTarget.style.background = 'var(--panel)' }}>
