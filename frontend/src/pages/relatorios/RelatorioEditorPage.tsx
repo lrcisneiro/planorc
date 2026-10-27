@@ -1868,6 +1868,24 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, linhaIds, cont
   useEffect(() => { load() }, []) // eslint-disable-line
 
   const soma = rows.reduce((s, r) => s + dispVal(r), 0)
+
+  // Totalizador do cabeçalho: o rodapé já dá a soma, mas ela não responde "quanto
+  // é de cada unidade" — que é a pergunta de quem abre um drill de conta rateada
+  // e vê a mesma linha repetida por empresa.
+  const [grupoPor, setGrupoPor] = useState<'empresa' | 'filial' | 'cc' | 'efc'>('empresa')
+  const resumo = useMemo(() => {
+    const m = new Map<string, { label: string; valor: number; n: number }>()
+    for (const r of rows) {
+      const e = empById[r.empresa_id]?.codigo || '—'
+      const f = filById[r.filial_id]?.codigo || '—'
+      const c = ccById[r.cc_id]?.codigo || '—'
+      const label = grupoPor === 'empresa' ? e : grupoPor === 'filial' ? f : grupoPor === 'cc' ? c : `${e}·${f}·${c}`
+      const cur = m.get(label) || { label, valor: 0, n: 0 }
+      cur.valor += dispVal(r); cur.n++
+      m.set(label, cur)
+    }
+    return [...m.values()].sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor))
+  }, [rows, grupoPor, empById, filById, ccById]) // eslint-disable-line
   const exportar = () => downloadSheet('razao.xlsx', [
     [...(isReal ? ['Conta', 'Descrição Conta', 'Data', 'Documento', 'Lote', 'Sublote'] : []),
      'Empresa', 'Filial', 'Linha', 'CC', 'Descrição CC',
@@ -1936,6 +1954,29 @@ function RazaoModal({ titulo, cen, cenLabel, periodoLabel, meses, linhaIds, cont
             <X size={20} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} />
           </div>
         </div>
+
+        {resumo.length > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 18px', borderBottom: '1px solid var(--border)', background: 'var(--bg-soft)' }}>
+            <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>TOTAL POR</span>
+            {([['empresa', 'Empresa'], ['filial', 'Filial'], ['cc', 'CC'], ['efc', 'Emp·Fil·CC']] as const).map(([k, lbl]) => (
+              <button key={k} onClick={() => setGrupoPor(k)}
+                style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap',
+                  border: '1px solid ' + (grupoPor === k ? 'var(--violet)' : 'var(--border-strong)'),
+                  background: grupoPor === k ? 'rgba(139,92,246,0.16)' : 'transparent',
+                  color: grupoPor === k ? 'var(--violet)' : 'var(--muted)' }}>{lbl}</button>
+            ))}
+            <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flex: 1 }}>
+              {resumo.map(g => (
+                <span key={g.label} title={`${g.n} lançamento(s)`}
+                  style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5, fontSize: 11.5, padding: '3px 9px', borderRadius: 99, background: 'var(--panel)', border: '1px solid var(--border)' }}>
+                  <b style={{ color: 'var(--text)', fontFamily: 'monospace' }}>{g.label}</b>
+                  <span style={{ color: 'var(--text-mid)', fontVariantNumeric: 'tabular-nums' }}>{formatValor(g.valor, 'NUMERO', 2)}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div style={{ overflow: 'auto', flex: 1 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
