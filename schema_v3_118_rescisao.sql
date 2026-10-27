@@ -87,6 +87,10 @@ WHERE t.id IS NOT NULL
 ON CONFLICT (tenant_id, codigo) DO NOTHING;
 
 -- ---------- aviso de dupla contagem ----------
+-- NOTA: o SQL Editor do Supabase NÃO exibe RAISE NOTICE (só "Success"), então
+-- este bloco é inútil ali. A conferência de verdade está em
+-- `diagnostico_rescisao.sql`, que responde por SELECT. Mantido para quem rodar
+-- por psql, onde o NOTICE aparece.
 DO $$
 DECLARE n int; lista text;
 BEGIN
