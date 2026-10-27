@@ -1587,7 +1587,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
               <Eye size={13} /> Ver ocultas
             </button>
             {view.funcao === 'COMPARATIVO' && (
-              <button title="Adicionar coluna com o valor do delta (além do Δ%)" onClick={() => setShowDeltaVal(v => !v)}
+              <button title="Coluna com o valor do delta, além do Δ%. O número é a 2ª série menos a 1ª, como aparecem na tela; a cor é o impacto no resultado — numa despesa, gastar mais fica positivo e vermelho." onClick={() => setShowDeltaVal(v => !v)}
                 style={{ ...mini, border: '1px solid ' + (showDeltaVal ? 'var(--blue)' : 'var(--border-strong)'), background: showDeltaVal ? 'rgba(59,130,246,0.16)' : 'var(--panel)', color: showDeltaVal ? 'var(--blue)' : 'var(--text-mid)' }}>
                 Δ valor
               </button>
@@ -1713,19 +1713,30 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                       const disp = isSpac ? '' : (v !== 0 ? formatValor(fac * v, l.formato, l.casas_decimais) : '')
                       return <td key={c.key} style={{ ...S.td, color: clr, fontWeight: fw, textDecoration: off ? 'line-through' : undefined, background: isSel ? 'rgba(59,130,246,0.30)' : (c.period === 'TOTAL' ? 'var(--bg-soft)' : undefined) }}>{disp}</td>
                     }
+                    // Δ tem DUAS leituras e elas discordam na despesa. O NÚMERO segue o
+                    // que está escrito nas duas colunas ao lado (que a despesa mostra
+                    // positiva, via `fac`) — senão a conta não fecha na tela: 5.650.570
+                    // menos 5.573.011 tem de dar +77.559, não −77.559. A COR segue o
+                    // impacto no RESULTADO, no valor cru: gastar mais é vermelho mesmo
+                    // que o número apareça positivo. É a convenção de relatório de
+                    // variação, e o title explica a cada célula.
                     if (c.kind === 'deltav') {
                       const base = cellVal(censDisplay[0], l.id, c.period)
                       const comp = cellVal(censDisplay[1], l.id, c.period)
-                      const dv = comp - base   // impacto no resultado (mesmo sinal do Δ%)
-                      const col = dv > 0 ? 'var(--green)' : dv < 0 ? 'var(--red)' : 'var(--border-strong)'
-                      return <td key={c.key} style={{ ...S.td, color: col, fontSize: 12, fontWeight: 500, fontStyle: 'italic' }}>{isSpac || dv === 0 ? '' : `${dv > 0 ? '+' : ''}${formatValor(dv, l.formato, l.casas_decimais)}`}</td>
+                      const dRes = comp - base          // impacto no resultado → cor
+                      const dv = fac * dRes             // o que se lê → fecha com as colunas
+                      const col = dRes > 0 ? 'var(--green)' : dRes < 0 ? 'var(--red)' : 'var(--border-strong)'
+                      return <td key={c.key} title={dRes === 0 ? undefined : `${censDisplay[1]} − ${censDisplay[0]}. ${dRes > 0 ? 'Melhora' : 'Piora'} o resultado.`}
+                        style={{ ...S.td, color: col, fontSize: 12, fontWeight: 500, fontStyle: 'italic' }}>{isSpac || dv === 0 ? '' : `${dv > 0 ? '+' : ''}${formatValor(dv, l.formato, l.casas_decimais)}`}</td>
                     }
                     if (c.kind === 'delta') {
                       const base = cellVal(censDisplay[0], l.id, c.period)
                       const comp = cellVal(censDisplay[1], l.id, c.period)
-                      const d = base !== 0 ? (comp - base) / Math.abs(base) : NaN
-                      const col = !isFinite(d) ? 'var(--border-strong)' : d >= 0 ? 'var(--green)' : 'var(--red)'
-                      return <td key={c.key} style={{ ...S.td, color: col, fontSize: 12, fontWeight: 500 }}>{isSpac ? '' : (isFinite(d) ? `${d >= 0 ? '+' : ''}${(d * 100).toFixed(1)}%` : '—')}</td>
+                      const dRes = base !== 0 ? (comp - base) / Math.abs(base) : NaN
+                      const d = fac * dRes
+                      const col = !isFinite(dRes) ? 'var(--border-strong)' : dRes >= 0 ? 'var(--green)' : 'var(--red)'
+                      return <td key={c.key} title={!isFinite(dRes) ? undefined : `${censDisplay[1]} sobre ${censDisplay[0]}. ${dRes >= 0 ? 'Melhora' : 'Piora'} o resultado.`}
+                        style={{ ...S.td, color: col, fontSize: 12, fontWeight: 500 }}>{isSpac ? '' : (isFinite(d) ? `${d >= 0 ? '+' : ''}${(d * 100).toFixed(1)}%` : '—')}</td>
                     }
                     const cen = c.cenarioKey!
                     const val = cellVal(cen, l.id, c.period)
