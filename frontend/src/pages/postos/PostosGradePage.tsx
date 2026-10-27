@@ -177,7 +177,7 @@ export default function PostosGradePage() {
       supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
       supabase.from('cargo').select('id,codigo,nome').order('nome'),
-      supabase.from('versao_orcamento').select('id,codigo').order('codigo'),
+      supabase.from('versao_orcamento').select('id,codigo,bloqueada').order('codigo'),
       supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,mantem_afastado,regime,pais,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
       supabase.from('sindicato').select('id,codigo,mes_database'),
       supabase.from('rateio_regra').select('id,nome,dimensao').eq('ativo', true).order('nome'),
@@ -382,6 +382,15 @@ export default function PostosGradePage() {
   const aplicarNoOrcado = async () => {
     setErro(null); setAplicarInfo(null)
     if (!versaoSel) { setErro('Selecione a versão do orçamento.'); return }
+    // Versão bloqueada é versão aprovada: o Aplicar APAGA todo o orçado POSTO dela e
+    // regrava do quadro ATUAL — que pode já estar noutra hipótese. O editor de
+    // formulário sempre respeitou `bloqueada`; a folha não, e é justamente o maior
+    // bloco de custo. Guarda do P0 (docs/DESIGN_cenarios.md §7.6).
+    const vSel = versoes.find(v => v.id === versaoSel)
+    if (vSel?.bloqueada) {
+      setErro(`A versão ${vSel.codigo} está BLOQUEADA (aprovada) — o Aplicar apagaria e regravaria o orçado de folha dela a partir do quadro de postos de hoje. Desbloqueie em Cadastros → Versões se for mesmo para refazer, ou escolha outra versão.`)
+      return
+    }
     if (!temMotor) { setErro('Sem verbas cadastradas — cadastre a Estrutura antes de aplicar.'); return }
     const ativos = postos.filter(p => p.ativo !== false)
     const versaoCod = versoes.find(v => v.id === versaoSel)?.codigo || String(anoCalc)
@@ -798,7 +807,7 @@ export default function PostosGradePage() {
         <div style={S.fld}><span style={S.lbl}>Versão</span>
           <select style={S.sel} value={versaoSel} onChange={e => setVersaoSel(e.target.value)} title="Versão do orçamento — define o dissídio aplicado ao custo">
             {!versoes.length && <option value="">—</option>}
-            {versoes.map((v: any) => <option key={v.id} value={v.id}>{v.codigo}</option>)}
+            {versoes.map((v: any) => <option key={v.id} value={v.id}>{v.codigo}{v.bloqueada ? ' 🔒' : ''}</option>)}
           </select>
         </div>
         <div style={S.fld}><span style={S.lbl}>Buscar</span>

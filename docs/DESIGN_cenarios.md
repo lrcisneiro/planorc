@@ -104,28 +104,133 @@ Promover (simulação → oficial; opcional *merge* = copiar células alteradas 
 4. **Ajuste % sobre célula de formulário/posto**: vira `origem=MANUAL` e perde o driver, ou ajusta-se no driver e reaplica? Mercado faz no driver; % direto é aceitável para simulação rápida se registrado na premissa.
 5. **Limite de 4 cenários** na comparação: manter (legibilidade) ou livre.
 6. **Papel livre** (mantido), mas "Simulação" com comportamento especial: fora dos dashboards oficiais por padrão.
-7. **O cenário de FOLHA não é representável por cópia de versão.** `posto` **não tem
-   `versao_id`** — o quadro é um só, compartilhado por todas as versões; apenas o
-   resultado (`fat_orcado`/`fat_folha`) é congelado por versão pelo "Aplicar". A cópia leva
-   os números já calculados, mas basta alguém reaplicar o motor na versão derivada para ele
-   recalcular do mesmo quadro único e desfazer o cenário. Ou seja: "corta 10 postos" e
-   "adia 5 contratações" não convivem como duas hipóteses.
-   Hoje o corte se faz por **vigência** (`fim_ano`/`fim_mes`), que é **um** valor por posto:
-   serve para uma decisão tomada, não para duas hipóteses simultâneas. As saídas são
-   (a) aceitar que a folha só tem *plano que evolui* (revisões que se substituem) e a
-   simulação de quadro se faz fora do motor, ou (b) uma camada de sobreposição por versão
-   — um `posto_versao` com vigência/FTE/salário que herda do mestre quando ausente, mesmo
-   padrão da premissa global do formulário (`formulario_valor.empresa_id NULL`).
-   **Decidir antes da F7.2**, porque muda o que "simulação" significa para o maior bloco
-   de custo da empresa.
+7. **O cenário de FOLHA não é representável por cópia de versão — DECIDIDO (out/2026).**
+   `posto` **não tem `versao_id`**: o quadro é um só, compartilhado por todas as versões;
+   só o resultado (`fat_orcado`/`fat_folha`) é congelado pelo "Aplicar". Basta alguém
+   reaplicar o motor numa versão derivada para ele recalcular do quadro único e desfazer o
+   cenário. "Corta 10 postos" e "adia 5 contratações" não convivem como duas hipóteses.
+   Ver §7.
 
 ## 6. Fases
 - **F7.1** Hub + wizard (identificação, cópia completa, realizado até mês) + colunas novas
   + **respeitar `bloqueada` no "Aplicar" da grade de postos** (gap 6). Este item não espera
-  a F7.4: é proteção contra perda de dado já validado, e custa uma guarda. ⬜
+  a F7.4: é proteção contra perda de dado já validado, e custa uma guarda. Virou o **P0**
+  do §7.6. ⬜
 - **F7.2** Ajustes por regra + premissas + marcação de diferenças no editor. ⬜
+  O cenário de **folha** tem trilho próprio: §7 (`posto_versao`), decidido em out/2026.
 - **F7.3** Tela Comparar (resumo / detalhado / só diferenças) + export. ⬜
 - **F7.4** Promover/merge, arquivamento, simulações fora dos dashboards oficiais. ⬜
+
+## 7. Cenário de folha — `posto_versao` (sobreposição)
+
+### 7.1 O que o mercado faz
+
+Dois campos, e a divisão é por como o dado de pessoal está modelado — não por porte:
+
+| campo | quem | mecanismo |
+|---|---|---|
+| **cópia completa** | Oracle EPM, Workday Adaptive | `Scenario`/`Version` são dimensões do cubo; a regra *Copy Version* copia a fatia inteira (exige membro de Scenario, Account, Entity, Period, Version). No Adaptive a *personnel sheet* é por versão, escolhida num dropdown. Sem herança: o que não foi copiado não existe. |
+| **base + diferença** | SAP SAC, Prophix, Anaplan | SAC: editar versão pública cria uma **versão privada** temporária, e publicar oferece *all data* ou **só o alterado** (`updateChangedDataOnly`) — copy-on-write com merge do delta. Prophix: **Default Scenario** é a baseline; atributos do funcionário variam por cenário, mas ao postar "o Default é a única fonte dos valores de atributo". Anaplan: cada *line item* declara a quais versões se aplica (propriedade `Versions`) — o que varia é decidido **campo a campo**. |
+
+A cópia completa funciona porque ali o dado já é dimensional e copiar é operação de cubo.
+Aqui seriam 571 postos × N cenários em tabela relacional: custo de reconciliação alto e,
+pior, **apaga a resposta "o que mudou"** — que é justamente o que se apresenta.
+
+**Adotamos o segundo campo.** Três coisas vêm da pesquisa e não da intuição:
+
+- **fato × decisão declarado campo a campo** (Anaplan, Prophix). Não é "tudo pode variar";
+- **vaga de cenário não é sobreposição** — a literatura de *position-based planning* separa
+  *supply* (quem existe) de *demand* (vaga planejada). São mecanismos distintos;
+- **versão privada** (SAC): mexer sem sujar a versão oficial e publicar quando decide. É o
+  fluxo certo para reestruturação, que é decisão sensível e ainda indecisa.
+
+### 7.2 Modelo
+
+```sql
+CREATE TABLE posto_versao (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id  uuid NOT NULL REFERENCES tenant ON DELETE CASCADE,
+  versao_id  uuid NOT NULL REFERENCES versao_orcamento ON DELETE CASCADE,
+  posto_id   uuid NOT NULL REFERENCES posto ON DELETE CASCADE,
+  -- DECISÕES. NULL = herda do posto mestre.
+  salario_base   numeric(14,2),
+  fte            numeric(5,2),
+  ini_ano smallint, ini_mes smallint,     -- adiar/antecipar entrada
+  fim_ano smallint, fim_mes smallint,     -- demissão simulada
+  reajuste_mes smallint, reajuste_pct numeric, reajuste_valor numeric,
+  afast_ini_ano smallint, afast_ini_mes smallint,
+  afast_fim_ano smallint, afast_fim_mes smallint,
+  ativo      boolean,
+  limpos     text[] NOT NULL DEFAULT '{}',  -- campos EXPLICITAMENTE sem valor (ver 7.3)
+  nota       text,                           -- por que esta decisão
+  UNIQUE (versao_id, posto_id)
+);
+```
+
+**Variam** (decisão): salário, FTE, vigência, reajuste, afastamento, ativo.
+**Não variam** (fato, moram no mestre): nome, matrícula, **admissão**, cargo, regime,
+sindicato, empresa/filial/CC, `recurso_cod`, benefícios (`posto_verba`), rateio.
+
+> Realocação (trocar CC/empresa num cenário) ficou **fora** de propósito: muda a chave do
+> rateio e do escopo de acesso, e é reorganização, não corte. Se virar necessidade, entra
+> depois com o impacto no rateio resolvido antes.
+
+**Vaga que só existe num cenário** não é sobreposição — é `posto.so_versao_id uuid NULL`:
+NULL = posto real, presente em todas as versões; preenchido = vaga que só aquele cenário
+enxerga. Uma coluna, sem segunda tabela, e toda consulta filtra
+`so_versao_id IS NULL OR so_versao_id = :versao`.
+
+### 7.3 A armadilha do NULL
+
+`NULL = herda` não consegue dizer **"neste cenário este campo não tem valor"**. Caso real:
+o mestre diz que a pessoa sai em maio (demissão já decidida) e o cenário quer simular que
+ela **fica o ano todo** — é preciso *limpar* `fim_ano/fim_mes`, não herdar.
+
+Daí `limpos text[]`: lista de nomes de campo explicitamente vazios naquele cenário. A
+resolução fica `campo ∈ limpos ? null : (overlay.campo ?? mestre.campo)`. Uma coluna
+resolve, e a UI a preenche sozinha quando se apaga um campo que o mestre tem cheio.
+
+### 7.4 Resolução, no motor
+
+Função pura ao lado do `calcularPosto`, sem I/O:
+
+```ts
+resolvePosto(mestre: Posto, ov: PostoVersao | null): Posto
+```
+
+O motor **não muda** — continua recebendo um posto resolvido. Isso mantém `calcularPosto`
+testável e impede que a lógica de cenário vaze para dentro da cascata de verbas.
+
+### 7.5 Onde se vê o diff — DECIDIDO
+
+São **dois** diffs e misturá-los é o erro:
+
+- **de resultado** ("o cenário B tem EBITDA 2,1 mi maior") → é o **relatório**, comparando
+  versões. Já existe; nenhuma tela nova;
+- **de premissa** ("demite 14, adia 3 contratações, promove 2") → é uma **lista de
+  decisões**, e vai na **própria grade de Postos**, não em tela separada.
+
+Por que na grade: é onde a decisão é *tomada* — decidir num lugar e ver noutro é o que faz
+cenário custar caro; a grade já tem filtros, escopo, rateio e colunas de custo que uma tela
+nova duplicaria; e o padrão de herança **já existe e já é usado** aqui (premissa global do
+formulário: herdado em itálico, sobrescrito em destaque, apagar volta a herdar).
+
+A grade ganha: **seletor de versão**, célula sobrescrita em destaque com o valor herdado no
+title, e filtro **"só as alteradas (N)"** — que *é* o diff de premissa, pronto para
+apresentar. A tela **Comparar** (F7.3) continua, mas para o nível financeiro, não pessoa a
+pessoa.
+
+### 7.6 Ordem de implementação
+
+- **P0 — guarda do `bloqueada` no "Aplicar"** da grade de postos. Não espera nada: hoje uma
+  versão aprovada pode ser sobrescrita por engano (o formulário respeita `bloqueada`; a
+  folha, não). Custa uma condição e protege 2026, que está validado.
+- **P1 — `posto_versao` + seletor de versão na grade + herança visual + "só alteradas"**.
+  Entrega o cenário de folha inteiro para o caso comum (demitir/adiar/promover).
+- **P2 — motor lê o overlay** (`resolvePosto`) e o "Aplicar" usa o quadro resolvido da versão.
+- **P3 — `posto.so_versao_id`**: vaga que só existe no cenário.
+- **P4 — publicar/promover** um cenário no mestre (o *publish* do SAC): as decisões que
+  viraram realidade descem para o cadastro e o overlay se esvazia.
 
 ## Fontes
 - Workday Adaptive — Create plan versions: https://doc.workday.com/adaptive-planning/en-us/workday-adaptive-planning-documentation/modeling/managing-the-model/versions/plan-versions/nre1660090973895.html
@@ -136,3 +241,11 @@ Promover (simulação → oficial; opcional *merge* = copiar células alteradas 
 - Abacum — What-if analysis: https://www.abacum.ai/blog/what-if-analysis
 - Jirav — Scenario planning for finance teams: https://www.jirav.com/blog/scenario-planning-for-finance-teams-a-practical-guide-with-examples
 - Cube — Scenario planning: https://www.cubesoftware.com/scenario-planning
+
+### Folha por cenário (pesquisa de out/2026 — §7.1)
+- Oracle EPM — [Copying Versions](https://docs.oracle.com/en/cloud/saas/enterprise-performance-management-common/svsvs/copying_versions_298.html) · [Strategic Workforce Planning](https://www.oracle.com/a/ocom/docs/workforce-planning-solution-brief.pdf)
+- SAP Analytics Cloud — [Planning on Private Versions](https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/18850a0e13944f53aa8a8b7c094ea29e/1a011f8041a84e109a3b6bf8c1c81bc1.html) · [Create, Publish, and Manage Versions](https://help.sap.com/doc/00f68c2e08b941f081002fd3691d86a7/2023.20/en-US/9d9056a13b764ad3aca8fef2630fcc00.html)
+- Prophix — [Scenarios in Detailed Planning](https://help.prophix.cloud/Content/DP/dp_modelling/dp_scenarios.htm) · [Workforce planning with FP&A Plus](https://www.prophix.com/blog/fpa-workforce-planning/)
+- Anaplan — [Configure line items](https://help.anaplan.com/configure-line-items-e7de33be-6345-4ecc-a517-c3265ff6d04a) · [Select the versions for a line item formula](https://help.anaplan.com/en/317d27f8-04dc-418d-b77b-64c1afaf6916)
+- Workday Adaptive — [Adaptive Planning for the Workforce (datasheet)](https://www.workday.com/content/dam/web/en-us/documents/datasheets/enus-pln-da-workday-adaptive-planning-for-workforce.pdf)
+- Farseer — [Workforce planning best practices](https://www.farseer.com/blog/workforce-planning-best-practices/) (position-based; separar supply de demand)
