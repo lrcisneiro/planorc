@@ -51,3 +51,8 @@ COMMENT ON COLUMN posto.reajuste_pct IS
   'Reajuste individual em %, a partir de reajuste_mes. COMPÕE com o dissídio do sindicato.';
 COMMENT ON COLUMN posto.reajuste_valor IS
   'Salário novo (absoluto) a partir de reajuste_mes. Alternativo ao pct; substitui a base em vez de multiplicá-la, mas o dissídio ainda se aplica por cima.';
+
+-- O PostgREST guarda o schema em cache e responde
+--   "Could not find the 'reajuste_mes' column of 'posto' in the schema cache"
+-- até recarregar. Ele costuma perceber sozinho, mas isso força na hora.
+NOTIFY pgrst, 'reload schema';
