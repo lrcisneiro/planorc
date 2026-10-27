@@ -91,20 +91,18 @@ export async function importBaseline(opts: {
   const fail = (message: string): ImportBaselineResult => ({ ok: false, message, imported: 0, skipped: 0, blocked: 0 })
 
   const wb = await readWorkbook(file)
-  let aoa: any[] | null = null
+  const norm = (h: any) => typeof h === 'string' ? h.toLowerCase().replace(/\s/g, '') : ''
+  // TODAS as abas com "ItemOrcamento", não só a primeira: separar o orçamento
+  // por empresa/filial em abas é prática corrente de controladoria, e parar na
+  // primeira faria o resto sumir sem nenhum aviso. Cada aba tem o seu próprio
+  // cabeçalho — as colunas podem estar em ordens diferentes.
+  const abas: { nome: string; aoa: any[] }[] = []
   for (const n of wb.SheetNames) {
     const a = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1 }) as any[]
-    if (a[0] && a[0].some((h: any) => typeof h === 'string' && h.toLowerCase().replace(/\s/g, '').includes('itemorcamento'))) { aoa = a; break }
+    if (a[0] && a[0].some((h: any) => norm(h).includes('itemorcamento'))) abas.push({ nome: n, aoa: a })
   }
-  if (!aoa) return fail('Não encontrei aba com a coluna "ItemOrcamento".')
-  const header = aoa[0]
-  const norm = (h: any) => typeof h === 'string' ? h.toLowerCase().replace(/\s/g, '') : ''
-  const find = (...names: string[]) => header.findIndex((h: any) => names.includes(norm(h)))
-  const iEmp = find('empresa'), iFil = find('filial'), iItem = find('itemorcamento'), iCC = find('centrodecusto')
-  const iHist = find('histórico', 'historico')
-  const months: { idx: number; ano: number; mes: number }[] = []
-  header.forEach((h: any, idx: number) => { if (h instanceof Date) months.push({ idx, ano: h.getFullYear(), mes: h.getMonth() + 1 }) })
-  if (iEmp < 0 || iItem < 0 || !months.length) return fail('Colunas obrigatórias não encontradas (Empresa, ItemOrcamento e colunas de mês).')
+  if (!abas.length) return fail('Não encontrei nenhuma aba com a coluna "ItemOrcamento".')
+  const semMes: string[] = []
 
   // ItemOrcamento resolve para a LINHA MESTRE (fat_orcado.linha_id é mestre)
   const [{ data: emps }, { data: fils }, { data: ccs }, lns] = await Promise.all([
@@ -124,7 +122,17 @@ export async function importBaseline(opts: {
   const missEmp = new Set<string>(); const missItem = new Set<string>()
   let skip = 0; let blocked = 0
   const dimsKeyOf = (d: any) => JSON.stringify(Object.keys(d).sort().reduce((o: any, k) => { o[k] = d[k]; return o }, {}))
-  // forward-fill: células mescladas/repetidas vazias herdam a linha anterior
+  for (const { nome: abaNome, aoa } of abas) {
+  const header = aoa[0]
+  const find = (...names: string[]) => header.findIndex((h: any) => names.includes(norm(h)))
+  const iEmp = find('empresa'), iFil = find('filial'), iItem = find('itemorcamento'), iCC = find('centrodecusto')
+  const iHist = find('histórico', 'historico')
+  const months: { idx: number; ano: number; mes: number }[] = []
+  header.forEach((h: any, idx: number) => { if (h instanceof Date) months.push({ idx, ano: h.getFullYear(), mes: h.getMonth() + 1 }) })
+  if (iEmp < 0 || iItem < 0 || !months.length) { semMes.push(abaNome); continue }
+  // forward-fill: células mescladas/repetidas vazias herdam a linha anterior.
+  // `carry` nasce de novo a cada aba — senão a última linha de uma vazaria para
+  // a primeira da seguinte.
   const dimIdxs = [iEmp, iFil, iItem, iCC, iHist].filter(i => i >= 0)
   const carry: Record<number, any> = {}
   for (let r = 1; r < aoa.length; r++) {
@@ -157,9 +165,12 @@ export async function importBaseline(opts: {
       else agg.set(key, { tenant_id: TENANT_ID, versao_id: versaoId, linha_id, empresa_id, filial_id, cc_id, ano: m.ano, mes: m.mes, valor: num, expressao: null, origem: 'MANUAL', dims })
     }
   }
+  }
   const records = Array.from(agg.values())
   const detalhe = () => {
     let m = ''
+    if (abas.length > 1) m += `\n• ${abas.length} aba(s) lida(s): ${abas.map(a => a.nome).join(', ')}`
+    if (semMes.length) m += `\n• Aba(s) sem Empresa/ItemOrcamento/colunas de mês, ignorada(s): ${semMes.join(', ')}`
     if (missEmp.size) m += `\n• Empresas não cadastradas (${missEmp.size}): ${[...missEmp].slice(0, 20).join(', ')}${missEmp.size > 20 ? '…' : ''}`
     if (missItem.size) m += `\n• Itens/linhas não encontrados (${missItem.size}): ${[...missItem].slice(0, 20).join(', ')}${missItem.size > 20 ? '…' : ''}`
     if (blocked) m += `\n• ${blocked} linha(s) ignorada(s) por estarem fora do seu escopo de orçar.`
