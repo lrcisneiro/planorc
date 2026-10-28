@@ -1,9 +1,14 @@
 -- ============================================================
 -- MRR: separa base × nova e calibra a POSTERGAÇÃO de início
 --
--- Três coisas, numa conta só (10201 · Receita Recorrente, a que já está lá).
--- A separação é para LER e CALIBRAR, não para a DRE — o orçado continua
--- recebendo um número por mês, agora o realista.
+-- Três coisas, numa conta só (10201 · Receita Recorrente, a que já está lá) —
+-- mas com GRAVAÇÃO SEPARADA: base, receita nova e postergação viram três
+-- lançamentos no fat_orcado, não um só. A DRE soma e o total é o mesmo; o que
+-- se ganha é distinguir as três no drill, que é onde a calibragem acontece.
+--
+-- Isso exigiu mudar o Aplicar: ele somava linhas que apontavam para a mesma
+-- conta ("evita colisão de chave"). A chave única do fat_orcado inclui `dims`,
+-- então agora cada linha carimba o próprio código ali e as três coexistem.
 --
 -- 1) BASE × NOVA. Hoje o `MRR` mistura a carteira que evolui com a receita
 --    nova que se acumula, e depois do 2º mês não dá mais para distinguir.
@@ -50,41 +55,54 @@ ON CONFLICT (formulario_id, codigo) DO UPDATE
       tipo_linha = EXCLUDED.tipo_linha, natureza = EXCLUDED.natureza,
       formato = EXCLUDED.formato, casas_decimais = EXCLUDED.casas_decimais;
 
--- ---------- 2 · linhas de cálculo (todas APOIO: conta_destino NULL) ----------
+-- ---------- 2 · linhas de cálculo ----------
+-- `vai_orcado` marca as TRÊS que gravam: elas herdam a conta que o MRR já usa.
+-- As de apoio (RECNOVAR, MRRNOVOR) ficam sem conta — são passo intermediário.
 INSERT INTO formulario_linha
   (formulario_id, codigo, descricao, ordem, nivel, tipo_linha, expressao, natureza, formato, casas_decimais, conta_destino_id)
-SELECT f.id, v.codigo, v.descricao, v.ordem, 1, 'FORMULA', v.expressao, 'RECEITA', 'MOEDA', 2, NULL
+SELECT f.id, v.codigo, v.descricao, v.ordem, 1, 'FORMULA', v.expressao, 'RECEITA', 'MOEDA', 2,
+       -- A conta sai do MRR; mas o passo 3 zera a dele, então numa SEGUNDA
+       -- rodada esta subconsulta voltaria NULL e as três perderiam o destino.
+       -- Daí o COALESCE: MRR (1ª vez) → MRRBASE (re-rodadas) → a conta pelo código.
+       CASE WHEN v.vai_orcado THEN COALESCE(
+         (SELECT conta_destino_id FROM formulario_linha WHERE formulario_id = f.id AND codigo = 'MRR'),
+         (SELECT conta_destino_id FROM formulario_linha WHERE formulario_id = f.id AND codigo = 'MRRBASE'),
+         (SELECT id FROM conta_orcamentaria WHERE codigo = '10201' LIMIT 1)
+       ) END
 FROM formulario f
 CROSS JOIN (VALUES
   -- fluxo REAL da receita nova: parte escorrega 1 ou 2 meses.
   -- [METADEZ] fica FORA do parêntese do atraso — é entrada já conhecida.
-  ('RECNOVAR',  'Receita nova REAL (com postergação) — apoio', 62,
+  ('RECNOVAR',  'Receita nova REAL (com postergação) — apoio', 62, false,
    '=(ANTERIOR([META],1) * (100 - [POST1] - [POST2])/100 + ANTERIOR([META],2) * [POST1]/100 + ANTERIOR([META],3) * [POST2]/100 + [METADEZ]) * [REP] / 100'),
-  -- os dois estoques
-  ('MRRBASE',   'MRR da carteira BASE — apoio',                72,
+  -- as TRÊS que gravam, na mesma conta e em lançamentos separados
+  ('MRRBASE',   'Receita recorrente — carteira BASE',          72, true,
    '=(ANTERIOR() + [BASE]) * (1 + [CORR]/100) * (1 - [CHURN]/100)'),
-  ('MRRNOVO',   'MRR da receita NOVA, no prazo — apoio',       74,
+  ('MRRNOVO',   'Receita recorrente — NOVA (no prazo)',        74, true,
    '=ANTERIOR() * (1 + [CORR]/100) * (1 - [CHURN]/100) + [RECNOVA]'),
-  ('MRRNOVOR',  'MRR da receita NOVA, real — apoio',           76,
-   '=ANTERIOR() * (1 + [CORR]/100) * (1 - [CHURN]/100) + [RECNOVAR]'),
-  -- a redutora: quanto a postergação tira do estoque. Nasce NEGATIVA.
-  ('POSTERGVL', 'Efeito da postergação (R$) — apoio',          78,
-   '=[MRRNOVOR] - [MRRNOVO]')
-) AS v(codigo, descricao, ordem, expressao)
+  ('POSTERGVL', 'Receita recorrente — efeito da POSTERGAÇÃO',  78, true,
+   '=[MRRNOVOR] - [MRRNOVO]'),
+  -- apoio: passo intermediário do estoque real
+  ('MRRNOVOR',  'MRR da receita nova, real — apoio',           76, false,
+   '=ANTERIOR() * (1 + [CORR]/100) * (1 - [CHURN]/100) + [RECNOVAR]')
+) AS v(codigo, descricao, ordem, vai_orcado, expressao)
 WHERE f.nome ILIKE '%recorrente%' AND f.nome NOT ILIKE '%não recorrente%'
 ON CONFLICT (formulario_id, codigo) DO UPDATE
   SET expressao = EXCLUDED.expressao, descricao = EXCLUDED.descricao,
       ordem = EXCLUDED.ordem, tipo_linha = EXCLUDED.tipo_linha,
       natureza = EXCLUDED.natureza, formato = EXCLUDED.formato,
-      casas_decimais = EXCLUDED.casas_decimais;
+      casas_decimais = EXCLUDED.casas_decimais,
+      conta_destino_id = EXCLUDED.conta_destino_id;
 
--- ---------- 3 · o MRR passa a ser a soma dos dois estoques REAIS ----------
--- Continua sendo a ÚNICA linha com conta de destino — o orçado recebe um
--- número por mês. Se as linhas novas também tivessem conta, o Aplicar somaria
--- todas na mesma conta e a receita dobraria.
+-- ---------- 3 · o MRR vira CONFERÊNCIA e perde a conta ----------
+-- Quem grava agora são as três acima. Se o MRR continuasse com a conta, ele e
+-- as três gravariam a mesma receita e a DRE contaria tudo em dobro.
+-- ATENÇÃO: isto tem de rodar DEPOIS do passo 2, que lê a conta DELE.
 UPDATE formulario_linha l
-   SET expressao = '=[MRRBASE] + [MRRNOVOR]',
-       descricao = 'MRR / Receita projetada (base + nova, com postergação)'
+   SET expressao = '=[MRRBASE] + [MRRNOVO] + [POSTERGVL]',
+       descricao = 'MRR / Receita projetada (conferência — soma das três acima)',
+       conta_destino_id = NULL,
+       ordem = 79
   FROM formulario f
  WHERE f.id = l.formulario_id AND l.codigo = 'MRR'
    AND f.nome ILIKE '%recorrente%' AND f.nome NOT ILIKE '%não recorrente%';

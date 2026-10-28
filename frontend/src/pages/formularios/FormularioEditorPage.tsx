@@ -405,7 +405,12 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       del = fil ? del.eq('filial_id', fil) : del.is('filial_id', null)
       del = cc ? del.eq('cc_id', cc) : del.is('cc_id', null)
       const { error: eDel } = await del; if (eDel) throw eDel
-      // agrega por conta_destino × mês (soma linhas do MESMO formulário na mesma conta) — evita colisão de chave
+      // UMA LINHA DO FORMULÁRIO = UM LANÇAMENTO, mesmo quando duas apontam para a
+      // mesma conta. Antes somávamos por conta×mês porque a chave única do
+      // fat_orcado colidia — mas essa chave inclui `dims`, então carimbar a
+      // linha ali separa os lançamentos sem colisão. É o que permite gravar
+      // base, receita nova e postergação na MESMA conta e ainda distingui-las
+      // no drill; a DRE soma do mesmo jeito, o total não muda.
       // multimoeda: o resultado é digitado na moeda funcional da empresa (empresa.moeda_slot)
       const origem = empMoeda[emp] ?? 1
       const semTaxa = new Set<number>()
@@ -419,10 +424,10 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       for (const l of destinos) for (let mes = 1; mes <= 12; mes++) {
         const v = comp[l.id]?.[`${ano}-${mes}`] || 0
         if (!v) continue
-        const key = `${l.conta_destino_id}|${mes}`
+        const key = `${l.conta_destino_id}|${l.id}|${mes}`
         const cur = agg.get(key)
         if (cur) cur.valor += v
-        else agg.set(key, { tenant_id: TENANT_ID, versao_id: versaoId, linha_id: l.conta_destino_id, empresa_id: emp, filial_id: fil || null, cc_id: cc || null, ano, mes, valor: v, expressao: null, origem: 'FORMULARIO', origem_formulario_linha_id: l.id, dims: marca })
+        else agg.set(key, { tenant_id: TENANT_ID, versao_id: versaoId, linha_id: l.conta_destino_id, empresa_id: emp, filial_id: fil || null, cc_id: cc || null, ano, mes, valor: v, expressao: null, origem: 'FORMULARIO', origem_formulario_linha_id: l.id, dims: { ...marca, linha: l.codigo, historico: `${trace} · ${l.descricao}` } })
       }
       // materializa cada registro nos slots pela moeda de origem (bloqueia se falta a taxa da origem)
       const recs: any[] = []
