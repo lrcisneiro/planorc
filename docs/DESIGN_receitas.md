@@ -142,8 +142,21 @@ do formulário (Preencher):
     os 12 meses de cada escopo × linha presente e regrava. **Célula vazia no
     arquivo remove a que existia** — é o que permite corrigir *tirando* valor.
   - *Só incluir/atualizar*: grava o preenchido e não toca no resto.
-- **Limpar escopo** — apaga tudo que o formulário tem naquela empresa/filial/CC.
-  Para quando uma BU sai do plano.
+- **Limpar** — três coisas diferentes, e confundi-las custa caro:
+  - *só o escopo selecionado* — a empresa/filial/CC da barra;
+  - *o formulário inteiro* — todos os escopos da versão/ano, sem visitar os 60
+    um a um (quem desiste no meio fica com metade do cenário velho e metade do
+    novo, que é pior do que não limpar);
+  - *o orçado já aplicado* — os lançamentos que **este** formulário mandou para
+    o `fat_orcado`. Vive noutra tabela e **sobrevive a tudo** que se faça no
+    formulário; o filtro por `origem_formulario_linha_id` garante que manual e
+    outros formulários ficam.
+
+> **O relatório lê o `fat_orcado`, não o formulário.** Mudar driver e ir ao
+> relatório mostra número velho até o *Aplicar* rodar — foi o que fez dois
+> cenários de meta (15% × 20%) aparecerem com a diferença invertida: os inputs
+> já diferiam em +24,2% de meta, mas um dos lados estava com aplicação antiga.
+> **Pendência:** a tela não avisa que há alteração não aplicada.
 
 > **Sem upsert.** A chave única do `formulario_valor` é um **índice de
 > expressão** — `COALESCE()` nos ids e `dims::text` ([v3_052](../schema_v3_052_formulario_valor_cc.sql))

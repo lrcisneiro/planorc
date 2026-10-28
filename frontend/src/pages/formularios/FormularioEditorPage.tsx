@@ -75,7 +75,8 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   // roda muitas vezes e precisa ser reversível, não um tiro só.
   const [imp, setImp] = useState<{ txt: string; modo: 'substituir' | 'incluir'; prev: ReturnType<typeof parseFormularioCsv> | null; res: string[] | null } | null>(null)
   const [importando, setImportando] = useState(false)
-  const [cellsRefresh, setCellsRefresh] = useState(0)   // recarrega as células do escopo após a carga   // "12/60 — 01·2102·214" no aplicar em todos
+  const [cellsRefresh, setCellsRefresh] = useState(0)   // recarrega as células do escopo após a carga
+  const [limpAberto, setLimpAberto] = useState(false)   // recarrega as células do escopo após a carga   // "12/60 — 01·2102·214" no aplicar em todos
   const [fxModal, setFxModal] = useState<{ lineId: string; val: string } | null>(null)   // modal de edição da fórmula da linha
   const [scopeRows, setScopeRows] = useState<{ empresa_id: string | null; filial_id: string | null; cc_id: string | null }[]>([])   // escopos com dados (marca ●)
   const [scopesRefresh, setScopesRefresh] = useState(0)
@@ -593,6 +594,45 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
     } finally { setProgresso(null); setImportando(false) }
   }
 
+  // Limpar o formulário INTEIRO da versão/ano — todos os escopos de uma vez.
+  // Sem isto seriam 60 visitas de escopo, e quem desiste no meio fica com
+  // metade do cenário velho e metade do novo, que é pior do que não limpar.
+  const limparTudo = async () => {
+    if (!pronto || bloqueada || !versaoId || !ano) return
+    const { count } = await supabase.from('formulario_valor')
+      .select('id', { count: 'exact', head: true })
+      .eq('formulario_id', formId).eq('versao_id', versaoId).eq('ano', ano)
+    if (!count) { alert('Este formulário não tem valor nenhum nesta versão/ano.'); return }
+    if (!confirm(`Apagar ${count} célula(s) do formulário "${nome}" em TODOS os escopos da versão "${versao?.codigo}" / ${ano}?\n\nNão mexe no orçado já aplicado — para isso, use "o orçado já aplicado".`)) return
+    const { error } = await supabase.from('formulario_valor').delete()
+      .eq('formulario_id', formId).eq('versao_id', versaoId).eq('ano', ano)
+    if (error) { alert('Erro ao limpar: ' + error.message); return }
+    setCells({}); setGcells({}); setScopesRefresh(x => x + 1); setCellsRefresh(x => x + 1)
+    alert(`${count} célula(s) apagadas.`)
+  }
+
+  // Limpar o que ESTE formulário aplicou no orçado — em todos os escopos.
+  // O Aplicar só substitui o escopo em que roda, então um cenário abandonado
+  // deixa lançamento vivo no fat_orcado que ninguém vê daqui, e ele entra na
+  // DRE. O filtro por `origem_formulario_linha_id` garante que só sai o que
+  // veio deste formulário: manual e outros formulários ficam.
+  const limparOrcado = async () => {
+    if (!versaoId || !ano || bloqueada) return
+    const lineIds = linhas.map(l => l.id)
+    if (!lineIds.length) return
+    const { count } = await supabase.from('fat_orcado')
+      .select('id', { count: 'exact', head: true })
+      .eq('versao_id', versaoId).eq('ano', ano).eq('origem', 'FORMULARIO')
+      .in('origem_formulario_linha_id', lineIds)
+    if (!count) { alert('Este formulário não tem nada aplicado no orçado desta versão/ano.'); return }
+    if (!confirm(`Apagar ${count} lançamento(s) que o formulário "${nome}" aplicou no orçado da versão "${versao?.codigo}" / ${ano}?\n\nLançamentos manuais e de OUTROS formulários não são tocados. Os valores do formulário continuam aqui — dá para reaplicar.`)) return
+    const { error } = await supabase.from('fat_orcado').delete()
+      .eq('versao_id', versaoId).eq('ano', ano).eq('origem', 'FORMULARIO')
+      .in('origem_formulario_linha_id', lineIds)
+    if (error) { alert('Erro ao limpar o orçado: ' + error.message); return }
+    alert(`${count} lançamento(s) apagados do orçado.`)
+  }
+
   // Apaga TUDO que este formulário tem no escopo selecionado, nesta versão/ano.
   const limparEscopo = async () => {
     if (!pronto || readOnly || isGlobal) return
@@ -718,11 +758,35 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
             title="Carregar uma tabela com os 12 meses em colunas (empresa;filial;cc;linha;jan…dez)">
             <Table size={14} /> Importar
           </button>
-          <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--red)55', background: 'transparent', color: 'var(--red)', cursor: (pronto && !readOnly && !isGlobal) ? 'pointer' : 'not-allowed', opacity: (pronto && !readOnly && !isGlobal) ? 1 : 0.5 }}
-            disabled={!pronto || readOnly || isGlobal} onClick={limparEscopo}
-            title="Apagar os valores deste formulário no escopo selecionado (não mexe no orçado já aplicado)">
-            <Trash2 size={14} /> Limpar escopo
-          </button>
+          {/* Três limpezas, porque são coisas diferentes e confundi-las custa
+              caro: o escopo atual, o formulário inteiro (sem visitar 60
+              escopos) e o que já foi APLICADO no orçado — que vive noutra
+              tabela e sobrevive a tudo que se faça aqui. */}
+          <div style={{ position: 'relative' }}>
+            <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--red)55', background: 'transparent', color: 'var(--red)', cursor: bloqueada ? 'not-allowed' : 'pointer', opacity: bloqueada ? 0.5 : 1 }}
+              disabled={bloqueada} onClick={() => setLimpAberto(v => !v)}
+              title={bloqueada ? 'Versão bloqueada' : 'Apagar valores do formulário ou o que ele aplicou no orçado'}>
+              <Trash2 size={14} /> Limpar
+            </button>
+            {limpAberto && (
+              <>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setLimpAberto(false)} />
+                <div style={{ position: 'absolute', top: 38, left: 0, zIndex: 41, width: 330, background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 10, padding: 6, boxShadow: '0 8px 24px rgba(0,0,0,0.45)' }}>
+                  {([
+                    ['escopo', 'Só o escopo selecionado', 'A empresa/filial/CC que está na barra.', !pronto || readOnly || isGlobal, limparEscopo],
+                    ['tudo', 'O formulário inteiro', `Todos os escopos da versão ${versao?.codigo || '—'} / ${ano || '—'}. Não toca no orçado.`, !pronto || !versaoId || !ano, limparTudo],
+                    ['orcado', 'O orçado já aplicado', 'Os lançamentos que ESTE formulário mandou para o orçado. Manual e outros formulários ficam.', !versaoId || !ano, limparOrcado],
+                  ] as const).map(([k, titulo, desc, off, fn]) => (
+                    <button key={k} disabled={off} onClick={() => { setLimpAberto(false); fn() }}
+                      style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 8, border: 'none', background: 'transparent', cursor: off ? 'not-allowed' : 'pointer', opacity: off ? 0.45 : 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--red)' }}>{titulo}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 
