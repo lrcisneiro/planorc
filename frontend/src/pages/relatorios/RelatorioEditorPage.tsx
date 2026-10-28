@@ -1593,32 +1593,6 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
               style={{ ...mini, border: '1px solid ' + (hideOff ? 'var(--blue)' : 'var(--border-strong)'), background: hideOff ? 'rgba(59,130,246,0.16)' : 'var(--panel)', color: hideOff ? 'var(--blue)' : 'var(--text-mid)' }}>
               <Strikethrough size={13} /> Ocultar desativadas
             </button>
-            {/* Atalho na própria faixa para as seções que ABREM (Receitas,
-                Despesas…). As outras linhas de nível 1 são indicadores — uns
-                quinze — e como chips estourariam a faixa; elas ficam no menu
-                "Seções", que tem a lista completa. Mesmo estado nos dois. */}
-            {(() => {
-              const chips = secoes.filter(x => temFilhos(x.id))
-              if (chips.length < 2 || chips.length > 6) return null
-              return <>
-                {chips.map(sec => {
-                  const on = !secOcultasSet.has(sec.id)
-                  return (
-                    <button key={sec.id}
-                      title={on ? `Esconder "${sec.descricao}" — só a linha; os indicadores seguem calculados com ela`
-                                : `Mostrar "${sec.descricao}"`}
-                      onClick={() => setSecOcultas(v => on ? [...v, sec.id] : v.filter(x => x !== sec.id))}
-                      style={{ ...mini, border: '1px solid ' + (on ? 'var(--border-strong)' : 'var(--border)'),
-                        background: on ? 'var(--panel)' : 'transparent',
-                        color: on ? 'var(--text-mid)' : 'var(--faint)',
-                        textDecoration: on ? undefined : 'line-through' }}>
-                      {on ? <Eye size={12} /> : <EyeOff size={12} />} {sec.descricao}
-                    </button>
-                  )
-                })}
-                {sep}
-              </>
-            })()}
             {/* Seções N1: esconder "Receitas" para analisar só despesas e
                 indicadores. NÃO entra no filtro de dados — ali mudaria o EBITDA. */}
             {secoes.length > 1 && (
