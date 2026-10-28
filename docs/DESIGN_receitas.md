@@ -94,6 +94,42 @@ existe; o itálico na tela só quer dizer "esta célula está vazia aqui, herdou
 🌐". Preencher no escopo da BU sobrescreve, e as BUs sem valor próprio seguem
 pegando a média global. Vale igual para o `CHURN`.
 
+## O `BASE` é FLUXO de comissão, não estoque contratado (decidido 28/out)
+
+A primeira carga produziu um **degrau em janeiro**: 4,37 mi/mês contra 4,46 em
+dez/26. O sintoma era um mês com **receita nova zero** — o único do ano —, porque
+`ANTERIOR([META],2)` devolve 0 em janeiro e o `METADEZ` de janeiro estava vazio.
+
+A causa não era célula faltando, era **relógio**. O formulário trabalha em fluxo
+de comissão (venda em *m* → comissão em *m+2*); o baseline fora medido como
+estoque contratado, em que a venda entra quando é assinada. Os dois não compõem,
+e a inconsistência aparecia no recorte: a venda de **dezembro** estava fora do
+`BASE` (daí `METADEZ` em fevereiro) mas a de **novembro** estava dentro. São
+previsões do mesmo tipo; não há motivo para cortar entre elas.
+
+**Decisão:** o `BASE` é a **comissão apurada em dez/26** — é isso que a conta
+`10201` registra no realizado, e é com ela que o orçado será comparado. Logo:
+
+| venda | comissão cai em | onde fica |
+|---|---|---|
+| out/26 | dez/26 | dentro do `BASE` |
+| nov/26 | jan/27 | `METADEZ` de **janeiro** |
+| dez/26 | fev/27 | `METADEZ` de **fevereiro** |
+
+Contratos com **carência** (a Frigoestrela, que fatura em jan/27) ficam no
+`METADEZ` em qualquer leitura — estão fora de qualquer baseline de 2026.
+
+**Resultado:** nenhum mês cai, jan sai a −0,5% de dez/26 (o churn de janeiro
+incidindo uma vez sobre a venda de novembro) e o total do ano praticamente não
+muda — 56,417 mi contra 56,412 antes. O `BASE` caiu 71.953 e a venda de novembro
+entrou valendo ~74.000 de comissão: os dois se anulam, que é o que tem de
+acontecer ao mover receita de balde sem criar nem destruir nada.
+
+> **Leitura do orçamento 2027:** a carteira **encolhe** o ano todo, de 4,295 para
+> 4,129 mi/mês (−3,9%) — o churn supera a correção. Os +15,3% vêm **inteiros** da
+> receita nova, que sai de 72 mil em janeiro para 906 mil em dezembro, 18% do
+> total. Não é "a base cresce"; é "a base vaza e a venda nova tapa com folga".
+
 ## Carga e calibragem
 
 A calibragem é iterativa — o estudo devolve o CSV, confere-se na tela, corrige e
