@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { pageAll } from '../../lib/pageAll'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { parseNum, numToInput, formatValor, computeCenario, pkey } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Periodo } from '../../lib/engine'
@@ -190,7 +191,11 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   useEffect(() => {
     if (isEstrutura || !versaoId || !ano) { setScopeRows([]); return }
     (async () => {
-      const { data } = await supabase.from('formulario_valor').select('empresa_id,filial_id,cc_id').eq('formulario_id', formId).eq('versao_id', versaoId).eq('ano', ano)
+      // PAGINADO: esta varre o formulário INTEIRO (todas as empresas/filiais/CCs) só
+      // para marcar a bolinha ● de "tem dado". São linhas × 12 meses por escopo —
+      // com 10 linhas, 9 escopos já passam de 1000 e o PostgREST corta sem avisar:
+      // a bolinha sumiria de parte das BUs e pareceria que a carga não entrou.
+      const data = await pageAll(() => supabase.from('formulario_valor').select('empresa_id,filial_id,cc_id').eq('formulario_id', formId).eq('versao_id', versaoId).eq('ano', ano))
       setScopeRows((data || []) as any[])
     })()
   }, [formId, versaoId, ano, isEstrutura, scopesRefresh])
