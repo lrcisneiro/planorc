@@ -14,8 +14,10 @@ porver AS (
   FROM t GROUP BY ver
 ),
 chaves AS (
+  -- jsonb_object_keys levanta erro se o dims for escalar ou JSON null, em vez
+  -- de devolver zero linhas; o filtro por jsonb_typeof evita derrubar tudo.
   SELECT k, count(*) n, round(avg(length(dims->>k))) media_val, max(length(dims->>k)) max_val
-  FROM t, jsonb_object_keys(dims) k GROUP BY k
+  FROM t, jsonb_object_keys(dims) k WHERE jsonb_typeof(dims) = 'object' GROUP BY k
 ),
 maior AS (
   SELECT left(dims::text, 400) amostra, len FROM t ORDER BY len DESC LIMIT 1
