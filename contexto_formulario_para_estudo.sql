@@ -20,11 +20,24 @@ with real_rec as (
     join conta_orcamentaria co on co.id = cl.linha_id
    where co.codigo = '10201'        -- <<< Receita Recorrente
      and fr.ano = 2026              -- <<< ano do baseline
+), no_escopo as (
+  -- Recorta o universo do estudo: as 6 empresas e os 10 CCs (5 BUs × Base/Novos).
+  -- A FILIAL fica de fora do filtro DE PROPÓSITO: a empresa 25 migrou da 2101
+  -- para a 2501 no meio de 2026, e sem o histórico das duas o estudo teria 4
+  -- meses para calibrar o churn de uma operação de 1,3 mi. As linhas em filiais
+  -- antigas (2002, 2003, 2005, 2006) também carregam os pares de transferência
+  -- da cisão da 25 — o prompt manda ignorá-los, mas é preciso vê-los.
+  select r.*
+    from real_rec r
+    join empresa e        on e.id  = r.empresa_id
+    left join centro_custo cc on cc.id = r.cc_id
+   where e.codigo in ('01', '05', '06', '25', 'YY', 'ZZ')
+     and cc.codigo in ('211','212','214','215','216','221','222','224','225','226')
 ), por_mes as (
   -- um valor por escopo × mês ANTES de montar a linha, senão o string_agg
   -- repetiria o mês tantas vezes quantos lançamentos houver nele
   select empresa_id, filial_id, cc_id, mes, sum(valor) as v
-    from real_rec group by 1, 2, 3, 4
+    from no_escopo group by 1, 2, 3, 4
 )
 select e.codigo                                  as empresa,
        e.descricao                               as empresa_nome,
