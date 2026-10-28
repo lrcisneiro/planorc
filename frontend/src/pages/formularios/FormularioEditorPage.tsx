@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
+import { parseFormularioCsv } from '../../lib/importFormulario'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { parseNum, numToInput, formatValor, computeCenario, pkey } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Periodo } from '../../lib/engine'
@@ -68,7 +69,13 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   const [fbVal, setFbVal] = useState('')   // barra de fórmula (estilo Excel) — conteúdo da célula ativa
   const [saving, setSaving] = useState(false)
   const [aplicando, setAplicando] = useState(false)
-  const [progresso, setProgresso] = useState<string | null>(null)   // "12/60 — 01·2102·214" no aplicar em todos
+  const [progresso, setProgresso] = useState<string | null>(null)
+  // Carga por tabela larga. A calibragem do baseline é iterativa — o estudo
+  // devolve o CSV, confere na tela, corrige e devolve de novo —, então isto
+  // roda muitas vezes e precisa ser reversível, não um tiro só.
+  const [imp, setImp] = useState<{ txt: string; modo: 'substituir' | 'incluir'; prev: ReturnType<typeof parseFormularioCsv> | null; res: string[] | null } | null>(null)
+  const [importando, setImportando] = useState(false)
+  const [cellsRefresh, setCellsRefresh] = useState(0)   // recarrega as células do escopo após a carga   // "12/60 — 01·2102·214" no aplicar em todos
   const [fxModal, setFxModal] = useState<{ lineId: string; val: string } | null>(null)   // modal de edição da fórmula da linha
   const [scopeRows, setScopeRows] = useState<{ empresa_id: string | null; filial_id: string | null; cc_id: string | null }[]>([])   // escopos com dados (marca ●)
   const [scopesRefresh, setScopesRefresh] = useState(0)
@@ -186,7 +193,7 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       const { data } = await q
       setCells(toMap(data))
     })()
-  }, [versaoId, empresaId, filialId, ccId, ano, pronto, isGlobal, isEstrutura, linhas.length])
+  }, [versaoId, empresaId, filialId, ccId, ano, pronto, isGlobal, isEstrutura, linhas.length, cellsRefresh])
 
   // marca ● no seletor: quais empresa/filial/CC já têm dados nesta versão (distintos em formulario_valor)
   useEffect(() => {
@@ -466,6 +473,96 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
     setAplicando(false)
   }
 
+  // ── IMPORTAR: carrega a tabela larga (12 meses em colunas) ──
+  const importarCsv = async () => {
+    if (!imp?.prev || !versaoId || !ano) return
+    const { linhas: csv } = imp.prev
+    setImportando(true)
+    const avisos: string[] = []
+    try {
+      const empBy = new Map(empresas.map((e: any) => [String(e.codigo).trim(), e.id]))
+      const filBy = new Map(filiais.map((f: any) => [String(f.codigo).trim(), f.id]))
+      const ccBy  = new Map(ccs.map((c: any) => [String(c.codigo).trim(), c.id]))
+      const linBy = new Map(linhas.map(l => [String(l.codigo).trim().toUpperCase(), l]))
+
+      const semEmp = new Set<string>(), semFil = new Set<string>(), semCc = new Set<string>(), semLin = new Set<string>()
+      const naoAnalitica = new Set<string>()
+      type Alvo = { e: string; f: string | null; c: string | null; l: string; v: (number | null)[] }
+      const alvos: Alvo[] = []
+      for (const r of csv) {
+        const e = empBy.get(r.empresa); if (!e) { semEmp.add(r.empresa); continue }
+        const f = r.filial ? filBy.get(r.filial) : null; if (r.filial && !f) { semFil.add(r.filial); continue }
+        const c = r.cc ? ccBy.get(r.cc) : null; if (r.cc && !c) { semCc.add(r.cc); continue }
+        const l = linBy.get(r.linha); if (!l) { semLin.add(r.linha); continue }
+        // Linha de FÓRMULA é calculada: gravar valor nela seria ignorado pelo
+        // motor e só confundiria quem abrisse a célula depois.
+        if (l.tipo_linha !== 'ANALITICA') { naoAnalitica.add(r.linha); continue }
+        alvos.push({ e, f: f || null, c: c || null, l: l.id, v: r.valores })
+      }
+      if (semEmp.size) avisos.push(`Empresas não encontradas (ignoradas): ${[...semEmp].join(', ')}`)
+      if (semFil.size) avisos.push(`Filiais não encontradas (ignoradas): ${[...semFil].join(', ')}`)
+      if (semCc.size)  avisos.push(`CCs não encontrados (ignorados): ${[...semCc].join(', ')}`)
+      if (semLin.size) avisos.push(`Linhas não encontradas no formulário (ignoradas): ${[...semLin].join(', ')}`)
+      if (naoAnalitica.size) avisos.push(`Linhas CALCULADAS no arquivo (ignoradas — o motor as recalcula): ${[...naoAnalitica].join(', ')}`)
+      if (!alvos.length) { avisos.push('Nada resolvido — nenhuma linha gravada.'); setImp(x => x && ({ ...x, res: avisos })); return }
+
+      // SUBSTITUIR: o arquivo é a verdade para as linhas que ele traz. Apaga os
+      // 12 meses de cada (escopo × linha) presente e regrava só o que não é
+      // vazio — assim apagar uma célula no CSV realmente a remove aqui.
+      if (imp.modo === 'substituir') {
+        const porEscopo = new Map<string, { e: string; f: string | null; c: string | null; ids: string[] }>()
+        for (const a of alvos) {
+          const k = `${a.e}|${a.f}|${a.c}`
+          const cur = porEscopo.get(k) || { e: a.e, f: a.f, c: a.c, ids: [] }
+          cur.ids.push(a.l); porEscopo.set(k, cur)
+        }
+        let i = 0
+        for (const g of porEscopo.values()) {
+          setProgresso(`limpando ${++i}/${porEscopo.size}`)
+          let d = supabase.from('formulario_valor').delete()
+            .eq('formulario_id', formId).eq('versao_id', versaoId).eq('ano', ano)
+            .eq('empresa_id', g.e).in('linha_id', g.ids)
+          d = g.f ? d.eq('filial_id', g.f) : d.is('filial_id', null)
+          d = g.c ? d.eq('cc_id', g.c)     : d.is('cc_id', null)
+          const { error } = await d; if (error) throw error
+        }
+      }
+
+      const rows: any[] = []
+      for (const a of alvos) for (let m = 0; m < 12; m++) {
+        if (a.v[m] == null) continue
+        rows.push({ tenant_id: TENANT_ID, formulario_id: formId, versao_id: versaoId, linha_id: a.l,
+          empresa_id: a.e, filial_id: a.f, cc_id: a.c, ano, mes: m + 1, valor: a.v[m], expressao: null, dims: {} })
+      }
+      for (let i = 0; i < rows.length; i += 500) {
+        setProgresso(`gravando ${Math.min(i + 500, rows.length)}/${rows.length}`)
+        const { error } = await supabase.from('formulario_valor')
+          .upsert(rows.slice(i, i + 500), { onConflict: 'versao_id,linha_id,empresa_id,filial_id,cc_id,ano,mes' })
+        if (error) throw error
+      }
+      const escN = new Set(alvos.map(a => `${a.e}|${a.f}|${a.c}`)).size
+      avisos.unshift(`${rows.length} célula(s) gravadas em ${escN} escopo(s), ${alvos.length} linha(s) do arquivo.`)
+      setImp(x => x && ({ ...x, res: avisos }))
+      setScopesRefresh(x => x + 1)
+    } catch (e: any) {
+      avisos.push('ERRO: ' + (e?.message ?? JSON.stringify(e)))
+      setImp(x => x && ({ ...x, res: avisos }))
+    } finally { setProgresso(null); setImportando(false) }
+  }
+
+  // Apaga TUDO que este formulário tem no escopo selecionado, nesta versão/ano.
+  const limparEscopo = async () => {
+    if (!pronto || readOnly || isGlobal) return
+    if (!confirm(`Apagar TODOS os valores deste formulário na empresa/filial/CC selecionados, versão "${versao?.codigo}" / ${ano}?\n\nNão afeta o orçado já aplicado — para isso, reaplique depois.`)) return
+    let d = supabase.from('formulario_valor').delete()
+      .eq('formulario_id', formId).eq('versao_id', versaoId).eq('ano', ano).eq('empresa_id', empresaId)
+    d = filialId ? d.eq('filial_id', filialId) : d.is('filial_id', null)
+    d = ccId ? d.eq('cc_id', ccId) : d.is('cc_id', null)
+    const { error } = await d
+    if (error) { alert('Erro ao limpar: ' + error.message); return }
+    setCells({}); setScopesRefresh(x => x + 1)
+  }
+
   // Aplica TODOS os escopos completos que já têm dado nesta versão/ano. Com 6
   // empresas × 10 CCs são 60 cliques — e esquecer um deixa aquela BU com o
   // orçado velho, em silêncio. O 🌐 global fica de fora: ele é premissa, não
@@ -568,6 +665,19 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
               </button>
             )
           })()}
+          {/* A calibragem do baseline é iterativa: o estudo devolve o CSV, você
+              confere na tela, corrige e devolve de novo. Por isso importar e
+              limpar são botões, não um script de uma vez só. */}
+          <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--border-strong)', background: 'var(--panel)', cursor: bloqueada ? 'not-allowed' : 'pointer', opacity: bloqueada ? 0.5 : 1 }}
+            disabled={bloqueada} onClick={() => setImp({ txt: '', modo: 'substituir', prev: null, res: null })}
+            title="Carregar uma tabela com os 12 meses em colunas (empresa;filial;cc;linha;jan…dez)">
+            <Table size={14} /> Importar
+          </button>
+          <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--red)55', background: 'transparent', color: 'var(--red)', cursor: (pronto && !readOnly && !isGlobal) ? 'pointer' : 'not-allowed', opacity: (pronto && !readOnly && !isGlobal) ? 1 : 0.5 }}
+            disabled={!pronto || readOnly || isGlobal} onClick={limparEscopo}
+            title="Apagar os valores deste formulário no escopo selecionado (não mexe no orçado já aplicado)">
+            <Trash2 size={14} /> Limpar escopo
+          </button>
         </div>
       )}
 
@@ -751,6 +861,76 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
           </div>
         )
       })()}
+
+      {imp && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }}
+          onClick={() => !importando && setImp(null)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, width: 'min(760px, 94vw)', maxHeight: '88vh', overflow: 'auto' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Importar valores do formulário</div>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>
+              Tabela com os <b>12 meses em colunas</b>: <code>empresa;filial;cc;linha;jan;…;dez</code>.
+              Decimal com vírgula, separador <code>;</code> ou <code>,</code>. Grava na versão <b>{versao?.codigo || '—'}</b> / <b>{ano}</b>.
+            </div>
+
+            {!imp.res && <>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+                <input type="file" accept=".csv,.txt" disabled={importando}
+                  onChange={async e => { const f = e.target.files?.[0]; if (!f) return
+                    const t = await f.text(); setImp(x => x && ({ ...x, txt: t, prev: parseFormularioCsv(t) })) }} />
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>ou cole abaixo</span>
+              </div>
+              <textarea value={imp.txt} disabled={importando} spellCheck={false}
+                onChange={e => setImp(x => x && ({ ...x, txt: e.target.value, prev: e.target.value.trim() ? parseFormularioCsv(e.target.value) : null }))}
+                placeholder="empresa;filial;cc;linha;jan;fev;mar;abr;mai;jun;jul;ago;set;out;nov;dez"
+                style={{ width: '100%', height: 120, fontFamily: 'monospace', fontSize: 11.5, padding: 8, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }} />
+
+              {imp.prev && (
+                <div style={{ marginTop: 12, padding: 10, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)' }}>
+                  <div style={{ fontSize: 13 }}><b>{imp.prev.linhas.length}</b> linha(s) em <b>{imp.prev.escopos}</b> escopo(s).</div>
+                  {imp.prev.erros.map((e, k) => <div key={k} style={{ fontSize: 12, color: 'var(--orange)', marginTop: 4 }}>⚠ {e}</div>)}
+                </div>
+              )}
+
+              <div style={{ marginTop: 14, display: 'grid', gap: 8 }}>
+                {([['substituir', 'Substituir', 'O arquivo é a verdade para as linhas que ele traz: apaga os 12 meses de cada escopo × linha presente e regrava. Célula vazia no arquivo REMOVE a que existia — é o que permite corrigir tirando valor.'],
+                   ['incluir', 'Só incluir / atualizar', 'Grava as células preenchidas e não toca em mais nada. Use para emendar um pedaço sem mexer no resto.']] as const).map(([v, t, d]) => (
+                  <label key={v} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', fontSize: 13 }}>
+                    <input type="radio" checked={imp.modo === v} disabled={importando} onChange={() => setImp(x => x && ({ ...x, modo: v }))} style={{ marginTop: 3 }} />
+                    <span><b>{t}</b><br /><span style={{ color: 'var(--muted)', fontSize: 12 }}>{d}</span></span>
+                  </label>
+                ))}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>
+                Linhas <b>calculadas</b> que venham no arquivo são ignoradas — o motor as recalcula. O 🌐 global não é tocado por aqui.
+              </div>
+            </>}
+
+            {imp.res && (
+              <div style={{ padding: 12, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)' }}>
+                {imp.res.map((r, k) => (
+                  <div key={k} style={{ fontSize: 13, marginBottom: 6, color: r.startsWith('ERRO') ? 'var(--red)' : k === 0 ? 'var(--green)' : 'var(--orange)' }}>{r}</div>
+                ))}
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+                  Os valores entraram no formulário. Para levá-los ao orçado, use <b>Aplicar em todos</b>.
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button style={{ ...S.sel, cursor: 'pointer' }} disabled={importando} onClick={() => { setImp(null); if (imp.res) setCellsRefresh(x => x + 1) }}>
+                {imp.res ? 'Fechar' : 'Cancelar'}
+              </button>
+              {!imp.res && (
+                <button style={{ ...S.sel, background: 'var(--violet)', color: '#fff', border: 'none', cursor: imp.prev?.linhas.length ? 'pointer' : 'not-allowed', opacity: imp.prev?.linhas.length ? 1 : 0.5 }}
+                  disabled={importando || !imp.prev?.linhas.length} onClick={importarCsv}>
+                  {importando ? (progresso || 'Importando…') : `Importar ${imp.prev?.linhas.length || 0} linha(s)`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

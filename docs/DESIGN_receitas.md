@@ -94,6 +94,27 @@ existe; o itálico na tela só quer dizer "esta célula está vazia aqui, herdou
 🌐". Preencher no escopo da BU sobrescreve, e as BUs sem valor próprio seguem
 pegando a média global. Vale igual para o `CHURN`.
 
+## Carga e calibragem
+
+A calibragem é iterativa — o estudo devolve o CSV, confere-se na tela, corrige e
+devolve de novo —, então a carga é **botão, não script de uma vez só**. No editor
+do formulário (Preencher):
+
+- **Importar** — tabela larga (`empresa;filial;cc;linha;jan;…;dez`), decimal com
+  vírgula, separador `;` ou `,`. Dois modos:
+  - *Substituir* (padrão): o arquivo é a verdade para as linhas que traz. Apaga
+    os 12 meses de cada escopo × linha presente e regrava. **Célula vazia no
+    arquivo remove a que existia** — é o que permite corrigir *tirando* valor.
+  - *Só incluir/atualizar*: grava o preenchido e não toca no resto.
+- **Limpar escopo** — apaga tudo que o formulário tem naquela empresa/filial/CC.
+  Para quando uma BU sai do plano.
+
+Linhas **calculadas** que venham no arquivo são ignoradas (o motor as recalcula),
+e o 🌐 global não é tocado pela importação. O parser vive em
+[`lib/importFormulario.ts`](../frontend/src/lib/importFormulario.ts); a largura
+é deliberada: 60 escopos × 8 drivers × 12 meses são 5.760 linhas no formato
+longo e 480 em colunas — emitíveis por um modelo e conferíveis no Excel.
+
 ## Pendências
 
 - **Cadastro de CC torto (anotado em 28/out).** `327` e `328` têm descrição
