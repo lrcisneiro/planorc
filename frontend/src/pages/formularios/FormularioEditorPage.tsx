@@ -475,7 +475,14 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
 
   // ── IMPORTAR: carrega a tabela larga (12 meses em colunas) ──
   const importarCsv = async () => {
-    if (!imp?.prev || !versaoId || !ano) return
+    if (!imp?.prev) return
+    // Antes isto era `return` seco: o botão ficava habilitado, o clique não
+    // fazia nada e não havia como saber por quê. A importação resolve
+    // empresa/filial/CC linha a linha, mas versão e ano saem da TELA.
+    if (!versaoId || !ano) {
+      setImp(x => x && ({ ...x, res: ['ERRO: selecione a VERSÃO e o ANO na barra acima antes de importar — é para onde os valores vão.'] }))
+      return
+    }
     const { linhas: csv } = imp.prev
     setImportando(true)
     const avisos: string[] = []
@@ -870,8 +877,17 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
             <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Importar valores do formulário</div>
             <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>
               Tabela com os <b>12 meses em colunas</b>: <code>empresa;filial;cc;linha;jan;…;dez</code>.
-              Decimal com vírgula, separador <code>;</code> ou <code>,</code>. Grava na versão <b>{versao?.codigo || '—'}</b> / <b>{ano}</b>.
+              Decimal com vírgula, separador <code>;</code> ou <code>,</code>.
+              {versaoId && ano
+                ? <> Grava na versão <b>{versao?.codigo || '—'}</b> / <b>{ano}</b>. A empresa/filial/CC vem de cada linha do arquivo — o que está selecionado na tela não importa.</>
+                : null}
             </div>
+            {(!versaoId || !ano) && (
+              <div style={{ padding: 10, borderRadius: 8, marginBottom: 12, border: '1px solid var(--red)55', background: 'rgba(248,113,113,0.12)', color: 'var(--red)', fontSize: 13 }}>
+                Selecione a <b>versão</b>{!ano ? ' e o ' : ''}{!ano ? <b>ano</b> : null} na barra acima. A importação resolve empresa/filial/CC
+                linha a linha, mas precisa saber <b>para qual versão e ano</b> gravar.
+              </div>
+            )}
 
             {!imp.res && <>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
@@ -922,8 +938,9 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
                 {imp.res ? 'Fechar' : 'Cancelar'}
               </button>
               {!imp.res && (
-                <button style={{ ...S.sel, background: 'var(--violet)', color: '#fff', border: 'none', cursor: imp.prev?.linhas.length ? 'pointer' : 'not-allowed', opacity: imp.prev?.linhas.length ? 1 : 0.5 }}
-                  disabled={importando || !imp.prev?.linhas.length} onClick={importarCsv}>
+                <button style={{ ...S.sel, background: 'var(--violet)', color: '#fff', border: 'none', cursor: (imp.prev?.linhas.length && versaoId && ano) ? 'pointer' : 'not-allowed', opacity: (imp.prev?.linhas.length && versaoId && ano) ? 1 : 0.5 }}
+                  disabled={importando || !imp.prev?.linhas.length || !versaoId || !ano} onClick={importarCsv}
+                  title={!versaoId || !ano ? 'Selecione a versão e o ano na barra acima' : undefined}>
                   {importando ? (progresso || 'Importando…') : `Importar ${imp.prev?.linhas.length || 0} linha(s)`}
                 </button>
               )}
