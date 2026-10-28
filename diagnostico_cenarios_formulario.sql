@@ -40,7 +40,7 @@ select driver,
        round(sum(coalesce(b,0) - coalesce(a,0)), 2)           as delta_total,
        -- onde a diferença começa diz MUITO: driver que difere em jan/fev não
        -- pode ser `META`, porque a meta só chega na receita em M+2
-       min(mes) filter (where coalesce(a,0) <> coalesce(b,0)) as 1o_mes_diferente,
+       min(mes) filter (where coalesce(a,0) <> coalesce(b,0)) as primeiro_mes_dif,
        string_agg(distinct escopo, ', ' order by escopo)
          filter (where coalesce(a,0) <> coalesce(b,0))        as escopos_afetados
   from cel
