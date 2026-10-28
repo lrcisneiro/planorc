@@ -285,6 +285,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const [valErro,   setValErro]   = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const loadSeq = useRef(0)   // descarta resultados de carregamentos obsoletos (corrida async)
+  // A carga de valores levava segundos sem NADA na tela — nem cursor, nem
+  // mensagem. Quem usa não sabe se clicou, se travou ou se não tem dado.
+  const [carregandoVal, setCarregandoVal] = useState(false)
   const [snapOpen, setSnapOpen] = useState(false)
   const [snaps, setSnaps] = useState<any[]>([])
   const [snapBusy, setSnapBusy] = useState(false)
@@ -530,6 +533,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const loadValores = useCallback(async () => {
     if (!empresaSel.length || !cenariosAtivos.length) { setRaw({}); setDetalhado({}); return }
     const myseq = ++loadSeq.current   // só conta os carregamentos "de verdade" (com deps prontas)
+    setCarregandoVal(true)
     try {
     // filtra filial/CC só quando é um subconjunto (nem vazio nem tudo = sem filtro, inclui consolidados null)
     const filialFilter0 = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
@@ -556,10 +560,16 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       for (const m of cl || []) { if (seen[m.conta_id] && seen[m.conta_id] !== m.linha_id) dups.add(m.conta_id); seen[m.conta_id] = m.linha_id }
     }
     setDupContas(Array.from(dups))
-    // Totais AGREGADOS NO BANCO (RPC) — devolve só linha/mês somados (rápido p/ qualquer volume)
-    for (const cen of cenariosAtivos) {
+    // Totais AGREGADOS NO BANCO (RPC) — devolve só linha/mês somados (rápido p/ qualquer volume).
+    //
+    // EM PARALELO. Antes era `for … await`: cada cenário esperava o anterior, e
+    // com os laços de empresa e de escopo abaixo davam ~8 idas e voltas em
+    // série. Com pouco dado o tempo não é volume, é LATÊNCIA — 8 × ~400ms é a
+    // tela travada por três segundos. Cada iteração escreve numa chave própria,
+    // então não há corrida; a guarda `loadSeq` no fim segue valendo.
+    const tCen = cenariosAtivos.map(cen => (async () => {
       const map: RawValues = {}
-      if (!masterIds.length) { next[cen] = map; continue }
+      if (!masterIds.length) { next[cen] = map; return }
       if (ehRealAnt(cen)) {
         // Busca o ano ANTERIOR mesmo que ele não esteja no filtro de períodos, e
         // re-chaveia para o ano de referência: assim o realizado de 2026 cai nas
@@ -604,7 +614,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         }
       }
       next[cen] = map
-    }
+    })())
+    await Promise.all(tCen)
 
     // ── Overlay: fatia o REALIZADO (já multi-ano) em REALIZADO@ano, re-chaveado ao ano de referência
     if (cicloMode && cenariosAtivos.includes(REALIZADO) && next[REALIZADO]) {
@@ -621,9 +632,13 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     // ── Modo "Por empresa": carrega os valores POR empresa (uma RPC por empresa/cenário)
     const nextEmp: Record<string, ValMap> = {}
     if (colEmpresa && masterIds.length) {
+      // empresas × cenários também em paralelo: com 10 empresas e 2 cenários
+      // eram 20 chamadas em fila indiana.
+      const tEmp: Promise<any>[] = []
       for (const eid of empsCols) {
         const m: ValMap = {}
-        for (const cen of cenariosAtivos) {
+        nextEmp[eid] = m
+        for (const cen of cenariosAtivos) tEmp.push((async () => {
           const map: RawValues = {}
           if (ehReal(cen)) {
             if (isBalanco) {
@@ -643,9 +658,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; const k = `${r.ano}-${r.mes}`; (map[rl] ||= {})[k] = (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 } }
           }
           m[cen] = map
-        }
-        nextEmp[eid] = m
+        })())
       }
+      await Promise.all(tEmp)
     }
 
     // ── Linhas de APOIO com filtro de CC próprio (nao_soma + filtro_escopo).
@@ -668,8 +683,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       }
       const masterToLines: Record<string, string[]> = {}
       for (const l of linhas) if (l.linha_orc_id) (masterToLines[l.linha_orc_id] ||= []).push(l.id)
+      const tEsc: Promise<any>[] = []
       for (const [sig, ccList] of grupos) {
-        for (const cen of cenariosAtivos) {
+        for (const cen of cenariosAtivos) tEsc.push((async () => {
           const rawSc: RawValues = {}
           const setMaster = (master: string, pk: string, cell: { valor?: number; expressao?: string }) => { for (const lid of (masterToLines[master] || [])) (rawSc[lid] ||= {})[pk] = cell }
           if (ehReal(cen)) {
@@ -704,8 +720,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
               rawScopedNext[`${REALIZADO}@${a}::${sig}`] = sc
             }
           }
-        }
+        })())
       }
+      await Promise.all(tEsc)
     }
 
       if (myseq !== loadSeq.current) return   // um carregamento mais novo começou → descarta este
@@ -713,6 +730,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     } catch (e: any) {
       console.error('loadValores erro:', e)
       setValErro('Erro ao carregar valores: ' + (e?.message ?? String(e)))
+    } finally {
+      // só o carregamento MAIS NOVO apaga a barra: se um antigo terminasse
+      // depois, apagaria o sinal enquanto o atual ainda está rodando
+      if (myseq === loadSeq.current) setCarregandoVal(false)
     }
   }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, periodosSel, cenariosAtivos, cicloMode, anoDoCenario, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEmpresa, empsCols, linhas, acesso.loading, moedaView]) // eslint-disable-line
 
@@ -1281,6 +1302,19 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     loadViews()
   }
 
+  // Barra no topo da janela + cursor de espera. Fixa, para não empurrar
+  // layout nenhum, e sobre tudo, para ser vista com a página rolada.
+  const barraCarregando = carregandoVal ? (
+    <>
+      <style>{`@keyframes planorc-load{0%{left:-35%;width:35%}50%{width:55%}100%{left:100%;width:35%}}@keyframes planorc-spin{to{transform:rotate(360deg)}}`}</style>
+      <div aria-live="polite" aria-label="Carregando valores"
+        style={{ position: 'fixed', top: 0, left: 0, right: 0, height: 3, background: 'rgba(139,92,246,0.18)', overflow: 'hidden', zIndex: 9999, pointerEvents: 'none' }}>
+        <div style={{ position: 'absolute', top: 0, height: '100%', background: 'var(--violet)', borderRadius: 2, animation: 'planorc-load 1.1s ease-in-out infinite' }} />
+      </div>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9998, cursor: 'progress', pointerEvents: 'none' }} />
+    </>
+  ) : null
+
   if (loading) return <div style={{ padding: 32, color: 'var(--muted)', fontSize: 14 }}>Carregando...</div>
 
   // ── F1: modo ESTRUTURA — página limpa (só árvore + fórmula + simulação) ──
@@ -1472,6 +1506,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
 
   return (
     <div style={S.page}>
+      {barraCarregando}
       <div style={S.header}>
         <button style={S.back} onClick={() => navigate('/relatorios')}><ChevronLeft size={15} /> Relatórios</button>
         {/* Os botões Consultar/Orçar/Estrutura saíram daqui: cada rota tem entrada
@@ -1578,6 +1613,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         const mini = { display: 'flex', alignItems: 'center', gap: 5, height: 28, padding: '0 10px', fontSize: 11, borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 } as CSSProperties
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px', background: 'var(--panel)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+            {carregandoVal && <span style={{ ...mini, border: '1px solid var(--violet)55', background: 'rgba(139,92,246,0.12)', color: 'var(--violet)', cursor: 'default' }}>
+              <RefreshCw size={12} style={{ animation: 'planorc-spin 0.9s linear infinite' }} /> carregando…
+            </span>}
             <span style={{ fontSize: 11, color: 'var(--muted)' }}>Níveis:</span>
             {Array.from({ length: Math.min(maxDepth + 1, 5) }, (_, i) => i + 1).map(n => (
               <button key={n} title={`Expandir até o nível ${n}`} onClick={() => recolherAteNivel(n)}
