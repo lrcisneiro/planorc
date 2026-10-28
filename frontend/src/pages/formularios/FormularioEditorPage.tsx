@@ -555,7 +555,22 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
         const { error } = await supabase.from('formulario_valor').insert(rows.slice(i, i + 500))
         if (error) throw error
       }
-      const escN = new Set(alvos.map(a => `${a.e}|${a.f}|${a.c}`)).size
+      const doArquivo = new Set(alvos.map(a => `${a.e}|${a.f || ''}|${a.c || ''}`))
+      // ÓRFÃOS: escopos que têm dado nesta versão/ano e NÃO vieram no arquivo.
+      // "Substituir" é a verdade para o que o arquivo traz, não para o
+      // formulário inteiro — então um teste antigo numa filial que saiu do plano
+      // sobrevive calado e vai junto no "Aplicar em todos". Foi o que aconteceu
+      // com a filial 2102 na primeira carga de 2027.
+      const orfaos = [...new Map(scopeRows
+        .filter(r => r.empresa_id && !doArquivo.has(`${r.empresa_id}|${r.filial_id || ''}|${r.cc_id || ''}`))
+        .map(r => {
+          const e = empresas.find((x: any) => x.id === r.empresa_id)?.codigo || '?'
+          const f = filiais.find((x: any) => x.id === r.filial_id)?.codigo || '—'
+          const c = ccs.find((x: any) => x.id === r.cc_id)?.codigo || '—'
+          return [`${e}·${f}·${c}`, `${e}·${f}·${c}`]
+        })).values()]
+      if (orfaos.length) avisos.push(`⚠ ${orfaos.length} escopo(s) têm dado nesta versão/ano mas NÃO vieram no arquivo — e vão junto no "Aplicar em todos": ${orfaos.slice(0, 12).join(', ')}${orfaos.length > 12 ? '…' : ''}. Se forem sobra de teste, apague com "Limpar escopo".`)
+      const escN = doArquivo.size
       avisos.unshift(`${rows.length} célula(s) gravadas em ${escN} escopo(s), ${alvos.length} linha(s) do arquivo.`)
       setImp(x => x && ({ ...x, res: avisos }))
       setScopesRefresh(x => x + 1)
