@@ -563,14 +563,19 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const mesesExib = [...new Set(periodos.map(p => p.mes))]
     const next: ValMap = {}
     const det: Record<string, Set<string>> = {}
-    // Aviso de DE-PARA: conta amarrada a >1 linha deste relatório (consulta pequena)
-    const dups = new Set<string>()
+    // Aviso de DE-PARA: conta amarrada a >1 linha deste relatório (consulta pequena).
+    // Vai na mesma onda das RPCs: ninguém depende dela, e em série custava o
+    // preflight + o fetch antes de a primeira RPC sair.
+    const tDup: Promise<any>[] = []
     if (cenariosAtivos.some(ehReal) && masterIds.length) {
-      const cl = await fetchAllRows(() => supabase.from('conta_linha').select('conta_id,linha_id').in('linha_id', masterIds))
-      const seen: Record<string, string> = {}
-      for (const m of cl || []) { if (seen[m.conta_id] && seen[m.conta_id] !== m.linha_id) dups.add(m.conta_id); seen[m.conta_id] = m.linha_id }
-    }
-    setDupContas(Array.from(dups))
+      tDup.push((async () => {
+        const dups = new Set<string>()
+        const cl = await fetchAllRows(() => supabase.from('conta_linha').select('conta_id,linha_id').in('linha_id', masterIds))
+        const seen: Record<string, string> = {}
+        for (const m of cl || []) { if (seen[m.conta_id] && seen[m.conta_id] !== m.linha_id) dups.add(m.conta_id); seen[m.conta_id] = m.linha_id }
+        if (myseq === loadSeq.current) setDupContas(Array.from(dups))
+      })())
+    } else setDupContas([])
     // Totais AGREGADOS NO BANCO (RPC) — devolve só linha/mês somados (rápido p/ qualquer volume).
     //
     // EM PARALELO. Antes era `for … await`: cada cenário esperava o anterior, e
@@ -626,26 +631,11 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       }
       next[cen] = map
     })())
-    await Promise.all(tCen)
-
-    // ── Overlay: fatia o REALIZADO (já multi-ano) em REALIZADO@ano, re-chaveado ao ano de referência
-    if (cicloMode && cenariosAtivos.includes(REALIZADO) && next[REALIZADO]) {
-      for (const a of anos) next[`${REALIZADO}@${a}`] = {}
-      for (const rl in next[REALIZADO]) {
-        for (const k in next[REALIZADO][rl]) {
-          const dash = k.indexOf('-'); const a = Number(k.slice(0, dash)); const mes = k.slice(dash + 1)
-          if (!anos.includes(a)) continue
-          ;(next[`${REALIZADO}@${a}`][rl] ||= {})[`${refAno}-${mes}`] = next[REALIZADO][rl][k]
-        }
-      }
-    }
 
     // ── Modo "Por empresa": carrega os valores POR empresa (uma RPC por empresa/cenário)
     const nextEmp: Record<string, ValMap> = {}
+    const tEmp: Promise<any>[] = []
     if (colEmpresa && masterIds.length) {
-      // empresas × cenários também em paralelo: com 10 empresas e 2 cenários
-      // eram 20 chamadas em fila indiana.
-      const tEmp: Promise<any>[] = []
       for (const eid of empsCols) {
         const m: ValMap = {}
         nextEmp[eid] = m
@@ -671,7 +661,6 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           m[cen] = map
         })())
       }
-      await Promise.all(tEmp)
     }
 
     // ── Linhas de APOIO com filtro de CC próprio (nao_soma + filtro_escopo).
@@ -680,6 +669,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     // recalculando a fórmula DENTRO desse cenário (total de % é recalculado, não somado).
     const rawScopedNext: Record<string, RawValues> = {}
     const escSigNext: Record<string, string> = {}
+    const tEsc: Promise<any>[] = []
     const escLinhas = linhas.filter(l => (l.tipo_linha === 'INDICADOR' || l.nao_soma) && l.filtro_escopo && Object.values(l.filtro_escopo).some(a => (a || []).length))
     if (escLinhas.length) {
       const grupos = new Map<string, string[]>()   // sig → ccList
@@ -694,7 +684,6 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       }
       const masterToLines: Record<string, string[]> = {}
       for (const l of linhas) if (l.linha_orc_id) (masterToLines[l.linha_orc_id] ||= []).push(l.id)
-      const tEsc: Promise<any>[] = []
       for (const [sig, ccList] of grupos) {
         for (const cen of cenariosAtivos) tEsc.push((async () => {
           const rawSc: RawValues = {}
@@ -733,7 +722,27 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           }
         })())
       }
-      await Promise.all(tEsc)
+    }
+
+    // UMA barreira só para as três famílias de RPC. Antes havia três `await
+    // Promise.all` em fila — cenários, depois por-empresa, depois escopos —, e
+    // cada onda só largava quando a anterior fechava: o waterfall do DevTools
+    // mostrava os blocos escalonados e o tempo era a SOMA das ondas. Os três
+    // grupos são independentes (escrevem em `next`, `nextEmp` e `rawScopedNext`,
+    // mapas distintos) e nenhum lê o resultado do outro, então disparam juntos
+    // e o tempo passa a ser o da chamada mais lenta.
+    await Promise.all([...tDup, ...tCen, ...tEmp, ...tEsc])
+
+    // ── Overlay: fatia o REALIZADO (já multi-ano) em REALIZADO@ano, re-chaveado ao ano de referência
+    if (cicloMode && cenariosAtivos.includes(REALIZADO) && next[REALIZADO]) {
+      for (const a of anos) next[`${REALIZADO}@${a}`] = {}
+      for (const rl in next[REALIZADO]) {
+        for (const k in next[REALIZADO][rl]) {
+          const dash = k.indexOf('-'); const a = Number(k.slice(0, dash)); const mes = k.slice(dash + 1)
+          if (!anos.includes(a)) continue
+          ;(next[`${REALIZADO}@${a}`][rl] ||= {})[`${refAno}-${mes}`] = next[REALIZADO][rl][k]
+        }
+      }
     }
 
       if (myseq !== loadSeq.current) return   // um carregamento mais novo começou → descarta este
