@@ -159,6 +159,23 @@ e o 🌐 global não é tocado pela importação. O parser vive em
 é deliberada: 60 escopos × 8 drivers × 12 meses são 5.760 linhas no formato
 longo e 480 em colunas — emitíveis por um modelo e conferíveis no Excel.
 
+## A FK `filial.empresa_id` não filtra o seletor (28/out)
+
+A NF de comissão sai **só nas filiais de Rio Preto** (`2001`/`2101`) e o valor é
+rateado gerencialmente para as outras unidades. Então `01 · 2101` é combinação
+legítima — e tem 10 meses de realizado. Mas a FK diz que a `2101` é da empresa
+`05`, e o seletor de filial filtrava por ela: o dado existia e **sumia da tela**.
+Foi o que fez a carga de 2027 parecer não ter funcionado.
+
+No editor do formulário a FK virou **ordem, não filtro**: primeiro as filiais da
+empresa, depois as que já têm dado no escopo, depois o resto — com
+`(de outra empresa)` ao lado, para a escolha ser consciente. É a aplicação local
+da dívida já registrada: *empresa é agrupadora de filiais, não matriz*.
+
+> **Mesmo filtro existe em outras telas.** Aqui foi corrigido porque bloqueava.
+> Onde mais `filter(f => f.empresa_id === empresaId)` aparecer, o sintoma vai ser
+> o mesmo: dado gravado que não aparece.
+
 ## Pendências
 
 - **Cadastro de CC torto (anotado em 28/out).** `327` e `328` têm descrição

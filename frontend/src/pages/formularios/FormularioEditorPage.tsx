@@ -169,7 +169,6 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   const escopoCompleto = isGlobal || (!!empresaId && !isGlobal && !!filialId && !!ccId)
   const consolidado = pronto && !isGlobal && (!filialId || !ccId)
   const readOnly = bloqueada || !escopoCompleto
-  const filiaisDaEmp = useMemo(() => filiais.filter(f => !empresaId || f.empresa_id === empresaId), [filiais, empresaId])
 
   const toMap = (rows: any[] | null): CellMap => {
     const v: CellMap = {}
@@ -210,6 +209,20 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   const empresasComDados = useMemo(() => new Set(scopeRows.filter(r => r.empresa_id).map(r => r.empresa_id)), [scopeRows])
   const globalTemDados = useMemo(() => scopeRows.some(r => !r.empresa_id), [scopeRows])
   const filiaisComDados = useMemo(() => new Set(scopeRows.filter(r => r.empresa_id === empresaId && r.filial_id).map(r => r.filial_id)), [scopeRows, empresaId])
+  // A FK `filial.empresa_id` NÃO restringe este seletor — empresa aqui é
+  // agrupadora, não matriz. Neste negócio a NF de comissão sai só nas filiais de
+  // Rio Preto e o valor é rateado gerencialmente para as outras unidades, então
+  // `01 · 2101` é combinação legítima e tem 10 meses de realizado. Filtrando
+  // pela FK, o dado existia e sumia da tela — foi o que fez a carga de 2027
+  // parecer não ter funcionado.
+  //
+  // A FK vira ORDEM, não filtro: primeiro as filiais da empresa, depois as que
+  // já têm dado neste escopo, depois o resto.
+  const filiaisDaEmp = useMemo(() => {
+    if (!empresaId) return filiais
+    const peso = (f: any) => f.empresa_id === empresaId ? 0 : (filiaisComDados.has(f.id) ? 1 : 2)
+    return [...filiais].sort((a, b) => peso(a) - peso(b) || String(a.codigo).localeCompare(String(b.codigo)))
+  }, [filiais, empresaId, filiaisComDados])
   const ccsComDados = useMemo(() => new Set(scopeRows.filter(r => r.empresa_id === empresaId && (!filialId || r.filial_id === filialId) && r.cc_id).map(r => r.cc_id)), [scopeRows, empresaId, filialId])
 
   // célula EFETIVA: valor do escopo atual, senão herda a premissa global
@@ -664,7 +677,9 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
           <div><div style={S.lbl}>Filial</div>
             <select style={S.sel} value={filialId} onChange={e => setFilialId(e.target.value)} disabled={isGlobal}>
               <option value="">— consolidado —</option>
-              {!isGlobal && filiaisDaEmp.map(f => <option key={f.id} value={f.id}>{filiaisComDados.has(f.id) ? '● ' : ''}{f.codigo} · {f.descricao}</option>)}
+              {!isGlobal && filiaisDaEmp.map(f => <option key={f.id} value={f.id}>
+                {filiaisComDados.has(f.id) ? '● ' : ''}{f.codigo} · {f.descricao}{f.empresa_id !== empresaId ? '  ·  (de outra empresa)' : ''}
+              </option>)}
             </select></div>
           <div><div style={S.lbl}>Centro de custo</div>
             <select style={S.sel} value={ccId} onChange={e => setCcId(e.target.value)} disabled={isGlobal}>
