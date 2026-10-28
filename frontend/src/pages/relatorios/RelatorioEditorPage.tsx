@@ -19,8 +19,7 @@ import type { ConcilParams } from '../postos/ConciliacaoFolha'
 import { nomeCurto } from '../../lib/nomePessoa'
 import {
   ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Settings2, X,
-  Sigma, FunctionSquare, Percent, Minus, Type, Download, Upload, Link2, ChevronsUpDown, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Pencil, Eye, EyeOff, Strikethrough, ListTree, History, RotateCcw, RefreshCw, Save, GitCompareArrows,
-} from 'lucide-react'
+  Sigma, FunctionSquare, Percent, Minus, Type, Download, Upload, Link2, ChevronsUpDown, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Pencil, Eye, EyeOff, Strikethrough, ListTree, History, RotateCcw, RefreshCw, Save, GitCompareArrows, ListFilter } from 'lucide-react'
 
 declare const XLSX: any
 
@@ -221,6 +220,12 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const [periodosDraft, setPeriodosDraft] = useState<Periodo[]>(periodosSel)
   const [hideEmpty, setHideEmpty] = useState<boolean>(!!saved0.hideEmpty)
   const [hideOff, setHideOff] = useState<boolean>(!!saved0.hideOff)
+  // Seções N1 escondidas. É filtro de EXIBIÇÃO, não de dados: entra em
+  // `visivel`, depois do cálculo, então os indicadores continuam certos —
+  // esconder Receitas não muda o EBITDA, que é Receitas − Despesas. Se isto
+  // fosse ao FiltrosButton (de dados, usado por 10 telas), mudaria a conta.
+  const [secOcultas, setSecOcultas] = useState<string[]>(Array.isArray(saved0.secOcultas) ? saved0.secOcultas : [])
+  const [secAberto, setSecAberto] = useState(false)
   const [dupContas, setDupContas] = useState<string[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [masters, setMasters] = useState<any[]>([])
@@ -471,7 +476,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   }, [id]) // eslint-disable-line
 
   // Preset "Meus Relatórios" (dashboard_card, base '/relatorios/<id>'): captura/restaura os parâmetros do usuário.
-  const getFiltros = () => ({ empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, activeView, hideEmpty, hideOff })
+  const getFiltros = () => ({ empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, activeView, hideEmpty, hideOff, secOcultas })
   const aplicarPreset = (f: any) => {
     if (!f) return
     if (Array.isArray(f.empresaSel)) setEmpresaSel(f.empresaSel)
@@ -485,6 +490,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     if (typeof f.activeView === 'string') setActiveView(f.activeView)
     if (typeof f.hideEmpty === 'boolean') setHideEmpty(f.hideEmpty)
     if (typeof f.hideOff === 'boolean') setHideOff(f.hideOff)
+    if (Array.isArray(f.secOcultas)) setSecOcultas(f.secOcultas)
   }
   const presetBase = id ? '/relatorios/' + id : ''
   const { cardId: presetCardId } = useCardPreset(presetBase, aplicarPreset)
@@ -495,8 +501,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     if (!id || presetCardId) return
     // activeView entra aqui: ela estava em getFiltros (preset de card) mas não no
     // localStorage, então voltar ao relatório caía sempre na primeira visão
-    localStorage.setItem('planorc_filtro_' + id, JSON.stringify({ empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, activeView, hideEmpty, hideOff }))
-  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, activeView, hideEmpty, hideOff, id, presetCardId])
+    localStorage.setItem('planorc_filtro_' + id, JSON.stringify({ empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, activeView, hideEmpty, hideOff, secOcultas }))
+  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, activeView, hideEmpty, hideOff, secOcultas, id, presetCardId])
 
   // Relatório sem view_config ainda precisa mostrar alguma coisa. Antes o cenário
   // vinha do seletor de versão do cabeçalho; com ele removido, a visão sintética
@@ -851,7 +857,12 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     }
     return keep
   }, [hideEmpty, tree, linhas, cenariosExpandidos, buckets, bucketTotais, totalByCen])
+  // raízes = as seções N1 que o seletor oferece
+  const secoes = tree.filter(l => (l._depth ?? 0) === 0 && l.tipo_linha !== 'ESPACO')
+  const secOcultasSet = useMemo(() => new Set(secOcultas), [secOcultas])
+  const raizDe = (l: Linha) => { let c: Linha | undefined = l; while (c?.pai_id) { const p = linhas.find(x => x.id === c!.pai_id); if (!p) break; c = p } return c }
   const visivel = tree.filter(l => {
+    if (secOcultasSet.size) { const r = raizDe(l); if (r && secOcultasSet.has(r.id)) return false }
     if (!verOcultas && l.visivel_relatorio === false) return false
     if (hideOff && l.desativada) return false
     if (keepIds && !keepIds.has(l.id)) return false
@@ -1582,6 +1593,43 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
               style={{ ...mini, border: '1px solid ' + (hideOff ? 'var(--blue)' : 'var(--border-strong)'), background: hideOff ? 'rgba(59,130,246,0.16)' : 'var(--panel)', color: hideOff ? 'var(--blue)' : 'var(--text-mid)' }}>
               <Strikethrough size={13} /> Ocultar desativadas
             </button>
+            {/* Seções N1: esconder "Receitas" para analisar só despesas e
+                indicadores. NÃO entra no filtro de dados — ali mudaria o EBITDA. */}
+            {secoes.length > 1 && (
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <button title="Escolher quais seções de nível 1 aparecem. Só esconde a linha — os indicadores continuam calculados com tudo."
+                  onClick={() => setSecAberto(v => !v)}
+                  style={{ ...mini, border: '1px solid ' + (secOcultas.length ? 'var(--blue)' : 'var(--border-strong)'), background: secOcultas.length ? 'rgba(59,130,246,0.16)' : 'var(--panel)', color: secOcultas.length ? 'var(--blue)' : 'var(--text-mid)' }}>
+                  <ListFilter size={13} /> Seções{secOcultas.length ? ` (${secoes.length - secOcultas.length}/${secoes.length})` : ''}
+                </button>
+                {secAberto && (
+                  <>
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setSecAberto(false)} />
+                    <div style={{ position: 'absolute', top: 32, left: 0, zIndex: 41, minWidth: 260, maxHeight: 360, overflow: 'auto', background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 8, padding: 6, boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
+                      <div style={{ display: 'flex', gap: 6, padding: '4px 6px 8px' }}>
+                        <button onClick={() => setSecOcultas([])} style={{ ...mini, height: 24, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)' }}>Todas</button>
+                        <button onClick={() => setSecOcultas(secoes.map(x => x.id))} style={{ ...mini, height: 24, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)' }}>Nenhuma</button>
+                      </div>
+                      {secoes.map(sec => {
+                        const on = !secOcultasSet.has(sec.id)
+                        return (
+                          <div key={sec.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 6 }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, cursor: 'pointer', fontSize: 12.5, color: on ? 'var(--text)' : 'var(--muted)' }}>
+                              <input type="checkbox" checked={on}
+                                onChange={() => setSecOcultas(v => on ? [...v, sec.id] : v.filter(x => x !== sec.id))} />
+                              {sec.descricao}
+                            </label>
+                            {/* "só esta" é o gesto real: você quer isolar despesas, não desmarcar 18 caixas */}
+                            <button title="Mostrar só esta seção" onClick={() => setSecOcultas(secoes.filter(x => x.id !== sec.id).map(x => x.id))}
+                              style={{ fontSize: 10.5, padding: '2px 6px', borderRadius: 5, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--muted)', cursor: 'pointer', flexShrink: 0 }}>só esta</button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             <button title="Mostrar linhas marcadas como NÃO visíveis no relatório (para gerenciar)" onClick={() => setVerOcultas(v => !v)}
               style={{ ...mini, border: '1px solid ' + (verOcultas ? 'var(--blue)' : 'var(--border-strong)'), background: verOcultas ? 'rgba(59,130,246,0.16)' : 'var(--panel)', color: verOcultas ? 'var(--blue)' : 'var(--text-mid)' }}>
               <Eye size={13} /> Ver ocultas
