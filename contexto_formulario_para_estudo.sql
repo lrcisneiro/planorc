@@ -28,25 +28,30 @@ with real_rec as (
 )
 select e.codigo                                  as empresa,
        e.descricao                               as empresa_nome,
-       fi.codigo                                 as filial,
-       fi.descricao                              as filial_nome,
-       cc.codigo                                 as cc,
-       cc.descricao                              as cc_nome,
+       coalesce(fi.codigo, '(sem filial)')       as filial,
+       coalesce(fi.descricao, '—')               as filial_nome,
+       coalesce(cc.codigo, '(sem cc)')           as cc,
+       coalesce(cc.descricao, '—')               as cc_nome,
        coalesce(cc.bu_cod || ' · ' || cc.bu_nome, '—') as bu,
-       -- "Base" ou "Novos" pelo NOME do CC, e pela FAIXA do código. Onde os
-       -- dois discordarem, o cadastro está torto — e o estudo erraria o mapa.
        case when cc.descricao ilike '%novo%' then 'NOVOS'
-            when cc.descricao ilike '%base%' then 'BASE' else '?' end as classe_nome,
-       case when substring(cc.codigo from 2 for 1) = '2' then 'NOVOS'
-            when substring(cc.codigo from 2 for 1) = '1' then 'BASE' else '?' end as classe_faixa,
-       count(*)                                  as meses_com_receita,
+            when cc.descricao ilike '%base%' then 'BASE' else '?' end as classe,
+       count(*)                                  as n_meses,
+       min(m.mes)                                as mes_ini,
+       max(m.mes)                                as mes_fim,
        round(sum(m.v), 2)                        as total_ano,
-       round(sum(m.v) / nullif(count(*), 0), 2)  as media_mes,
-       -- o perfil mês a mês: é dele que o estudo tira BASE, CHURN e CORR
-       string_agg(to_char(abs(m.v), 'FM999G999G990D00'), ' · ' order by m.mes) as valores_mes
+       -- O BASE do orçamento é o estoque no FIM do histórico, não a média do
+       -- ano: carteira que migrou de filial no meio de 2026 tem média sem
+       -- sentido e último mês correto.
+       round(max(m.v) filter (where m.mes = (select max(mes) from por_mes p2
+             where p2.empresa_id is not distinct from m.empresa_id
+               and p2.filial_id  is not distinct from m.filial_id
+               and p2.cc_id      is not distinct from m.cc_id)), 2) as ultimo_valor,
+       -- mês=valor, COM o mês e COM o sinal (negativo = estorno/transferência)
+       string_agg(m.mes || '=' || to_char(m.v, 'FM999G999G990D00'), ' · ' order by m.mes) as por_mes
   from por_mes m
   join empresa e            on e.id  = m.empresa_id
   left join filial fi       on fi.id = m.filial_id
   left join centro_custo cc on cc.id = m.cc_id
- group by e.codigo, e.descricao, fi.codigo, fi.descricao, cc.codigo, cc.descricao, cc.bu_cod, cc.bu_nome
- order by e.codigo, fi.codigo, cc.codigo;
+ group by m.empresa_id, m.filial_id, m.cc_id, e.codigo, e.descricao, fi.codigo, fi.descricao,
+          cc.codigo, cc.descricao, cc.bu_cod, cc.bu_nome
+ order by e.codigo, filial, cc;
