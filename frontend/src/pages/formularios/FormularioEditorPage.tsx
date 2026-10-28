@@ -513,26 +513,35 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       if (naoAnalitica.size) avisos.push(`Linhas CALCULADAS no arquivo (ignoradas — o motor as recalcula): ${[...naoAnalitica].join(', ')}`)
       if (!alvos.length) { avisos.push('Nada resolvido — nenhuma linha gravada.'); setImp(x => x && ({ ...x, res: avisos })); return }
 
-      // SUBSTITUIR: o arquivo é a verdade para as linhas que ele traz. Apaga os
-      // 12 meses de cada (escopo × linha) presente e regrava só o que não é
-      // vazio — assim apagar uma célula no CSV realmente a remove aqui.
-      if (imp.modo === 'substituir') {
-        const porEscopo = new Map<string, { e: string; f: string | null; c: string | null; ids: string[] }>()
-        for (const a of alvos) {
-          const k = `${a.e}|${a.f}|${a.c}`
-          const cur = porEscopo.get(k) || { e: a.e, f: a.f, c: a.c, ids: [] }
-          cur.ids.push(a.l); porEscopo.set(k, cur)
-        }
-        let i = 0
-        for (const g of porEscopo.values()) {
-          setProgresso(`limpando ${++i}/${porEscopo.size}`)
-          let d = supabase.from('formulario_valor').delete()
-            .eq('formulario_id', formId).eq('versao_id', versaoId).eq('ano', ano)
-            .eq('empresa_id', g.e).in('linha_id', g.ids)
-          d = g.f ? d.eq('filial_id', g.f) : d.is('filial_id', null)
-          d = g.c ? d.eq('cc_id', g.c)     : d.is('cc_id', null)
-          const { error } = await d; if (error) throw error
-        }
+      // A chave única do formulario_valor é um ÍNDICE DE EXPRESSÃO — COALESCE nos
+      // ids e `dims::text` (v3_052) — e o PostgREST não casa ON CONFLICT com
+      // isso. Então nada de upsert: apaga o alvo e insere. Os dois modos diferem
+      // só no QUE apagam antes.
+      //
+      // Agrupa por escopo + conjunto de meses preenchidos, para o delete sair em
+      // poucas chamadas: no arquivo típico são 3 assinaturas por escopo (só jan,
+      // jan+fev, e os 12 meses), não uma por linha.
+      type Grupo = { e: string; f: string | null; c: string | null; meses: number[]; ids: string[] }
+      const grupos = new Map<string, Grupo>()
+      for (const a of alvos) {
+        const meses = a.v.map((v, i) => v == null ? 0 : i + 1).filter(Boolean)
+        // SUBSTITUIR apaga os 12 meses mesmo quando a linha vem toda vazia — é o
+        // que faz "apagar a célula no arquivo" remover de verdade aqui.
+        const alvoMeses = imp.modo === 'substituir' ? [1,2,3,4,5,6,7,8,9,10,11,12] : meses
+        if (!alvoMeses.length) continue
+        const k = `${a.e}|${a.f}|${a.c}|${alvoMeses.join(',')}`
+        const g = grupos.get(k) || { e: a.e, f: a.f, c: a.c, meses: alvoMeses, ids: [] }
+        g.ids.push(a.l); grupos.set(k, g)
+      }
+      let gi = 0
+      for (const g of grupos.values()) {
+        setProgresso(`limpando ${++gi}/${grupos.size}`)
+        let d = supabase.from('formulario_valor').delete()
+          .eq('formulario_id', formId).eq('versao_id', versaoId).eq('ano', ano)
+          .eq('empresa_id', g.e).in('linha_id', g.ids).in('mes', g.meses)
+        d = g.f ? d.eq('filial_id', g.f) : d.is('filial_id', null)
+        d = g.c ? d.eq('cc_id', g.c)     : d.is('cc_id', null)
+        const { error } = await d; if (error) throw error
       }
 
       const rows: any[] = []
@@ -543,8 +552,7 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       }
       for (let i = 0; i < rows.length; i += 500) {
         setProgresso(`gravando ${Math.min(i + 500, rows.length)}/${rows.length}`)
-        const { error } = await supabase.from('formulario_valor')
-          .upsert(rows.slice(i, i + 500), { onConflict: 'versao_id,linha_id,empresa_id,filial_id,cc_id,ano,mes' })
+        const { error } = await supabase.from('formulario_valor').insert(rows.slice(i, i + 500))
         if (error) throw error
       }
       const escN = new Set(alvos.map(a => `${a.e}|${a.f}|${a.c}`)).size

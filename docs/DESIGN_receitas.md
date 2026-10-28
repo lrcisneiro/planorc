@@ -145,6 +145,14 @@ do formulário (Preencher):
 - **Limpar escopo** — apaga tudo que o formulário tem naquela empresa/filial/CC.
   Para quando uma BU sai do plano.
 
+> **Sem upsert.** A chave única do `formulario_valor` é um **índice de
+> expressão** — `COALESCE()` nos ids e `dims::text` ([v3_052](../schema_v3_052_formulario_valor_cc.sql))
+> — e o PostgREST não casa `ON CONFLICT` com isso. A carga apaga o alvo e
+> insere; os dois modos diferem só no **que** apagam antes. O delete é agrupado
+> por escopo + conjunto de meses, não por linha: no arquivo típico são três
+> assinaturas por escopo (só jan, jan+fev, os 12 meses), então 60 escopos custam
+> ~180 chamadas e não 480.
+
 Linhas **calculadas** que venham no arquivo são ignoradas (o motor as recalcula),
 e o 🌐 global não é tocado pela importação. O parser vive em
 [`lib/importFormulario.ts`](../frontend/src/lib/importFormulario.ts); a largura
