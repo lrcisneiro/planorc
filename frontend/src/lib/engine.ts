@@ -151,8 +151,12 @@ export function computeTotais(linhas: LinhaCalc[], computed: Computed, periodos:
   linhas.forEach(l => { const p = l.pai_id ?? '__root'; (childrenOf[p] ||= []).push(l) })
 
   const totals: Record<string, number> = {}
+  // Mesma convergência do computeCenario, e pelo mesmo motivo: esta função é
+  // chamada cenários × buckets (12 meses = 12 buckets) × escopos, então rodar
+  // `linhas.length` passadas aqui custa mais do que no cálculo mensal.
   const passes = linhas.length + 2
   for (let p = 0; p < passes; p++) {
+    let mudou = false
     for (const l of linhas) {
       let v = 0
       if (l.tipo_linha === 'ESPACO') v = 0
@@ -175,8 +179,9 @@ export function computeTotais(linhas: LinhaCalc[], computed: Computed, periodos:
       } else { // ANALITICA: soma dos períodos
         v = periodos.reduce((acc, per) => acc + (computed[l.id]?.[pkey(per)] ?? 0), 0)
       }
-      totals[l.id] = v
+      if (totals[l.id] !== v) { totals[l.id] = v; mudou = true }
     }
+    if (!mudou) break
   }
   return totals
 }

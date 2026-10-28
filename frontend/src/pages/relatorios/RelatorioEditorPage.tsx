@@ -288,6 +288,16 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // A carga de valores levava segundos sem NADA na tela — nem cursor, nem
   // mensagem. Quem usa não sabe se clicou, se travou ou se não tem dado.
   const [carregandoVal, setCarregandoVal] = useState(false)
+  // Cronômetro de fases, só em desenvolvimento. Otimizar sem medir já me levou
+  // a atacar o lado errado uma vez (paralelizei a rede quando o gargalo era a
+  // thread); daqui em diante o console diz onde está.
+  const cron = useRef<Record<string, number>>({})
+  const marca = (fase: string, ms: number) => {
+    if (!import.meta.env.DEV) return
+    cron.current[fase] = ms
+    // eslint-disable-next-line no-console
+    console.log(`%c[relatório] ${fase}: ${ms.toFixed(0)} ms`, 'color:#8b5cf6', cron.current)
+  }
   const [snapOpen, setSnapOpen] = useState(false)
   const [snaps, setSnaps] = useState<any[]>([])
   const [snapBusy, setSnapBusy] = useState(false)
@@ -533,6 +543,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const loadValores = useCallback(async () => {
     if (!empresaSel.length || !cenariosAtivos.length) { setRaw({}); setDetalhado({}); return }
     const myseq = ++loadSeq.current   // só conta os carregamentos "de verdade" (com deps prontas)
+    const t0Fetch = performance.now()
     setCarregandoVal(true)
     try {
     // filtra filial/CC só quando é um subconjunto (nem vazio nem tudo = sem filtro, inclui consolidados null)
@@ -726,7 +737,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     }
 
       if (myseq !== loadSeq.current) return   // um carregamento mais novo começou → descarta este
+      marca('1 · rede (RPCs)', performance.now() - t0Fetch)
+      const t0Set = performance.now()
       setRaw(next); setDetalhado(det); setRawEmp(nextEmp); setRawScoped(rawScopedNext); setEscSig(escSigNext); setValErro(null)
+      marca('2 · setState', performance.now() - t0Set)
     } catch (e: any) {
       console.error('loadValores erro:', e)
       setValErro('Erro ao carregar valores: ' + (e?.message ?? String(e)))
@@ -787,6 +801,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   }, [rawScoped, linhasCalcReal, periodos])
   const hasEsc = Object.keys(escSig).length > 0
   const computed = useMemo(() => {
+    const _t0 = performance.now(); const _fim = (r: any) => { marca('3 · computeCenario', performance.now() - _t0); return r }; return _fim((() => {
     const out: Record<string, Computed> = {}
     for (const cen of cenariosExpandidos) {
       let rawCen = raw[cen] || {}
@@ -806,6 +821,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       out[cen] = computeCenario(linhasCalc, rawCen, periodos)
     }
     return out
+    })())
   }, [linhas, raw, cenariosExpandidos, periodos, scopedComputed, escSig, hasEsc])
   // ── Período: granularidade vem da VIEW; o intervalo (de–até, multi-ano) vem do filtro
   const gran = (view.filtros?.granularidade as string) || 'MENSAL'
@@ -822,14 +838,27 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   }, [periodos, mpb, gran, showYear])
   const displayedMeses = useMemo(() => buckets.flatMap(b => b.meses), [buckets])
   // total de uma linha escopada = fórmula RECALCULADA dentro do cenário escopado (não soma dos meses)
+  // Linhas que compartilham o MESMO escopo compartilham o mesmo total: antes
+  // rodava um computeTotais INTEIRO por linha escopada e jogava fora tudo menos
+  // uma chave. Com 3 linhas escopadas, 2 cenários e 12 buckets eram 72 cálculos
+  // completos para 3 resultados distintos por bucket.
   const totEsc = (cen: string, meses: Periodo[]): Record<string, number> => {
     const out: Record<string, number> = {}
-    for (const lid in escSig) { const sc = scopedComputed[`${cen}::${escSig[lid]}`]; if (sc) out[lid] = computeTotais(linhasCalcReal, sc, meses)[lid] }
+    const porSig = new Map<string, Record<string, number>>()
+    for (const lid in escSig) {
+      const sig = escSig[lid]
+      const sc = scopedComputed[`${cen}::${sig}`]; if (!sc) continue
+      let t = porSig.get(sig)
+      if (!t) { t = computeTotais(linhasCalcReal, sc, meses); porSig.set(sig, t) }
+      out[lid] = t[lid]
+    }
     return out
   }
   const bucketTotais = useMemo(() => {
+    const _t0 = performance.now()
     const out: Record<string, Record<string, number>[]> = {}
     for (const cen of cenariosExpandidos) out[cen] = buckets.map(b => { const t = computeTotais(linhasCalc, computed[cen] || {}, b.meses); if (hasEsc) Object.assign(t, totEsc(cen, b.meses)); return t })
+    marca('4 · bucketTotais', performance.now() - _t0)
     return out
   }, [linhas, computed, cenariosExpandidos, buckets, scopedComputed, escSig, hasEsc]) // eslint-disable-line
   const totalByCen = useMemo(() => {
@@ -1367,6 +1396,13 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const etd: CSSProperties = { padding: '4px 10px', fontSize: 13, borderBottom: '1px solid var(--panel)', whiteSpace: 'nowrap' }
     const ab2: CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '3px 4px', borderRadius: 4, display: 'inline-flex', alignItems: 'center' }
     const simInput: CSSProperties = { width: 72, background: '#0c0c14', border: '1px solid var(--border-strong)', borderRadius: 4, color: 'var(--text)', fontSize: 12, textAlign: 'right', padding: '2px 6px', outline: 'none' }
+  // A render é a última suspeita: colunas × linhas vira dezenas de milhares de
+  // células, e o React paga isso mesmo com o cálculo rápido.
+  if (import.meta.env.DEV) {
+    const cel = columns.length * visivel.length
+    if (cel !== cron.current['6 · células']) marca('6 · células', cel)
+  }
+
     return (
       <div style={S.page}>
         <div style={S.header}>
