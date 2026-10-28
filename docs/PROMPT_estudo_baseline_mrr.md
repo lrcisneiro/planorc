@@ -52,23 +52,46 @@ MRR           = (MRR anterior + BASE) × (1 + CORR/100) × (1 − CHURN/100) + r
    modelo funciona sem eles. Não chute.
 7. **Não some Base com Novos.** São centros de custo diferentes (ver abaixo), e
    cada um tem o próprio `BASE`, `META`, `CHURN` e `REP`.
+8. **`BASE` é o estoque do ÚLTIMO mês do histórico, não a média do ano.** A
+   média mistura meses de realidades diferentes, e em 2026 isso acontece de
+   verdade (ver a nota sobre a empresa 25 abaixo). Tire o `BASE` do último mês
+   fechado e projete a partir dele.
+9. **Ignore os lançamentos de reclassificação.** No realizado de 2026 há linhas
+   com **um único mês e valor negativo** que casam, centavo a centavo, com uma
+   linha positiva em outra empresa — por exemplo `−248.762,34` na empresa 05 e
+   `+248.762,34` na 25, no mesmo CC. São transferências contábeis de carteira,
+   não receita. Não as some ao histórico nem as use para calcular churn.
 
-## Os 48 escopos
+> **A empresa 25 (Moda) mudou de filial no meio de 2026.** A carteira saiu da
+> `2101` e foi para a `2501`: no CC `216`, a `2101` terminou o histórico em
+> **R$ 8,73** e a `2501` em **R$ 280.506**. Para 2027 ela vive na `2501`. Some
+> as duas filiais ao reconstruir o histórico da 25, mas lance o resultado só na
+> `2501`.
 
-Seis empresas, uma filial cada, oito centros de custo:
+## Os 60 escopos
 
-- **Empresas:** `01`, `05`, `06`, `25`, `YY`, `ZZ`
-- **Filial:** `2001` para **ZZ** e **06**; `2101` para `01`, `05`, `25` e `YY`
-- **Centros de custo** — quatro BUs, em Base e em Novos:
+Seis empresas, **uma filial cada**, dez centros de custo. Use exatamente estes
+códigos — não invente, não abrevie, não troque a filial.
+
+| empresa | nome | filial |
+|---|---|---|
+| `01` | Bauru | `2101` |
+| `05` | Rio Preto | `2101` |
+| `06` | Mato Grosso do Sul | `2001` |
+| `25` | Moda | `2501` |
+| `YY` | Cascavel | `2101` |
+| `ZZ` | Londrina | `2001` |
 
 | BU | CC Base | CC Novos |
 |---|---|---|
 | 1 · PC-Sistemas | `211` | `221` |
+| 2 · HXM | `212` | `222` |
 | 4 · Gestão (ERP Tradicional) | `214` | `224` |
 | 5 · RD | `215` | `225` |
 | 6 · Moda | `216` | `226` |
 
-Use **exatamente** esses códigos. Não invente nem abrevie.
+6 × 1 × 10 = **60 escopos**. São 8 drivers por escopo, então o CSV terá até 480
+linhas. Entregue todas.
 
 ## Formato da resposta
 

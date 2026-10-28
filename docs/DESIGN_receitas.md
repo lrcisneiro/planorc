@@ -8,13 +8,29 @@ o escopo de carga e o que ficou pendente. Out/2026.
 
 | | |
 |---|---|
-| **Empresas** | 01, 05, 06, 25, YY, ZZ |
-| **Filial** | `2001` para **ZZ** e **06**; `2101` para 01, 05, 25 e YY |
-| **CCs (BU)** | 1 PC-Sistemas, 4 Gestão, 5 RD, 6 Moda — **Base e Novos** |
+| **Empresas · filial** | `01`→2101 · `05`→2101 · `06`→2001 · `25`→**2501** · `YY`→2101 · `ZZ`→2001 |
+| **CCs (BU)** | 1 PC-Sistemas, **2 HXM**, 4 Gestão, 5 RD, 6 Moda — **Base e Novos** |
 
-6 × 1 × 8 = **48 escopos**. Foi o que motivou o botão *Aplicar em todos*: sem
-ele são 48 cliques por formulário, e esquecer um deixa aquela BU com o orçado
+6 × 1 × 10 = **60 escopos**. Foi o que motivou o botão *Aplicar em todos*: sem
+ele são 60 cliques por formulário, e esquecer um deixa aquela BU com o orçado
 velho sem nada na tela denunciar.
+
+Duas correções que só apareceram ao olhar o realizado de 2026:
+
+- **O HXM tinha ficado de fora** da lista inicial de BUs e vale **~3,1 mi em 10
+  meses** (`212` + `222`, nas cinco empresas) — a segunda maior BU depois do ERP
+  Tradicional. Incluído.
+- **A empresa 25 (Moda) migrou de filial no meio de 2026**, da `2101` para a
+  `2501`. No CC `216` a `2101` terminou o histórico em R$ 8,73 e a `2501` em
+  R$ 280.506. O escopo de 2027 é a **2501**.
+
+> **Cisão da empresa 25.** O realizado de 2026 tem pares exatos de valor oposto
+> num único mês — `−248.762,34` na 05 e `+248.762,34` na 25, mesmo CC, e mais
+> uma dúzia em 01, YY e ZZ. É carteira transferida na criação da 25, não
+> receita. Por isso o `BASE` do orçamento sai do **último mês** do histórico e
+> não da média do ano: numa carteira que mudou de dono em agosto, a média
+> mistura dois mundos. A coluna `ultimo_valor` de
+> `contexto_formulario_para_estudo.sql` existe para isso.
 
 > ⚠ **A faixa do CC ainda não está confirmada.** Os mesmos produtos aparecem em
 > três faixas — `21x/22x`, `31x/32x` e `51x/52x` — com a matriz Base/Novos
@@ -76,7 +92,10 @@ pegando a média global. Vale igual para o `CHURN`.
   `contexto_formulario_para_estudo.sql` traz `classe_nome` e `classe_faixa` lado
   a lado para expor isso. **Decidir qual das duas leituras vale e corrigir.**
 - **As três faixas de CC** (2xx / 3xx / 5xx) — o que distingue `211` de `311` de
-  `511` para o mesmo produto. Bloqueia a carga (ver acima).
+  `511` para o mesmo produto. A faixa `3xx` aparece recebendo **reclassificação**
+  (`YY·2001·214 = +13.440` contra `YY·2001·314 = −13.440` no mesmo mês;
+  `06·2001·314 = +18.658`), o que sugere uso contábil de ajuste — mas é
+  inferência, não resposta.
 - **`ANTERIOR()` não atravessa o ano** ([engine.ts](../frontend/src/lib/engine.ts),
   `prevKey` devolve `null` antes do 1º período). É a terceira vez que isso
   aparece: o `METADEZ` do MRR, a rampa de 6 safras do não-recorrente e agora a
