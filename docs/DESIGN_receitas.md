@@ -63,9 +63,21 @@ apontavam para a mesma conta ("evita colisão de chave"). A chave única do
 `fat_orcado` inclui `dims`, então cada linha carimba o próprio código ali e as
 três coexistem — distinguíveis no drill, somadas na DRE.
 
-**O atraso sistemático já estava no modelo.** `ANTERIOR([META])` é "vendeu em m,
-recebe em m+1" — negociar para janeiro e cair em fevereiro. `POST1`/`POST2` são
-as postergações **além** dessa. Elas incidem só sobre a `META` do ano corrente;
+**O ciclo de faturamento é de 2 meses** (corrigido em 28/out). A TOTVS fatura no
+mês da meta, o vencimento cai no mês seguinte e o pagamento vem no mês depois do
+vencimento: meta em *m* → comissão em *m+2*. Daí `ANTERIOR([META],2)`, e não o
+`ANTERIOR([META])` de um mês que o formulário trazia. `POST1`/`POST2` são as
+postergações **além** desse ciclo (m+3 e m+4).
+
+> Medido: com `METADEZ` preenchido em jan **e** fev, o resultado é **idêntico**
+> ao da defasagem de um mês — o ciclo desloca, não destrói. Sem ele, o ano
+> começa com dois meses de receita nova zerada: −165.328 num exemplo de meta
+> 40k/mês, 1,4% do MRR anual. E a meta de nov/dez de cada ano só vira receita no
+> ano seguinte, o que explica a soma das metas não bater com a receita nova.
+>
+> **O `N` do `ANTERIOR([X],N)` é literal** — o motor exige um número na
+> expressão ([engine.ts](../frontend/src/lib/engine.ts), regex `(\d+)`). Se o
+> ciclo de pagamento mudar, é edição de fórmula, não parâmetro. Elas incidem só sobre a `META` do ano corrente;
 nunca sobre o `METADEZ`, que é passado que o estudo já conhece. A perda não se
 recupera: cada safra entra mais tarde no estoque e o buraco se arrasta até
 dezembro. Medido (meta 40k/mês, base 1mi, repasse 18,5%):

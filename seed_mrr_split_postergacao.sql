@@ -16,11 +16,25 @@
 --      MRRBASE = (ANTERIOR() + [BASE]) * fatores
 --      MRRNOVO =  ANTERIOR()           * fatores + [RECNOVA]
 --
--- 2) POSTERGAÇÃO. O atraso SISTEMÁTICO já estava no modelo: `ANTERIOR([META])`
---    é "vendeu em m, recebe em m+1" — o caso de negociar para janeiro e cair
---    em fevereiro. `POST1`/`POST2` são as postergações ALÉM dessa, que é o que
---    se calibra. Elas incidem só sobre a META do ano corrente (futuro incerto),
---    nunca sobre o `METADEZ` (passado que o estudo já conhece mês a mês).
+-- 2) O CICLO DE FATURAMENTO É DE 2 MESES. A TOTVS fatura no mês da meta, o
+--    vencimento cai no mês seguinte e o pagamento no mês depois do vencimento:
+--    meta em m → comissão em m+2. Por isso `ANTERIOR([META],2)`, e não o
+--    `ANTERIOR([META])` de 1 mês que havia antes.
+--
+--    ⚠ Consequência em JANEIRO e FEVEREIRO: a receita deles vem da meta de
+--    NOV e DEZ do ano anterior, e `ANTERIOR()` não atravessa o ano (devolve 0).
+--    Sem `METADEZ` preenchido nos DOIS meses, o ano começa com dois meses de
+--    receita nova zerada — medido: −165.328 num exemplo de meta 40k/mês, 1,4%
+--    do MRR anual. Com ele preenchido, o resultado é IDÊNTICO ao da defasagem
+--    de 1 mês: o ciclo desloca, não destrói.
+--
+--    ⚠ E no fim do ano: a meta de NOV e DEZ/2027 só vira receita em 2028. São
+--    dois meses de venda que não aparecem no orçamento do ano — correto, não é
+--    erro, mas surpreende quem compara meta com receita.
+--
+-- 3) POSTERGAÇÃO. `POST1`/`POST2` são o atraso ALÉM do ciclo de 2 meses (m+3 e
+--    m+4), e incidem só sobre a META do ano corrente (futuro incerto), nunca
+--    sobre o `METADEZ` (passado que o estudo já conhece mês a mês).
 --
 --    A perda NÃO se recupera: cada safra entra mais tarde no estoque e o buraco
 --    se arrasta até dezembro. Medido com meta 40k/mês, base 1mi, repasse 18,5%:
@@ -28,7 +42,7 @@
 --      POST1=30% POST2=10%  →  −6,9%
 --      POST1=50% POST2=20%  →  −12,4%
 --
--- 3) `METADEZ` já servia para qualquer mês — a fórmula lê a célula do mês
+-- 4) `METADEZ` já servia para qualquer mês — a fórmula lê a célula do mês
 --    CORRENTE, não só janeiro. Só a descrição induzia ao erro. O estudo pode
 --    preencher jan, fev, mar… com o que sabe exatamente que vai entrar.
 --
@@ -74,7 +88,7 @@ CROSS JOIN (VALUES
   -- fluxo REAL da receita nova: parte escorrega 1 ou 2 meses.
   -- [METADEZ] fica FORA do parêntese do atraso — é entrada já conhecida.
   ('RECNOVAR',  'Receita nova REAL (com postergação) — apoio', 62, false,
-   '=(ANTERIOR([META],1) * (100 - [POST1] - [POST2])/100 + ANTERIOR([META],2) * [POST1]/100 + ANTERIOR([META],3) * [POST2]/100 + [METADEZ]) * [REP] / 100'),
+   '=(ANTERIOR([META],2) * (100 - [POST1] - [POST2])/100 + ANTERIOR([META],3) * [POST1]/100 + ANTERIOR([META],4) * [POST2]/100 + [METADEZ]) * [REP] / 100'),
   -- as TRÊS que gravam, na mesma conta e em lançamentos separados
   ('MRRBASE',   'Receita recorrente — carteira BASE',          72, true,
    '=(ANTERIOR() + [BASE]) * (1 + [CORR]/100) * (1 - [CHURN]/100)'),
@@ -107,11 +121,21 @@ UPDATE formulario_linha l
  WHERE f.id = l.formulario_id AND l.codigo = 'MRR'
    AND f.nome ILIKE '%recorrente%' AND f.nome NOT ILIKE '%não recorrente%';
 
--- ---------- 4 · METADEZ: o rótulo é que estava errado ----------
+-- ---------- 4 · METADEZ: rótulo + o papel que a defasagem de 2 meses lhe dá ----------
 UPDATE formulario_linha l
-   SET descricao = 'Venda de períodos anteriores que entra NESTE mês (R$ — do estudo)'
+   SET descricao = 'Venda de períodos anteriores que entra NESTE mês (R$ — preencher JAN e FEV)'
   FROM formulario f
  WHERE f.id = l.formulario_id AND l.codigo = 'METADEZ'
+   AND f.nome ILIKE '%recorrente%' AND f.nome NOT ILIKE '%não recorrente%';
+
+-- ---------- 5 · a RECNOVA (ideal) acompanha a defasagem ----------
+-- Se ela ficasse em 1 mês e a RECNOVAR em 2, o POSTERGVL (= real − ideal)
+-- acusaria uma postergação que não existe, mesmo com os índices zerados.
+UPDATE formulario_linha l
+   SET expressao = '=(ANTERIOR([META],2) + [METADEZ]) * [REP] / 100',
+       descricao = 'Receita nova (meta de 2 meses atrás × repasse)'
+  FROM formulario f
+ WHERE f.id = l.formulario_id AND l.codigo = 'RECNOVA'
    AND f.nome ILIKE '%recorrente%' AND f.nome NOT ILIKE '%não recorrente%';
 
 -- ---------- conferência ----------

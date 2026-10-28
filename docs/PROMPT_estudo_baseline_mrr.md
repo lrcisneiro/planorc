@@ -18,7 +18,7 @@ que você preenche; o resto é calculado pelo Planorc e não deve vir na tabela.
 |---|---|---|
 | `BASE` | MRR da carteira no início — **só em janeiro** | R$ |
 | `META` | meta de venda de MRR novo, do mês | R$ |
-| `METADEZ` | venda de períodos **anteriores** cuja receita entra NESTE mês | R$ |
+| `METADEZ` | venda de períodos **anteriores** cuja receita entra NESTE mês — **jan e fev** | R$ |
 | `CHURN` | % de perda mensal da carteira | **%** |
 | `CORR` | % de correção (IGPM/IPCA) do mês | **%** |
 | `REP` | % de comissão de repasse | **%** |
@@ -28,9 +28,13 @@ que você preenche; o resto é calculado pelo Planorc e não deve vir na tabela.
 Como o motor usa isso, mês a mês:
 
 ```
-receita nova  = (META do mês anterior + METADEZ do mês) × REP/100
+receita nova  = (META de DOIS meses atrás + METADEZ do mês) × REP/100
 MRR           = (MRR anterior + BASE) × (1 + CORR/100) × (1 − CHURN/100) + receita nova
 ```
+
+**Por que dois meses:** a TOTVS fatura no mês da meta, o vencimento cai no mês
+seguinte e o pagamento vem no mês depois do vencimento. Meta em *m* → comissão
+em *m+2*.
 
 ## Sete regras que mudam o resultado
 
@@ -41,13 +45,16 @@ MRR           = (MRR anterior + BASE) × (1 + CORR/100) × (1 − CHURN/100) + r
    Foi exatamente esse esquecimento que inflou o orçamento de 2026 em 10,5%.
 3. **`BASE` só em janeiro.** É o estoque inicial. Repetir nos outros meses soma
    a carteira doze vezes.
-4. **A venda do mês gera receita no mês seguinte** — é o padrão do modelo
-   (`META` do mês anterior). Negociar início para janeiro e a receita cair em
-   fevereiro **já está** contemplado; não compense isso à mão.
-5. **`METADEZ` é para qualquer mês, não só janeiro.** Use-o para a venda já
-   fechada de 2026 cujo início você conhece: ponha o valor no mês em que ela
-   entra. Ele **não** sofre `POST1`/`POST2` — é passado conhecido.
-6. **`POST1`/`POST2` são o atraso ALÉM do padrão**, e só sobre a venda de 2027.
+4. **A venda gera receita dois meses depois** — é o ciclo de faturamento, já
+   dentro do modelo. Não compense isso à mão deslocando a `META`.
+5. **`METADEZ` precisa de JANEIRO e FEVEREIRO, obrigatoriamente.** A receita
+   desses dois meses vem da meta de **nov e dez/2026**, e o motor não enxerga o
+   ano anterior — sem o `METADEZ` o ano começa com dois meses de receita nova
+   **zerada**. Medido num exemplo de meta 40k/mês: −165.328 no ano, 1,4% do MRR.
+   Use-o também em março e abril se houver venda de 2026 que entre lá. Ele
+   **não** sofre `POST1`/`POST2` — é passado conhecido, já com o ciclo aplicado.
+6. **`POST1`/`POST2` são o atraso ALÉM do ciclo** (m+3 e m+4), só sobre a venda
+   de 2027.
    Se o estudo não tiver essa medida confiável, deixe os dois em branco: o
    modelo funciona sem eles. Não chute.
 7. **Não some Base com Novos.** São centros de custo diferentes (ver abaixo), e
@@ -107,6 +114,11 @@ empresa;filial;cc;linha;jan;fev;mar;abr;mai;jun;jul;ago;set;out;nov;dez
 ```
 
 Célula vazia = sem valor naquele mês (é o caso do `BASE` de fevereiro em diante).
+
+> **A meta de nov e dez/2027 não vira receita em 2027** — ela cai em jan e
+> fev/2028, pelo ciclo de dois meses. Não é erro nem perda; é só a razão de a
+> soma das metas do ano não bater com a receita nova do ano. Não tente
+> compensar.
 
 Depois do CSV, escreva em **até 15 linhas**: de onde saiu cada premissa, o que
 você estimou por falta de dado, e qual escopo ficou mais frágil. Se faltar
