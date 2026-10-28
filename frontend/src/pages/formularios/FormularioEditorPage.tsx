@@ -68,6 +68,7 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   const [fbVal, setFbVal] = useState('')   // barra de fórmula (estilo Excel) — conteúdo da célula ativa
   const [saving, setSaving] = useState(false)
   const [aplicando, setAplicando] = useState(false)
+  const [progresso, setProgresso] = useState<string | null>(null)   // "12/60 — 01·2102·214" no aplicar em todos
   const [fxModal, setFxModal] = useState<{ lineId: string; val: string } | null>(null)   // modal de edição da fórmula da linha
   const [scopeRows, setScopeRows] = useState<{ empresa_id: string | null; filial_id: string | null; cc_id: string | null }[]>([])   // escopos com dados (marca ●)
   const [scopesRefresh, setScopesRefresh] = useState(0)
@@ -388,27 +389,25 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   }
 
   // ── APLICAR: materializa o resultado calculado em fat_orcado (origem FORMULARIO) ──
-  const aplicar = async () => {
-    if (!pronto || readOnly || isGlobal) return
-    const destinos = linhas.filter(l => l.conta_destino_id)
-    if (!destinos.length) { alert('Nenhuma linha tem conta de destino. Defina o destino nas linhas-resultado (Estrutura) antes de aplicar.'); return }
-    if (!confirm(`Aplicar ${destinos.length} linha(s)-resultado no orçado da versão "${versao?.codigo}", na empresa/filial/centro de custo selecionados?\n\nSubstitui apenas o que ESTE formulário já havia aplicado. Valores manuais e de outros formulários são preservados.`)) return
-    setAplicando(true)
-    try {
+  // Separado em (a) o núcleo, que recebe o escopo e o cálculo por parâmetro, e
+  // (b) os dois gatilhos — o escopo atual e todos de uma vez. Sem essa separação
+  // "aplicar em todos" teria de trocar a seleção da tela 60 vezes e esperar os
+  // efeitos colaterais, que é frágil e pisca a interface inteira.
+  const aplicarEscopo = async (emp: string, fil: string | null, cc: string | null, comp: Record<string, Record<string, number>>) => {
+      const destinos = linhas.filter(l => l.conta_destino_id)
       const lineIds = linhas.map(l => l.id)
-      const contaIds = [...new Set(destinos.map(l => l.conta_destino_id))] as string[]
       const trace = `Formulário: ${nome}`
       // dims marca este formulário: histórico legível + id (separa da chave única quando OUTRO formulário
       // ou lançamento manual grava na MESMA conta/célula — aí coexistem e somam no relatório).
       const marca = { historico: trace, form: formId }
       // apaga SÓ o que ESTE formulário já aplicou nesse escopo (não toca manual nem outros formulários)
-      let del = supabase.from('fat_orcado').delete().eq('versao_id', versaoId).eq('empresa_id', empresaId).eq('ano', ano).eq('origem', 'FORMULARIO').in('origem_formulario_linha_id', lineIds)
-      del = filialId ? del.eq('filial_id', filialId) : del.is('filial_id', null)
-      del = ccId ? del.eq('cc_id', ccId) : del.is('cc_id', null)
+      let del = supabase.from('fat_orcado').delete().eq('versao_id', versaoId).eq('empresa_id', emp).eq('ano', ano).eq('origem', 'FORMULARIO').in('origem_formulario_linha_id', lineIds)
+      del = fil ? del.eq('filial_id', fil) : del.is('filial_id', null)
+      del = cc ? del.eq('cc_id', cc) : del.is('cc_id', null)
       const { error: eDel } = await del; if (eDel) throw eDel
       // agrega por conta_destino × mês (soma linhas do MESMO formulário na mesma conta) — evita colisão de chave
       // multimoeda: o resultado é digitado na moeda funcional da empresa (empresa.moeda_slot)
-      const origem = empMoeda[empresaId] ?? 1
+      const origem = empMoeda[emp] ?? 1
       const semTaxa = new Set<number>()
       const matAplic = (v: number, mes: number): Record<string, any> | null => {
         const { vals, semTaxa: st } = materializa(v, origem, slotsAtivos, s => taxaOrcada(s, ano, mes, versaoTaxas))
@@ -418,25 +417,81 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       }
       const agg = new Map<string, any>()
       for (const l of destinos) for (let mes = 1; mes <= 12; mes++) {
-        const v = computed[l.id]?.[`${ano}-${mes}`] || 0
+        const v = comp[l.id]?.[`${ano}-${mes}`] || 0
         if (!v) continue
         const key = `${l.conta_destino_id}|${mes}`
         const cur = agg.get(key)
         if (cur) cur.valor += v
-        else agg.set(key, { tenant_id: TENANT_ID, versao_id: versaoId, linha_id: l.conta_destino_id, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, valor: v, expressao: null, origem: 'FORMULARIO', origem_formulario_linha_id: l.id, dims: marca })
+        else agg.set(key, { tenant_id: TENANT_ID, versao_id: versaoId, linha_id: l.conta_destino_id, empresa_id: emp, filial_id: fil || null, cc_id: cc || null, ano, mes, valor: v, expressao: null, origem: 'FORMULARIO', origem_formulario_linha_id: l.id, dims: marca })
       }
       // materializa cada registro nos slots pela moeda de origem (bloqueia se falta a taxa da origem)
       const recs: any[] = []
       for (const rec of agg.values()) {
         const mat = matAplic(rec.valor, rec.mes)
-        if (!mat) { alert(`Sem taxa orçada de origem (slot ${origem}) em ${rec.mes}/${ano} — cadastre em Cadastros › Taxa orçada antes de aplicar.`); setAplicando(false); return }
+        if (!mat) throw new Error(`Sem taxa orçada de origem (slot ${origem}) em ${rec.mes}/${ano} — cadastre em Cadastros › Taxa orçada antes de aplicar.`)
         recs.push({ ...rec, ...mat })
       }
       for (let i = 0; i < recs.length; i += 500) { const { error } = await supabase.from('fat_orcado').insert(recs.slice(i, i + 500)); if (error) throw error }
+    return { celulas: recs.length, semTaxa }
+  }
+
+  // Calcula um escopo a partir das células dele, com a mesma herança da tela:
+  // valor do escopo, senão a premissa global (🌐).
+  const computarEscopo = (cellsEscopo: CellMap) => {
+    const raw: RawValues = {}
+    for (const l of linhas) for (let mes = 1; mes <= 12; mes++) {
+      const own = cellsEscopo[l.id]?.[mes]
+      const cell = own || gcells[l.id]?.[mes] || null
+      if (cell) (raw[l.id] = raw[l.id] || {})[`${ano}-${mes}`] = cell.expressao ? { expressao: cell.expressao } : { valor: cell.valor }
+    }
+    return computeCenario(linhasCalc, raw, periodos)
+  }
+
+  const aplicar = async () => {
+    if (!pronto || readOnly || isGlobal) return
+    const destinos = linhas.filter(l => l.conta_destino_id)
+    if (!destinos.length) { alert('Nenhuma linha tem conta de destino. Defina o destino nas linhas-resultado (Estrutura) antes de aplicar.'); return }
+    if (!confirm(`Aplicar ${destinos.length} linha(s)-resultado no orçado da versão "${versao?.codigo}", na empresa/filial/centro de custo selecionados?\n\nSubstitui apenas o que ESTE formulário já havia aplicado. Valores manuais e de outros formulários são preservados.`)) return
+    setAplicando(true)
+    try {
+      const { celulas, semTaxa } = await aplicarEscopo(empresaId, filialId || null, ccId || null, computed)
       const avisoSlot = semTaxa.size ? `\n\nAtenção: sem cotação nos slots ${[...semTaxa].join(', ')} — nesses a conversão ficou vazia até cadastrar a taxa e recalcular.` : ''
-      alert(`Aplicado: ${recs.length} célula(s) em ${contaIds.length} conta(s), rastreável no histórico como "${trace}". Valores manuais e de outros formulários foram preservados.${avisoSlot}`)
+      alert(`Aplicado: ${celulas} célula(s), rastreável no histórico como "Formulário: ${nome}". Valores manuais e de outros formulários foram preservados.${avisoSlot}`)
     } catch (e: any) { alert('Erro ao aplicar: ' + (e?.message ?? JSON.stringify(e))) }
     setAplicando(false)
+  }
+
+  // Aplica TODOS os escopos completos que já têm dado nesta versão/ano. Com 6
+  // empresas × 10 CCs são 60 cliques — e esquecer um deixa aquela BU com o
+  // orçado velho, em silêncio. O 🌐 global fica de fora: ele é premissa, não
+  // escopo de lançamento.
+  const aplicarTodos = async () => {
+    if (!pronto || bloqueada || isEstrutura) return
+    const destinos = linhas.filter(l => l.conta_destino_id)
+    if (!destinos.length) { alert('Nenhuma linha tem conta de destino. Defina o destino nas linhas-resultado (Estrutura) antes de aplicar.'); return }
+    const escopos = [...new Map(scopeRows
+      .filter(r => r.empresa_id && r.filial_id && r.cc_id)
+      .map(r => [`${r.empresa_id}|${r.filial_id}|${r.cc_id}`, r])).values()]
+    if (!escopos.length) { alert('Nenhum escopo completo (empresa + filial + centro de custo) tem dado nesta versão/ano.'); return }
+    if (!confirm(`Aplicar ${destinos.length} linha(s)-resultado em TODOS os ${escopos.length} escopos com dado, na versão "${versao?.codigo}" / ${ano}?\n\nEm cada um, substitui apenas o que ESTE formulário já havia aplicado.`)) return
+    setAplicando(true)
+    const erros: string[] = []; let okN = 0, celN = 0; const slots = new Set<number>()
+    try {
+      for (let i = 0; i < escopos.length; i++) {
+        const r = escopos[i]
+        const nomeEsc = `${empresas.find((e: any) => e.id === r.empresa_id)?.codigo || '?'}·${filiais.find((f: any) => f.id === r.filial_id)?.codigo || '?'}·${ccs.find((c: any) => c.id === r.cc_id)?.codigo || '?'}`
+        setProgresso(`${i + 1}/${escopos.length} — ${nomeEsc}`)
+        try {
+          const { data } = await supabase.from('formulario_valor').select('linha_id,mes,valor,expressao')
+            .eq('formulario_id', formId).eq('versao_id', versaoId).eq('ano', ano)
+            .eq('empresa_id', r.empresa_id).eq('filial_id', r.filial_id).eq('cc_id', r.cc_id)
+          const res = await aplicarEscopo(r.empresa_id as string, r.filial_id as string, r.cc_id as string, computarEscopo(toMap(data)))
+          okN++; celN += res.celulas; res.semTaxa.forEach(s => slots.add(s))
+        } catch (e: any) { erros.push(`${nomeEsc}: ${e?.message ?? e}`) }
+      }
+    } finally { setProgresso(null); setAplicando(false) }
+    const avisoSlot = slots.size ? `\n\nSem cotação nos slots ${[...slots].join(', ')} — a conversão ficou vazia nesses.` : ''
+    alert(`Aplicado em ${okN} de ${escopos.length} escopo(s): ${celN} célula(s).${erros.length ? `\n\nFALHARAM ${erros.length}:\n` + erros.slice(0, 10).join('\n') : ''}${avisoSlot}`)
   }
 
   if (loading) return <div style={{ padding: 24, color: 'var(--muted)' }}>Carregando…</div>
@@ -488,8 +543,26 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
             style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, background: 'var(--violet)', color: '#fff', border: 'none', cursor: pronto && !readOnly && !isGlobal ? 'pointer' : 'not-allowed', opacity: pronto && !readOnly && !isGlobal ? 1 : 0.5 }}
             disabled={!pronto || readOnly || aplicando || isGlobal} onClick={aplicar}
             title={!pronto ? 'Selecione versão e empresa' : (isGlobal ? 'Premissas globais não vão ao orçado — selecione uma empresa para aplicar' : (readOnly ? 'Versão bloqueada' : 'Materializar o resultado no orçado (fat_orcado)'))}>
-            <Play size={14} /> {aplicando ? 'Aplicando…' : 'Aplicar no orçado'}
+            <Play size={14} /> {aplicando ? (progresso || 'Aplicando…') : 'Aplicar no orçado'}
           </button>
+          {/* Com 6 empresas × 10 CCs são 60 cliques, e esquecer um deixa aquela
+              BU com o orçado velho em silêncio. Este percorre os escopos que já
+              têm dado — o 🌐 global fica fora, é premissa, não lançamento. */}
+          {(() => {
+            const n = new Set(scopeRows.filter(r => r.empresa_id && r.filial_id && r.cc_id)
+              .map(r => `${r.empresa_id}|${r.filial_id}|${r.cc_id}`)).size
+            const livre = pronto && !bloqueada && !aplicando && n > 0
+            return (
+              <button
+                style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--violet)', color: 'var(--violet)', background: 'transparent', cursor: livre ? 'pointer' : 'not-allowed', opacity: livre ? 1 : 0.5 }}
+                disabled={!livre} onClick={aplicarTodos}
+                title={bloqueada ? 'Versão bloqueada'
+                  : n === 0 ? 'Nenhum escopo completo (empresa + filial + CC) tem dado nesta versão/ano'
+                  : `Aplica os ${n} escopos empresa·filial·CC que já têm dado nesta versão/ano, um a um`}>
+                <Play size={14} /> Aplicar em todos ({n})
+              </button>
+            )
+          })()}
         </div>
       )}
 
