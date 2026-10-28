@@ -76,7 +76,15 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   const [imp, setImp] = useState<{ txt: string; modo: 'substituir' | 'incluir'; prev: ReturnType<typeof parseFormularioCsv> | null; res: string[] | null } | null>(null)
   const [importando, setImportando] = useState(false)
   const [cellsRefresh, setCellsRefresh] = useState(0)   // recarrega as células do escopo após a carga
-  const [limpAberto, setLimpAberto] = useState(false)   // recarrega as células do escopo após a carga   // "12/60 — 01·2102·214" no aplicar em todos
+  const [limpAberto, setLimpAberto] = useState(false)
+  // "há alterações não aplicadas": compara o carimbo da última aplicação
+  // (formulario_aplicacao, v3_122) com o max(atualizado_em) das células desta
+  // versão/ano. Sem isso, editar driver e ir ao relatório mostra número velho
+  // sem nenhum sinal — foi o que fez dois cenários de meta aparecerem com a
+  // diferença invertida, e a suspeita cair sobre a fórmula, que estava certa.
+  const [aplicadoEm, setAplicadoEm] = useState<string | null>(null)
+  const [editadoEm, setEditadoEm] = useState<string | null>(null)
+  const [syncRefresh, setSyncRefresh] = useState(0)   // recarrega as células do escopo após a carga   // "12/60 — 01·2102·214" no aplicar em todos
   const [fxModal, setFxModal] = useState<{ lineId: string; val: string } | null>(null)   // modal de edição da fórmula da linha
   const [scopeRows, setScopeRows] = useState<{ empresa_id: string | null; filial_id: string | null; cc_id: string | null }[]>([])   // escopos com dados (marca ●)
   const [scopesRefresh, setScopesRefresh] = useState(0)
@@ -194,6 +202,24 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       setCells(toMap(data))
     })()
   }, [versaoId, empresaId, filialId, ccId, ano, pronto, isGlobal, isEstrutura, linhas.length, cellsRefresh])
+
+  useEffect(() => {
+    if (isEstrutura || !versaoId || !ano) { setAplicadoEm(null); setEditadoEm(null); return }
+    (async () => {
+      const [ap, ed] = await Promise.all([
+        supabase.from('formulario_aplicacao').select('aplicado_em')
+          .eq('formulario_id', formId).eq('versao_id', versaoId).eq('ano', ano).maybeSingle(),
+        supabase.from('formulario_valor').select('atualizado_em')
+          .eq('formulario_id', formId).eq('versao_id', versaoId).eq('ano', ano)
+          .order('atualizado_em', { ascending: false }).limit(1).maybeSingle(),
+      ])
+      setAplicadoEm((ap.data as any)?.aplicado_em ?? null)
+      setEditadoEm((ed.data as any)?.atualizado_em ?? null)
+    })()
+  }, [formId, versaoId, ano, isEstrutura, syncRefresh, scopesRefresh, cellsRefresh])
+
+  // nunca aplicado com dado dentro, ou editado depois da última aplicação
+  const desatualizado = !!editadoEm && (!aplicadoEm || new Date(editadoEm) > new Date(aplicadoEm))
 
   // marca ● no seletor: quais empresa/filial/CC já têm dados nesta versão (distintos em formulario_valor)
   useEffect(() => {
@@ -458,6 +484,12 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
         recs.push({ ...rec, ...mat })
       }
       for (let i = 0; i < recs.length; i += 500) { const { error } = await supabase.from('fat_orcado').insert(recs.slice(i, i + 500)); if (error) throw error }
+    // Carimba a aplicação. `upsert` porque é uma linha por formulário × versão
+    // × ano — o que interessa é QUANDO rodou pela última vez.
+    await supabase.from('formulario_aplicacao').upsert(
+      { tenant_id: TENANT_ID, formulario_id: formId, versao_id: versaoId, ano, aplicado_em: new Date().toISOString(), celulas: recs.length },
+      { onConflict: 'formulario_id,versao_id,ano' })
+    setSyncRefresh(x => x + 1)
     return { celulas: recs.length, semTaxa }
   }
 
@@ -630,6 +662,9 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       .eq('versao_id', versaoId).eq('ano', ano).eq('origem', 'FORMULARIO')
       .in('origem_formulario_linha_id', lineIds)
     if (error) { alert('Erro ao limpar o orçado: ' + error.message); return }
+    await supabase.from('formulario_aplicacao').delete()
+      .eq('formulario_id', formId).eq('versao_id', versaoId).eq('ano', ano)
+    setSyncRefresh(x => x + 1)
     alert(`${count} lançamento(s) apagados do orçado.`)
   }
 
@@ -732,6 +767,17 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
             title={!pronto ? 'Selecione versão e empresa' : (isGlobal ? 'Premissas globais não vão ao orçado — selecione uma empresa para aplicar' : (readOnly ? 'Versão bloqueada' : 'Materializar o resultado no orçado (fat_orcado)'))}>
             <Play size={14} /> {aplicando ? (progresso || 'Aplicando…') : 'Aplicar no orçado'}
           </button>
+          {/* O relatório lê o fat_orcado, não isto. Sem este aviso, editar um
+              driver e ir ao relatório mostra número velho sem nenhum sinal. */}
+          {desatualizado && (
+            <span title={aplicadoEm
+              ? `Última aplicação: ${new Date(aplicadoEm).toLocaleString('pt-BR')}. Editado depois: ${new Date(editadoEm!).toLocaleString('pt-BR')}.`
+              : 'Este formulário nunca foi aplicado nesta versão/ano.'}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, height: 34, padding: '0 11px', borderRadius: 8, fontSize: 12.5, whiteSpace: 'nowrap',
+                border: '1px solid var(--orange)66', background: 'rgba(251,146,60,0.12)', color: 'var(--orange)' }}>
+              ⚠ {aplicadoEm ? 'alterações não aplicadas' : 'nunca aplicado'}
+            </span>
+          )}
           {/* Com 6 empresas × 10 CCs são 60 cliques, e esquecer um deixa aquela
               BU com o orçado velho em silêncio. Este percorre os escopos que já
               têm dado — o 🌐 global fica fora, é premissa, não lançamento. */}

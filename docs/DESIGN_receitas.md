@@ -154,9 +154,17 @@ do formulário (Preencher):
 
 > **O relatório lê o `fat_orcado`, não o formulário.** Mudar driver e ir ao
 > relatório mostra número velho até o *Aplicar* rodar — foi o que fez dois
-> cenários de meta (15% × 20%) aparecerem com a diferença invertida: os inputs
-> já diferiam em +24,2% de meta, mas um dos lados estava com aplicação antiga.
-> **Pendência:** a tela não avisa que há alteração não aplicada.
+> cenários de meta (15% × 20%) aparecerem com a diferença invertida, com a
+> suspeita caindo sobre a fórmula, que estava certa.
+>
+> **Resolvido (v3_122).** `formulario_aplicacao` guarda uma linha por formulário
+> × versão × ano com o `aplicado_em`, carimbada a cada Aplicar; a tela compara
+> com o `max(atualizado_em)` das células e mostra **⚠ alterações não aplicadas**
+> ao lado do botão (ou **nunca aplicado**). Limpar o orçado apaga o carimbo, que
+> é o estado correto. O `atualizado_em` ganhou **trigger**: ele existia desde a
+> v3_049 mas só era preenchido no INSERT — o editor de célula fazia UPDATE sem
+> tocá-lo —, então não servia para "mudou desde quando". Com o trigger vale para
+> qualquer caminho de escrita: tela, importação ou SQL.
 
 > **Sem upsert.** A chave única do `formulario_valor` é um **índice de
 > expressão** — `COALESCE()` nos ids e `dims::text` ([v3_052](../schema_v3_052_formulario_valor_cc.sql))
