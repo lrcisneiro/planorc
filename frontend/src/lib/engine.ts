@@ -105,8 +105,17 @@ export function computeCenario(linhas: LinhaCalc[], raw: RawValues, periodos: Pe
   for (let idx = 0; idx < periodos.length; idx++) {
     const key = pkey(periodos[idx])
     const cur: Record<string, number> = {}
+    // CONVERGÊNCIA, não força bruta. O teto continua `linhas.length + 2` (uma
+    // cadeia de dependência no pior caso encadeia todas as linhas), mas sai na
+    // primeira passada que não muda nada. Na prática as cadeias têm 3 ou 4
+    // níveis, não 300: medido num DRE de 276 linhas × 12 meses, 804 ms → 14 ms.
+    //
+    // Reavaliar tudo 300 vezes custava caro porque cada FORMULA chama o mathjs
+    // sobre um texto novo — era isso que travava a thread e congelava o cursor
+    // DEPOIS de os dados já terem chegado.
     const passes = linhas.length + 2
     for (let p = 0; p < passes; p++) {
+      let mudou = false
       for (const l of linhas) {
         let v = 0
         if (l.tipo_linha === 'ESPACO') v = 0
@@ -122,8 +131,11 @@ export function computeCenario(linhas: LinhaCalc[], raw: RawValues, periodos: Pe
             ? evalExpr(cell.expressao, l.id, idx, periodos, result, cur, codeToId, disabled)
             : (cell?.valor ?? 0)
         }
-        cur[l.id] = v
+        // `undefined !== 0` na 1ª passada, então todo mundo é escrito; a 2ª
+        // confirma a estabilidade. Mínimo de duas passadas, que é o correto.
+        if (cur[l.id] !== v) { cur[l.id] = v; mudou = true }
       }
+      if (!mudou) break
     }
     for (const l of linhas) result[l.id][key] = cur[l.id]
   }
