@@ -53,6 +53,12 @@ em *m+2*.
    **zerada**. Medido num exemplo de meta 40k/mês: −165.328 no ano, 1,4% do MRR.
    Use-o também em março e abril se houver venda de 2026 que entre lá. Ele
    **não** sofre `POST1`/`POST2` — é passado conhecido, já com o ciclo aplicado.
+
+   > ⚠ **`METADEZ` é venda BRUTA, não comissão.** A fórmula o multiplica por
+   > `REP` junto com a `META`. Se a venda de novembro foi R$ 50.000 e o repasse
+   > é 18,5%, escreva **`50000,00`** — não `9250,00`. Pôr a comissão já líquida
+   > faz o formulário aplicar os 18,5% de novo e sobra 3,4% do valor real, em
+   > dois meses que ninguém confere com lupa.
 6. **`POST1`/`POST2` são o atraso ALÉM do ciclo** (m+3 e m+4), só sobre a venda
    de 2027.
    Se o estudo não tiver essa medida confiável, deixe os dois em branco: o
