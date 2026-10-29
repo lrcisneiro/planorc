@@ -71,12 +71,13 @@ END $$;
 -- ---------- candidatas a conta de destino, para escolher ----------
 -- Receita no plano orçamentário. Se a de serviços estiver aqui, use o código
 -- dela no UPDATE abaixo (ou escolha na tela de Estrutura).
-SELECT co.codigo, co.descricao, co.natureza,
-       (SELECT count(*) FROM fat_realizado fr WHERE fr.linha_id = co.id) AS lanc_realizado
+-- Sem contagem de lançamentos: um count correlacionado sobre fat_realizado
+-- (a tabela do razão) faz um scan POR CONTA e estoura o timeout do editor.
+SELECT co.codigo, co.descricao, coalesce(co.natureza, '(nulo)') AS natureza
   FROM conta_orcamentaria co
- WHERE co.natureza = 'RECEITA'
-    OR co.descricao ILIKE '%servi%'
-    OR co.codigo LIKE '102%'
+ WHERE co.codigo LIKE '1%'
+    OR co.descricao ILIKE '%serv%'
+    OR co.descricao ILIKE '%receita%'
  ORDER BY co.codigo;
 
 -- ---------- amarrar o destino (trocar o código e descomentar) ----------
