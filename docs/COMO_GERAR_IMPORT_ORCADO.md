@@ -1,8 +1,8 @@
 # Como pedir a geração do arquivo de import do orçado
 
-Existem **dois caminhos** que terminam no mesmo lugar — o arquivo que a tela
-*Orçar → Importar Baseline* aceita. Qual deles vale depende de **onde estão os
-números**, e é só isso que você precisa dizer.
+O processo é uma planilha Excel de duas etapas: uma de **análise**, feita para
+ser lida e discutida, e um **arquivo de import**, gerado a partir dela. A tela
+que recebe é *Orçar → Importar Baseline*.
 
 ---
 
@@ -25,12 +25,12 @@ Vale acrescentar, **quando for diferente do padrão**:
 
 ---
 
-## Caminho A — planilha de ANÁLISE revisada  ·  `scripts/seed_import.py`
+## Passo 2 — da planilha revisada para o import  ·  `scripts/seed_import.py`
 
-**Quando:** você partiu do realizado, gerou a planilha de análise, revisou os
-valores com o time e quer levar a revisão ao Planorc.
+É o que você faz na prática: partiu do realizado, gerou a planilha de análise,
+revisou os valores com o time, e agora leva a revisão ao Planorc.
 
-**Como reconheço:** abas chamadas `Dados ...` (Despesas Admin, Comercial,
+**Como reconheço a planilha:** abas chamadas `Dados ...` (Despesas Admin, Comercial,
 Serviços, Diretoria, MKT, RH) com as colunas `Empresa | Unidade | Filial |
 Filial nome | Conta | Descrição da conta | CC | Descrição do CC | Classe` e
 depois os meses do ano de origem e os do ano proposto.
@@ -46,27 +46,27 @@ as de realizado e as de apoio, e escreve o layout enxuto do importador.
 > Linha **zerada na revisão não entra** no import. É por desenho: zerar é a
 > forma de dizer "não quero isso em 2027".
 
-Esta planilha nasce do **passo 1**, `scripts/seed_analise.py`, que monta a
-proposta a partir do realizado classificando cada combinação (recorrente,
-volátil, irregular, esporádica) e escolhendo a projeção adequada a cada uma.
-Se você precisar da análise de novo — outra base, outro ano —, peça
-*"monte a planilha de análise do orçado de `<ano>` a partir de `<arquivo>`"*.
-
 ---
 
-## Caminho B — export do GoodData  ·  `scripts/converter_orcado_baseline.py`
+## Passo 1 — a planilha de análise  ·  `scripts/seed_analise.py`
 
-**Quando:** os números vêm do relatório *"Validação Lançamentos c Histórico"*
-do GoodData, já no grão do orçamento.
+Monta a proposta a partir do realizado, no grão empresa × filial × CC × conta,
+com o histórico mês a mês ao lado para quem revisa decidir com o número à
+vista. **Classifica cada combinação** e aplica a projeção que cabe a ela:
 
-**Como reconheço:** linha 1 com rótulos de mês (`Jan 2026`…`Dec 2026`) **acima**
-do cabeçalho, e linha 2 com `Bk Codorc1, Código da Empresa, …, Bk Codorc3,
-HistóricoOrçamento, Orc_ValorOrc` ×12.
+| classe | critério | projeção |
+|---|---|---|
+| recorrente | 8+ meses, CV ≤ 60% | média dos 3 últimos fechados |
+| volátil | 8+ meses, CV > 60% | média de todos os fechados (dilui o pico) |
+| irregular | 5 a 7 meses | média dos fechados |
+| esporádica | até 4 meses | **repete o mês**, não a média |
 
-**Atenção:** `Area`, `Divisão` e `BU` **não existem na origem**. Vêm de um
-`--mapa-cc` — qualquer xlsx no formato de saída, normalmente a conversão
-anterior. CC sem mapa sai como `0` e aparece no log. Se o de-para de CC mudou,
-diga: *"use `<arquivo>` como mapa de CC"*.
+Para refazê-la — outra base, outro ano — peça *"monte a planilha de análise do
+orçado de `<ano>` a partir de `<arquivo>`"*.
+
+> A análise **não é** o arquivo de import, de propósito. Separar os papéis evita
+> o pior dos dois mundos: uma planilha cheia de colunas técnicas que ninguém
+> revisa, ou uma planilha legível que não pode ser importada.
 
 ---
 
@@ -93,3 +93,13 @@ exatamente quando se gera um import novo.
 - quantas linhas zeradas ficaram de fora
 - qualquer aba ignorada, **e se o que ela contém já está no resultado**
 - o arquivo de conferência de códigos
+
+---
+
+## Nota histórica — o conversor do GoodData
+
+`scripts/converter_orcado_baseline.py` converte o export *"Validação
+Lançamentos c Histórico"* do GoodData para o mesmo formato de import. Foi usado
+**uma vez, em julho/2026**, e não faz parte do processo de hoje — que é a
+planilha Excel descrita acima. Está no repositório porque os arquivos daquela
+carga ainda são referência, não porque seja um caminho alternativo a considerar.
