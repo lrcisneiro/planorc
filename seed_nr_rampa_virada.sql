@@ -69,13 +69,22 @@ ON CONFLICT (formulario_id, codigo) DO UPDATE
 
 -- ---------- 2 · a rampa passa a ler a PARCANT, sem dividir por 6 ----------
 -- O estudo já fez a conta do parcelamento; o formulário não tenta refazer.
+--
+-- ⚠ GUARDA DE ORDEM. O seed_nr_parcelas_parametro.sql também escreve esta
+-- fórmula, com os 12 termos ponderados pelo NP. Os dois seeds disputavam a
+-- mesma linha e quem rodasse por último vencia — rodar este depois daquele
+-- devolvia o parcelamento a 6 fixas, calado. O NOT EXISTS abaixo resolve:
+-- havendo a linha NP, a versão parametrizada já está no ar e este passo não
+-- toca em nada. A conferência no fim diz qual das duas está valendo.
 UPDATE formulario_linha l
    SET expressao = '=((ANTERIOR([METANR],1) + ANTERIOR([METANR],2) + ANTERIOR([METANR],3)'
                 || ' + ANTERIOR([METANR],4) + ANTERIOR([METANR],5) + ANTERIOR([METANR],6)) / 6'
                 || ' + [PARCANT]) * [REPNR] / 100 + [PREVNR]',
        descricao = 'Receita NR (safras do ano parceladas em 6 meses + safras anteriores) × repasse'
   FROM formulario f
- WHERE f.id = l.formulario_id AND f.codigo = 'VENDAS_NR' AND l.codigo = 'RECNR';
+ WHERE f.id = l.formulario_id AND f.codigo = 'VENDAS_NR' AND l.codigo = 'RECNR'
+   AND NOT EXISTS (SELECT 1 FROM formulario_linha np
+                    WHERE np.formulario_id = f.id AND np.codigo = 'NP');
 
 -- ---------- 3 · METADEZ fica só com o papel da mensalidade ----------
 UPDATE formulario_linha l
@@ -90,7 +99,13 @@ UPDATE formulario_linha l
  WHERE f.id = l.formulario_id AND f.codigo = 'VENDAS_NR' AND l.codigo = 'MRRNR';
 
 -- ---------- conferência ----------
+-- A coluna `parcelamento` acusa qual versão do RECNR está no ar: se disser
+-- "6 FIXAS", rode o seed_nr_parcelas_parametro.sql.
 SELECT l.ordem, l.codigo, l.descricao,
+       CASE WHEN l.codigo <> 'RECNR' THEN ''
+            WHEN l.expressao LIKE '%[NP]%' THEN 'por NPARC ✓'
+            ELSE '⚠ 6 FIXAS — rodar seed_nr_parcelas_parametro.sql'
+       END AS parcelamento,
        l.tipo_linha || ' · ' || COALESCE(l.natureza,'—') || ' · ' || l.formato AS tipo,
        COALESCE(l.expressao, '— preencher —') AS formula,
        CASE WHEN l.conta_destino_id IS NULL THEN 'apoio' ELSE '→ ORÇADO' END AS destino,
