@@ -404,13 +404,13 @@ function FiliaisTab() {
   const [erro, setErro] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
 
-  const HEADERS = ['codigo', 'descricao', 'empresa_codigo']
-  const EXEMPLO = ['0101', 'Filial São Paulo', '01']
+  const HEADERS = ['codigo', 'descricao', 'empresa_codigo', 'imp_fat']
+  const EXEMPLO = ['0101', 'Filial São Paulo', '01', '5,65']
   const COLS = [
     { key: 'codigo', placeholder: 'Código' },
     { key: 'descricao', placeholder: 'Descrição' },
     { key: 'empresa_id', placeholder: 'Empresa', type: 'select' as const, options: empresas.map(e => ({ value: e.id, label: `${e.codigo} · ${e.descricao}` })) },
-    { key: 'imp_fat', placeholder: 'ISS % (imp_fat)' },
+    { key: 'imp_fat', placeholder: '% imposto s/ faturamento' },
   ]
 
   const load = async () => {
@@ -426,7 +426,7 @@ function FiliaisTab() {
     { key: 'codigo', label: 'Código' },
     { key: 'descricao', label: 'Descrição' },
     { key: 'empresa', label: 'Empresa', get: f => f.empresa?.descricao || '' },
-    { key: 'imp_fat', label: 'ISS %', align: 'right', get: f => f.imp_fat ?? null },
+    { key: 'imp_fat', label: 'Imp. s/ fat. %', align: 'right', get: f => f.imp_fat ?? null },
   ]
   const grid = useGrid(filtered, GRID)
 
@@ -458,10 +458,19 @@ function FiliaisTab() {
       const registros = rows
         .map(r => ({
           tenant_id:  TENANT_ID,
-          codigo:     col(r, 'codigo', 'Código', 'CODIGO'),
+          // trim: o export do Protheus preenche o código com espaço à direita
+          // ("BO  "), e sem aparar a mesma filial entraria duas vezes
+          codigo:     col(r, 'codigo', 'Código', 'CODIGO').trim(),
           descricao:  col(r, 'descricao', 'Descrição', 'DESCRICAO'),
           empresa_id: empMap[col(r, 'empresa_codigo', 'empresa', 'EMPRESA')] || null,
           ativo:      parseAtivo(col(r, 'ativo', 'Ativo', 'ATIVO')),
+          // aceita o cabeçalho do export do ERP além do nosso. Vazio = null
+          // (não cadastrado); "0" = zero, que é alíquota real no exterior —
+          // por isso o teste é contra string vazia, e não por falsidade.
+          imp_fat:    (() => {
+            const v = col(r, 'imp_fat', 'Impostos Fat (Filial)', 'Impostos Fat', 'ISS', 'iss')
+            return String(v ?? '').trim() === '' ? null : Number(String(v).replace(',', '.'))
+          })(),
         }))
         .filter(r => r.codigo && r.descricao && r.empresa_id)
       if (!registros.length) { setErro('Nenhuma filial válida. Confira se o "empresa_codigo" existe no cadastro de Empresas.'); setInfo(null); return }
@@ -473,7 +482,7 @@ function FiliaisTab() {
     } catch (e: any) { setErro(String(e)); setInfo(null) }
   }
 
-  const exportar = () => exportarDados('filiais', HEADERS, data.map(f => [f.codigo, f.descricao, f.empresa?.codigo || '']))
+  const exportar = () => exportarDados('filiais', HEADERS, data.map(f => [f.codigo, f.descricao, f.empresa?.codigo || '', f.imp_fat ?? '']))
 
   return (
     <div style={S.card}>

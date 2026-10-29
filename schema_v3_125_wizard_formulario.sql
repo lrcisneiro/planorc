@@ -18,6 +18,22 @@
 -- IDEMPOTENTE. Não altera dado nenhum.
 -- ============================================================
 
+-- ---------- 0 · a alíquota de imposto da filial ----------
+-- ⚠ A coluna NUNCA EXISTIU. A tela de Cadastros › Filiais já a lê e já a manda
+-- no payload de gravação (`imp_fat` em COLS, GRID e save), mas a migration
+-- nunca veio junto — então, até rodar isto, SALVAR OU IMPORTAR UMA FILIAL
+-- FALHA: o PostgREST recusa coluna inexistente. Não é dívida do wizard; é um
+-- defeito vivo que o wizard revelou ao precisar do campo.
+--
+-- Pontos percentuais (5,65 = 5,65%), como todo percentual do sistema.
+-- NULL = não cadastrado; ZERO = alíquota real (exterior, compartilhadas) — o
+-- wizard trata os dois de forma diferente de propósito.
+ALTER TABLE filial
+  ADD COLUMN IF NOT EXISTS imp_fat numeric(6,3);
+
+COMMENT ON COLUMN filial.imp_fat IS
+  'Alíquota de imposto sobre faturamento, em pontos percentuais (5,65 = 5,65%). NULL = não cadastrado; 0 = alíquota zero real.';
+
 -- ---------- 1 · célula gerada ≠ célula digitada ----------
 -- É o que permite re-gerar sem atropelar correção manual: o wizard substitui
 -- só o que ele mesmo pôs. Sem isso, a segunda geração apaga o ajuste que
@@ -92,4 +108,8 @@ SELECT 'colunas wizard no formulario',
          WHERE table_name = 'formulario' AND column_name IN ('wizard','wizard_params'))::text
 UNION ALL
 SELECT 'função wizard_orcado_por_escopo',
-       (SELECT count(*) FROM pg_proc WHERE proname = 'wizard_orcado_por_escopo')::text;
+       (SELECT count(*) FROM pg_proc WHERE proname = 'wizard_orcado_por_escopo')::text
+UNION ALL
+SELECT 'coluna imp_fat na filial',
+       (SELECT count(*) FROM information_schema.columns
+         WHERE table_name = 'filial' AND column_name = 'imp_fat')::text;
