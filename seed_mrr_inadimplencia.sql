@@ -97,6 +97,14 @@ BEGIN
         conta_destino_id = COALESCE(formulario_linha.conta_destino_id,
                                     EXCLUDED.conta_destino_id);
 
+  -- ---- desempata a ordem com a POSTERGAÇÃO ----
+  -- As duas nasceram em 78 e `ordem` é int, sem meio-termo: empate deixa a
+  -- posição das duas na tela indefinida. A postergação recua um, e a ordem de
+  -- leitura fica carteira → nova → apoio → postergação → inadimplência →
+  -- conferência.
+  UPDATE formulario_linha SET ordem = 77
+   WHERE formulario_id = v_form AND codigo = 'POSTERGVL';
+
   -- ---- a linha de conferência passa a somar as QUATRO ----
   -- Sem isto ela mostraria o bruto enquanto a DRE mostra o líquido, e a
   -- diferença seria lida como erro de carga.
