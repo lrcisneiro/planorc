@@ -305,6 +305,35 @@ mês ao de antes; `VENCIDO` 1.200.000 com `PRECUP` 50% em janeiro dá 50.000/mê
 600.000 no ano, igual a preencher os doze; `INADIMP` de 0, 2, 5 e 12,5% desconta
 o percentual exato; e com `INADIMP` em 10% a `RECVENC` fica intacta.
 
+### Inadimplência no MRR — por que linha separada, e não embutida (29/out)
+
+A mesma premissa, desenhada ao contrário do NR, e por um motivo técnico.
+
+No NR o `RECNR` é **fluxo**: multiplicá-lo por `(1 − INADIMP/100)` desconta uma
+vez e acabou. No MRR as três linhas que gravam são **estoque** e se
+auto-referenciam por `ANTERIOR()`. Pôr o fator dentro do `MRRBASE` faria o
+desconto de janeiro entrar no `ANTERIOR()` de fevereiro e ser descontado de
+novo, e outra vez em março — a inadimplência viraria **churn composto**.
+Medido: 3% ao mês deixam a carteira de dezembro **30,6% menor**, quando o que
+se queria era descontar 3% da receita.
+
+A distinção econômica é a mesma: **churn tira o cliente da carteira para
+sempre; inadimplência é uma cobrança que não entrou naquele mês** e não reduz a
+carteira.
+
+Daí `INADVL = −([MRRBASE] + [MRRNOVO] + [POSTERGVL]) × [INADIMP]/100`, linha
+própria e negativa na mesma conta — o padrão que a postergação já usava. A
+carteira fica bruta, a DRE soma os quatro lançamentos e chega no líquido, e o
+drill mostra quanto da projeção é inadimplência.
+
+> A soma é **explícita**, não `−[MRR] × [INADIMP]/100`. Como o `MRR` passa a
+> incluir o `INADVL`, referenciá-lo criaria um ciclo: o motor convergiria para
+> `MRR = bruto/(1+i)`, que não é o pedido e depende da ordem das linhas.
+
+Verificado: com `INADIMP` vazio o total é 12.142.327,26 — o mesmo valor de
+referência do seed da postergação; a carteira de dezembro fica em 935.531,28
+com 0%, 3% e 10%; e o desconto é o percentual exato da receita.
+
 ## Serviços — o mais simples dos três (29/out)
 
 Receita no **mês da execução**, a meta **já é a receita** (sem repasse), e

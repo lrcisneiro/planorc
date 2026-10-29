@@ -24,6 +24,7 @@ que você preenche; o resto é calculado pelo Planorc e não deve vir na tabela.
 | `REP` | % de comissão de repasse | **%** |
 | `POST1` | % da venda que começa **1 mês** depois do previsto | **%** |
 | `POST2` | % da venda que começa **2 meses** depois do previsto | **%** |
+| `INADIMP` | % de inadimplência sobre a receita do mês | **%** |
 
 Como o motor usa isso, mês a mês:
 
@@ -59,17 +60,23 @@ em *m+2*.
    > é 18,5%, escreva **`50000,00`** — não `9250,00`. Pôr a comissão já líquida
    > faz o formulário aplicar os 18,5% de novo e sobra 3,4% do valor real, em
    > dois meses que ninguém confere com lupa.
-6. **`POST1`/`POST2` são o atraso ALÉM do ciclo** (m+3 e m+4), só sobre a venda
+6. **`INADIMP` é cobrança que não entra, não é churn.** Churn tira o cliente da
+   carteira para sempre; inadimplência é um mês que não foi pago, e a carteira
+   continua lá. Por isso ela desconta a receita **sem** reduzir o estoque — não
+   some a inadimplência ao churn nem tente compensar uma com a outra. Se o
+   estudo não tiver a medida, deixe em branco: o Ricardo calibra depois.
+
+7. **`POST1`/`POST2` são o atraso ALÉM do ciclo** (m+3 e m+4), só sobre a venda
    de 2027.
    Se o estudo não tiver essa medida confiável, deixe os dois em branco: o
    modelo funciona sem eles. Não chute.
-7. **Não some Base com Novos.** São centros de custo diferentes (ver abaixo), e
+8. **Não some Base com Novos.** São centros de custo diferentes (ver abaixo), e
    cada um tem o próprio `BASE`, `META`, `CHURN` e `REP`.
-8. **`BASE` é o estoque do ÚLTIMO mês do histórico, não a média do ano.** A
+9. **`BASE` é o estoque do ÚLTIMO mês do histórico, não a média do ano.** A
    média mistura meses de realidades diferentes, e em 2026 isso acontece de
    verdade (ver a nota sobre a empresa 25 abaixo). Tire o `BASE` do último mês
    fechado e projete a partir dele.
-9. **Ignore os lançamentos de reclassificação.** No realizado de 2026 há linhas
+10. **Ignore os lançamentos de reclassificação.** No realizado de 2026 há linhas
    com **um único mês e valor negativo** que casam, centavo a centavo, com uma
    linha positiva em outra empresa — por exemplo `−248.762,34` na empresa 05 e
    `+248.762,34` na 25, no mesmo CC. São transferências contábeis de carteira,
