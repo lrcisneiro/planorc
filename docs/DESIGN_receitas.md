@@ -224,11 +224,98 @@ da dívida já registrada: *empresa é agrupadora de filiais, não matriz*.
   +10,5% de receita a mais). O seed defende contra a repetição, mas a digitação
   manual continua exposta.
 
-## Rampa do não-recorrente (ainda não tratada)
+## Não recorrente — resolvido em 29/out
 
-`RECNR` parcela a venda NR em 6 meses, mas atravessando o ano carrega só
-dezembro. Em janeiro deveriam estar gerando as safras de **jul a dez**: a
-fórmula entrega 1/6 em janeiro, 1/3 em fevereiro, …, cheio só em junho — o 1º
-semestre a **58% do regime**. O driver `PREVNR` ("Receitas NR de outros
-períodos") parece ser a válvula de escape prevista para isso; falta confirmar se
-está preenchido.
+Eram **dois** furos de virada de ano, não um.
+
+**A rampa.** `RECNR` espalhava o `METADEZ` em seis parcelas, mas em janeiro
+todo `ANTERIOR` devolve 0 e sobrava `METADEZ/6` — uma safra de seis. Média do
+1º semestre: 21/36 = **58,3% do regime**. Em janeiro/27 deveriam estar
+parcelando as safras de **jul a dez/26**, seis vendas diferentes, e nenhum
+arranjo de um único número reconstrói isso. Entrou o driver **`PARCANT`**, que
+o estudo preenche mês a mês — mesmo padrão que o MRR adotou para o `METADEZ`.
+
+**Os dois papéis do `METADEZ`.** Ele valia *parcelas entrando* na rampa e
+*venda de dezembro* na `MENSNOVA`, que são números diferentes. O primeiro papel
+virou `PARCANT`; o segundo ficou, porque está certo.
+
+**O `MRRNR` nascer do zero NÃO é bug.** A conta 10201 recebe toda comissão
+recorrente, qualquer que seja a origem, então a carteira de mensalidades antiga
+já está no `BASE` do MRR. Um `BASENR` aqui contaria a carteira histórica duas
+vezes. Este formulário projeta só a mensalidade **nova**, gerada pelas vendas
+NR do ano — e o MRR não a tem porque as metas de Recorrente, NR e Serviços são
+separadas, uma por formulário.
+
+### Nº de parcelas por escopo
+
+Era fixo em 6 na fórmula; o estudo tem esse número **por unidade**. Não dá para
+escrever `ANTERIOR([METANR],[NPARC])` — o motor exige `N` literal (a regex só
+casa dígito). O desenho que resolve mantém os **doze termos sempre presentes** e
+deixa o `N` definir o peso de cada um:
+
+```
+peso_i = MINIMO(1; MAXIMO(0; N − (i−1))) / N
+```
+
+Isso cobre `N` **fracionário**, que é o que o seed original pedia ao chamar
+`v_parcelas` de "média de meses": com `N = 5,5` saem cinco parcelas cheias e
+**uma meia**, somando a venda inteira. Dividir por 5,5 e cortar em 5 perderia
+9% da receita em silêncio.
+
+Guarda do vazio numa linha de apoio — `NP = SE([NPARC] < 1; 6; [NPARC])` —
+porque célula vazia vale **0** no motor, e `N = 0` zeraria a receita NR daquele
+escopo sem nenhum aviso na tela.
+
+Verificado contra o motor: `NPARC` vazio dá resultado idêntico mês a mês à
+fórmula antiga; os pesos somam 1 para `N` = 1, 5, 5,5, 6, 7,3 e 10; e os 60
+escopos do *Aplicar em todos* passaram de 93 ms para 272 ms.
+
+> ⚠ **Dois seeds disputavam a fórmula do `RECNR`** — o da rampa com 6 fixas, o
+> do parâmetro com os 12 termos — e quem rodasse por último vencia, em
+> silêncio. Aconteceu. O da rampa agora só escreve se a linha `NP` não existir,
+> e a conferência acusa qual versão está no ar.
+
+## Serviços — o mais simples dos três (29/out)
+
+Receita no **mês da execução**, a meta **já é a receita** (sem repasse), e
+serviço **não deixa cauda recorrente**. Nenhuma fórmula: **uma linha só**,
+`METASV`, ANALITICA com conta de destino. O Aplicar monta os destinos com
+`linhas.filter(l => l.conta_destino_id)`, sem olhar o `tipo_linha`, então uma
+ANALITICA grava igual a uma FORMULA.
+
+Por não usar `ANTERIOR()`, é o único dos três **imune** ao furo de virada de
+ano.
+
+**Uma linha por conta, preenchendo uma.** Serviços não tem uma conta, tem uma
+família sob a sintética `110` — ao contrário do MRR (`10201`) e do NR
+(`10101`). O formulário ganha **todas** como linhas, criadas vazias; hoje
+preenche-se só a `METASV`, com a meta consolidada, e quando o estudo trouxer a
+meta por tipo as outras já estão lá.
+
+> **Por que a `METASV` não é uma linha a mais.** Ela aponta para a `11001`, e as
+> demais apontam cada uma para a sua — **nunca duas para a mesma conta**. Uma
+> "consolidada" convivendo com uma "SV11001" somaria em dobro se ambas fossem
+> preenchidas, e nada na tela denunciaria. Assim, no dia da divisão a `METASV`
+> *passa a ser* a linha de Horas Abertas: tira-se dela o que é dos outros tipos
+> e distribui. Nenhum dado muda de conta.
+
+A criação das linhas é **dinâmica** (`codigo LIKE '110__'`), para conta nova na
+faixa entrar sozinha numa re-rodada em vez de faltar sem ninguém perceber. A
+`11020` (Reembolso por NF) entra pela faixa mas é reembolso, não venda — fica
+vazia se não for meta comercial.
+
+Enquanto a meta estiver consolidada na `11001`, **Orçado × Realizado fecha no
+total de serviços, não linha a linha**: o realizado de Sustentação e OutSourcing
+continua nas contas deles e aparecerá como orçado zero contra realizado cheio.
+Não é erro de carga.
+
+O Aplicar ignora linha sem valor (`if (!v) continue`), então as linhas vazias
+não gravam nada.
+
+## Armadilha de operação: o SQL Editor desfaz o seed
+
+O editor roda o arquivo inteiro **numa transação**. Um seed que termina com
+consulta pesada pode estourar o timeout no `SELECT` final e **desfazer o `DO`
+que já havia rodado** — sem parecer que falhou. Aconteceu com o seed de
+serviços, cuja busca de contas candidatas trazia um `count(*)` sobre
+`fat_realizado` correlacionado por conta. Conferência de seed tem de ser leve.

@@ -115,7 +115,7 @@ receita** (não há repasse) e serviço **não deixa cauda recorrente**.
 
 | código | o que é | unidade | quando |
 |---|---|---|---|
-| `METASV` | receita de serviços do mês | R$ | 12 meses |
+| `METASV` | receita de serviços do mês, **somando todos os tipos** | R$ | 12 meses |
 
 Um driver só, nenhuma fórmula. O valor que você escrever é o que entra na DRE
 daquele mês — não aplique percentual nenhum antes.
@@ -126,6 +126,28 @@ daquele mês — não aplique percentual nenhum antes.
 
 Serviço tem sazonalidade forte (férias, fechamento de ano). Como você entrega
 mês a mês, traga a sazonalidade do histórico em vez de dividir o ano por doze.
+
+## Uma linha agora, várias depois
+
+**No histórico de 2026 a receita de serviços aparece repartida** entre várias
+contas — *Horas Abertas*, *Projetos Fechados*, *OutSourcing*, *Banco de Horas*,
+*Templates*, *Sustentação*, *Assessoria MKT*. Isso é o cadastro real; não é
+inconsistência do extrato.
+
+**Nesta versão do orçamento, some tudo numa linha só.** O objetivo aqui é
+calibrar o EBITDA e dimensionar o time de serviços, e para isso o total basta.
+Entregue `METASV` consolidada por escopo, somando todos os tipos de serviço.
+
+> As linhas por tipo **já existem** no formulário, vazias, uma por conta
+> (`SV11002` Projetos Fechados, `SV11003` OutSourcing, `SV11006` Sustentação…).
+> Quando o orçamento final pedir a divisão, o pedido virá explícito com a lista
+> de códigos. Até lá, **não reparta por conta própria** e não invente esses
+> códigos: uma linha `METASV` por escopo, com o total.
+
+Ao reconstruir a sazonalidade, porém, **olhe os tipos separados antes de
+somar**: sustentação é estável mês a mês, projetos fechados são irregulares e
+horas abertas acompanham o calendário de férias. A curva do total pode esconder
+que um tipo cresce enquanto outro encolhe, e isso muda a projeção.
 
 ---
 

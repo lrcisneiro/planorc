@@ -25,40 +25,45 @@
 -- hoje a meta é a receita, e driver que não se usa é driver que se preenche
 -- errado.
 --
--- ───────── A CONTA DE DESTINO É PROVISÓRIA (decidido 29/out) ─────────
--- Serviços não tem UMA conta, tem uma família: 11001 Horas Abertas (7 contas
--- contábeis amarradas), 11002 Projetos Fechados, 11003 OutSourcing, 11004
--- Banco de Horas, 11005 Templates, 11006 Sustentação (2), 11007 Templates
--- Adesão, 11008 Assessoria MKT, 11011 Template Recorrência (3) — sob a
--- sintética 110. O MRR e o NR, por comparação, gravam numa conta só (10201 e
--- 10101).
+-- ───────── UMA LINHA POR CONTA DE SERVIÇO (decidido 29/out) ─────────
+-- Serviços não tem UMA conta, tem uma família sob a sintética 110: 11001 Horas
+-- Abertas, 11002 Projetos Fechados, 11003 OutSourcing, 11004 Banco de Horas,
+-- 11005 Templates/Add-Ons, 11006 Sustentação, 11007 Templates Adesão, 11008
+-- Assessoria MKT, 11009 Horas Projetos Bolívia, 11011 Template (Recorrência),
+-- 11020 Reembolso por NF. O MRR e o NR, por comparação, gravam numa conta só.
 --
--- Para ESTA versão do orçamento — a que calibra o EBITDA e dimensiona o time
--- de serviços — tudo vai para a 11001. No orçamento final a meta se divide
--- entre as contas, como o realizado de 2026 já se divide.
+-- O formulário ganha TODAS elas como linhas, criadas vazias. Hoje preenche-se
+-- só a METASV, com a meta consolidada; quando o estudo trouxer a meta por tipo
+-- de serviço, as outras linhas já estão lá esperando — é só preencher.
 --
--- ⚠ Consequência enquanto for uma conta só: Orçado × Realizado fecha no TOTAL
--- de serviços, não linha a linha. O realizado de Sustentação, OutSourcing e
--- Projetos Fechados continua caindo nas contas deles, e na DRE aparecerá como
--- orçado zero contra realizado cheio — e o contrário em Horas Abertas. Não é
--- erro de carga; é a provisoriedade.
+-- ⚠ POR QUE A METASV NÃO É UMA LINHA A MAIS. Ela aponta para a 11001, e as
+-- demais linhas apontam cada uma para a SUA conta — nunca duas para a mesma.
+-- Se houvesse uma "METASV consolidada" além de uma "SV11001", preencher as
+-- duas somaria duas vezes na 11001, e nada na tela denunciaria. Assim, no dia
+-- da divisão, a METASV simplesmente PASSA A SER a linha de Horas Abertas: você
+-- tira dela o que é dos outros tipos e distribui. Nenhum dado se move de conta.
 --
--- ───────── COMO DIVIDIR DEPOIS (é barato) ─────────
--- O Aplicar grava UMA LINHA DE FORMULÁRIO POR CONTA — ele monta os destinos com
--- `linhas.filter(l => l.conta_destino_id)` e carimba o código da linha em
--- `dims`, então várias linhas coexistem no fat_orcado sem colidir. Dividir é
--- acrescentar linhas ANALITICA irmãs da METASV, cada uma com a sua conta:
---   METASV_HORAS → 11001 · METASV_SUST → 11006 · METASV_PROJ → 11002 …
--- Nenhuma migration, nenhuma fórmula, e o estudo passa a entregar a meta já
--- repartida. A METASV atual vira uma delas ou sai.
+-- ⚠ Enquanto a meta estiver consolidada na 11001, Orçado × Realizado fecha no
+-- TOTAL de serviços, não linha a linha: o realizado de Sustentação, OutSourcing
+-- e Projetos Fechados continua caindo nas contas deles, e a DRE mostrará orçado
+-- zero contra realizado cheio nessas linhas — e o contrário em Horas Abertas.
+-- Não é erro de carga.
+--
+-- ⚠ A 11020 (Reembolso de Despesas por NF) está na faixa 110 mas é reembolso,
+-- não venda de serviço. Entra porque a faixa a inclui; deixe-a vazia se o
+-- reembolso não for meta comercial.
+--
+-- O Aplicar ignora linha sem valor (`if (!v) continue`), então as dez linhas
+-- vazias não gravam nada e não atrapalham.
 --
 -- O FORMULÁRIO JÁ EXISTE — código `SERVICO`, criado vazio (0 linhas). Este seed
 -- só acrescenta a linha e preenche a descrição; NÃO cria formulário e NÃO
 -- renomeia o seu. Se o código não for achado, aborta em vez de criar um
 -- segundo formulário de serviços ao lado do existente.
 --
--- Idempotente: re-rodar ATUALIZA a descrição e a linha; NÃO mexe na conta
--- de destino que você tiver definido (o ON CONFLICT não lista a coluna).
+-- Idempotente: re-rodar ATUALIZA a descrição e a linha, e preenche a conta de
+-- destino só se ela estiver vazia — uma troca feita na tela de Estrutura
+-- sobrevive (é o COALESCE no ON CONFLICT, lá embaixo).
 -- ============================================================
 
 DO $$
@@ -84,7 +89,7 @@ BEGIN
     (formulario_id, codigo, descricao, ordem, nivel, tipo_linha, expressao,
      natureza, formato, casas_decimais, conta_destino_id)
   VALUES
-    (v_form, 'METASV', 'Meta de serviços — receita do mês (R$)',
+    (v_form, 'METASV', 'Meta de serviços — CONSOLIDADA hoje; vira Horas Abertas ao abrir por tipo (→ 11001)',
      10, 1, 'ANALITICA', NULL, 'RECEITA', 'MOEDA', 2, v_conta)
   ON CONFLICT (formulario_id, codigo) DO UPDATE
     SET descricao = EXCLUDED.descricao, ordem = EXCLUDED.ordem,
@@ -95,11 +100,38 @@ BEGIN
         -- tela de Estrutura, re-rodar o seed NÃO desfaz a sua escolha.
         conta_destino_id = COALESCE(formulario_linha.conta_destino_id,
                                     EXCLUDED.conta_destino_id);
+
+  -- ---- uma linha por conta de serviço, menos a 11001 (que é a METASV) ----
+  -- Dinâmico de propósito: conta nova na faixa 110 entra sozinha numa
+  -- re-rodada, em vez de ficar faltando sem ninguém perceber.
+  INSERT INTO formulario_linha
+    (formulario_id, codigo, descricao, ordem, nivel, tipo_linha, expressao,
+     natureza, formato, casas_decimais, conta_destino_id)
+  SELECT v_form,
+         'SV' || co.codigo,
+         co.descricao || ' (→ ' || co.codigo || ')',
+         20 + 10 * (row_number() OVER (ORDER BY co.codigo))::int,
+         1, 'ANALITICA', NULL, 'RECEITA', 'MOEDA', 2, co.id
+    FROM conta_orcamentaria co
+   WHERE co.codigo LIKE '110__'          -- 5 posições: exclui a sintética '110'
+     AND co.codigo <> '11001'            -- essa é a METASV
+     AND co.natureza = 'RECEITA'
+  ON CONFLICT (formulario_id, codigo) DO UPDATE
+    SET descricao = EXCLUDED.descricao, ordem = EXCLUDED.ordem,
+        tipo_linha = EXCLUDED.tipo_linha, natureza = EXCLUDED.natureza,
+        formato = EXCLUDED.formato, casas_decimais = EXCLUDED.casas_decimais,
+        conta_destino_id = COALESCE(formulario_linha.conta_destino_id,
+                                    EXCLUDED.conta_destino_id);
 END $$;
 
 -- ---------- conferência ----------
-SELECT l.codigo, l.descricao, l.tipo_linha,
-       COALESCE(co.codigo || ' · ' || co.descricao, '⚠ SEM CONTA — o Aplicar recusa') AS destino
+-- A coluna `alerta` vigia o risco deste desenho: duas linhas na MESMA conta
+-- somariam duas vezes se ambas fossem preenchidas.
+SELECT l.ordem, l.codigo, l.descricao,
+       COALESCE(co.codigo || ' · ' || co.descricao, '⚠ SEM CONTA — o Aplicar recusa') AS destino,
+       CASE WHEN count(*) OVER (PARTITION BY l.conta_destino_id) > 1
+            THEN '⚠ CONTA REPETIDA — preencher as duas soma em dobro' ELSE '' END AS alerta,
+       (SELECT count(*) FROM formulario_valor v WHERE v.linha_id = l.id) AS n_valores
   FROM formulario f
   JOIN formulario_linha l ON l.formulario_id = f.id
   LEFT JOIN conta_orcamentaria co ON co.id = l.conta_destino_id
