@@ -6,6 +6,7 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 import { T } from '../../lib/theme'
 import { Plus, Pencil, Trash2, ChevronRight, SlidersHorizontal, Settings2, Wand2, FileText, ChevronDown, AlertTriangle } from 'lucide-react'
 import { WIZARDS, type Wizard } from '../../lib/wizards'
+import { COLS_LINHA, linhasConciliaveis, type LinhaRel } from '../../lib/refRelatorio'
 import { executarWizard } from '../../lib/wizardRun'
 
 // Hub de Formulários de drivers (F5). Lista/cria formulários; cada um abre no editor.
@@ -54,8 +55,9 @@ type ModalState = { open: false } | { open: true; id?: string; codigo: string; n
 type WzState =
   | { open: false }
   | { open: true; w: Wizard; codigo: string; nome: string; versaoId: string; ano: number
+      vals: Record<string, any>
       rodando?: boolean; erro?: string | null
-      feito?: { formularioId: string; escopos: number; celulas: number; avisos: string[] } }
+      feito?: { formularioId: string; escopos: number; celulas: number; linhas: number; avisos: string[] } }
 
 export default function FormulariosPage() {
   const [forms, setForms] = useState<Formulario[]>([])
@@ -65,6 +67,8 @@ export default function FormulariosPage() {
   const [menu, setMenu] = useState(false)
   const [wz, setWz] = useState<WzState>({ open: false })
   const [versoes, setVersoes] = useState<any[]>([])
+  const [relatorios, setRelatorios] = useState<any[]>([])
+  const [linhasRel, setLinhasRel] = useState<LinhaRel[]>([])
   const navigate = useNavigate()
   const cap = useCapacidades()
 
@@ -79,6 +83,7 @@ export default function FormulariosPage() {
     load()
     // catálogo pequeno: dispensa pageAll
     supabase.from('versao_orcamento').select('id,codigo,ano').order('codigo').then(r => setVersoes(r.data || []))
+    supabase.from('relatorio').select('id,nome').order('nome').then(r => setRelatorios(r.data || []))
   }, [])
 
   const openCreate = () => setModal({ open: true, codigo: '', nome: '', descricao: '' })
@@ -87,8 +92,26 @@ export default function FormulariosPage() {
 
   const abrirWizard = (w: Wizard) => {
     setMenu(false)
+    setLinhasRel([])
     const anoPadrao = versoes[0]?.ano ?? new Date().getFullYear() + 1
-    setWz({ open: true, w, codigo: w.codigo, nome: w.nome, versaoId: versoes[0]?.id ?? '', ano: anoPadrao })
+    const vals: Record<string, any> = {}
+    for (const pd of w.params) {
+      if (pd.tipo === 'escolha') vals[pd.key] = pd.padrao ?? pd.opcoes[0]?.valor
+      else if (pd.tipo === 'percentual') vals[pd.key] = pd.padrao ?? 0
+      else if (pd.tipo === 'ano') vals[pd.key] = anoPadrao - 1   // origem costuma ser o ano anterior
+      else vals[pd.key] = ''
+    }
+    setWz({ open: true, w, codigo: w.codigo, nome: w.nome, versaoId: versoes[0]?.id ?? '', ano: anoPadrao, vals })
+  }
+
+  // linhas do relatório escolhido, para o parâmetro `linha`
+  const escolherRelatorio = async (relId: string, key: string) => {
+    if (!wz.open) return
+    setWz({ ...wz, vals: { ...wz.vals, [key]: relId, linha: '' } })
+    setLinhasRel([])
+    if (!relId) return
+    const { data } = await supabase.from('relatorio_linha').select(COLS_LINHA + ',nivel').eq('relatorio_id', relId).order('ordem')
+    setLinhasRel((data || []) as unknown as LinhaRel[])
   }
   const gerar = async () => {
     if (!wz.open || wz.rodando) return
@@ -98,6 +121,7 @@ export default function FormulariosPage() {
     try {
       const r = await executarWizard(wz.w, {
         codigo: wz.codigo.trim(), nome: wz.nome.trim(), versaoId: wz.versaoId, ano: Number(wz.ano),
+        p: { ...wz.vals, versaoAlvo: wz.versaoId, anoAlvo: Number(wz.ano) },
       })
       setWz({ ...wz, rodando: false, feito: r })
       load()
@@ -216,7 +240,7 @@ export default function FormulariosPage() {
             {wz.feito ? (
               <div style={S.okBox}>
                 <p style={{ margin: '0 0 12px' }}>
-                  Gerado: <strong>{wz.feito.escopos}</strong> escopo(s) e <strong>{wz.feito.celulas}</strong> células.
+                  Gerado: <strong>{wz.feito.linhas}</strong> linha(s), <strong>{wz.feito.escopos}</strong> escopo(s) e <strong>{wz.feito.celulas}</strong> células.
                 </p>
                 {wz.feito.avisos.map((a, i) => (
                   <div key={i} style={S.aviso}>
@@ -242,8 +266,49 @@ export default function FormulariosPage() {
                     <span>{a}</span>
                   </div>
                 ))}
-                <div style={{ ...S.field, marginTop: 16 }}>
-                  <label style={S.label}>Ler o orçado de qual versão?</label>
+                {/* parâmetros próprios do wizard, desenhados a partir do catálogo */}
+                {wz.w.params
+                  .filter(pd => !pd.visivelSe || wz.vals[pd.visivelSe.key] === pd.visivelSe.valor)
+                  .map(pd => (
+                  <div key={pd.key} style={{ ...S.field, marginTop: 14 }}>
+                    <label style={S.label}>{pd.label}</label>
+                    {pd.tipo === 'relatorio' ? (
+                      <select style={S.input} value={wz.vals[pd.key] ?? ''} onChange={e => escolherRelatorio(e.target.value, pd.key)}>
+                        <option value="">— escolha —</option>
+                        {relatorios.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
+                      </select>
+                    ) : pd.tipo === 'linha' ? (
+                      <select style={S.input} value={wz.vals[pd.key] ?? ''} disabled={!linhasRel.length}
+                              onChange={e => setWz({ ...wz, vals: { ...wz.vals, [pd.key]: e.target.value } })}>
+                        <option value="">{linhasRel.length ? '— escolha —' : 'escolha o relatório primeiro'}</option>
+                        {/* só linha com conta por trás: fórmula e indicador têm total, não têm o que replicar */}
+                        {linhasConciliaveis(linhasRel).map((l: any) => (
+                          <option key={l.id} value={l.id}>{'\u00A0'.repeat(((l.nivel ?? 1) - 1) * 3)}{l.codigo ? l.codigo + ' · ' : ''}{l.descricao}</option>
+                        ))}
+                      </select>
+                    ) : pd.tipo === 'versao' ? (
+                      <select style={S.input} value={wz.vals[pd.key] ?? ''}
+                              onChange={e => setWz({ ...wz, vals: { ...wz.vals, [pd.key]: e.target.value } })}>
+                        <option value="">— escolha —</option>
+                        {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}{v.ano ? ` · ${v.ano}` : ''}</option>)}
+                      </select>
+                    ) : pd.tipo === 'escolha' ? (
+                      <select style={S.input} value={wz.vals[pd.key] ?? ''}
+                              onChange={e => setWz({ ...wz, vals: { ...wz.vals, [pd.key]: e.target.value } })}>
+                        {pd.opcoes.map(o => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
+                      </select>
+                    ) : (
+                      <input style={S.input} type="number" step={pd.tipo === 'percentual' ? '0.01' : '1'}
+                             value={wz.vals[pd.key] ?? ''}
+                             onChange={e => setWz({ ...wz, vals: { ...wz.vals, [pd.key]: e.target.value } })} />
+                    )}
+                    {pd.ajuda && <div style={{ fontSize: 11, color: T.faint, marginTop: 4 }}>{pd.ajuda}</div>}
+                  </div>
+                ))}
+
+                {/* destino: comum a todo wizard */}
+                <div style={{ ...S.field, marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
+                  <label style={S.label}>Gravar os valores em qual versão?</label>
                   <select style={S.input} value={wz.versaoId} onChange={e => setWz({ ...wz, versaoId: e.target.value })}>
                     <option value="">— escolha —</option>
                     {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}{v.ano ? ` · ${v.ano}` : ''}</option>)}
@@ -255,7 +320,7 @@ export default function FormulariosPage() {
                     <input style={S.input} value={wz.nome} onChange={e => setWz({ ...wz, nome: e.target.value })} />
                   </div>
                   <div style={S.field}>
-                    <label style={S.label}>Ano</label>
+                    <label style={S.label}>Ano do orçamento</label>
                     <input style={S.input} type="number" value={wz.ano} onChange={e => setWz({ ...wz, ano: Number(e.target.value) })} />
                   </div>
                 </div>

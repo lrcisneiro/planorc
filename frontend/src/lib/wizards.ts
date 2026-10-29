@@ -2,21 +2,38 @@
 // Catálogo de WIZARDS de formulário (desenho: docs/DESIGN_wizard_formularios.md)
 //
 // Um wizard gera um formulário a partir de dado que o sistema JÁ TEM — a
-// receita orçada, um campo de cadastro — em vez de pedir que alguém redigite.
-// O resultado é um formulário comum: edita-se, confere-se e aplica-se como
-// qualquer outro, e uma célula pode ser corrigida à mão (orçamento sempre tem
-// exceção).
+// receita orçada, o realizado de um ano, um campo de cadastro — em vez de
+// pedir que alguém redigite. O resultado é um formulário comum: edita-se,
+// confere-se e aplica-se como qualquer outro, e uma célula pode ser corrigida
+// à mão (orçamento sempre tem exceção).
 //
 // A RECEITA mora aqui, em código, como o catálogo CAPACIDADES; o RESULTADO é
-// dado. Wizard novo = entrada nova neste arquivo, sem migration — a não ser
-// que precise de uma fonte que ainda não existe.
+// dado. Cada wizard declara seus PARÂMETROS (a tela os desenha sozinha) e
+// implementa `preparar`, que devolve a estrutura e os valores.
+//
+// `preparar` devolve a estrutura porque ela pode ser DINÂMICA: a réplica de
+// uma linha que agrupa quatro contas gera um par de linhas por conta, e isso
+// só se sabe depois de resolver os parâmetros.
 // ============================================================
+import { supabase } from './supabase'
+import { COLS_LINHA, mastersDaSelecao, type LinhaRel } from './refRelatorio'
+import { completarCauda, lerCampoFilial, lerOrcadoPorConta, lerOrcadoTotal, lerRealizadoPorConta } from './wizardFontes'
 
-export type Fonte =
-  // soma o orçado de uma versão/ano por escopo × mês
-  | { tipo: 'ORCADO'; natureza?: 'RECEITA' | 'DESPESA' | 'NEUTRO'; excluirLinhas?: string[] }
-  // lê um campo do cadastro e repete nos 12 meses do escopo
-  | { tipo: 'CADASTRO'; tabela: 'filial'; campo: string }
+// ── parâmetros: a tela desenha a partir daqui ──
+export type ParamDef = ParamVisivel & (
+  | { key: string; tipo: 'versao';     label: string; ajuda?: string }
+  | { key: string; tipo: 'ano';        label: string; ajuda?: string }
+  | { key: string; tipo: 'relatorio';  label: string; ajuda?: string }
+  | { key: string; tipo: 'linha';      label: string; de: string; ajuda?: string }
+  | { key: string; tipo: 'percentual'; label: string; padrao?: number; ajuda?: string }
+  | { key: string; tipo: 'escolha';    label: string; padrao?: string; ajuda?: string
+      opcoes: { valor: string; rotulo: string }[] })
+
+/** Todo wizard recebe, além dos seus, `versaoAlvo` e `anoAlvo`: onde os valores
+ *  são gravados. O de impostos lê da mesma versão em que grava; o de réplica
+ *  tem origem própria. `visivelSe` esconde um parâmetro que só faz sentido
+ *  junto de outro — versão de origem só importa se a fonte for o orçado. */
+export type ParamVisivel = { visivelSe?: { key: string; valor: string } }
 
 export type WizardLinha = {
   codigo: string
@@ -25,67 +42,238 @@ export type WizardLinha = {
   natureza: 'RECEITA' | 'DESPESA' | 'NEUTRO'
   formato: 'MOEDA' | 'PERCENTUAL' | 'NUMERO'
   casas?: number
-  expressao?: string      // só FORMULA
-  contaDestino?: string   // código da conta_orcamentaria que recebe o Aplicar
-  fonte?: Fonte           // como preencher (só ANALITICA)
+  expressao?: string
+  contaDestino?: string     // código da conta_orcamentaria (o executor resolve)
+  contaDestinoId?: string   // id direto, quando a estrutura é dinâmica
+}
+
+/** Valor a gravar. `escopoGlobal` grava como premissa 🌐 (vale para todas as empresas). */
+export type ValorGerado = {
+  linha: string
+  e: string | null; f: string | null; c: string | null
+  m: number; v: number
+  escopoGlobal?: boolean
+}
+
+export type Preparado = {
+  linhas: WizardLinha[]
+  valores: ValorGerado[]
+  avisos: string[]
+  escopos: number
+  /** sugestão de nome/código, quando o wizard sabe melhor que o padrão */
+  sugestao?: { codigo?: string; nome?: string }
 }
 
 export type Wizard = {
   codigo: string
   nome: string
   descricao: string
-  /** uma linha explicando o que ele faz, mostrada no passo de parâmetros */
   comoFunciona: string
-  /** avisos que o usuário precisa ler ANTES de gerar */
   avisos?: string[]
-  linhas: WizardLinha[]
+  params: ParamDef[]
+  preparar: (p: Record<string, any>) => Promise<Preparado>
 }
 
-// ── as contas de destino do próprio wizard, que a fonte ORCADO tem de excluir.
-// É a invariante do mecanismo: UM WIZARD NUNCA LÊ O QUE ELE ESCREVE. Sem isso,
-// o imposto entraria na própria base na segunda geração e cresceria a cada
-// execução — erro que aparece devagar e parece premissa, não defeito.
-export const contasDeDestino = (w: Wizard): string[] =>
-  w.linhas.map(l => l.contaDestino).filter((c): c is string => !!c)
+// ── utilitários ──
+const ESCOPO = (v: { e: string; f: string | null; c: string | null }) => `${v.e}|${v.f ?? ''}|${v.c ?? ''}`
+/** código de linha a partir do código da conta: só A-Z 0-9, com teto de tamanho */
+const slug = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'X'
 
 // ============================================================
-export const WIZARDS: Wizard[] = [
-  {
-    codigo: 'IMPOSTO_FAT',
-    nome: 'Impostos sobre faturamento',
-    descricao: 'Lê a receita orçada e aplica a alíquota cadastrada em cada filial.',
-    comoFunciona:
-      'Soma a receita orçada da versão escolhida por empresa · filial · centro de custo, ' +
-      'traz o percentual de cada filial do cadastro e calcula o imposto mês a mês. ' +
-      'Gera um escopo para cada combinação que tiver receita.',
-    avisos: [
-      'A alíquota vem de Cadastros › Filiais (campo ISS %). Filial sem alíquota não entra.',
-      'A inadimplência NÃO reduz a base: faturar e não receber não dispensa o imposto. ' +
-      'A postergação reduz, e corretamente — venda postergada não foi faturada.',
-      'Depois de mexer na receita, re-gere: o que o wizard escreveu é substituído, ' +
-      'o que você corrigiu à mão permanece.',
-    ],
-    linhas: [
-      {
-        codigo: 'RECBASE',
-        descricao: 'Receita faturada do mês (lida do orçado)',
-        tipo_linha: 'ANALITICA', natureza: 'RECEITA', formato: 'MOEDA', casas: 2,
-        fonte: { tipo: 'ORCADO', natureza: 'RECEITA', excluirLinhas: ['INADVL'] },
-      },
-      {
-        codigo: 'ALIQ',
-        descricao: '% de imposto sobre faturamento (do cadastro da filial)',
-        tipo_linha: 'ANALITICA', natureza: 'NEUTRO', formato: 'PERCENTUAL', casas: 2,
-        fonte: { tipo: 'CADASTRO', tabela: 'filial', campo: 'imp_fat' },
-      },
-      {
-        codigo: 'IMPOSTO',
-        descricao: 'Imposto sobre faturamento',
-        tipo_linha: 'FORMULA', natureza: 'RECEITA', formato: 'MOEDA', casas: 2,
+// 1 · IMPOSTOS SOBRE FATURAMENTO
+// ============================================================
+const CONTA_IMPOSTO = '13001'
+
+const impostos: Wizard = {
+  codigo: 'IMPOSTO_FAT',
+  nome: 'Impostos sobre faturamento',
+  descricao: 'Lê a receita orçada e aplica a alíquota cadastrada em cada filial.',
+  comoFunciona:
+    'Soma a receita orçada da versão escolhida por empresa · filial · centro de custo, ' +
+    'traz o percentual de cada filial do cadastro e calcula o imposto mês a mês. ' +
+    'Gera um escopo para cada combinação que tiver receita.',
+  avisos: [
+    'A alíquota vem de Cadastros › Filiais. Filial sem alíquota não entra.',
+    'A inadimplência NÃO reduz a base: faturar e não receber não dispensa o imposto. ' +
+    'A postergação reduz, e corretamente — venda postergada não foi faturada.',
+    'Depois de mexer na receita, re-gere: o que o wizard escreveu é substituído, ' +
+    'o que você corrigiu à mão permanece.',
+  ],
+  // sem parâmetros próprios: lê da MESMA versão/ano em que grava
+  params: [],
+  async preparar(p) {
+    const avisos: string[] = []
+    // A INVARIANTE: um wizard nunca lê o que ele escreve. Sem excluir a conta
+    // de destino, o imposto entraria na própria base na 2ª geração e cresceria
+    // a cada execução — erro que aparece devagar e parece premissa.
+    const dados = await lerOrcadoTotal(p.versaoAlvo, Number(p.anoAlvo), {
+      natureza: 'RECEITA', excluirContas: [CONTA_IMPOSTO], excluirLinhas: ['INADVL'],
+    })
+    const escopos = new Map(dados.map(d => [ESCOPO(d as any), d]))
+    if (!escopos.size) {
+      throw new Error('Nenhum escopo com receita nessa versão e ano — nada a gerar. ' +
+                      'Confira se o orçado já foi aplicado na versão escolhida.')
+    }
+
+    // ZERO é alíquota real (exterior, compartilhadas); NULO é cadastro faltando.
+    // Tratar igual acusaria quem está certo e esconderia quem não está.
+    const filiais = await lerCampoFilial('imp_fat')
+    const comEscopo = new Set(Array.from(escopos.values()).map(x => x.f).filter(Boolean) as string[])
+    const pct: Record<string, number> = {}
+    const semValor: string[] = [], zerados: string[] = []
+    for (const fi of filiais) {
+      if (fi.imp_fat == null) { if (comEscopo.has(fi.id)) semValor.push(`${fi.codigo} · ${fi.descricao}`); continue }
+      pct[fi.id] = Number(fi.imp_fat)
+      if (Number(fi.imp_fat) === 0 && comEscopo.has(fi.id)) zerados.push(`${fi.codigo} · ${fi.descricao}`)
+    }
+    if (semValor.length) avisos.push(`${semValor.length} filial(is) têm receita e estão SEM alíquota no cadastro, então saem zero: ${semValor.join(' · ')}.`)
+    if (zerados.length)  avisos.push(`${zerados.length} filial(is) estão com alíquota 0 e têm receita: ${zerados.join(' · ')}. Se for zero mesmo (exterior, compartilhada), está certo — o aviso é para o zero ser decisão, não esquecimento.`)
+    const semFilial = Array.from(escopos.values()).filter(x => !x.f).length
+    if (semFilial) avisos.push(`${semFilial} escopo(s) têm receita lançada SEM filial. Como a alíquota vem da filial, esses ficam sem percentual.`)
+
+    const valores: ValorGerado[] = []
+    for (const d of dados) valores.push({ linha: 'RECBASE', e: d.e, f: d.f, c: d.c, m: d.m, v: d.v })
+    for (const x of escopos.values()) {
+      const a = x.f ? pct[x.f] : undefined
+      if (a == null) continue
+      // nos DOZE meses: se depois alguém digitar receita num mês vazio, a
+      // alíquota já está lá para calcular
+      for (let m = 1; m <= 12; m++) valores.push({ linha: 'ALIQ', e: x.e, f: x.f, c: x.c, m, v: a })
+    }
+
+    return {
+      avisos, escopos: escopos.size, valores,
+      linhas: [
+        { codigo: 'RECBASE', descricao: 'Receita faturada do mês (lida do orçado)', tipo_linha: 'ANALITICA', natureza: 'RECEITA', formato: 'MOEDA', casas: 2 },
+        { codigo: 'ALIQ',    descricao: '% de imposto sobre faturamento (do cadastro da filial)', tipo_linha: 'ANALITICA', natureza: 'NEUTRO', formato: 'PERCENTUAL', casas: 2 },
         // NEGATIVO: é redutora de receita, mesma convenção do POSTERGVL e do INADVL
-        expressao: '=-[RECBASE] * [ALIQ] / 100',
-        contaDestino: '13001',
-      },
-    ],
+        { codigo: 'IMPOSTO', descricao: 'Imposto sobre faturamento', tipo_linha: 'FORMULA', natureza: 'RECEITA', formato: 'MOEDA', casas: 2,
+          expressao: '=-[RECBASE] * [ALIQ] / 100', contaDestino: CONTA_IMPOSTO },
+      ],
+    }
   },
-]
+}
+
+// ============================================================
+// 2 · RÉPLICA DE LINHA ORÇAMENTÁRIA
+// ============================================================
+const replica: Wizard = {
+  codigo: 'REPLICA_LINHA',
+  nome: 'Réplica de linha orçamentária',
+  descricao: 'Repete uma linha do relatório de um ano para o outro, com acréscimo ou decréscimo.',
+  comoFunciona:
+    'Você escolhe um relatório e uma linha dele. O wizard descobre as contas da subárvore, ' +
+    'lê o valor de cada uma por empresa · filial · centro de custo e gera um par de linhas por conta — ' +
+    'o valor de origem e o resultado ajustado. Assim o orçado volta para a MESMA conta de onde veio, ' +
+    'e Orçado × Realizado continua fechando conta a conta.',
+  avisos: [
+    'O ajuste entra como premissa global 🌐: um percentual vale para todos os escopos, ' +
+    'e você pode sobrescrever a célula de um deles depois.',
+    'Linha de fórmula ou indicador não serve de origem — ela tem total, mas não tem conta por trás.',
+  ],
+  params: [
+    { key: 'relatorio', tipo: 'relatorio', label: 'Relatório de origem' },
+    { key: 'linha', tipo: 'linha', de: 'relatorio', label: 'Linha a replicar',
+      ajuda: 'Tudo que estiver abaixo dela entra junto.' },
+    { key: 'fonte', tipo: 'escolha', label: 'Replicar a partir de', padrao: 'REALIZADO',
+      opcoes: [{ valor: 'REALIZADO', rotulo: 'Realizado de um ano' }, { valor: 'ORCADO', rotulo: 'Orçado de uma versão' }] },
+    { key: 'anoOrigem', tipo: 'ano', label: 'Ano de origem' },
+    { key: 'versaoOrigem', tipo: 'versao', label: 'Versão de origem', visivelSe: { key: 'fonte', valor: 'ORCADO' } },
+    { key: 'ajuste', tipo: 'percentual', label: '% de acréscimo (negativo para reduzir)', padrao: 0 },
+    { key: 'cauda', tipo: 'escolha', label: 'Meses sem dado no fim do ano', padrao: 'MEDIA3',
+      ajuda: 'O realizado do ano em curso para no último mês fechado.',
+      opcoes: [
+        { valor: 'MEDIA3', rotulo: 'Completar com a média dos 3 últimos meses' },
+        { valor: 'VAZIO',  rotulo: 'Deixar vazio (vira zero no orçado)' },
+      ] },
+  ],
+  async preparar(p) {
+    const avisos: string[] = []
+    if (!p.relatorio || !p.linha) throw new Error('Escolha o relatório e a linha de origem.')
+
+    // 1 · linha → masters (a mesma resolução que a conciliação usa)
+    const { data: rl, error } = await supabase.from('relatorio_linha').select(COLS_LINHA).eq('relatorio_id', p.relatorio)
+    if (error) throw new Error('Erro ao ler as linhas do relatório: ' + error.message)
+    const { masters } = mastersDaSelecao((rl || []) as LinhaRel[], [p.linha])
+    if (!masters.length) {
+      throw new Error('Essa linha não tem conta por trás — é fórmula, indicador ou um bloco vazio. ' +
+                      'Escolha uma linha analítica, ou um bloco que contenha alguma.')
+    }
+
+    // 2 · ler a origem
+    const ano = Number(p.anoOrigem)
+    let dados = p.fonte === 'ORCADO'
+      ? await lerOrcadoPorConta(p.versaoOrigem, ano, masters)
+      : await lerRealizadoPorConta(ano, masters)
+    if (!dados.length) {
+      throw new Error(p.fonte === 'ORCADO'
+        ? `Nenhum valor orçado nessa versão e ano para a linha escolhida.`
+        : `Nenhum realizado em ${ano} para a linha escolhida.`)
+    }
+
+    // 3 · cauda do ano
+    if (p.cauda === 'MEDIA3') {
+      const r = completarCauda(dados)
+      dados = r.linhas
+      if (r.estimados) avisos.push(
+        `O dado de origem vai até o mês ${r.ultimoMes}. ${r.estimados} célula(s) de ${r.ultimoMes + 1}–12 ` +
+        'foram estimadas pela média dos 3 últimos meses de cada escopo — confira antes de aplicar.')
+    } else {
+      const ultimo = Math.max(...dados.map(d => d.m))
+      if (ultimo < 12) avisos.push(
+        `O dado de origem vai só até o mês ${ultimo}. Os meses ${ultimo + 1}–12 ficam VAZIOS, ` +
+        'e célula vazia vale zero no orçado.')
+    }
+
+    // 4 · contas presentes → um par de linhas por conta
+    const presentes = Array.from(new Set(dados.map(d => d.k!).filter(Boolean)))
+    const { data: contas, error: e2 } = await supabase.from('conta_orcamentaria')
+      .select('id,codigo,descricao,natureza').in('id', presentes)
+    if (e2) throw new Error('Erro ao ler as contas: ' + e2.message)
+
+    const linhas: WizardLinha[] = [{
+      codigo: 'AJUSTE', descricao: '% de acréscimo sobre a origem (negativo reduz)',
+      tipo_linha: 'ANALITICA', natureza: 'NEUTRO', formato: 'PERCENTUAL', casas: 2,
+    }]
+    const codDe: Record<string, string> = {}
+    const usados = new Set(['AJUSTE'])
+    for (const c of (contas || []) as any[]) {
+      let base = slug(c.codigo); let n = 1
+      while (usados.has('ORIG' + base)) base = slug(c.codigo) + (++n)
+      usados.add('ORIG' + base)
+      codDe[c.id] = base
+      const nat = (c.natureza === 'DESPESA' ? 'DESPESA' : c.natureza === 'RECEITA' ? 'RECEITA' : 'NEUTRO') as any
+      linhas.push({
+        codigo: `ORIG${base}`, descricao: `${c.codigo} · ${c.descricao} — origem`,
+        tipo_linha: 'ANALITICA', natureza: nat, formato: 'MOEDA', casas: 2,
+      })
+      linhas.push({
+        codigo: `VAL${base}`, descricao: `${c.codigo} · ${c.descricao}`,
+        tipo_linha: 'FORMULA', natureza: nat, formato: 'MOEDA', casas: 2,
+        expressao: `=[ORIG${base}] * (1 + [AJUSTE] / 100)`,
+        contaDestinoId: c.id,
+      })
+    }
+
+    // 5 · valores
+    const valores: ValorGerado[] = []
+    for (const d of dados) {
+      const b = codDe[d.k!]
+      if (b) valores.push({ linha: `ORIG${b}`, e: d.e, f: d.f, c: d.c, m: d.m, v: d.v })
+    }
+    // O ajuste vai como premissa GLOBAL 🌐 — doze células no lugar de doze por
+    // escopo. A grade de cada empresa herda em itálico, e sobrescrever uma
+    // continua possível.
+    const aj = Number(p.ajuste ?? 0)
+    for (let m = 1; m <= 12; m++) valores.push({ linha: 'AJUSTE', e: null, f: null, c: null, m, v: aj, escopoGlobal: true })
+
+    const escopos = new Set(dados.map(d => ESCOPO(d as any))).size
+    const nomeLinha = ((rl || []) as any[]).find(l => l.id === p.linha)?.descricao ?? 'linha'
+    return {
+      linhas, valores, avisos, escopos,
+      sugestao: { codigo: 'REPL_' + slug(nomeLinha), nome: `Réplica — ${nomeLinha}` },
+    }
+  },
+}
+
+export const WIZARDS: Wizard[] = [impostos, replica]

@@ -127,14 +127,55 @@ já existe.
 - **Navegação:** o botão *Novo formulário* virou cascata, com **Em branco** em
   primeiro e os wizards abaixo, sob o rótulo "A partir de dados que já existem".
 
+## O 2º wizard mudou o mecanismo (out/2026)
+
+A **réplica de linha orçamentária** — repetir uma linha de um ano para o outro,
+com acréscimo ou decréscimo — exigiu duas generalizações que o de impostos não
+pedia, e o desenho ficou melhor por causa delas.
+
+**Estrutura dinâmica.** Uma linha de relatório pode agrupar várias contas
+(reembolso tem quatro). Replicar tudo numa conta só faria Orçado × Realizado
+fechar no total e errar conta a conta — as irmãs com realizado cheio e orçado
+zero, a escolhida com o contrário. Então o wizard gera **um par de linhas por
+conta** (`ORIGxxx` lida, `VALxxx` ajustada → a própria conta), e a estrutura só
+se conhece depois de resolver os parâmetros.
+
+**Parâmetros declarados.** O wizard lista o que precisa (`relatorio`, `linha`,
+`versao`, `ano`, `percentual`, `escolha`) e a tela se desenha sozinha. Um
+parâmetro pode ter `visivelSe` — a versão de origem só aparece quando a fonte é
+o orçado.
+
+**O "motor de fontes" declarativo morreu, e foi bom.** A primeira versão tinha
+um catálogo de fontes configurado por linha. Com dois wizards ficou claro que
+eles leem coisas muito diferentes, e a configuração só esconderia isso. Agora
+cada wizard implementa `preparar()` e chama os leitores de `wizardFontes.ts`
+como funções. O executor faz só o caminho de escrita, igual para todos.
+
+**Versão e ano de destino são padrão**, não parâmetro de cada wizard. O de
+impostos lê da mesma versão em que grava; o de réplica tem origem própria.
+
+### Duas decisões da réplica
+
+**O ajuste vai como premissa global 🌐** — doze células em vez de doze por
+escopo. A grade de cada empresa herda em itálico, e sobrescrever uma continua
+possível.
+
+**A cauda do ano é escolha na tela.** O realizado do ano em curso para no
+último mês fechado; replicar sem mais nada deixaria novembro e dezembro
+zerados, e célula vazia vale zero. A opção *completar com a média dos 3 últimos
+meses* preenche só de `último mês + 1` até dezembro, e o "último mês" é o maior
+do conjunto inteiro — não por escopo. A diferença importa: um escopo que parou
+em agosto porque a operação fechou não deve ganhar quatro meses inventados.
+
 ## O que ficou de fora, de propósito
 
 - **Wizard de vendas por produto** (produto × meta × ticket médio). Serviu de
-  contexto para o mecanismo ser genérico; não foi construído. Quando vier, usa
-  a fonte `ENTRADA`, que ainda não existe — é a única peça nova que ele pede.
-- **Fontes `REALIZADO` e `CONSTANTE`**: desenhadas acima, não implementadas.
-  Nenhum wizard precisa delas hoje, e fonte sem uso é fonte que se descobre
-  errada no dia em que alguém usa.
+  contexto para o mecanismo ser genérico; não foi construído. Quando vier,
+  precisa de um parâmetro de **grade** — o usuário preenchendo uma tabela
+  dentro do wizard —, que é a peça que falta.
+- **Fonte `CONSTANTE`**: desenhada, não implementada. Nenhum wizard precisa
+  dela hoje, e fonte sem uso é fonte que se descobre errada no dia em que
+  alguém usa.
 - **Botão "Atualizar a partir do orçado"** no editor. A função já re-gera; falta
   só o botão. Vale esperar o primeiro uso real para saber onde ele incomoda
   menos.
