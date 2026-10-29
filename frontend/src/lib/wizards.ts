@@ -23,6 +23,7 @@ import { completarCauda, lerCampoFilial, lerOrcadoPorConta, lerOrcadoTotal, lerR
 export type ParamDef = ParamVisivel & (
   | { key: string; tipo: 'versao';     label: string; ajuda?: string }
   | { key: string; tipo: 'ano';        label: string; ajuda?: string }
+  | { key: string; tipo: 'mes';        label: string; ajuda?: string }
   | { key: string; tipo: 'relatorio';  label: string; ajuda?: string }
   | { key: string; tipo: 'linha';      label: string; de: string; ajuda?: string }
   | { key: string; tipo: 'percentual'; label: string; padrao?: number; ajuda?: string }
@@ -177,8 +178,12 @@ const replica: Wizard = {
       ajuda: 'Tudo que estiver abaixo dela entra junto.' },
     { key: 'fonte', tipo: 'escolha', label: 'Replicar a partir de', padrao: 'REALIZADO',
       opcoes: [{ valor: 'REALIZADO', rotulo: 'Realizado de um ano' }, { valor: 'ORCADO', rotulo: 'Orçado de uma versão' }] },
-    { key: 'anoOrigem', tipo: 'ano', label: 'Ano de origem' },
+    // o ano do orçado sai da própria versão (versao_orcamento.ano é NOT NULL);
+    // perguntá-lo de novo só convidaria a escolher um par inconsistente
     { key: 'versaoOrigem', tipo: 'versao', label: 'Versão de origem', visivelSe: { key: 'fonte', valor: 'ORCADO' } },
+    { key: 'anoOrigem', tipo: 'ano', label: 'Ano do realizado', visivelSe: { key: 'fonte', valor: 'REALIZADO' } },
+    { key: 'mesCorte', tipo: 'mes', label: 'Usar o realizado até o mês', visivelSe: { key: 'fonte', valor: 'REALIZADO' },
+      ajuda: 'O último mês FECHADO. Um mês parcial no fim contamina duas vezes: entra menor e ainda puxa a média da projeção para baixo.' },
     { key: 'ajuste', tipo: 'percentual', label: '% de acréscimo (negativo para reduzir)', padrao: 0 },
     { key: 'cauda', tipo: 'escolha', label: 'Meses sem dado no fim do ano', padrao: 'MEDIA3',
       ajuda: 'O realizado do ano em curso para no último mês fechado.',
@@ -200,32 +205,45 @@ const replica: Wizard = {
                       'Escolha uma linha analítica, ou um bloco que contenha alguma.')
     }
 
-    // 2 · ler a origem
-    const ano = Number(p.anoOrigem)
+    // 2 · ler a origem. O ano do orçado vem da VERSÃO, não de um campo à parte.
+    let ano: number, corte: number
+    if (p.fonte === 'ORCADO') {
+      const { data: v } = await supabase.from('versao_orcamento').select('ano,codigo').eq('id', p.versaoOrigem).maybeSingle()
+      if (!v) throw new Error('Escolha a versão de origem.')
+      ano = Number(v.ano); corte = 12          // versão orçada é ano inteiro
+    } else {
+      ano = Number(p.anoOrigem); corte = Number(p.mesCorte ?? 12)
+    }
     let dados = p.fonte === 'ORCADO'
       ? await lerOrcadoPorConta(p.versaoOrigem, ano, masters)
       : await lerRealizadoPorConta(ano, masters)
     if (!dados.length) {
       throw new Error(p.fonte === 'ORCADO'
-        ? `Nenhum valor orçado nessa versão e ano para a linha escolhida.`
+        ? 'Nenhum valor orçado nessa versão para a linha escolhida.'
         : `Nenhum realizado em ${ano} para a linha escolhida.`)
     }
 
-    // 3 · cauda do ano
+    // 3 · corte: o que vem DEPOIS do último mês fechado é descartado.
+    // Outubro parcial, se entrasse, viria menor E puxaria a média para baixo.
+    const antes = dados.length
+    dados = dados.filter(d => d.m <= corte)
+    if (!dados.length) throw new Error(`Nenhum valor até o mês ${corte} — confira o mês de corte.`)
+    if (dados.length < antes) avisos.push(
+      `${antes - dados.length} célula(s) depois do mês ${corte} foram descartadas, por serem de mês não fechado.`)
+
+    // 4 · cauda do ano
     if (p.cauda === 'MEDIA3') {
-      const r = completarCauda(dados)
+      const r = completarCauda(dados, corte)
       dados = r.linhas
       if (r.estimados) avisos.push(
-        `O dado de origem vai até o mês ${r.ultimoMes}. ${r.estimados} célula(s) de ${r.ultimoMes + 1}–12 ` +
-        'foram estimadas pela média dos 3 últimos meses de cada escopo — confira antes de aplicar.')
-    } else {
-      const ultimo = Math.max(...dados.map(d => d.m))
-      if (ultimo < 12) avisos.push(
-        `O dado de origem vai só até o mês ${ultimo}. Os meses ${ultimo + 1}–12 ficam VAZIOS, ` +
-        'e célula vazia vale zero no orçado.')
+        `${r.estimados} célula(s) dos meses ${corte + 1}–12 foram ESTIMADAS pela média dos 3 últimos ` +
+        'meses de cada escopo — confira antes de aplicar.')
+    } else if (corte < 12) {
+      avisos.push(
+        `Os meses ${corte + 1}–12 ficam VAZIOS, e célula vazia vale zero no orçado.`)
     }
 
-    // 4 · contas presentes → um par de linhas por conta
+    // 5 · contas presentes → um par de linhas por conta
     const presentes = Array.from(new Set(dados.map(d => d.k!).filter(Boolean)))
     const { data: contas, error: e2 } = await supabase.from('conta_orcamentaria')
       .select('id,codigo,descricao,natureza').in('id', presentes)
@@ -255,7 +273,7 @@ const replica: Wizard = {
       })
     }
 
-    // 5 · valores
+    // 6 · valores
     const valores: ValorGerado[] = []
     for (const d of dados) {
       const b = codDe[d.k!]

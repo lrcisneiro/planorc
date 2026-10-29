@@ -60,20 +60,23 @@ export async function lerCampoFilial(campo: string) {
  * Completa a CAUDA do ano nos meses sem dado, com a média dos últimos `n`
  * meses de cada escopo.
  *
- * Só preenche de `ultimoMes + 1` até dezembro, e `ultimoMes` é o maior mês com
- * dado em TODO o conjunto — não por escopo. A diferença importa: um escopo que
- * parou em agosto porque a operação fechou não deve ganhar quatro meses
- * inventados; já o ano inteiro parado em outubro é só o ano em curso.
+ * `ultimoFechado` é dado de FORA, não deduzido do maior mês com dado — essa
+ * dedução estava errada: o mês corrente aparece no realizado parcial, e tomá-lo
+ * por fechado contamina duas vezes (ele entra menor E puxa a média para baixo).
+ *
+ * Preenche de `ultimoFechado + 1` até dezembro, e só para escopos que já têm
+ * dado. O corte é do CONJUNTO, não por escopo: um escopo que parou em agosto
+ * porque a operação fechou não deve ganhar meses inventados.
  */
-export function completarCauda(linhas: Leitura[], n = 3): { linhas: Leitura[]; ultimoMes: number; estimados: number } {
-  if (!linhas.length) return { linhas, ultimoMes: 0, estimados: 0 }
-  const ultimoMes = Math.max(...linhas.map(l => l.m))
-  if (ultimoMes >= 12) return { linhas, ultimoMes, estimados: 0 }
+export function completarCauda(linhas: Leitura[], ultimoFechado: number, n = 3): { linhas: Leitura[]; estimados: number } {
+  if (!linhas.length || ultimoFechado >= 12) return { linhas, estimados: 0 }
 
   const grupos = new Map<string, Leitura[]>()
   for (const l of linhas) {
     const g = `${l.k ?? ''}|${l.e}|${l.f ?? ''}|${l.c ?? ''}`
-    ;(grupos.get(g) ?? grupos.set(g, []).get(g)!).push(l)
+    const arr = grupos.get(g) ?? []
+    if (!grupos.has(g)) grupos.set(g, arr)
+    arr.push(l)
   }
   const extra: Leitura[] = []
   for (const g of grupos.values()) {
@@ -82,8 +85,8 @@ export function completarCauda(linhas: Leitura[], n = 3): { linhas: Leitura[]; u
     const media = Math.round((ult.reduce((s, x) => s + x.v, 0) / ult.length) * 100) / 100
     if (!media) continue
     const tem = new Set(g.map(x => x.m))
-    for (let m = ultimoMes + 1; m <= 12; m++)
+    for (let m = ultimoFechado + 1; m <= 12; m++)
       if (!tem.has(m)) extra.push({ ...g[0], m, v: media })
   }
-  return { linhas: [...linhas, ...extra], ultimoMes, estimados: extra.length }
+  return { linhas: [...linhas, ...extra], estimados: extra.length }
 }

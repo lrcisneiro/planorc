@@ -10,7 +10,7 @@ import { COLS_LINHA, linhasConciliaveis, type LinhaRel } from '../../lib/refRela
 import { executarWizard } from '../../lib/wizardRun'
 
 // Hub de Formulários de drivers (F5). Lista/cria formulários; cada um abre no editor.
-type Formulario = { id: string; codigo: string; nome: string; descricao: string | null; _nlinhas?: number }
+type Formulario = { id: string; codigo: string; nome: string; descricao: string | null; wizard?: string | null; wizard_params?: any; _nlinhas?: number }
 
 const S: Record<string, CSSProperties> = {
   page:    { padding: 24 },
@@ -30,6 +30,11 @@ const S: Record<string, CSSProperties> = {
   empty:   { background: T.panel, border: `1px solid ${T.border}`, borderRadius: 14, padding: '60px 24px', textAlign: 'center', color: T.muted },
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
   modal:   { background: T.panel, border: `1px solid ${T.borderS}`, borderRadius: 16, padding: 28, width: 440, boxShadow: '0 20px 60px rgba(0,0,0,0.5)' },
+  // o modal do wizard cresce com o nº de parâmetros; sem teto ele escapa da tela
+  modalW:  { background: T.panel, border: `1px solid ${T.borderS}`, borderRadius: 16, width: 520, maxWidth: 'calc(100vw - 32px)', maxHeight: 'calc(100vh - 64px)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column' },
+  wTitle:  { fontSize: 17, fontWeight: 600, color: T.text, padding: '24px 28px 16px', borderBottom: `1px solid ${T.border}`, flexShrink: 0 },
+  wBody:   { padding: '20px 28px', overflowY: 'auto', flex: 1 },
+  wFooter: { display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '16px 28px 20px', borderTop: `1px solid ${T.border}`, flexShrink: 0 },
   mTitle:  { fontSize: 17, fontWeight: 600, marginBottom: 20, color: T.text },
   field:   { marginBottom: 16 },
   label:   { display: 'block', fontSize: 12, fontWeight: 500, color: T.textMid, marginBottom: 6 },
@@ -56,6 +61,7 @@ type WzState =
   | { open: false }
   | { open: true; w: Wizard; codigo: string; nome: string; versaoId: string; ano: number
       vals: Record<string, any>
+      formularioId?: string
       rodando?: boolean; erro?: string | null
       feito?: { formularioId: string; escopos: number; celulas: number; linhas: number; avisos: string[] } }
 
@@ -74,7 +80,7 @@ export default function FormulariosPage() {
 
   const load = async () => {
     setLoading(true); setErro(null)
-    const { data, error } = await supabase.from('formulario').select('id,codigo,nome,descricao,formulario_linha(count)').order('nome')
+    const { data, error } = await supabase.from('formulario').select('id,codigo,nome,descricao,wizard,wizard_params,formulario_linha(count)').order('nome')
     if (error) { setErro(error.message); setLoading(false); return }
     setForms((data || []).map((f: any) => ({ ...f, _nlinhas: f.formulario_linha?.[0]?.count ?? 0 })))
     setLoading(false)
@@ -99,9 +105,32 @@ export default function FormulariosPage() {
       if (pd.tipo === 'escolha') vals[pd.key] = pd.padrao ?? pd.opcoes[0]?.valor
       else if (pd.tipo === 'percentual') vals[pd.key] = pd.padrao ?? 0
       else if (pd.tipo === 'ano') vals[pd.key] = anoPadrao - 1   // origem costuma ser o ano anterior
+      else if (pd.tipo === 'mes') {
+        // ano fechado → dezembro; ano corrente → o último mês FECHADO, que é o
+        // anterior ao de hoje. É o padrão que evita o mês parcial entrar inteiro.
+        const hoje = new Date()
+        vals[pd.key] = (anoPadrao - 1) < hoje.getFullYear() ? 12 : Math.max(1, hoje.getMonth())
+      }
       else vals[pd.key] = ''
     }
     setWz({ open: true, w, codigo: w.codigo, nome: w.nome, versaoId: versoes[0]?.id ?? '', ano: anoPadrao, vals })
+  }
+
+  const reGerar = async (f: Formulario, e: ReactMouseEvent) => {
+    e.stopPropagation()
+    const w = WIZARDS.find(x => x.codigo === f.wizard)
+    if (!w) { alert('Este formulário veio de um wizard que não existe mais no catálogo.'); return }
+    setMenu(false); setLinhasRel([])
+    const wp = f.wizard_params || {}
+    const vals: Record<string, any> = {}
+    for (const pd of w.params) vals[pd.key] = wp[pd.key] ?? (pd.tipo === 'escolha' ? pd.padrao : pd.tipo === 'percentual' ? 0 : '')
+    setWz({ open: true, w, codigo: f.codigo, nome: f.nome, formularioId: f.id,
+            versaoId: wp.versao_id ?? versoes[0]?.id ?? '', ano: wp.ano ?? versoes[0]?.ano ?? 0, vals })
+    // o relatório guardado precisa repovoar a lista de linhas
+    if (vals.relatorio) {
+      const { data } = await supabase.from('relatorio_linha').select(COLS_LINHA + ',nivel').eq('relatorio_id', vals.relatorio).order('ordem')
+      setLinhasRel((data || []) as unknown as LinhaRel[])
+    }
   }
 
   // linhas do relatório escolhido, para o parâmetro `linha`
@@ -122,6 +151,7 @@ export default function FormulariosPage() {
       const r = await executarWizard(wz.w, {
         codigo: wz.codigo.trim(), nome: wz.nome.trim(), versaoId: wz.versaoId, ano: Number(wz.ano),
         p: { ...wz.vals, versaoAlvo: wz.versaoId, anoAlvo: Number(wz.ano) },
+        formularioId: wz.formularioId,
       })
       setWz({ ...wz, rodando: false, feito: r })
       load()
@@ -221,6 +251,7 @@ export default function FormulariosPage() {
               <div style={S.footer}>
                 <span style={{ fontSize: 12, color: T.muted }}>{f._nlinhas} linha{f._nlinhas !== 1 ? 's' : ''}</span>
                 <div style={S.actions}>
+                  {f.wizard && <button style={{ ...S.btnIcon, color: T.violet }} title="Re-gerar a partir dos dados (o que você corrigiu à mão permanece)" onClick={e => reGerar(f, e)}><Wand2 size={14} /></button>}
                   {cap.can('estrutura') && <button style={S.btnIcon} title="Estrutura (desenho do formulário)" onClick={e => { e.stopPropagation(); navigate(`/formularios/${f.id}/estrutura`) }}><Settings2 size={14} /></button>}
                   <button style={S.btnIcon} title="Renomear" onClick={e => openEdit(f, e)}><Pencil size={14} /></button>
                   <button style={S.btnIcon} title="Excluir" onClick={e => del(f.id, e)}><Trash2 size={14} /></button>
@@ -234,8 +265,12 @@ export default function FormulariosPage() {
 
       {wz.open && (
         <div style={S.overlay} onClick={() => !wz.rodando && setWz({ open: false })}>
-          <div style={{ ...S.modal, width: 520 }} onClick={e => e.stopPropagation()}>
-            <div style={S.mTitle}><Wand2 size={16} style={{ color: T.violet, verticalAlign: -2, marginRight: 8 }} />{wz.w.nome}</div>
+          <div style={S.modalW} onClick={e => e.stopPropagation()}>
+            <div style={S.wTitle}>
+              <Wand2 size={16} style={{ color: T.violet, verticalAlign: -2, marginRight: 8 }} />{wz.w.nome}
+              {wz.formularioId && <span style={{ fontSize: 12, fontWeight: 400, color: T.muted, marginLeft: 8 }}>· re-gerando</span>}
+            </div>
+            <div style={S.wBody}>
 
             {wz.feito ? (
               <div style={S.okBox}>
@@ -252,10 +287,6 @@ export default function FormulariosPage() {
                   Confira os números no formulário e use o <strong>Aplicar</strong> para levar ao orçado —
                   gerar não grava nada no orçamento.
                 </p>
-                <div style={S.mFooter}>
-                  <button style={S.btnSec} onClick={() => setWz({ open: false })}>Fechar</button>
-                  <button style={S.btnPri} onClick={() => navigate(`/formularios/${wz.feito!.formularioId}`)}>Abrir formulário</button>
-                </div>
               </div>
             ) : (
               <>
@@ -297,6 +328,12 @@ export default function FormulariosPage() {
                               onChange={e => setWz({ ...wz, vals: { ...wz.vals, [pd.key]: e.target.value } })}>
                         {pd.opcoes.map(o => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
                       </select>
+                    ) : pd.tipo === 'mes' ? (
+                      <select style={S.input} value={wz.vals[pd.key] ?? 12}
+                              onChange={e => setWz({ ...wz, vals: { ...wz.vals, [pd.key]: Number(e.target.value) } })}>
+                        {['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'].map((n, i) =>
+                          <option key={i} value={i + 1}>{i + 1} · {n}</option>)}
+                      </select>
                     ) : (
                       <input style={S.input} type="number" step={pd.tipo === 'percentual' ? '0.01' : '1'}
                              value={wz.vals[pd.key] ?? ''}
@@ -306,13 +343,23 @@ export default function FormulariosPage() {
                   </div>
                 ))}
 
-                {/* destino: comum a todo wizard */}
+                {/* destino: comum a todo wizard. O ANO sai da versão
+                    (versao_orcamento.ano é NOT NULL) — perguntá-lo de novo
+                    deixaria escolher um par inconsistente, e os valores
+                    gravados num ano que o editor não mostra somem sem aviso. */}
                 <div style={{ ...S.field, marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
                   <label style={S.label}>Gravar os valores em qual versão?</label>
-                  <select style={S.input} value={wz.versaoId} onChange={e => setWz({ ...wz, versaoId: e.target.value })}>
+                  <select style={S.input} value={wz.versaoId}
+                          onChange={e => {
+                            const v = versoes.find(x => x.id === e.target.value)
+                            setWz({ ...wz, versaoId: e.target.value, ano: v?.ano ?? wz.ano })
+                          }}>
                     <option value="">— escolha —</option>
-                    {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}{v.ano ? ` · ${v.ano}` : ''}</option>)}
+                    {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo} · {v.ano}</option>)}
                   </select>
+                  <div style={{ fontSize: 11, color: T.faint, marginTop: 4 }}>
+                    {wz.ano ? `Os valores vão para o ano ${wz.ano}, que é o da versão.` : 'O ano vem da versão escolhida.'}
+                  </div>
                 </div>
                 <div style={S.row2}>
                   <div style={S.field}>
@@ -320,23 +367,30 @@ export default function FormulariosPage() {
                     <input style={S.input} value={wz.nome} onChange={e => setWz({ ...wz, nome: e.target.value })} />
                   </div>
                   <div style={S.field}>
-                    <label style={S.label}>Ano do orçamento</label>
-                    <input style={S.input} type="number" value={wz.ano} onChange={e => setWz({ ...wz, ano: Number(e.target.value) })} />
+                    <label style={S.label}>Código</label>
+                    <input style={S.input} value={wz.codigo} disabled={!!wz.formularioId}
+                           onChange={e => setWz({ ...wz, codigo: e.target.value.toUpperCase() })} />
                   </div>
                 </div>
-                <div style={S.field}>
-                  <label style={S.label}>Código</label>
-                  <input style={S.input} value={wz.codigo} onChange={e => setWz({ ...wz, codigo: e.target.value.toUpperCase() })} />
-                </div>
                 {wz.erro && <div style={{ ...S.aviso, borderColor: 'var(--red)', color: 'var(--red)' }}>{wz.erro}</div>}
-                <div style={S.mFooter}>
-                  <button style={S.btnSec} onClick={() => setWz({ open: false })} disabled={wz.rodando}>Cancelar</button>
-                  <button style={{ ...S.btnPri, opacity: wz.rodando ? .6 : 1 }} onClick={gerar} disabled={wz.rodando}>
-                    {wz.rodando ? 'Gerando…' : 'Gerar formulário'}
-                  </button>
-                </div>
               </>
             )}
+            </div>
+            <div style={S.wFooter}>
+              {wz.feito ? (
+                <>
+                  <button style={S.btnSec} onClick={() => setWz({ open: false })}>Fechar</button>
+                  <button style={S.btnPri} onClick={() => navigate(`/formularios/${wz.feito!.formularioId}`)}>Abrir formulário</button>
+                </>
+              ) : (
+                <>
+                  <button style={S.btnSec} onClick={() => setWz({ open: false })} disabled={wz.rodando}>Cancelar</button>
+                  <button style={{ ...S.btnPri, opacity: wz.rodando ? .6 : 1 }} onClick={gerar} disabled={wz.rodando}>
+                    {wz.rodando ? 'Gerando…' : wz.formularioId ? 'Re-gerar' : 'Gerar formulário'}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}

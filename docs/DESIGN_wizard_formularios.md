@@ -154,6 +154,29 @@ como funções. O executor faz só o caminho de escrita, igual para todos.
 **Versão e ano de destino são padrão**, não parâmetro de cada wizard. O de
 impostos lê da mesma versão em que grava; o de réplica tem origem própria.
 
+### Ajustes do primeiro uso (29/out)
+
+**O ano não se pergunta.** `versao_orcamento.ano` é `NOT NULL`, então o ano do
+destino sai da versão escolhida — e o da origem, quando ela é orçado, sai da
+versão de origem. Perguntá-lo de novo deixaria escolher um par inconsistente, e
+valores gravados num ano que o editor não mostra somem sem aviso.
+
+**Mês de corte do realizado.** A primeira versão deduzia "último mês com dado =
+último mês fechado". Errado: o mês corrente aparece parcial no realizado, e
+tomá-lo por fechado contamina **duas vezes** — ele entra menor e ainda puxa para
+baixo a média que projeta o resto do ano. Agora o corte é parâmetro, com padrão
+no mês anterior ao de hoje quando a origem é o ano corrente, e dezembro quando é
+ano fechado. O que vem depois do corte é descartado, e o wizard diz quantas
+células descartou.
+
+**Re-gerar tem botão.** No card do formulário que nasceu de wizard. Reabre com
+os parâmetros guardados em `wizard_params` e escreve no mesmo formulário:
+substitui as células `gerado = true` e preserva as suas correções.
+
+**O modal rola.** Com estrutura dinâmica o número de campos varia, e ele
+escapava da tela. Título e rodapé fixos, corpo rolável, teto em
+`100vh - 64px`.
+
 ### Duas decisões da réplica
 
 **O ajuste vai como premissa global 🌐** — doze células em vez de doze por
