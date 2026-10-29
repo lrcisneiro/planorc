@@ -1,8 +1,12 @@
 # Como pedir a geração do arquivo de import do orçado
 
-O processo é uma planilha Excel de duas etapas: uma de **análise**, feita para
-ser lida e discutida, e um **arquivo de import**, gerado a partir dela. A tela
-que recebe é *Orçar → Importar Baseline*.
+A **planilha de análise é o artefato vivo** — é nela que o orçamento é
+discutido e editado. Gerar o import é só traduzi-la para o layout que a tela
+*Orçar → Importar Baseline* aceita.
+
+A planilha foi criada uma vez, a partir do realizado; daí em diante ela é
+revisada e versionada por vocês, e cada rodada de carga parte da versão
+corrente dela.
 
 ---
 
@@ -11,9 +15,9 @@ que recebe é *Orçar → Importar Baseline*.
 > **"Gere o import do orçado a partir de `<arquivo>`."**
 
 Com o caminho do arquivo (ou só "está no Downloads"), é suficiente. Eu abro,
-reconheço o formato pelas colunas e escolho o caminho certo. Se o formato for
-ambíguo, eu pergunto — não chuto, porque os dois produzem arquivos parecidos e
-um erro aqui só apareceria no total da DRE.
+confiro que é a planilha certa pelas colunas, e digo o que encontrei antes de
+gerar. Se o arquivo não for o que espero, eu pergunto em vez de adaptar — um
+import gerado do arquivo errado parece certo: mesmo formato, total plausível.
 
 Vale acrescentar, **quando for diferente do padrão**:
 
@@ -25,10 +29,10 @@ Vale acrescentar, **quando for diferente do padrão**:
 
 ---
 
-## Passo 2 — da planilha revisada para o import  ·  `scripts/seed_import.py`
+## Da planilha revisada para o import  ·  `scripts/seed_import.py`
 
-É o que você faz na prática: partiu do realizado, gerou a planilha de análise,
-revisou os valores com o time, e agora leva a revisão ao Planorc.
+O único passo do processo de hoje: pega a versão corrente da planilha e escreve
+o arquivo de import.
 
 **Como reconheço a planilha:** abas chamadas `Dados ...` (Despesas Admin, Comercial,
 Serviços, Diretoria, MKT, RH) com as colunas `Empresa | Unidade | Filial |
@@ -45,28 +49,6 @@ as de realizado e as de apoio, e escreve o layout enxuto do importador.
 
 > Linha **zerada na revisão não entra** no import. É por desenho: zerar é a
 > forma de dizer "não quero isso em 2027".
-
----
-
-## Passo 1 — a planilha de análise  ·  `scripts/seed_analise.py`
-
-Monta a proposta a partir do realizado, no grão empresa × filial × CC × conta,
-com o histórico mês a mês ao lado para quem revisa decidir com o número à
-vista. **Classifica cada combinação** e aplica a projeção que cabe a ela:
-
-| classe | critério | projeção |
-|---|---|---|
-| recorrente | 8+ meses, CV ≤ 60% | média dos 3 últimos fechados |
-| volátil | 8+ meses, CV > 60% | média de todos os fechados (dilui o pico) |
-| irregular | 5 a 7 meses | média dos fechados |
-| esporádica | até 4 meses | **repete o mês**, não a média |
-
-Para refazê-la — outra base, outro ano — peça *"monte a planilha de análise do
-orçado de `<ano>` a partir de `<arquivo>`"*.
-
-> A análise **não é** o arquivo de import, de propósito. Separar os papéis evita
-> o pior dos dois mundos: uma planilha cheia de colunas técnicas que ninguém
-> revisa, ou uma planilha legível que não pode ser importada.
 
 ---
 
@@ -96,10 +78,26 @@ exatamente quando se gera um import novo.
 
 ---
 
-## Nota histórica — o conversor do GoodData
+## Qual versão da planilha?
 
-`scripts/converter_orcado_baseline.py` converte o export *"Validação
-Lançamentos c Histórico"* do GoodData para o mesmo formato de import. Foi usado
-**uma vez, em julho/2026**, e não faz parte do processo de hoje — que é a
-planilha Excel descrita acima. Está no repositório porque os arquivos daquela
-carga ainda são referência, não porque seja um caminho alternativo a considerar.
+A planilha vive fora do repositório e ganha versões (`_unica`, `_revisada`,
+`_v3`…). **Diga qual arquivo**, ou "o mais recente do Downloads" — eu confirmo
+o nome e a data antes de rodar. Gerar o import da versão errada produz um
+arquivo que parece certo: mesmo formato, mesma ordem de grandeza, total
+plausível. Só o número final denuncia, e tarde.
+
+---
+
+## Dois scripts que não fazem parte do processo de hoje
+
+Estão no repositório e **não devem ser usados sem decisão explícita**:
+
+- **`scripts/seed_analise.py`** — montou a planilha de análise a partir do
+  realizado, classificando cada combinação (recorrente, volátil, irregular,
+  esporádica) para escolher a projeção. Rodou **uma vez**; a planilha que ele
+  gerou é a que vocês editam hoje. Rodá-lo de novo sobre o mesmo ano produziria
+  uma planilha nova, **sem as revisões** — útil só para recomeçar do zero, em
+  outro ano ou outra base.
+- **`scripts/converter_orcado_baseline.py`** — converte o export *"Validação
+  Lançamentos c Histórico"* do GoodData. Usado **uma vez, em julho/2026**. Está
+  aqui porque os arquivos daquela carga ainda servem de referência.
