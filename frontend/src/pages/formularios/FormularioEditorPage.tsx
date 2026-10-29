@@ -22,6 +22,7 @@ import type { VersaoTaxaRow } from '../../lib/cambio'
 // todas as empresas; a grade da empresa HERDA (itálico) e pode sobrescrever por célula.
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 const GLOBAL = '__global'
+const CONSOL = '__consol'   // empresa = todas: visão de conferência, só leitura
 
 type Mode = 'estrutura' | 'preencher'
 type FLinha = { id: string; pai_id: string | null; codigo: string; descricao: string; tipo_linha: any; expressao: string | null; natureza: string | null; conta_destino_id: string | null; ordem: number | null; casas_decimais: number; formato: string }
@@ -61,6 +62,7 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
 
   const [cells, setCells] = useState<CellMap>({})   // escopo atual (empresa selecionada, ou global se GLOBAL)
   const [gcells, setGcells] = useState<CellMap>({}) // premissas globais (herança na grade da empresa)
+  const [cellsEsc, setCellsEsc] = useState<Record<string, CellMap>>({}) // consolidado: um CellMap por escopo
   const wrapRef = useRef<HTMLDivElement>(null)
   const activeTdRef = useRef<HTMLTableCellElement>(null)
   const [active, setActive] = useState<{ r: number; c: number } | null>(null)
@@ -175,8 +177,11 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   }, [versaoId])
   // Lançar/Aplicar exige grão completo (empresa+filial+CC); global 🌐 é a camada de premissas.
   // Consolidado (empresa real sem filial/CC) fica só-leitura — a soma de conferência virá depois.
-  const escopoCompleto = isGlobal || (!!empresaId && !isGlobal && !!filialId && !!ccId)
-  const consolidado = pronto && !isGlobal && (!filialId || !ccId)
+  const isTodas = empresaId === CONSOL
+  const escopoCompleto = isGlobal || (!!empresaId && !isGlobal && !isTodas && !!filialId && !!ccId)
+  // Consolidado = qualquer dimensão deixada em "— consolidado —". A visão soma
+  // os escopos; é de CONFERÊNCIA, nunca de lançamento.
+  const consolidado = pronto && !isGlobal && (isTodas || !filialId || !ccId)
   const readOnly = bloqueada || !escopoCompleto
 
   const toMap = (rows: any[] | null): CellMap => {
@@ -194,14 +199,40 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       const { data: gd } = await base().is('empresa_id', null)
       const gm = toMap(gd)
       setGcells(gm)
-      if (isGlobal) { setCells(gm); return }
+      if (isGlobal) { setCells(gm); setCellsEsc({}); return }
+      if (consolidado) {
+        // Carrega TODOS os escopos da seleção e os guarda separados: somar as
+        // células antes de calcular daria número errado — a fórmula do imposto
+        // usa a alíquota de CADA filial, e "a" alíquota da soma não existe.
+        // pageAll: 60 escopos × 2 linhas × 12 meses já passam do corte de 1000.
+        const rows = await pageAll(() => {
+          let x = supabase.from('formulario_valor')
+            .select('linha_id,mes,valor,expressao,empresa_id,filial_id,cc_id')
+            .eq('formulario_id', formId).eq('versao_id', versaoId).eq('ano', ano)
+            .not('empresa_id', 'is', null)
+          if (!isTodas) x = x.eq('empresa_id', empresaId)
+          if (filialId) x = x.eq('filial_id', filialId)
+          if (ccId) x = x.eq('cc_id', ccId)
+          return x
+        })
+        const byEsc: Record<string, CellMap> = {}
+        for (const r of (rows || []) as any[]) {
+          if (r.valor == null && r.expressao == null) continue
+          const k = `${r.empresa_id}|${r.filial_id ?? ''}|${r.cc_id ?? ''}`
+          const m = (byEsc[k] = byEsc[k] || {})
+          ;(m[r.linha_id] = m[r.linha_id] || {})[r.mes] = { valor: Number(r.valor) || 0, expressao: r.expressao || null }
+        }
+        setCellsEsc(byEsc); setCells({})
+        return
+      }
+      setCellsEsc({})
       let q = base().eq('empresa_id', empresaId)
       q = filialId ? q.eq('filial_id', filialId) : q.is('filial_id', null)
       q = ccId ? q.eq('cc_id', ccId) : q.is('cc_id', null)
       const { data } = await q
       setCells(toMap(data))
     })()
-  }, [versaoId, empresaId, filialId, ccId, ano, pronto, isGlobal, isEstrutura, linhas.length, cellsRefresh])
+  }, [versaoId, empresaId, filialId, ccId, ano, pronto, isGlobal, isTodas, consolidado, isEstrutura, linhas.length, cellsRefresh])
 
   useEffect(() => {
     if (isEstrutura || !versaoId || !ano) { setAplicadoEm(null); setEditadoEm(null); return }
@@ -264,15 +295,47 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   const periodos = useMemo<Periodo[]>(() => ano ? MESES.map((_, i) => ({ ano, mes: i + 1 })) : [], [ano])
   const linhasCalc = useMemo<LinhaCalc[]>(() => linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: false, nao_soma: false })), [linhas])
   const computed = useMemo(() => {
+    // ── CONSOLIDADO: calcula CADA escopo e soma os resultados.
+    // O caminho inverso — somar as células e calcular uma vez — erra sempre que
+    // a fórmula usa um percentual que varia por escopo: a alíquota média de
+    // filiais diferentes não corresponde a imposto nenhum.
+    if (consolidado) {
+      const porLinha: Record<string, Record<string, number[]>> = {}
+      for (const k in cellsEsc) {
+        const raw: RawValues = {}
+        for (const l of linhas) for (let mes = 1; mes <= 12; mes++) {
+          const cell = cellsEsc[k][l.id]?.[mes] || gcells[l.id]?.[mes] || null
+          if (cell) (raw[l.id] = raw[l.id] || {})[`${ano}-${mes}`] = cell.expressao ? { expressao: cell.expressao } : { valor: cell.valor }
+        }
+        const c = computeCenario(linhasCalc, raw, periodos)
+        for (const lid in c) for (const pk in c[lid]) ((porLinha[lid] = porLinha[lid] || {})[pk] = porLinha[lid][pk] || []).push(c[lid][pk])
+      }
+      const out: Record<string, Record<string, number>> = {}
+      const fmt: Record<string, string> = {}
+      for (const l of linhas) fmt[l.id] = l.formato || 'NUMERO'
+      for (const lid in porLinha) for (const pk in porLinha[lid]) {
+        const vs = porLinha[lid][pk]
+        // Dinheiro soma. Percentual e número NÃO: somar 18 escopos a 5,65%
+        // daria 101%. Se todos concordam, mostra o valor; se divergem, NaN —
+        // que a grade exibe como "—", porque não existe o número único.
+        ;(out[lid] = out[lid] || {})[pk] = fmt[lid] === 'MOEDA'
+          ? vs.reduce((a, b) => a + b, 0)
+          : (vs.every(v => Math.abs(v - vs[0]) < 1e-9) ? vs[0] : NaN)
+      }
+      return out
+    }
     const raw: RawValues = {}
     for (const l of linhas) for (let mes = 1; mes <= 12; mes++) {
       const { cell } = cellOf(l.id, mes)
       if (cell) (raw[l.id] = raw[l.id] || {})[`${ano}-${mes}`] = cell.expressao ? { expressao: cell.expressao } : { valor: cell.valor }
     }
     return computeCenario(linhasCalc, raw, periodos)
-  }, [cells, gcells, isGlobal, linhasCalc, periodos, ano])
+  }, [cells, gcells, cellsEsc, consolidado, linhas, isGlobal, linhasCalc, periodos, ano])
   const valDe = (l: FLinha, mes: number) => computed[l.id]?.[`${ano}-${mes}`] || 0
-  const totalLinha = (l: FLinha) => periodos.reduce((s, p) => s + (computed[l.id]?.[pkey(p)] || 0), 0)
+  const totalLinha = (l: FLinha) => periodos.reduce((s, p) => {
+    const v = computed[l.id]?.[pkey(p)]
+    return Number.isNaN(v) ? NaN : s + (v || 0)   // NaN propaga: sem valor único, sem total
+  }, 0)
 
   // ── grava/remove UMA célula em formulario_valor (escopo atual: empresa ou GLOBAL) ──
   const scopeSel = (q: any, lid: string, mes: number) => {
@@ -747,17 +810,18 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
             <select style={S.sel} value={empresaId} onChange={e => { setEmpresaId(e.target.value); setFilialId(''); setCcId('') }}>
               <option value="">— selecione —</option>
               <option value={GLOBAL}>{globalTemDados ? '● ' : ''}🌐 Premissas globais (todas)</option>
+              <option value={CONSOL}>Σ — consolidado (todas as empresas) —</option>
               {empresas.map(e => <option key={e.id} value={e.id}>{empresasComDados.has(e.id) ? '● ' : ''}{e.codigo} · {e.descricao}</option>)}
             </select></div>
           <div><div style={S.lbl}>Filial</div>
-            <select style={S.sel} value={filialId} onChange={e => setFilialId(e.target.value)} disabled={isGlobal}>
+            <select style={S.sel} value={filialId} onChange={e => setFilialId(e.target.value)} disabled={isGlobal || isTodas}>
               <option value="">— consolidado —</option>
               {!isGlobal && filiaisDaEmp.map(f => <option key={f.id} value={f.id}>
                 {filiaisComDados.has(f.id) ? '● ' : ''}{f.codigo} · {f.descricao}{f.empresa_id !== empresaId ? '  ·  (de outra empresa)' : ''}
               </option>)}
             </select></div>
           <div><div style={S.lbl}>Centro de custo</div>
-            <select style={S.sel} value={ccId} onChange={e => setCcId(e.target.value)} disabled={isGlobal}>
+            <select style={S.sel} value={ccId} onChange={e => setCcId(e.target.value)} disabled={isGlobal || isTodas}>
               <option value="">— consolidado —</option>
               {!isGlobal && ccs.map(c => <option key={c.id} value={c.id}>{ccsComDados.has(c.id) ? '● ' : ''}{c.codigo} · {c.descricao}</option>)}
             </select></div>
@@ -906,12 +970,22 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontSize: 14, background: 'var(--panel)', borderRadius: 12, border: '1px solid var(--border)' }}>
           Selecione <strong>versão</strong> e <strong>empresa</strong> (ou 🌐 premissas globais) para preencher os valores.
         </div>
-      ) : consolidado ? (
-        <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontSize: 14, background: 'var(--panel)', borderRadius: 12, border: '1px solid var(--border)' }}>
-          Selecione <strong>filial</strong> e <strong>centro de custo</strong> para lançar. Não é possível lançar no consolidado — a visão consolidada de conferência virá depois.
-        </div>
       ) : (
         <>
+          {/* O consolidado mostra a MESMA grade, só que somada e sem edição —
+              antes ele substituía a grade por um aviso, e não se via nada. */}
+          {consolidado && (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 10, padding: '10px 14px', fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-mid)', background: 'var(--bg-soft)', borderRadius: 10, border: '1px solid var(--border)' }}>
+              <span style={{ fontSize: 15, flexShrink: 0, color: 'var(--violet)' }}>Σ</span>
+              <span>
+                <strong>Conferência</strong> — soma de <strong>{Object.keys(cellsEsc).length}</strong> escopo(s),
+                cada um calculado por inteiro antes de somar. Não se lança aqui: escolha empresa,
+                filial e centro de custo para editar.
+                {' '}Percentual que difere entre os escopos aparece como <strong>—</strong>; não existe um
+                valor único, e uma média daria falsa precisão.
+              </span>
+            </div>
+          )}
           {/* Barra de fórmula (estilo Excel): mostra a célula ativa; edita na analítica */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, padding: '5px 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-soft)', minHeight: 34 }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', fontFamily: 'monospace', fontStyle: 'italic', flexShrink: 0 }}>fx</span>
@@ -934,7 +1008,7 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
                       </span>
                     )}
                   </div>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', flexShrink: 0 }}>= {formatValor(disp, (l?.formato as any) || 'NUMERO', l?.casas_decimais ?? 0)}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', flexShrink: 0 }}>= {Number.isNaN(disp) ? '—' : formatValor(disp, (l?.formato as any) || 'NUMERO', l?.casas_decimais ?? 0)}</span>
                 </>
               )
             })()}
@@ -981,11 +1055,16 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
                               onCommit={commitMove} onCancel={() => { setEditing(false); setTimeout(() => wrapRef.current?.focus(), 0) }} onFill={mes < 12 ? fillRight : undefined}
                               onPasteBlock={t => { setEditing(false); pasteBlock(t) }} linhas={refLinhas} refByCode
                               inputStyle={{ width: 100, textAlign: 'right', padding: '2px 4px', border: '1px solid var(--blue)', borderRadius: 4, background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }} />
+                          ) : Number.isNaN(disp) ? (
+                            // consolidado: percentual que difere entre escopos
+                            // não tem valor único — mostrar uma média daria
+                            // falsa precisão
+                            <span style={{ color: 'var(--faint)' }} title="Varia entre os escopos consolidados">—</span>
                           ) : (disp !== 0 ? formatValor(disp, (l.formato as any) || 'NUMERO', l.casas_decimais ?? 0) : <span style={{ color: 'var(--faint)' }}>{ed ? '—' : ''}</span>)}
                         </td>
                       )
                     })}
-                    <td style={{ padding: '4px 10px', borderBottom: '1px solid var(--panel)', textAlign: 'right', fontSize: 13, fontWeight: 600, color: 'var(--text-mid)' }}>{espaco ? '' : formatValor(f * totalLinha(l), (l.formato as any) || 'NUMERO', l.casas_decimais ?? 0)}</td>
+                    <td style={{ padding: '4px 10px', borderBottom: '1px solid var(--panel)', textAlign: 'right', fontSize: 13, fontWeight: 600, color: 'var(--text-mid)' }}>{espaco ? '' : Number.isNaN(totalLinha(l)) ? <span style={{ color: 'var(--faint)' }}>—</span> : formatValor(f * totalLinha(l), (l.formato as any) || 'NUMERO', l.casas_decimais ?? 0)}</td>
                   </tr>
                 )
               })}
