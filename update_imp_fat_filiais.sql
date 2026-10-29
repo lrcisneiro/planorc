@@ -63,3 +63,37 @@ select '3 · filial ativa ainda SEM alíquota', trim(f.codigo), f.descricao, '(n
   from filial f
  where f.ativo and f.imp_fat is null
  order by 1, 2;
+
+-- ============================================================
+-- COMPLEMENTO (out/2026) — o exterior tem código DIFERENTE no Planorc.
+--
+-- A conferência mostrou cinco códigos do arquivo sem filial correspondente, e
+-- duas filiais ativas sem alíquota. Cruzando, dois são a mesma coisa com
+-- código diferente — o export do ERP não usa o código do Planorc no exterior:
+--
+--   arquivo `01`   RESULTAR PARAGUAI        →  Planorc `0101`
+--   arquivo `BO  ` BOLIVIA - COMPARTILHADA  →  Planorc `BO01`
+--
+-- Os outros três (`2004`, `XX`, `BO - INDEFINIDO`) simplesmente não existem no
+-- Planorc: são filiais do ERP que este orçamento não modela. Nada a fazer —
+-- mas registrado, para a próxima importação não parecer perda de dado.
+-- (`2004` é WAYUP MARINGÁ; a mesma unidade existe como `2104`, já em 6,65.)
+--
+-- Ambas são ZERO — alíquota real do exterior, não esquecimento. Gravar
+-- explicitamente tira o alerta e deixa o zero ser decisão.
+-- ============================================================
+
+UPDATE filial f
+   SET imp_fat = v.imp
+  FROM (VALUES
+    ('0101', 0.00),   -- RESULTAR - PARAGUAI       (no ERP: 01)
+    ('BO01', 0.00)    -- BOLIVIA - COMPARTILHADA   (no ERP: BO)
+  ) AS v(cod, imp)
+ WHERE trim(f.codigo) = v.cod;
+
+-- ---------- conferência final: sobrou alguma filial ativa sem alíquota? ----------
+select case when count(*) = 0
+            then '✓ nenhuma filial ativa sem alíquota'
+            else '⚠ ainda faltam ' || count(*) || ': ' || string_agg(trim(codigo) || ' · ' || descricao, ' | ')
+       end as situacao
+  from filial where ativo and imp_fat is null;
