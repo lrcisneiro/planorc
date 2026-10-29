@@ -88,17 +88,28 @@ export async function executarWizard(w: Wizard, p: WizardParams): Promise<Wizard
     // catálogo pequeno: dispensa pageAll (convenção do CLAUDE.md)
     const { data, error } = await supabase.from('filial').select(`id,codigo,descricao,${campo}`)
     if (error) throw new Error('Erro ao ler o cadastro de filiais: ' + error.message)
+    // ZERO é alíquota real (exterior, compartilhada), NULO é cadastro faltando.
+    // Tratar os dois igual acusaria quem está certo e esconderia quem não está.
     const semValor: string[] = []
+    const zerados: string[] = []
     const comEscopo = new Set(Array.from(escopos.values()).map(x => x.f).filter(Boolean) as string[])
     for (const fi of (data || []) as any[]) {
-      if (fi[campo] == null || Number(fi[campo]) === 0) {
+      if (fi[campo] == null) {
         if (comEscopo.has(fi.id)) semValor.push(`${fi.codigo} · ${fi.descricao}`)
-      } else porFilial[fi.id] = Number(fi[campo])
+        continue
+      }
+      porFilial[fi.id] = Number(fi[campo])
+      if (Number(fi[campo]) === 0 && comEscopo.has(fi.id)) zerados.push(`${fi.codigo} · ${fi.descricao}`)
     }
     if (semValor.length) {
       avisos.push(
         `${semValor.length} filial(is) têm receita orçada e estão SEM o campo "${campo}" no cadastro, ` +
         `então o resultado delas sai zero: ${semValor.join(' · ')}.`)
+    }
+    if (zerados.length) {
+      avisos.push(
+        `${zerados.length} filial(is) estão com "${campo}" = 0 e têm receita: ${zerados.join(' · ')}. ` +
+        'Se for alíquota zero mesmo (exterior, compartilhada), está certo — o aviso é só para o zero ser uma decisão e não um esquecimento.')
     }
     const semFilial = Array.from(escopos.values()).filter(x => !x.f).length
     if (semFilial) {
