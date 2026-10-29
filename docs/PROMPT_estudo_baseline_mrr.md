@@ -5,6 +5,36 @@
 
 ---
 
+## ⚠ O FORMULÁRIO MUDOU — leia antes de gerar (29/out/2026)
+
+Da última vez eu disse que o formulário de MRR estava **fechado** e que só
+faltavam os números de outubro. Isso mudou: **entrou um driver novo**.
+
+| driver | o que é | obrigatório? |
+|---|---|---|
+| `INADIMP` | % de inadimplência sobre a receita do mês | **não** — pode vir vazio |
+
+**Nada mais mudou.** Os oito drivers anteriores (`BASE`, `META`, `METADEZ`,
+`CHURN`, `CORR`, `REP`, `POST1`, `POST2`) continuam idênticos em significado,
+unidade e formato, e tudo o que você já apurou segue valendo. Na prática é **uma
+linha a mais por escopo** no CSV — ou nenhuma, se você deixar o driver de fora.
+
+**O que é a inadimplência aqui, e o que ela não é.** Churn tira o cliente da
+carteira para sempre; inadimplência é um mês que não foi pago, com o cliente
+ainda na base. Por isso ela desconta a receita **sem reduzir o estoque** — são
+premissas de coisas diferentes, e o modelo as trata em lugares diferentes.
+
+> **Não some inadimplência ao churn** nem desconte uma da outra. Se o seu estudo
+> hoje embute perda por falta de pagamento dentro do churn, **diga isso** em vez
+> de preencher os dois: o número está no lugar errado e precisa ser separado
+> antes, não compensado depois.
+
+Se o estudo não tiver essa medida com confiança, **deixe `INADIMP` em branco**.
+Vazio vale zero e o resultado é exatamente o de antes — o Ricardo calibra o
+percentual direto na tela. Não chute.
+
+---
+
 Você vai converter o estudo do baseline em uma tabela de entrada para o Planorc,
 nosso sistema de orçamento. **Entregue uma tabela, não SQL** — você não enxerga o
 banco e inventaria identificadores. Eu converto a tabela em carga.
@@ -110,7 +140,8 @@ códigos — não invente, não abrevie, não troque a filial.
 | 5 · RD | `215` | `225` |
 | 6 · Moda | `216` | `226` |
 
-6 × 1 × 10 = **60 escopos**. São 8 drivers por escopo, então o CSV terá até 480
+6 × 1 × 10 = **60 escopos**. São 9 drivers por escopo (8, se `INADIMP` ficar
+de fora), então o CSV terá até 540
 linhas. Entregue todas.
 
 ## Formato da resposta
