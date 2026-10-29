@@ -1,6 +1,6 @@
 # DESIGN — Wizard de formulários
 
-Rascunho para discussão (out/2026). **Não implementado.**
+Out/2026. **Mecanismo implementado**, com o wizard de impostos como primeiro caso.
 
 ## O problema
 
@@ -114,14 +114,30 @@ o Aplicar por escopo e o "Aplicar em todos", o carimbo em `dims`, o aviso de
 alterações não aplicadas. O wizard só preenche — quem calcula e grava é o que
 já existe.
 
-## O que falta decidir
+## Decidido na implementação
 
-- Marca de "gerado pelo wizard" em `formulario_valor` — coluna própria ou uma
-  chave em `dims`?
-- O wizard cria um formulário novo a cada vez, ou atualiza um existente?
-- A fonte `ORCADO` lê de qual versão: a mesma que o formulário vai aplicar, ou
-  uma escolhida? (Cenários tornam isso uma pergunta real.)
-- Onde fica na navegação: botão "Novo a partir de modelo" no hub de Formulários?
+- **Marca de gerado:** coluna `formulario_valor.gerado` (v3_125), não chave em
+  `dims` — é predicado de `DELETE` na re-geração, e coluna indexável vale mais
+  que chave de jsonb nesse uso.
+- **A versão é parâmetro do wizard**, perguntada na tela. Resolve o caso de
+  cenários sem inventar regra: você escolhe de onde ler.
+- **Re-gerar é a mesma rotina** com `formularioId` — apaga só `gerado = true` e
+  reescreve. O botão "Atualizar a partir do orçado" é só interface; a função já
+  aceita.
+- **Navegação:** o botão *Novo formulário* virou cascata, com **Em branco** em
+  primeiro e os wizards abaixo, sob o rótulo "A partir de dados que já existem".
+
+## O que ficou de fora, de propósito
+
+- **Wizard de vendas por produto** (produto × meta × ticket médio). Serviu de
+  contexto para o mecanismo ser genérico; não foi construído. Quando vier, usa
+  a fonte `ENTRADA`, que ainda não existe — é a única peça nova que ele pede.
+- **Fontes `REALIZADO` e `CONSTANTE`**: desenhadas acima, não implementadas.
+  Nenhum wizard precisa delas hoje, e fonte sem uso é fonte que se descobre
+  errada no dia em que alguém usa.
+- **Botão "Atualizar a partir do orçado"** no editor. A função já re-gera; falta
+  só o botão. Vale esperar o primeiro uso real para saber onde ele incomoda
+  menos.
 
 ## O que isto substitui
 
