@@ -25,12 +25,32 @@
 -- hoje a meta é a receita, e driver que não se usa é driver que se preenche
 -- errado.
 --
--- ⚠ FALTA A CONTA DE DESTINO. O seed deixa `conta_destino_id` NULL de
--- propósito: eu não sei qual conta orçamentária recebe serviços, e chutar
--- colocaria receita numa linha errada da DRE. Defina em
--- /formularios/:id/estrutura (modo Estrutura, seletor de conta na linha) — ou
--- rode o UPDATE comentado no fim com o código certo. Sem conta, o Aplicar
--- avisa "Nenhuma linha tem conta de destino" e não grava nada.
+-- ───────── A CONTA DE DESTINO É PROVISÓRIA (decidido 29/out) ─────────
+-- Serviços não tem UMA conta, tem uma família: 11001 Horas Abertas (7 contas
+-- contábeis amarradas), 11002 Projetos Fechados, 11003 OutSourcing, 11004
+-- Banco de Horas, 11005 Templates, 11006 Sustentação (2), 11007 Templates
+-- Adesão, 11008 Assessoria MKT, 11011 Template Recorrência (3) — sob a
+-- sintética 110. O MRR e o NR, por comparação, gravam numa conta só (10201 e
+-- 10101).
+--
+-- Para ESTA versão do orçamento — a que calibra o EBITDA e dimensiona o time
+-- de serviços — tudo vai para a 11001. No orçamento final a meta se divide
+-- entre as contas, como o realizado de 2026 já se divide.
+--
+-- ⚠ Consequência enquanto for uma conta só: Orçado × Realizado fecha no TOTAL
+-- de serviços, não linha a linha. O realizado de Sustentação, OutSourcing e
+-- Projetos Fechados continua caindo nas contas deles, e na DRE aparecerá como
+-- orçado zero contra realizado cheio — e o contrário em Horas Abertas. Não é
+-- erro de carga; é a provisoriedade.
+--
+-- ───────── COMO DIVIDIR DEPOIS (é barato) ─────────
+-- O Aplicar grava UMA LINHA DE FORMULÁRIO POR CONTA — ele monta os destinos com
+-- `linhas.filter(l => l.conta_destino_id)` e carimba o código da linha em
+-- `dims`, então várias linhas coexistem no fat_orcado sem colidir. Dividir é
+-- acrescentar linhas ANALITICA irmãs da METASV, cada uma com a sua conta:
+--   METASV_HORAS → 11001 · METASV_SUST → 11006 · METASV_PROJ → 11002 …
+-- Nenhuma migration, nenhuma fórmula, e o estudo passa a entregar a meta já
+-- repartida. A METASV atual vira uma delas ou sai.
 --
 -- O FORMULÁRIO JÁ EXISTE — código `SERVICO`, criado vazio (0 linhas). Este seed
 -- só acrescenta a linha e preenche a descrição; NÃO cria formulário e NÃO
@@ -43,7 +63,8 @@
 
 DO $$
 DECLARE
-  v_form uuid;
+  v_form  uuid;
+  v_conta uuid;
 BEGIN
   SELECT id INTO v_form FROM formulario WHERE codigo = 'SERVICO';
   IF v_form IS NULL THEN
@@ -54,35 +75,33 @@ BEGIN
      SET descricao = 'Meta de serviços = receita no mês da execução. Sem repasse, sem parcelamento e sem cauda recorrente — o mais simples dos três.'
    WHERE id = v_form;
 
+  SELECT id INTO v_conta FROM conta_orcamentaria WHERE codigo = '11001';
+  IF v_conta IS NULL THEN
+    RAISE EXCEPTION 'Conta orçamentária 11001 (Serviços Horas Abertas) não encontrada.';
+  END IF;
+
   INSERT INTO formulario_linha
     (formulario_id, codigo, descricao, ordem, nivel, tipo_linha, expressao,
-     natureza, formato, casas_decimais)
+     natureza, formato, casas_decimais, conta_destino_id)
   VALUES
     (v_form, 'METASV', 'Meta de serviços — receita do mês (R$)',
-     10, 1, 'ANALITICA', NULL, 'RECEITA', 'MOEDA', 2)
+     10, 1, 'ANALITICA', NULL, 'RECEITA', 'MOEDA', 2, v_conta)
   ON CONFLICT (formulario_id, codigo) DO UPDATE
     SET descricao = EXCLUDED.descricao, ordem = EXCLUDED.ordem,
         tipo_linha = EXCLUDED.tipo_linha, expressao = EXCLUDED.expressao,
         natureza = EXCLUDED.natureza, formato = EXCLUDED.formato,
-        casas_decimais = EXCLUDED.casas_decimais;
-        -- conta_destino_id de fora de propósito: re-rodar não apaga o destino.
+        casas_decimais = EXCLUDED.casas_decimais,
+        -- COALESCE e não EXCLUDED direto: se você já tiver trocado a conta na
+        -- tela de Estrutura, re-rodar o seed NÃO desfaz a sua escolha.
+        conta_destino_id = COALESCE(formulario_linha.conta_destino_id,
+                                    EXCLUDED.conta_destino_id);
 END $$;
 
--- ---------- candidatas a conta de destino, para escolher ----------
--- Receita no plano orçamentário. Se a de serviços estiver aqui, use o código
--- dela no UPDATE abaixo (ou escolha na tela de Estrutura).
--- Sem contagem de lançamentos: um count correlacionado sobre fat_realizado
--- (a tabela do razão) faz um scan POR CONTA e estoura o timeout do editor.
-SELECT co.codigo, co.descricao, coalesce(co.natureza, '(nulo)') AS natureza
-  FROM conta_orcamentaria co
- WHERE co.codigo LIKE '1%'
-    OR co.descricao ILIKE '%serv%'
-    OR co.descricao ILIKE '%receita%'
- ORDER BY co.codigo;
-
--- ---------- amarrar o destino (trocar o código e descomentar) ----------
--- UPDATE formulario_linha l
---    SET conta_destino_id = (SELECT id FROM conta_orcamentaria
---                             WHERE codigo = 'TROCAR_AQUI' LIMIT 1)
---   FROM formulario f
---  WHERE f.id = l.formulario_id AND f.codigo = 'SERVICO' AND l.codigo = 'METASV';
+-- ---------- conferência ----------
+SELECT l.codigo, l.descricao, l.tipo_linha,
+       COALESCE(co.codigo || ' · ' || co.descricao, '⚠ SEM CONTA — o Aplicar recusa') AS destino
+  FROM formulario f
+  JOIN formulario_linha l ON l.formulario_id = f.id
+  LEFT JOIN conta_orcamentaria co ON co.id = l.conta_destino_id
+ WHERE f.codigo = 'SERVICO'
+ ORDER BY l.ordem;
