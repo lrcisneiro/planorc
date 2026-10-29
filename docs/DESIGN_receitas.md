@@ -334,6 +334,17 @@ Verificado: com `INADIMP` vazio o total é 12.142.327,26 — o mesmo valor de
 referência do seed da postergação; a carteira de dezembro fica em 935.531,28
 com 0%, 3% e 10%; e o desconto é o percentual exato da receita.
 
+> **Efeito colateral que quase passou.** `CORRVL` e `CHURNVL` usavam
+> `ANTERIOR([MRR])` como atalho para "a carteira no fim do mês passado" — o que
+> era verdade enquanto o `MRR` somava só as três brutas. Com o `INADVL` dentro
+> dele, o atalho passa a devolver a carteira **líquida**, e as duas passariam a
+> calcular correção e churn sobre base menor, quebrando a identidade
+> `carteira anterior + BASE + correção − churn + receita nova = MRR`. Medido a
+> 10%: 4.448,26 de correção e 10.606,88 de churn a menos. Corrigido pela soma
+> explícita das três brutas. **Lição:** linha de conferência que vira
+> referência de outra fórmula deixa de ser inócua — mudar o que ela soma muda
+> quem a lê.
+
 ## Serviços — o mais simples dos três (29/out)
 
 Receita no **mês da execução**, a meta **já é a receita** (sem repasse), e

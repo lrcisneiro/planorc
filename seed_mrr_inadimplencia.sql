@@ -47,6 +47,12 @@
 -- a carteira de DEZEMBRO 30,6% menor — composto, quando o que se queria era
 -- descontar 3% da receita.
 --
+-- E o conserto de CORRVL/CHURNVL, medido no mesmo cenário: com INADIMP em 0%
+-- as duas fórmulas dão igual (48.482,61 de correção, 115.606,77 de churn); a
+-- 10%, a versão antiga mostraria 4.448,26 de correção e 10.606,88 de churn A
+-- MENOS. A corrigida fica constante em qualquer percentual, que é o certo —
+-- a carteira não é tocada pela inadimplência.
+--
 -- Idempotente.
 -- ============================================================
 
@@ -104,6 +110,25 @@ BEGIN
   -- conferência.
   UPDATE formulario_linha SET ordem = 77
    WHERE formulario_id = v_form AND codigo = 'POSTERGVL';
+
+  -- ---- CORRVL e CHURNVL não podem ler o MRR, que agora é LÍQUIDO ----
+  -- Elas usavam ANTERIOR([MRR]) como atalho para "a carteira no fim do mês
+  -- passado", e isso era verdade enquanto o MRR somava só as três brutas. Com
+  -- o INADVL dentro dele, o atalho passa a devolver a carteira LÍQUIDA, e as
+  -- duas calculariam correção e churn sobre uma base menor — subestimando as
+  -- duas em exatamente o percentual de inadimplência, e quebrando a identidade
+  -- `carteira anterior + BASE + correção − churn + receita nova = MRR`.
+  --
+  -- A soma explícita das três brutas devolve o que elas sempre quiseram dizer.
+  -- Não gravam no orçado, mas aparecem na tela — número errado visível é pior
+  -- que número ausente.
+  UPDATE formulario_linha
+     SET expressao = '=(ANTERIOR([MRRBASE]) + ANTERIOR([MRRNOVO]) + ANTERIOR([POSTERGVL]) + [BASE]) * [CORR] / 100'
+   WHERE formulario_id = v_form AND codigo = 'CORRVL';
+
+  UPDATE formulario_linha
+     SET expressao = '=(ANTERIOR([MRRBASE]) + ANTERIOR([MRRNOVO]) + ANTERIOR([POSTERGVL]) + [BASE]) * (1 + [CORR]/100) * [CHURN] / 100'
+   WHERE formulario_id = v_form AND codigo = 'CHURNVL';
 
   -- ---- a linha de conferência passa a somar as QUATRO ----
   -- Sem isto ela mostraria o bruto enquanto a DRE mostra o líquido, e a
