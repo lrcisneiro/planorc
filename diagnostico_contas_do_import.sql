@@ -1,12 +1,11 @@
 -- ============================================================
--- O que o seed2027_import_v3.xlsx traz existe no Planorc?
+-- O que o seed2027_import_v3_1.xlsx traz existe no Planorc?
+-- (924 combinações · total 2027 -21.066.423,57)
 --
--- O importador de Orçado Baseline casa por CÓDIGO. Código que não existe é
--- DESCARTADO SEM AVISO — a linha some e o total fecha menor, sem nada na tela
--- denunciar. Como o plano de contas acabou de mudar, esta é a conferência que
--- vale fazer ANTES de importar.
+-- O importador casa por CÓDIGO. Código inexistente é DESCARTADO SEM AVISO:
+-- a linha some, o total fecha menor, e nada na tela denuncia.
 --
--- 53 contas · 44 centros de custo · 8 empresas · 10 filiais no arquivo.
+-- 53 contas · 42 centros de custo · 10 empresas · 10 filiais.
 -- Só leitura. Uma consulta só.
 -- ============================================================
 with conta_arq(c) as (VALUES
@@ -101,12 +100,10 @@ with conta_arq(c) as (VALUES
     ('511'),
     ('512'),
     ('514'),
-    ('515'),
     ('516'),
     ('521'),
     ('522'),
     ('524'),
-    ('525'),
     ('526')
 ), emp_arq(c) as (VALUES
     ('01'),
@@ -116,7 +113,9 @@ with conta_arq(c) as (VALUES
     ('28'),
     ('40'),
     ('YY'),
-    ('ZZ')
+    ('ZZ'),
+    ('yy'),
+    ('zz')
 ), fil_arq(c) as (VALUES
     ('2001'),
     ('2002'),
@@ -129,28 +128,23 @@ with conta_arq(c) as (VALUES
     ('2801'),
     ('4001')
 )
-select '1 · CONTA do arquivo sem conta_orcamentaria' as secao, a.c as codigo,
-       '⚠ a linha será descartada na importação' as situacao
-  from conta_arq a
- where not exists (select 1 from conta_orcamentaria o where trim(o.codigo) = a.c)
+select '1 · CONTA sem conta_orcamentaria' as secao, a.c as codigo, '⚠ linha descartada' as situacao
+  from conta_arq a where not exists (select 1 from conta_orcamentaria o where trim(o.codigo) = a.c)
 union all
-select '2 · CENTRO DE CUSTO sem cadastro', a.c, '⚠ a linha será descartada'
-  from cc_arq a
- where not exists (select 1 from centro_custo x where trim(x.codigo) = a.c)
+select '2 · CENTRO DE CUSTO sem cadastro', a.c, '⚠ linha descartada'
+  from cc_arq a where not exists (select 1 from centro_custo x where trim(x.codigo) = a.c)
 union all
-select '3 · EMPRESA sem cadastro', a.c, '⚠ a linha será descartada'
-  from emp_arq a
- where not exists (select 1 from empresa x where trim(x.codigo) = a.c)
+select '3 · EMPRESA sem cadastro', a.c, '⚠ linha descartada'
+  from emp_arq a where not exists (select 1 from empresa x where trim(x.codigo) = a.c)
 union all
-select '4 · FILIAL sem cadastro', a.c, '⚠ a linha será descartada'
-  from fil_arq a
- where not exists (select 1 from filial x where trim(x.codigo) = a.c)
+select '4 · FILIAL sem cadastro', a.c, '⚠ linha descartada'
+  from fil_arq a where not exists (select 1 from filial x where trim(x.codigo) = a.c)
 union all
 select '5 · resultado', '—',
        case when not exists (select 1 from conta_arq a where not exists (select 1 from conta_orcamentaria o where trim(o.codigo) = a.c))
-             and not exists (select 1 from cc_arq a    where not exists (select 1 from centro_custo x    where trim(x.codigo) = a.c))
-             and not exists (select 1 from emp_arq a   where not exists (select 1 from empresa x        where trim(x.codigo) = a.c))
-             and not exists (select 1 from fil_arq a   where not exists (select 1 from filial x         where trim(x.codigo) = a.c))
-            then '✓ tudo que está no arquivo existe no Planorc — pode importar'
+             and not exists (select 1 from cc_arq a  where not exists (select 1 from centro_custo x where trim(x.codigo) = a.c))
+             and not exists (select 1 from emp_arq a where not exists (select 1 from empresa x      where trim(x.codigo) = a.c))
+             and not exists (select 1 from fil_arq a where not exists (select 1 from filial x       where trim(x.codigo) = a.c))
+            then '✓ tudo existe no Planorc — pode importar'
             else '⚠ há códigos sem cadastro acima; corrija antes de importar' end
  order by 1, 2;

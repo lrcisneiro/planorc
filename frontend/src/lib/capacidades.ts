@@ -21,6 +21,10 @@ export const CAPACIDADES: Capacidade[] = [
   { key: 'estrutura', label: 'Editar estrutura de relatórios',    categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
   { key: 'exportar',  label: 'Exportar dashboards (imagem/PDF)',  categoria: 'Funções', padrao: { admin: true,  member: true,  viewer: true  } },
   { key: 'indicador.meta', label: 'Editar metas de indicadores',   categoria: 'Funções', padrao: { admin: true,  member: true,  viewer: false } },
+  // A ação mais destrutiva do produto: apaga o orçado inteiro de uma versão/ano.
+  // Só admin por padrão, e mesmo para ele há confirmação pelo código da versão,
+  // conferida no servidor (v3_127).
+  { key: 'orcado.apagar', label: 'Apagar todo o orçado de uma versão', categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
 
   // ── Menu (itens de navegação) ──
   { key: 'menu.dashboards', label: 'Dashboards',              categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },

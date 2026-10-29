@@ -60,6 +60,10 @@ export default function OrcarGradePage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [impMenu, setImpMenu] = useState(false)
   const [impMode, setImpMode] = useState<ImportModo>('full')
+  // Apagar todo o orçado da versão: a ação mais destrutiva do produto.
+  // `resumo` é carregado ANTES de qualquer confirmação — confirmar sem ver o
+  // tamanho do estrago é confirmar no escuro.
+  const [zap, setZap] = useState<null | { resumo: any; conf: string; rodando?: boolean; erro?: string | null; feito?: any }>(null)
   const [refresh, setRefresh] = useState(0)   // bump para recarregar a grade após importar
   const [scopeRows, setScopeRows] = useState<{ empresa_id: string | null; filial_id: string | null; cc_id: string | null }[]>([])   // escopos com dados (marca ●)
   const [scopesRefresh, setScopesRefresh] = useState(0)
@@ -279,6 +283,23 @@ export default function OrcarGradePage() {
     setSaving(false)
   }
 
+  const abrirZap = async () => {
+    setImpMenu(false)
+    if (!versaoId || !ano) { alert('Escolha a versão e o ano antes.'); return }
+    const { data, error } = await supabase.rpc('orcado_resumo_versao', { p_versao: versaoId, p_ano: ano })
+    if (error) { alert('Erro ao ler o resumo: ' + error.message); return }
+    setZap({ resumo: data, conf: '' })
+  }
+  const executarZap = async () => {
+    if (!zap || zap.rodando) return
+    setZap({ ...zap, rodando: true, erro: null })
+    const { data, error } = await supabase.rpc('apagar_orcado_versao',
+      { p_versao: versaoId, p_ano: ano, p_confirmacao: zap.conf.trim() })
+    if (error) { setZap({ ...zap, rodando: false, erro: error.message }); return }
+    setZap({ ...zap, rodando: false, feito: data })
+    setRefresh(x => x + 1); setScopesRefresh(x => x + 1)
+  }
+
   // ── Importar Baseline (planilha larga por empresa/filial/CC) — mesma lógica do relatório,
   // porém com trava por permissão: só grava o que o usuário pode orçar (escopo ORÇAR).
   const canWriteScope = (eId: string, fId: string | null, cId: string | null) =>
@@ -445,6 +466,17 @@ export default function OrcarGradePage() {
                     onClick={e => { e.stopPropagation(); modeloBaseline(ano || new Date().getFullYear()) }} title="Baixar planilha modelo"><Download size={11} /> modelo</span>
                 </div>
               ))}
+              {cap.can('orcado.apagar') && (
+                <>
+                  <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+                  <div style={{ padding: '8px 12px', fontSize: 13, color: 'var(--red)', cursor: 'pointer' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.12)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'var(--panel)')}
+                    onClick={abrirZap}>
+                    Apagar TODO o orçado desta versão…
+                  </div>
+                </>
+              )}
             </div>
           )}
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" style={{ display: 'none' }}
@@ -534,6 +566,108 @@ export default function OrcarGradePage() {
           versaoId={versaoId} empresaId={empresaId} filialId={filialId} ccId={ccId} ano={ano}
           moedaSlot={moedaView} matOrc={matOrc} moedaCod={moedaCod}
           onClose={() => setLancModal(null)} onChanged={() => setRefresh(x => x + 1)} />
+      )}
+
+      {/* ── Apagar TODO o orçado da versão ──
+          Três proteções, e a ordem importa: primeiro VER o que vai sumir,
+          depois digitar o código da versão, e a conferência final é no
+          servidor (apagar_orcado_versao). Não é senha de propósito: senha
+          prova identidade, e o risco aqui não é um estranho clicando — é a
+          pessoa certa apagando a versão errada. */}
+      {zap && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
+             onClick={() => !zap.rodando && setZap(null)}>
+          <div onClick={e => e.stopPropagation()}
+               style={{ background: 'var(--panel)', border: '1px solid var(--red)', borderRadius: 14, width: 560, maxWidth: 'calc(100vw - 32px)', maxHeight: 'calc(100vh - 64px)', overflowY: 'auto', padding: 26 }}>
+            {zap.feito ? (
+              <>
+                <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--text)', marginBottom: 14 }}>Orçado apagado</div>
+                <div style={{ fontSize: 14, color: 'var(--text-mid)', lineHeight: 1.7 }}>
+                  Versão <strong>{zap.feito.versao}</strong> · ano <strong>{zap.feito.ano}</strong>:
+                  <strong> {Number(zap.feito.linhas_apagadas).toLocaleString('pt-BR')}</strong> lançamento(s) removido(s)
+                  {Number(zap.feito.aplicacoes_apagadas) > 0 && <> e <strong>{zap.feito.aplicacoes_apagadas}</strong> carimbo(s) de aplicação de formulário</>}.
+                  <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--muted)' }}>
+                    Os formulários mantiveram os valores — só o que eles tinham aplicado no orçado saiu.
+                    Pode reaplicar e reimportar do zero.
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 22 }}>
+                  <button onClick={() => setZap(null)} style={{ padding: '8px 18px', background: 'var(--violet)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>Fechar</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--red)', marginBottom: 6 }}>Apagar TODO o orçado desta versão</div>
+                <div style={{ fontSize: 13, color: 'var(--text-mid)', marginBottom: 16 }}>
+                  Versão <strong>{zap.resumo?.codigo}</strong> · ano <strong>{ano}</strong>. Não há como desfazer.
+                </div>
+
+                {Number(zap.resumo?.linhas || 0) === 0 ? (
+                  <div style={{ fontSize: 13.5, color: 'var(--muted)' }}>Esta versão/ano não tem nenhum lançamento no orçado — nada a apagar.</div>
+                ) : (
+                  <>
+                    <div style={{ background: 'var(--bg-soft)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                      <div style={{ fontSize: 13.5, color: 'var(--text)', marginBottom: 10 }}>
+                        <strong>{Number(zap.resumo.linhas).toLocaleString('pt-BR')}</strong> lançamentos ·
+                        {' '}<strong>{Number(zap.resumo.contas).toLocaleString('pt-BR')}</strong> contas ·
+                        {' '}<strong>{Number(zap.resumo.escopos).toLocaleString('pt-BR')}</strong> escopos ·
+                        total <strong>{Number(zap.resumo.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                      </div>
+                      <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse' }}>
+                        <thead><tr style={{ color: 'var(--muted)' }}>
+                          <th style={{ textAlign: 'left', padding: '3px 0' }}>origem</th>
+                          <th style={{ textAlign: 'right' }}>lançamentos</th>
+                          <th style={{ textAlign: 'right' }}>valor</th>
+                        </tr></thead>
+                        <tbody>
+                          {(zap.resumo.por_origem || []).map((o: any) => (
+                            <tr key={o.origem}>
+                              <td style={{ padding: '3px 0', color: 'var(--text-mid)' }}>{o.origem}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'monospace' }}>{Number(o.linhas).toLocaleString('pt-BR')}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'monospace' }}>{Number(o.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {Number(zap.resumo.aplicacoes || 0) > 0 && (
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
+                          Também saem {zap.resumo.aplicacoes} carimbo(s) de aplicação de formulário — senão a tela continuaria
+                          dizendo "aplicado em tal dia" sobre um orçado que não existe mais.
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ fontSize: 12.5, color: 'var(--text-mid)', lineHeight: 1.6, marginBottom: 14 }}>
+                      <strong>Permanece:</strong> os valores dos formulários (a memória de cálculo), o realizado,
+                      os saldos, os postos e todos os cadastros. Sai só o orçado desta versão e ano.
+                    </div>
+
+                    <label style={{ display: 'block', fontSize: 12.5, color: 'var(--text-mid)', marginBottom: 6 }}>
+                      Para confirmar, digite o código da versão: <strong style={{ fontFamily: 'monospace', color: 'var(--text)' }}>{zap.resumo?.codigo}</strong>
+                    </label>
+                    <input autoFocus value={zap.conf} onChange={e => setZap({ ...zap, conf: e.target.value })}
+                      placeholder={zap.resumo?.codigo}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '9px 11px', fontFamily: 'monospace', fontSize: 14, border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--bg)', color: 'var(--text)' }} />
+                  </>
+                )}
+
+                {zap.erro && <div style={{ marginTop: 12, fontSize: 12.5, color: 'var(--red)' }}>{zap.erro}</div>}
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+                  <button onClick={() => setZap(null)} disabled={zap.rodando}
+                    style={{ padding: '8px 16px', background: 'none', border: '1px solid var(--border-strong)', borderRadius: 8, color: 'var(--text-mid)', cursor: 'pointer' }}>Cancelar</button>
+                  {Number(zap.resumo?.linhas || 0) > 0 && (
+                    <button onClick={executarZap} disabled={zap.rodando || zap.conf.trim() !== (zap.resumo?.codigo ?? '')}
+                      style={{ padding: '8px 16px', background: 'var(--red)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600,
+                               cursor: zap.conf.trim() === zap.resumo?.codigo && !zap.rodando ? 'pointer' : 'not-allowed',
+                               opacity: zap.conf.trim() === zap.resumo?.codigo && !zap.rodando ? 1 : 0.45 }}>
+                      {zap.rodando ? 'Apagando…' : 'Apagar definitivamente'}
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )
