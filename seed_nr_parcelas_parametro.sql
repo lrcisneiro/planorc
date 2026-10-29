@@ -114,6 +114,11 @@ BEGIN
          descricao = 'Receita NR (safras do ano parceladas em NP meses + safras anteriores) × repasse'
    WHERE formulario_id = v_form AND codigo = 'RECNR';
 
+  -- a descrição do CARD ainda anunciava "parcelada em 6 meses"
+  UPDATE formulario
+     SET descricao = 'Meta NR → receita parcelada em NPARC meses (a partir do mês seguinte) × % repasse + mensalidade estimada (% da venda) que acumula como carteira recorrente do ano'
+   WHERE id = v_form;
+
   RAISE NOTICE 'RECNR atualizado com % termos', v_max;
 END $$;
 

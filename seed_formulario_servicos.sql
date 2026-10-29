@@ -32,24 +32,27 @@
 -- rode o UPDATE comentado no fim com o código certo. Sem conta, o Aplicar
 -- avisa "Nenhuma linha tem conta de destino" e não grava nada.
 --
--- Idempotente: re-rodar ATUALIZA nome, descrição e a linha; NÃO mexe na conta
+-- O FORMULÁRIO JÁ EXISTE — código `SERVICO`, criado vazio (0 linhas). Este seed
+-- só acrescenta a linha e preenche a descrição; NÃO cria formulário e NÃO
+-- renomeia o seu. Se o código não for achado, aborta em vez de criar um
+-- segundo formulário de serviços ao lado do existente.
+--
+-- Idempotente: re-rodar ATUALIZA a descrição e a linha; NÃO mexe na conta
 -- de destino que você tiver definido (o ON CONFLICT não lista a coluna).
 -- ============================================================
 
 DO $$
 DECLARE
-  v_tenant uuid;
-  v_form   uuid;
+  v_form uuid;
 BEGIN
-  SELECT id INTO v_tenant FROM tenant LIMIT 1;
-  IF v_tenant IS NULL THEN RAISE EXCEPTION 'Nenhum tenant encontrado'; END IF;
+  SELECT id INTO v_form FROM formulario WHERE codigo = 'SERVICO';
+  IF v_form IS NULL THEN
+    RAISE EXCEPTION 'Formulário de código SERVICO não encontrado. Confira o código na tela de Formulários antes de rodar — criar um novo aqui deixaria dois formulários de serviços.';
+  END IF;
 
-  INSERT INTO formulario (tenant_id, codigo, nome, descricao)
-  VALUES (v_tenant, 'VENDAS_SV', 'Receita de serviços (TOTVS)',
-          'Meta de serviços = receita no mês da execução. Sem repasse, sem parcelamento e sem cauda recorrente — o mais simples dos três.')
-  ON CONFLICT (tenant_id, codigo) DO UPDATE
-    SET nome = EXCLUDED.nome, descricao = EXCLUDED.descricao
-  RETURNING id INTO v_form;
+  UPDATE formulario
+     SET descricao = 'Meta de serviços = receita no mês da execução. Sem repasse, sem parcelamento e sem cauda recorrente — o mais simples dos três.'
+   WHERE id = v_form;
 
   INSERT INTO formulario_linha
     (formulario_id, codigo, descricao, ordem, nivel, tipo_linha, expressao,
@@ -81,4 +84,4 @@ SELECT co.codigo, co.descricao, co.natureza,
 --    SET conta_destino_id = (SELECT id FROM conta_orcamentaria
 --                             WHERE codigo = 'TROCAR_AQUI' LIMIT 1)
 --   FROM formulario f
---  WHERE f.id = l.formulario_id AND f.codigo = 'VENDAS_SV' AND l.codigo = 'METASV';
+--  WHERE f.id = l.formulario_id AND f.codigo = 'SERVICO' AND l.codigo = 'METASV';
