@@ -30,6 +30,9 @@ disso, cada venda deixa uma **mensalidade** que acumula como carteira.
 | `PARCANT` | parcelas de safras **anteriores** que entram neste mês, **brutas** | R$ | jan…jun |
 | `PREVNR` | outras receitas NR previstas, **já líquidas** | R$ | onde houver |
 | `METADEZ` | meta de **dezembro/2026**, bruta — só para gerar mensalidade | R$ | **só janeiro** |
+| `VENCIDO` | estoque de receitas **vencidas** a recuperar, **líquido** | R$ | **só janeiro** |
+| `PRECUP` | % desse estoque que se planeja receber | **%** | **só janeiro** |
+| `INADIMP` | % de inadimplência sobre a receita NR | **%** | 12 meses |
 | `REPNR` | % de repasse sobre a venda NR | **%** | 12 meses |
 | `PMENS` | % de mensalidade sobre a venda NR | **%** | 12 meses |
 | `REPM` | % de repasse sobre a mensalidade | **%** | 12 meses |
@@ -39,8 +42,10 @@ disso, cada venda deixa uma **mensalidade** que acumula como carteira.
 O que o motor faz com isso:
 
 ```
-receita NR  = ( Σ parcelas das metas anteriores (peso definido por NPARC)
-                + PARCANT ) × REPNR/100  +  PREVNR
+receita NR  = ( ( Σ parcelas das metas anteriores (peso definido por NPARC)
+                  + PARCANT ) × REPNR/100  +  PREVNR ) × (1 − INADIMP/100)
+
+recuperação de vencidas = VENCIDO × PRECUP/100 / 12   (igual nos 12 meses)
 
 mensalidade nova = (METANR do mês anterior + METADEZ) × PMENS/100
 carteira         = carteira anterior × (1+CORRNR/100) × (1−CHURNNR/100) + mensalidade nova
@@ -105,6 +110,25 @@ receita recorrente = carteira × REPM/100
 
 8. **Se o estudo não tiver churn ou correção da carteira NR, deixe em branco.**
    Vazio é neutro nesses dois (`1 − 0` e `1 + 0`). Não chute.
+
+9. **`VENCIDO` é o ESTOQUE de vencidas, não uma parcela mensal.** Escreva o
+   total que está vencido, **só em janeiro**, e o Planorc dilui em doze partes
+   iguais aplicando o `PRECUP`. Repetir o estoque nos doze meses dá o mesmo
+   resultado (o modelo aceita os dois hábitos), mas escrever um doze avos em
+   cada mês **divide por doze duas vezes**.
+
+   > `VENCIDO` é **líquido**, como a `PREVNR`: é a comissão que nos cabe
+   > daqueles vencidos, não o valor faturado. O `REPNR` não incide sobre ele.
+
+10. **`PRECUP` vazio significa recuperação zero**, não "recupera tudo". Se o
+    estudo não tiver a estimativa, diga isso em vez de preencher — deixar em
+    branco simplesmente apaga a recuperação do orçamento.
+
+11. **`INADIMP` incide só sobre a receita NR** — sobre as parcelas e sobre a
+    `PREVNR`, que são cobrança que pode não entrar. **Não** incide sobre a
+    recuperação de vencidas (o `PRECUP` já é a estimativa de perda dela) nem
+    sobre a mensalidade (lá a perda é o `CHURNNR`). Não desconte à mão: entregue
+    a receita cheia e o percentual separado.
 
 ---
 

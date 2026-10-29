@@ -275,6 +275,36 @@ escopos do *Aplicar em todos* passaram de 93 ms para 272 ms.
 > silêncio. Aconteceu. O da rampa agora só escreve se a linha `NP` não existir,
 > e a conferência acusa qual versão está no ar.
 
+### Vencidas e inadimplência (29/out)
+
+Dois acréscimos ao NR, com convenções opostas que convém não confundir.
+
+**Recuperação de vencidas.** `VENCIDO` é o **estoque** de receitas vencidas, em
+R$ **líquidos** — já é a comissão que nos cabe, então o `REPNR` não incide
+(mesma convenção da `PREVNR`, o oposto da `PARCANT`). `PRECUP` é o % que se
+planeja receber, e a `RECVENC` dilui igualmente nos doze meses. Grava no orçado
+em **linha própria, na mesma conta do `RECNR`**: é passado recuperado, não venda
+nova, e separar não custa nada porque o Aplicar grava uma linha por vez.
+
+**Inadimplência embutida.** `INADIMP` multiplica o `RECNR` inteiro por
+`(1 − INADIMP/100)` — pegando as parcelas **e** a `PREVNR`, que são cobrança
+que pode não entrar. Fica **fora** da `RECVENC` (o `PRECUP` já é a estimativa
+de perda dela) e **fora** da mensalidade (lá a perda é o `CHURNNR`). Sem linha
+negativa separada: foi escolha explícita, ao contrário do `POSTERGVL` do MRR.
+
+> **Premissa anual emulada com `ANTERIOR()`.** Enquanto a flag de premissa anual
+> não existe, a `RECVENC` a emula:
+> `=SE([VENCIDO] > 0; [VENCIDO] * [PRECUP] / 100 / 12; ANTERIOR())`.
+> Janeiro calcula, os demais copiam o mês anterior **desta linha**. Preencher só
+> janeiro basta, e preencher os doze com o mesmo valor dá idêntico — os dois
+> hábitos funcionam. O preço: preencher `VENCIDO` num mês do meio do ano
+> **recomeça a série** dali.
+
+Verificado contra o motor: com os três drivers vazios o `RECNR` é idêntico mês a
+mês ao de antes; `VENCIDO` 1.200.000 com `PRECUP` 50% em janeiro dá 50.000/mês e
+600.000 no ano, igual a preencher os doze; `INADIMP` de 0, 2, 5 e 12,5% desconta
+o percentual exato; e com `INADIMP` em 10% a `RECVENC` fica intacta.
+
 ## Serviços — o mais simples dos três (29/out)
 
 Receita no **mês da execução**, a meta **já é a receita** (sem repasse), e
