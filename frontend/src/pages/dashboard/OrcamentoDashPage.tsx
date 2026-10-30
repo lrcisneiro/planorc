@@ -38,10 +38,27 @@ const SEC_PADRAO: SecCfg = { sel: [], pct: 10, minPctTotal: 0.5 }
 
 // Uma PONTE exige componentes que NÃO SE SOBREPÕEM: ela decompõe a variação de
 // UMA linha de resultado. Numa DRE, "nível 1" traz subtotais e componentes
-// misturados — EBITDA, Margem, Resultado convivendo com Receitas e Despesas —,
-// e somá-los conta a mesma receita várias vezes. Por isso a ponte pede a linha
-// de resultado à parte, e os componentes excluem o que parece subtotal.
-const PARECE_SUBTOTAL = /margem|ebitda|resultado|lucro|total/i
+// misturados, e somá-los conta a mesma receita várias vezes.
+//
+// Quais são os componentes de uma linha? A ESTRUTURA DO RELATÓRIO já responde,
+// e é nela que a resposta tem de ficar — não numa lista de nomes no código.
+// Nome chumbado ("margem", "ebitda") funciona numa DRE e quebra na seguinte, e
+// o produto atende segmentos diferentes.
+//
+//   · FORMULA       → as linhas que a `expressao` referencia. Uma linha de
+//                     fórmula declara os próprios termos: `=[REC] - [CUSTO]`
+//                     diz, sem ambiguidade, de que ela é feita.
+//   · SOMAR_FILHOS  → as filhas diretas. É a definição do tipo.
+//   · demais        → não há como derivar; a pessoa escolhe.
+function componentesDe(l: LinhaRel | undefined, linhas: LinhaRel[]): string[] {
+  if (!l) return []
+  if (l.tipo_linha === 'FORMULA' && l.expressao) {
+    const cods = new Set(Array.from(l.expressao.matchAll(/\[([^\]]+)\]/g), m => m[1]))
+    return linhas.filter(x => cods.has(x.codigo)).map(x => x.id)
+  }
+  if (l.tipo_linha === 'SOMAR_FILHOS') return linhas.filter(x => x.pai_id === l.id).map(x => x.id)
+  return []
+}
 
 export default function OrcamentoDashPage() {
   const navigate = useNavigate()
@@ -122,8 +139,10 @@ export default function OrcamentoDashPage() {
         // e nível 1 é exatamente o que a ponte quer.
         const n1 = ls.filter(l => !l.pai_id)
         const ids = n1.map(l => l.id)
-        const res = n1.find(l => /ebitda/i.test(l.descricao)) ?? n1.find(l => /resultado/i.test(l.descricao)) ?? n1[0]
-        setSecPonte({ ...SEC_PADRAO, resultado: res?.id, sel: n1.filter(l => l.id !== res?.id && !PARECE_SUBTOTAL.test(l.descricao)).map(l => l.id) })
+        // Linha de resultado padrão: a primeira de NÍVEL 1 cujos componentes a
+        // estrutura sabe derivar — critério estrutural, não de nome.
+        const res = n1.find(l => componentesDe(l, ls).length) ?? n1[0]
+        setSecPonte({ ...SEC_PADRAO, resultado: res?.id, sel: componentesDe(res, ls) })
         setSecVar(s => ({ ...s, sel: ids })); setSecAcur(s => ({ ...s, sel: ids }))
       })
   }, [relId])
@@ -487,15 +506,27 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
           <div style={S.secD}>
             Decompõe a variação de <strong>uma</strong> linha de resultado. Os componentes precisam
             ser <strong>independentes</strong> — subtotal junto com componente conta duas vezes, e o
-            resíduo denuncia. Aqui a despesa aparece <strong>negativa</strong>: a barra mostra o efeito
+            resíduo denuncia. Os componentes saem da <strong>própria estrutura do relatório</strong> — a fórmula da linha, ou as filhas de um subtotal. Aqui a despesa aparece <strong>negativa</strong>: a barra mostra o efeito
             no resultado, não a convenção de exibição do resto da tela.
           </div></div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }} data-noexport>
-          <select value={resId ?? ''} onChange={e => setCfg({ ...cfg, resultado: e.target.value })}
+          <select value={resId ?? ''} onChange={e => {
+              const novo = e.target.value
+              const der = componentesDe(linhas.find((l: LinhaRel) => l.id === novo), linhas)
+              // se a estrutura não souber dizer, preserva a escolha manual
+              setCfg({ ...cfg, resultado: novo, sel: der.length ? der : cfg.sel })
+            }}
             style={{ padding: '5px 8px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg-soft)', color: 'var(--text)', maxWidth: 220 }}>
             <option value="">— linha de resultado —</option>
             {opcoes.map((l: any) => <option key={l.id} value={l.id}>{'\u00A0'.repeat(l.prof * 2)}{l.descricao}</option>)}
           </select>
+          {componentesDe(linhas.find((l: LinhaRel) => l.id === resId), linhas).length > 0 && (
+            <button onClick={() => setCfg({ ...cfg, sel: componentesDe(linhas.find((l: LinhaRel) => l.id === resId), linhas) })}
+              title="Voltar aos componentes que a própria estrutura do relatório declara"
+              style={{ padding: '5px 10px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg-soft)', color: 'var(--violet)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              usar os da estrutura
+            </button>
+          )}
           <SelLinhas cfg={cfg} setCfg={setCfg} linhas={linhas} />
         </div>
       </div>

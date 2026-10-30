@@ -188,6 +188,14 @@ cancelando, ninguém sabe de onde vem o número.
 > variações; incluir o zero achata todas as barras. O eixo cobre a faixa do
 > caminho acumulado, com folga.
 
+> **Os componentes saem da ESTRUTURA, nunca de nomes no código.** A primeira
+> implementação escolhia o padrão por regex sobre a descrição
+> (`/margem|ebitda|resultado/`) — funcionava numa DRE e quebraria na seguinte,
+> e o produto atende segmentos diferentes. A estrutura do relatório já tem a
+> resposta: **linha `FORMULA` declara os próprios termos na `expressao`**
+> (`=[REC] - [CUSTO]`), e **`SOMAR_FILHOS` tem as filhas**, por definição do
+> tipo. Isso é parametrizável por quem monta a DRE, sem tocar em código.
+
 > ⌕ **Sempre com a tabela ao lado.** Cascata se lê por aproximação — a altura
 > da barra dá a ordem de grandeza, não o número. Quem aprova precisa do valor
 > exato, e a prática é parear o gráfico com o resumo tabular em vez de escolher
