@@ -9,6 +9,10 @@
 --   PESTRUT = FAPOIO/(FDIR+FAPOIO)   mente sobre a proporção de estrutura,
 --   MGBRUTA = MCPRE - FDIR           tira folha a menos,
 --   DLER, MLER, LERM                 herdam.
+--
+-- CONFERIDO em 30/out: a partição FECHA. Áreas 1 (CSC) e 4 (Diretoria) no
+-- FAPOIO; 2 (Comercial), 3 (Serviços) e 5 (Marketing) no FDIR. Nenhuma área
+-- duplicada, nenhuma fora, nenhum CC sem área.
 -- Nada na tela denuncia: as linhas calculam, só calculam coisa diferente do
 -- que os nomes prometem.
 --
@@ -36,14 +40,20 @@ areas_cc as (
     from centro_custo cc where cc.ativo
    group by 1
 ),
--- quanto de folha (contas 201/202/203 via master) cada área tem orçado
+-- Quanto de folha (contas 201/202/203) cada área tem orçado, POR VERSÃO/ANO.
+-- ⚠ A versão anterior somava TODAS as versões e anos — número que não
+-- corresponde a orçamento nenhum. Orçamento se lê por versão: somar cenários
+-- diferentes mistura o que não se mistura.
 folha as (
-  select coalesce(cc.area_cod, '(sem área)') as area, round(sum(fo.valor), 2) as valor
+  select coalesce(cc.area_cod, '(sem área)') as area,
+         v.codigo || ' · ' || fo.ano          as versao,
+         round(sum(fo.valor), 2)              as valor
     from fat_orcado fo
-    join centro_custo cc on cc.id = fo.cc_id
+    join centro_custo cc       on cc.id = fo.cc_id
     join conta_orcamentaria co on co.id = fo.linha_id
+    join versao_orcamento v    on v.id = fo.versao_id
    where co.codigo like '201%' or co.codigo like '202%' or co.codigo like '203%'
-   group by 1
+   group by 1, 2
 )
 select case
          when exists (select 1 from areas_linha where area = a.area and codigo = 'FDIR')
@@ -54,7 +64,8 @@ select case
          else '⚠ FORA — não entra em FDIR nem em FAPOIO'
        end                                       as situacao,
        a.area, a.area_nome, a.ccs               as centros_custo,
+       coalesce(f.versao, '— sem orçado —')     as versao,
        coalesce(to_char(f.valor, 'FM999G999G990D00'), '—') as folha_orcada
   from areas_cc a
   left join folha f on f.area = a.area
- order by 1, 2;
+ order by coalesce(f.versao, 'zzz'), 1, 2;
