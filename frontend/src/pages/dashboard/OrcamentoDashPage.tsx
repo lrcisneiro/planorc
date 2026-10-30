@@ -290,7 +290,12 @@ export default function OrcamentoDashPage() {
     [secPonte.sel, secVar.sel, secAcur.sel])
 
   const carregar = async () => {
-    if (!relId || !vBase || !vComp || !linhas.length || !empFiltradas.length || !todasSel.length) { setDados(null); return }
+    // ⚠ `anoBase`/`anoComp` saem do CATÁLOGO de versões, não do id. Com o id
+    // restaurado do localStorage a guarda do id já passa antes de o catálogo
+    // chegar — e aí a consulta ia com ano `undefined` e voltava vazia, com a
+    // tela inteira zerada. Mexer em qualquer combo recarregava e "consertava",
+    // que é o sintoma clássico de carga disparada cedo demais.
+    if (!relId || !vBase || !vComp || !anoBase || !anoComp || !linhas.length || !empFiltradas.length || !todasSel.length) { setDados(null); return }
     setCarregando(true); setErro(null)
     try {
       const base = { linhas, ccs, empresas: empFiltradas, filialFilter, ccFilter, ccPermitidos: null as string[] | null }
@@ -370,7 +375,7 @@ export default function OrcamentoDashPage() {
     }
     setCarregando(false)
   }
-  useEffect(() => { carregar() /* eslint-disable-next-line */ }, [relId, vBase, vComp, modo, mesIni, mesFim, proj, todasSel.join(','), empFiltradas.join(','), filialSel.join(','), ccSel.join(','), areaSel.join(','), divisaoSel.join(','), buSel.join(','), linhas.length, secOrc.resultado])
+  useEffect(() => { carregar() /* eslint-disable-next-line */ }, [relId, vBase, vComp, modo, mesIni, mesFim, proj, todasSel.join(','), empFiltradas.join(','), filialSel.join(','), ccSel.join(','), areaSel.join(','), divisaoSel.join(','), buSel.join(','), linhas.length, secOrc.resultado, anoBase, anoComp])
 
   // ── helpers de linha
   const byId = useMemo(() => Object.fromEntries(linhas.map(l => [l.id, l])) as Record<string, LinhaRel>, [linhas])
