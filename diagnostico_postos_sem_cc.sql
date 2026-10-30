@@ -1,56 +1,65 @@
 -- ============================================================
--- Quais POSTOS produziram orçado sem centro de custo
+-- De onde vem o orçado sem centro de custo (origem POSTO)
 --
--- ⚠ A versão anterior deste arquivo estava errada e devolvia ~200 linhas de
--- ruído: eu listei postos sem CC **OU** sem regra de rateio, quando o que
--- produz nulo é sem CC **E** sem destino de rateio com CC. Posto com CC
--- próprio e sem rateio está correto — o motor usa o CC dele.
+-- ⚠ Duas versões anteriores deste arquivo erraram, e as duas pelo mesmo vício:
+-- eu inferi em vez de olhar o que o Aplicar grava.
+--   1ª — listava posto sem CC OU sem rateio, quando o que gera nulo é E.
+--   2ª — procurava em `fat_folha`, que grava o CC DO POSTO. Veio vazio, e
+--        vazio num diagnóstico se lê como "está tudo certo".
 --
--- Esta versão não adivinha pelo cadastro: vai pelo que o motor REALMENTE
--- gravou. `fat_folha` tipo ORCADO é a abertura por posto que o Aplicar escreve
--- junto com o fato, e nela o `cc_id` nulo é o próprio sintoma.
+-- O Aplicar escreve as duas tabelas com CCs DIFERENTES, de propósito:
+--   · `fat_folha`  → cc_id do POSTO     (origem do custo, p/ conciliar a folha)
+--   · `fat_orcado` → cc_id do DESTINO   (depois do rateio, p/ a DRE)
+-- Então o nulo nasce no DESTINO do rateio, não no cadastro do posto.
 --
--- As duas causas possíveis aparecem separadas, porque o conserto difere:
---   · posto sem CC e sem rateio      → preencher o CC no cadastro do posto
---   · rateio com destino sem CC      → corrigir a regra em Postos → Rateio
+-- E `fat_orcado.dims` carrega `posto`, `cc_origem` e `rateio_pct` — dá para ir
+-- direto à fonte, sem adivinhar.
 --
--- Sem nome de ninguém: posto, matrícula, cargo e filial bastam para achar na
--- tela, e resultado de diagnóstico costuma ser colado em conversa.
+-- As seções 0 e 1 SEMPRE devolvem linha, inclusive zeradas: um diagnóstico que
+-- volta vazio não distingue "não há problema" de "a consulta está cega".
 --
 -- Só leitura. Uma consulta só.
 -- ============================================================
 with v as (
-  select id, codigo from versao_orcamento where codigo = 'Orçado2027'   -- ajuste aqui
+  select id, codigo from versao_orcamento
+   where codigo ilike '%2027%' and codigo ilike 'Or%ado%'   -- tolera acento/caixa
 ),
-culpados as (
-  select g.posto_id, round(sum(g.valor), 2) as valor, count(*) as lancamentos
-    from fat_folha g
-    join v on v.id = g.versao_id
-   where g.tipo = 'ORCADO' and g.cc_id is null
-   group by g.posto_id
+posto_nulo as (
+  select f.dims->>'posto'       as posto,
+         f.dims->>'cc_origem'   as cc_origem_id,
+         f.dims->>'rateio_pct'  as pct,
+         f.empresa_id, f.filial_id, f.valor
+    from fat_orcado f join v on v.id = f.versao_id
+   where f.origem = 'POSTO' and f.cc_id is null
 )
-select e.codigo                              as empresa,
-       coalesce(f.codigo, '(sem filial)')    as filial,
-       p.codigo                              as posto,
-       coalesce(p.matricula, '—')            as matricula,
-       coalesce(c.nome, '—')                 as cargo,
-       coalesce(p.regime, '—')               as regime,
-       to_char(cu.valor, 'FM999G999G990D00') as valor_sem_cc,
-       cu.lancamentos                        as lanc,
-       case
-         when p.cc_id is null and not exists (select 1 from posto_rateio pr where pr.posto_id = p.id)
-              then '① posto sem CC e sem rateio → preencher o CC no posto'
-         when exists (select 1 from posto_rateio pr
-                        join rateio_destino rd on rd.regra_id = pr.regra_id
-                       where pr.posto_id = p.id and rd.cc_id is null)
-              then '② regra de rateio com destino SEM CC → corrigir a regra'
-         when p.cc_id is null
-              then '① posto sem CC (tem rateio, mas não resolveu) → preencher o CC'
-         else '③ nem uma nem outra — investigar à parte'
-       end                                   as causa
-  from culpados cu
-  join posto p              on p.id = cu.posto_id
-  join empresa e            on e.id = p.empresa_id
-  left join filial f        on f.id = p.filial_id
-  left join cargo c         on c.id = p.cargo_id
- order by abs(cu.valor) desc;
+select '0 · a consulta enxerga?' as secao,
+       (select coalesce(string_agg(codigo, ', '), '⚠ NENHUMA versão casou o filtro')) as a,
+       (select count(*)::text || ' linha(s) origem POSTO' from fat_orcado f join v on v.id = f.versao_id where f.origem = 'POSTO') as b,
+       (select count(*)::text || ' delas SEM cc' from posto_nulo) as c,
+       (select to_char(coalesce(sum(valor), 0), 'FM999G999G990D00') from posto_nulo) as d,
+       '' as e
+  from v
+union all
+select '1 · por posto (do dims)',
+       coalesce(pn.posto, '(sem posto no dims)'),
+       e.codigo || coalesce(' · ' || f.codigo, ''),
+       coalesce(cc.codigo || ' · ' || cc.descricao, '⚠ posto também sem CC de origem'),
+       to_char(sum(pn.valor), 'FM999G999G990D00'),
+       count(*) || ' lanç.' || coalesce(' · rateio ' || max(pn.pct) || '%', ' · sem rateio parcial')
+  from posto_nulo pn
+  join empresa e on e.id = pn.empresa_id
+  left join filial f on f.id = pn.filial_id
+  left join centro_custo cc on cc.id = pn.cc_origem_id::uuid
+ group by pn.posto, e.codigo, f.codigo, cc.codigo, cc.descricao
+union all
+-- O alvo do conserto: destino de rateio sem CC. Uma regra errada explica
+-- dezenas de postos, então é aqui que o esforço rende.
+select '2 · destinos de rateio SEM CC', r.nome, coalesce(de.codigo, '(empresa nula)'),
+       to_char(rd.pct * 100, 'FM990D00') || '%',
+       (select count(*)::text || ' posto(s) usam' from posto_rateio pr where pr.regra_id = rd.regra_id),
+       'corrigir em Postos → Rateio'
+  from rateio_destino rd
+  join rateio_regra r on r.id = rd.regra_id
+  left join empresa de on de.id = rd.empresa_id
+ where rd.cc_id is null
+ order by 1, 5 desc;
