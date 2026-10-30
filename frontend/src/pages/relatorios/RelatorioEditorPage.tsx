@@ -191,7 +191,11 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // dentro deste cabeçalho —, então eram dois caminhos para a mesma tarefa, e o
   // escondido era o antigo. Esta tela e so leitura: o que se edita aqui e a
   // ESTRUTURA (modo `estrutura`), nunca o valor do orcado.
-  const podeEstrutura = mode === 'estrutura'
+  // ⚠ Era só o modo da rota: estar em /estrutura/:id JÁ dava os botões de
+  // mover, indentar, excluir e editar fórmula. Agora o modo diz onde você
+  // está e a capacidade diz o que pode fazer ali.
+  const podeEstrutura = mode === 'estrutura' && capImp.can('estrutura')
+  const soLeituraEstrutura = mode === 'estrutura' && !capImp.can('estrutura')
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const acesso = useUserAccess()   // F2: escopo VER/ORÇAR + negar
@@ -1491,6 +1495,11 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             onClick={() => { const s = selId ? linhas.find(x => x.id === selId) : null; setAdding({ paiId: s ? s.pai_id : null }); setAddAfterId(s ? selId : null); setNewDesc('') }} style={{ ...S.btnPri, padding: '6px 12px' }}><Plus size={14} /> Nova linha</button>
         </div>
 
+        {soLeituraEstrutura && (
+          <div style={{ margin: '0 16px 10px', fontSize: 12.5, color: 'var(--text-mid)', background: 'var(--bg-soft)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 11px' }}>
+            Estrutura em <b>leitura</b> — você consulta a árvore, as fórmulas e a amarração, mas não altera.
+          </div>
+        )}
         <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px' }}>
           <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 720 }}>
             <thead>
@@ -1553,7 +1562,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           {simShow && <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12 }}>Simulação: digite valores de teste nas linhas analíticas (P1/P2/P3) para ver as fórmulas calcularem. Nada é gravado — é só para validar fórmulas (P2 testa <code>=ANTERIOR()</code>).</p>}
         </div>
 
-        {linhaModal && <LinhaModal linha={{ ...linhaModal, expressao: toDisplay(linhaModal.expressao) }} refLinhas={linhas.map(x => ({ codigo: x.codigo, descricao: x.descricao }))} ccs={ccs as any} onClose={() => setLinhaModal(null)} onSave={saveLinha} />}
+        {linhaModal && <LinhaModal linha={{ ...linhaModal, expressao: toDisplay(linhaModal.expressao) }} refLinhas={linhas.map(x => ({ codigo: x.codigo, descricao: x.descricao }))} ccs={ccs as any} somenteLeitura={!capImp.can('estrutura')} onClose={() => setLinhaModal(null)} onSave={saveLinha} />}
         {contaModal && (
           <ContaLinkModal
             linha={contaModal} contas={contas} mapeadas={contaLinks[contaModal.id] || []}
@@ -1952,7 +1961,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         </div>
       )}
 
-      {linhaModal && <LinhaModal linha={{ ...linhaModal, expressao: toDisplay(linhaModal.expressao) }} refLinhas={linhas.map(x => ({ codigo: x.codigo, descricao: x.descricao }))} ccs={ccs as any} onClose={() => setLinhaModal(null)} onSave={saveLinha} />}
+      {linhaModal && <LinhaModal linha={{ ...linhaModal, expressao: toDisplay(linhaModal.expressao) }} refLinhas={linhas.map(x => ({ codigo: x.codigo, descricao: x.descricao }))} ccs={ccs as any} somenteLeitura={!capImp.can('estrutura')} onClose={() => setLinhaModal(null)} onSave={saveLinha} />}
       {viewModal && <ViewModal view={viewModal} versoes={versoes} onClose={() => setViewModal(null)} onSave={saveView} />}
       {razao && <RazaoModal {...razao} moedaSlot={moedaView} matOrc={matOrc} moedaCod={moedaCod} onConciliar={setConcil} onClose={() => setRazao(null)} />}
       {concil && <ConciliacaoFolhaModal params={concil} onClose={() => setConcil(null)} />}
@@ -2389,7 +2398,7 @@ function ContaLinkModal({ linha, contas, mapeadas, onAddMany, onRemove, onToggle
 }
 
 // ─── Modal: linha ────────────────────────────────────────────
-function LinhaModal({ linha, refLinhas, ccs, onClose, onSave }: { linha: Linha; refLinhas: { codigo: string; descricao: string }[]; ccs: CCItem[]; onClose: () => void; onSave: (l: Linha) => void }) {
+function LinhaModal({ linha, refLinhas, ccs, somenteLeitura, onClose, onSave }: { linha: Linha; refLinhas: { codigo: string; descricao: string }[]; ccs: CCItem[]; somenteLeitura?: boolean; onClose: () => void; onSave: (l: Linha) => void }) {
   const [l, setL] = useState<Linha>(linha)
   const isFormula = l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR'
   const esc = l.filtro_escopo || {}
@@ -2400,7 +2409,17 @@ function LinhaModal({ linha, refLinhas, ccs, onClose, onSave }: { linha: Linha; 
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={S.modal} onClick={e => e.stopPropagation()}>
-        <div style={S.mTitle}>Editar linha <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} /></div>
+        <div style={S.mTitle}>{somenteLeitura ? 'Linha (leitura)' : 'Editar linha'} <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} /></div>
+        {somenteLeitura && (
+          <div style={{ fontSize: 12, color: 'var(--muted)', background: 'var(--bg-soft)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 10px', marginBottom: 10 }}>
+            Você pode consultar a definição desta linha, mas não alterá-la.
+          </div>
+        )}
+        {/* `fieldset disabled` trava TUDO o que está dentro — input, select,
+            checkbox e o próprio Salvar — de uma vez. Travar campo a campo num
+            modal com trinta controles é o jeito de esquecer um, e o esquecido
+            seria justamente o que deixa alterar a estrutura sem permissão. */}
+        <fieldset disabled={somenteLeitura} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, opacity: somenteLeitura ? 0.75 : 1 }}>
         <div style={S.field}>
           <label style={S.label}>Descrição</label>
           <input style={S.input} value={l.descricao} onChange={e => setL({ ...l, descricao: e.target.value })} />
@@ -2501,6 +2520,7 @@ function LinhaModal({ linha, refLinhas, ccs, onClose, onSave }: { linha: Linha; 
           <button style={S.btnSec} onClick={onClose}>Cancelar</button>
           <button style={S.btnPri} onClick={() => onSave(l)}>Salvar</button>
         </div>
+        </fieldset>
       </div>
     </div>
   )

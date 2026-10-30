@@ -18,6 +18,12 @@ export type Capacidade = {
 export const CAPACIDADES: Capacidade[] = [
   // ── Funções (capacidades de ação) ──
   { key: 'orcar',     label: 'Orçar (editar valores do orçado)', categoria: 'Funções', padrao: { admin: true,  member: true,  viewer: false } },
+  // Ver a estrutura e MEXER nela são coisas diferentes. A árvore, as fórmulas
+  // e a amarração explicam de onde vem cada número da DRE — é material de
+  // consulta legítimo para quem analisa. Mudar ali muda o resultado de todo
+  // mundo. Com `estrutura.ver` sozinha a tela abre em leitura: sem mover,
+  // indentar, excluir, e o modal de linha com os campos travados.
+  { key: 'estrutura.ver', label: 'Abrir estrutura de relatórios (só leitura)', categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
   { key: 'estrutura', label: 'Editar estrutura de relatórios',    categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
   // A estrutura do FORMULÁRIO dividia a chave com a do relatório. São árvores
   // diferentes, com donos diferentes: a do relatório é a DRE do grupo, a do

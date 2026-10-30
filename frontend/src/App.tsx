@@ -137,10 +137,12 @@ const S = {
 //
 // ⚠ Isto é barreira de PRODUTO, não de segurança: o enforcement de verdade é
 // RLS/RPC no banco, que segue como dívida (ver CLAUDE.md, Permissões F2).
-function Exige({ cap, children }: { cap: string; children: ReactElement }) {
+function Exige({ cap, ou, children }: { cap: string; ou?: string; children: ReactElement }) {
   const { can, loading } = useCapacidades()
   if (loading) return null
-  if (can(cap)) return children
+  // `ou` existe para o par ver/editar: quem tem a de editar entra mesmo sem a
+  // de leitura, senão liberar só a de edição trancaria a porta.
+  if (can(cap) || (ou && can(ou))) return children
   return (
     <div style={{ padding: 32, maxWidth: 560 }}>
       <h1 style={{ fontSize: 19, fontWeight: 700, color: 'var(--text)', margin: '0 0 8px' }}>Sem acesso a esta tela</h1>
@@ -295,7 +297,7 @@ function Shell({ session }: { session: Session }) {
             {/* /orcar/:id era o editor em modo de edição, anterior à grade de Orçar
                 (F3). Redireciona em vez de sumir: o link pode estar em favorito. */}
             <Route path="/orcar/:id"       element={<RedirOrcar />} />
-            <Route path="/estrutura/:id"   element={<Exige cap="estrutura"><RelatorioEditorPage mode="estrutura" /></Exige>} />
+            <Route path="/estrutura/:id"   element={<Exige cap="estrutura.ver" ou="estrutura"><RelatorioEditorPage mode="estrutura" /></Exige>} />
             <Route path="/estruturas"      element={<Exige cap="menu.estruturas"><RelatorioPage linkBase="/estrutura" titulo="Estruturas de Relatórios" subtitulo="Edite a árvore, fórmulas e amarração de cada relatório" /></Exige>} />
             <Route path="/orcar-grade"     element={<Exige cap="menu.orcar.grade"><RelatorioPage linkBase="/orcar-grade" titulo="Orçar (grade)" subtitulo="Escolha o relatório para orçar por empresa × filial × centro de custo" /></Exige>} />
             <Route path="/orcar-grade/:id" element={<Exige cap="menu.orcar.grade"><OrcarGradePage /></Exige>} />
