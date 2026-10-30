@@ -45,14 +45,17 @@ const SEC_PADRAO: SecCfg = { sel: [], pct: 10, minPctTotal: 0.5 }
 // Nome chumbado ("margem", "ebitda") funciona numa DRE e quebra na seguinte, e
 // o produto atende segmentos diferentes.
 //
-//   · FORMULA       → as linhas que a `expressao` referencia. Uma linha de
-//                     fórmula declara os próprios termos: `=[REC] - [CUSTO]`
+//   · FORMULA e INDICADOR → as linhas que a `expressao` referencia. Uma linha
+//                     de fórmula declara os próprios termos: `=[1]+[130]+[2]`
 //                     diz, sem ambiguidade, de que ela é feita.
+//                     INDICADOR entra junto: a diferença entre os dois é se a
+//                     linha participa do SOMAR_FILHOS do pai, não se tem
+//                     expressão. Numa DRE real o EBITDA costuma ser INDICADOR.
 //   · SOMAR_FILHOS  → as filhas diretas. É a definição do tipo.
 //   · demais        → não há como derivar; a pessoa escolhe.
 function componentesDe(l: LinhaRel | undefined, linhas: LinhaRel[]): string[] {
   if (!l) return []
-  if (l.tipo_linha === 'FORMULA' && l.expressao) {
+  if ((l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR') && l.expressao) {
     const cods = new Set(Array.from(l.expressao.matchAll(/\[([^\]]+)\]/g), m => m[1]))
     return linhas.filter(x => cods.has(x.codigo)).map(x => x.id)
   }

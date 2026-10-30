@@ -3,7 +3,8 @@
 --
 -- O dashboard de Orçamento deriva os componentes de uma ponte da própria
 -- estrutura, sem nome chumbado em código:
---   · FORMULA      → as linhas que a `expressao` referencia  (=[REC] - [CUSTO])
+--   · FORMULA e INDICADOR → as linhas que a `expressao` referencia
+--                    (numa DRE real o EBITDA costuma ser INDICADOR)
 --   · SOMAR_FILHOS → as filhas diretas
 --   · demais       → não há o que derivar
 --
@@ -26,23 +27,21 @@ with l as (
 refs as (   -- códigos que cada fórmula referencia
   select l.id, l.relatorio_id, m[1] as cod
     from l, lateral regexp_matches(coalesce(l.expressao, ''), '\[([^\]]+)\]', 'g') m
-   where l.tipo_linha = 'FORMULA'
+   where l.tipo_linha in ('FORMULA', 'INDICADOR')
 ),
 comp as (
   select l.id,
-         case l.tipo_linha
-           when 'FORMULA' then (select count(*) from refs r
+         case
+           when l.tipo_linha in ('FORMULA','INDICADOR') then (select count(*) from refs r
                                  where r.id = l.id
                                    and exists (select 1 from l x where x.relatorio_id = l.relatorio_id and x.codigo = r.cod))
-           when 'SOMAR_FILHOS' then (select count(*) from l f where f.pai_id = l.id)
+           when l.tipo_linha = 'SOMAR_FILHOS' then (select count(*) from l f where f.pai_id = l.id)
            else 0 end                                                   as n_comp,
-         case l.tipo_linha
-           when 'FORMULA' then (select count(*) from refs r
+         case when l.tipo_linha in ('FORMULA','INDICADOR') then (select count(*) from refs r
                                  where r.id = l.id
                                    and not exists (select 1 from l x where x.relatorio_id = l.relatorio_id and x.codigo = r.cod))
            else 0 end                                                   as n_quebradas,
-         case l.tipo_linha
-           when 'FORMULA' then (select string_agg(r.cod, ', ' order by r.cod) from refs r
+         case when l.tipo_linha in ('FORMULA','INDICADOR') then (select string_agg(r.cod, ', ' order by r.cod) from refs r
                                  where r.id = l.id
                                    and not exists (select 1 from l x where x.relatorio_id = l.relatorio_id and x.codigo = r.cod))
            else null end                                                as quebradas
@@ -57,7 +56,7 @@ select x.relatorio,
          when c.n_quebradas > 0 then '⚠ fórmula aponta para código inexistente: ' || c.quebradas
          when x.tipo_linha in ('ESPACO') then ''
          when c.n_comp > 0 then '✓ a ponte decompõe esta linha'
-         when x.tipo_linha = 'FORMULA' then '⚠ FORMULA sem referência a linha (só números?)'
+         when x.tipo_linha in ('FORMULA','INDICADOR') then '⚠ sem referência a linha (só números?)'
          when x.tipo_linha = 'SOMAR_FILHOS' then '⚠ subtotal sem filhas'
          when x.pai_id is null then '— nível 1 sem componentes: a ponte não decompõe'
          else ''
