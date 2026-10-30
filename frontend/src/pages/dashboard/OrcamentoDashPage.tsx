@@ -357,7 +357,7 @@ export default function OrcamentoDashPage() {
       ) : !dados ? null : (
         <>
           <Ponte S={S} cfg={secPonte} setCfg={setSecPonte} linhas={linhas} nome={nome}
-            base={dados.base} comp={dados.comp} val={val} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
+            base={dados.base} comp={dados.comp} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
 
           <Variacao S={S} cfg={secVar} setCfg={setSecVar} linhas={linhas} nome={nome}
             base={dados.base} comp={dados.comp} val={val} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
@@ -435,13 +435,20 @@ function SelLinhas({ cfg, setCfg, linhas, limiar }: { cfg: SecCfg; setCfg: (c: S
 // O único gráfico que responde "de onde vem o crescimento" numa imagem.
 // Sempre com a TABELA ao lado: cascata se lê por aproximação — a altura dá
 // ordem de grandeza, não valor, e quem aprova precisa do número exato.
-function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, val, rotuloBase, rotuloComp }: any) {
+function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloComp }: any) {
+  // ⚠ SINAL ECONÔMICO, não o de exibição. O resto da tela mostra despesa
+  // positiva (fatorExibicao inverte), mas numa ponte isso quebra tudo: uma
+  // despesa que CRESCE 20 viraria barra verde +20, sugerindo melhora, quando o
+  // efeito no resultado é −20 — e o caminho nunca fecharia no fim.
+  // Com o sinal cru, receita entra positiva, despesa negativa, e a soma dos
+  // componentes dá a variação do resultado. É o que faz a ponte fechar.
+  const v = (src: any, id: string) => src?.[id] ?? 0
   const resId = cfg.resultado
-  const ini = resId ? val(comp, resId) : 0
-  const fim = resId ? val(base, resId) : 0
+  const ini = resId ? v(comp, resId) : 0
+  const fim = resId ? v(base, resId) : 0
 
   const itens = cfg.sel.filter((id: string) => id !== resId)
-    .map((id: string) => ({ id, nome: nome(id), d: val(base, id) - val(comp, id) }))
+    .map((id: string) => ({ id, nome: nome(id), d: v(base, id) - v(comp, id) }))
     .filter((x: any) => Math.abs(x.d) > 0.005)
     .sort((a: any, b: any) => Math.abs(b.d) - Math.abs(a.d))
 
@@ -480,7 +487,8 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, val, rotuloBase, rotu
           <div style={S.secD}>
             Decompõe a variação de <strong>uma</strong> linha de resultado. Os componentes precisam
             ser <strong>independentes</strong> — subtotal junto com componente conta duas vezes, e o
-            resíduo denuncia.
+            resíduo denuncia. Aqui a despesa aparece <strong>negativa</strong>: a barra mostra o efeito
+            no resultado, não a convenção de exibição do resto da tela.
           </div></div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }} data-noexport>
           <select value={resId ?? ''} onChange={e => setCfg({ ...cfg, resultado: e.target.value })}
