@@ -33,8 +33,15 @@ type Modo = 'ORC' | 'REAL'
 type Proj = 'OFF' | 'ORCADO' | 'MEDIA3' | 'ULTIMO'
 
 /** uma seção escolhe as próprias linhas e o próprio limiar */
-type SecCfg = { sel: string[]; pct: number; minPctTotal: number }
+type SecCfg = { sel: string[]; pct: number; minPctTotal: number; resultado?: string }
 const SEC_PADRAO: SecCfg = { sel: [], pct: 10, minPctTotal: 0.5 }
+
+// Uma PONTE exige componentes que NÃO SE SOBREPÕEM: ela decompõe a variação de
+// UMA linha de resultado. Numa DRE, "nível 1" traz subtotais e componentes
+// misturados — EBITDA, Margem, Resultado convivendo com Receitas e Despesas —,
+// e somá-los conta a mesma receita várias vezes. Por isso a ponte pede a linha
+// de resultado à parte, e os componentes excluem o que parece subtotal.
+const PARECE_SUBTOTAL = /margem|ebitda|resultado|lucro|total/i
 
 export default function OrcamentoDashPage() {
   const navigate = useNavigate()
@@ -113,8 +120,11 @@ export default function OrcamentoDashPage() {
         setLinhas(ls)
         // Padrão: as linhas de NÍVEL 1. Seção que nasce vazia parece quebrada,
         // e nível 1 é exatamente o que a ponte quer.
-        const n1 = ls.filter(l => !l.pai_id).map(l => l.id)
-        setSecPonte(s => ({ ...s, sel: n1 })); setSecVar(s => ({ ...s, sel: n1 })); setSecAcur(s => ({ ...s, sel: n1 }))
+        const n1 = ls.filter(l => !l.pai_id)
+        const ids = n1.map(l => l.id)
+        const res = n1.find(l => /ebitda/i.test(l.descricao)) ?? n1.find(l => /resultado/i.test(l.descricao)) ?? n1[0]
+        setSecPonte({ ...SEC_PADRAO, resultado: res?.id, sel: n1.filter(l => l.id !== res?.id && !PARECE_SUBTOTAL.test(l.descricao)).map(l => l.id) })
+        setSecVar(s => ({ ...s, sel: ids })); setSecAcur(s => ({ ...s, sel: ids }))
       })
   }, [relId])
 
@@ -426,63 +436,105 @@ function SelLinhas({ cfg, setCfg, linhas, limiar }: { cfg: SecCfg; setCfg: (c: S
 // Sempre com a TABELA ao lado: cascata se lê por aproximação — a altura dá
 // ordem de grandeza, não valor, e quem aprova precisa do número exato.
 function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, val, rotuloBase, rotuloComp }: any) {
-  const itens = cfg.sel.map((id: string) => ({ id, nome: nome(id), d: val(base, id) - val(comp, id) }))
+  const resId = cfg.resultado
+  const ini = resId ? val(comp, resId) : 0
+  const fim = resId ? val(base, resId) : 0
+
+  const itens = cfg.sel.filter((id: string) => id !== resId)
+    .map((id: string) => ({ id, nome: nome(id), d: val(base, id) - val(comp, id) }))
     .filter((x: any) => Math.abs(x.d) > 0.005)
     .sort((a: any, b: any) => Math.abs(b.d) - Math.abs(a.d))
-  const ini = cfg.sel.reduce((s: number, id: string) => s + val(comp, id), 0)
-  const fim = cfg.sel.reduce((s: number, id: string) => s + val(base, id), 0)
 
-  // escala: do menor ao maior acumulado, para a cascata caber
-  let ac = ini; const pts = [ini]
-  for (const it of itens) { ac += it.d; pts.push(ac) }
-  const lo = Math.min(0, ...pts), hi = Math.max(0, ...pts), amp = hi - lo || 1
-  const y = (v: number) => ((hi - v) / amp) * 170
+  // O RESÍDUO é a honestidade da ponte: se os componentes não explicam a
+  // variação do resultado, a decomposição está incompleta ou se sobrepõe — e
+  // isso tem de aparecer em vez de o gráfico fingir que fecha.
+  const explicado = itens.reduce((s: number, x: any) => s + x.d, 0)
+  const residuo = (fim - ini) - explicado
+  const barras = [...itens, ...(Math.abs(residuo) > Math.max(1, Math.abs(fim - ini) * 0.001)
+    ? [{ id: '__resid', nome: 'não explicado', d: residuo }] : [])]
+
+  // Escala SEM forçar o zero: num bridge o início é muito maior que as
+  // variações, e incluir o zero achata tudo — foi o que aconteceu na primeira
+  // versão. Eixo na faixa do caminho, com folga.
+  let ac = ini; const pts = [ini, fim]
+  for (const b of barras) { ac += b.d; pts.push(ac) }
+  const mn = Math.min(...pts), mx = Math.max(...pts)
+  const folga = (mx - mn || Math.abs(mx) || 1) * 0.18
+  const lo = mn - folga, hi = mx + folga, amp = hi - lo || 1
+  const H = 210
+  const y = (v: number) => ((hi - v) / amp) * H
 
   let cur = ini
-  const barras = itens.map((it: any) => { const de = cur; cur += it.d; return { ...it, de, ate: cur } })
+  const passos = barras.map((b: any) => { const de = cur; cur += b.d; return { ...b, de, ate: cur } })
+  const cols = [{ tot: true, lab: rotuloComp, v: ini, de: lo, ate: ini },
+                ...passos.map((p: any) => ({ tot: false, lab: p.nome, v: p.d, de: p.de, ate: p.ate, id: p.id })),
+                { tot: true, lab: rotuloBase, v: fim, de: lo, ate: fim }]
+  const W = 78
+
+  const opcoes = emArvore(linhas as any).filter((l: any) => linhasConciliaveis(linhas).some((x: any) => x.id === l.id))
 
   return (
     <div style={S.sec}>
       <div style={S.secH}>
         <div><div style={S.secT}>A ponte — de onde vem a variação</div>
-          <div style={S.secD}>{rotuloComp} → {rotuloBase}. Barra gigante sozinha = uma aposta só.</div></div>
-        <SelLinhas cfg={cfg} setCfg={setCfg} linhas={linhas} />
+          <div style={S.secD}>
+            Decompõe a variação de <strong>uma</strong> linha de resultado. Os componentes precisam
+            ser <strong>independentes</strong> — subtotal junto com componente conta duas vezes, e o
+            resíduo denuncia.
+          </div></div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }} data-noexport>
+          <select value={resId ?? ''} onChange={e => setCfg({ ...cfg, resultado: e.target.value })}
+            style={{ padding: '5px 8px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg-soft)', color: 'var(--text)', maxWidth: 220 }}>
+            <option value="">— linha de resultado —</option>
+            {opcoes.map((l: any) => <option key={l.id} value={l.id}>{'\u00A0'.repeat(l.prof * 2)}{l.descricao}</option>)}
+          </select>
+          <SelLinhas cfg={cfg} setCfg={setCfg} linhas={linhas} />
+        </div>
       </div>
-      {!itens.length ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Sem variação nas linhas escolhidas.</div> : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1fr) minmax(280px, 380px)', gap: 20, alignItems: 'start' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <svg width={Math.max(360, (barras.length + 2) * 72)} height={210}>
-              {[{ x: 0, v: ini, lab: 'início' }, ...barras.map((b: any, i: number) => ({ x: i + 1, v: b.d, lab: b.nome, de: b.de, ate: b.ate })), { x: barras.length + 1, v: fim, lab: 'fim' }]
-                .map((b: any, i: number) => {
-                  const total = i === 0 || i === barras.length + 1
-                  const y0 = total ? y(Math.max(0, b.v)) : y(Math.max(b.de, b.ate))
-                  const y1 = total ? y(Math.min(0, b.v)) : y(Math.min(b.de, b.ate))
-                  const cor = total ? 'var(--violet)' : b.v >= 0 ? 'var(--green)' : 'var(--red)'
+
+      {!resId ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Escolha a linha de resultado a decompor.</div>
+       : !barras.length ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Sem variação nos componentes escolhidos.</div> : (
+        <>
+          {Math.abs(residuo) > Math.abs(fim - ini) * 0.15 && (
+            <div style={{ fontSize: 12, color: 'var(--orange)', marginBottom: 10 }}>
+              ⚠ {fmt(Math.abs(residuo))} ({Math.abs(residuo / ((fim - ini) || 1) * 100).toFixed(0)}% da variação) não é explicado
+              pelos componentes. Provavelmente há <strong>subtotal junto com componente</strong> na seleção, ou falta um componente.
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(340px, 1fr) minmax(290px, 400px)', gap: 20, alignItems: 'start' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <svg width={Math.max(380, cols.length * W)} height={H + 46}>
+                {cols.map((c: any, i: number) => {
+                  const y0 = y(Math.max(c.de, c.ate)), y1 = y(Math.min(c.de, c.ate))
+                  const cor = c.tot ? 'var(--violet)' : c.id === '__resid' ? 'var(--orange)' : c.v >= 0 ? 'var(--green)' : 'var(--red)'
                   return (
                     <g key={i}>
-                      <rect x={b.x * 72 + 10} y={y0} width={50} height={Math.max(2, y1 - y0)} fill={cor} rx={3} opacity={total ? 1 : .85} />
-                      <text x={b.x * 72 + 35} y={y0 - 5} textAnchor="middle" fontSize={10} fill="var(--text-mid)" fontFamily="monospace">{fmt(b.v)}</text>
-                      <text x={b.x * 72 + 35} y={196} textAnchor="middle" fontSize={9.5} fill="var(--muted)">
-                        {String(b.lab).length > 11 ? String(b.lab).slice(0, 10) + '…' : b.lab}
+                      <rect x={i * W + 12} y={y0} width={W - 26} height={Math.max(3, y1 - y0)} fill={cor} rx={3} opacity={c.tot ? 1 : .9} />
+                      <text x={i * W + (W - 2) / 2} y={Math.max(11, y0 - 5)} textAnchor="middle" fontSize={10} fill="var(--text-mid)" fontFamily="monospace">
+                        {c.tot ? fmt(c.v) : `${c.v >= 0 ? '+' : ''}${fmt(c.v)}`}
+                      </text>
+                      <text x={i * W + (W - 2) / 2} y={H + 18} textAnchor="middle" fontSize={9.5} fill="var(--muted)">
+                        {String(c.lab).length > 12 ? String(c.lab).slice(0, 11) + '…' : c.lab}
                       </text>
                     </g>
                   )
                 })}
-            </svg>
+              </svg>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr><th style={{ ...S.th, textAlign: 'left' }}>{nome(resId)}</th><th style={S.th}>variação</th></tr></thead>
+              <tbody>
+                <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--muted)' }}>{rotuloComp}</td><td style={S.td}>{fmt(ini)}</td></tr>
+                {passos.map((b: any) => (
+                  <tr key={b.id}><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: b.id === '__resid' ? 'var(--orange)' : undefined }}>{b.nome}</td>
+                    <td style={{ ...S.td, color: b.id === '__resid' ? 'var(--orange)' : b.d >= 0 ? 'var(--green)' : 'var(--red)' }}>{b.d >= 0 ? '+' : ''}{fmt(b.d)}</td></tr>
+                ))}
+                <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontWeight: 700 }}>{rotuloBase}</td>
+                  <td style={{ ...S.td, fontWeight: 700 }}>{fmt(fim)}</td></tr>
+              </tbody>
+            </table>
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr><th style={{ ...S.th, textAlign: 'left' }}>linha</th><th style={S.th}>variação</th></tr></thead>
-            <tbody>
-              <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--muted)' }}>{rotuloComp}</td><td style={S.td}>{fmt(ini)}</td></tr>
-              {barras.map((b: any) => (
-                <tr key={b.id}><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit' }}>{b.nome}</td>
-                  <td style={{ ...S.td, color: b.d >= 0 ? 'var(--green)' : 'var(--red)' }}>{b.d >= 0 ? '+' : ''}{fmt(b.d)}</td></tr>
-              ))}
-              <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontWeight: 700 }}>{rotuloBase}</td>
-                <td style={{ ...S.td, fontWeight: 700 }}>{fmt(fim)}</td></tr>
-            </tbody>
-          </table>
-        </div>
+        </>
       )}
     </div>
   )

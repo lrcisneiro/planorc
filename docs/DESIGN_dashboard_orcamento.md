@@ -170,6 +170,24 @@ Se a ponte tem uma barra gigante e o resto nivelado, o orçamento tem **uma
 aposta só** — e essa é a conversa a ter. Se tem muitas barras pequenas se
 cancelando, ninguém sabe de onde vem o número.
 
+> ⚠ **Uma ponte exige componentes que NÃO SE SOBREPÕEM** — e a primeira
+> implementação errou nisso. Ela somava as linhas selecionadas para achar o
+> início, e o padrão "nível 1" de uma DRE traz **subtotais junto com
+> componentes**: EBITDA, Margem e Resultado convivendo com Receitas, Despesas e
+> Folha. A soma contava a mesma receita várias vezes — num teste real deu 496
+> milhões de "início" onde o EBITDA era uma fração disso, e a cascata saiu
+> achatada porque a escala ia de zero a um número que não existia.
+>
+> O desenho certo tem **duas entradas**: a **linha de resultado** cuja variação
+> se decompõe, e os **componentes** que a explicam. E uma barra de **"não
+> explicado"**: se os componentes não fecham a variação do resultado, a
+> decomposição está incompleta ou se sobrepõe, e isso precisa aparecer em vez
+> de o gráfico fingir que fecha. É a honestidade da ponte.
+>
+> **A escala não força o zero.** Num bridge o início é muito maior que as
+> variações; incluir o zero achata todas as barras. O eixo cobre a faixa do
+> caminho acumulado, com folga.
+
 > ⌕ **Sempre com a tabela ao lado.** Cascata se lê por aproximação — a altura
 > da barra dá a ordem de grandeza, não o número. Quem aprova precisa do valor
 > exato, e a prática é parear o gráfico com o resumo tabular em vez de escolher
