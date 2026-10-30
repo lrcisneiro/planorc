@@ -574,7 +574,7 @@ export default function OrcamentoDashPage() {
       {drill && (
         <DrillModal relId={relId} versaoId={vBase} empIds={empFiltradas} anos={[anoBase!]} meses={meses}
           filFilter={filialFilter} ccFilter={drill.ccFilter !== undefined ? drill.ccFilter : ccFilter}
-          startNodeId={drill.nodeId} slot={1} onClose={() => setDrill(null)} />
+          startNodeId={drill.nodeId} slot={1} soOrcado onClose={() => setDrill(null)} />
       )}
     </div>
   )
@@ -693,6 +693,24 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
     if (de < 0 || para < 0) return
     ordem.splice(para, 0, ...ordem.splice(de, 1))
     setIndicSel(ordem)
+  }
+
+  // Cada gráfico entra no drill pelo SEU nó. Clicar em "Despesas por área" e
+  // cair em Receitas é o que acontecia quando todos usavam a linha de
+  // resultado. O nó certo é a linha mais alta cuja natureza efetiva bate com o
+  // gráfico — critério estrutural, nada de procurar "Receita" no nome.
+  const raizDe = (nat: 'RECEITA' | 'DESPESA'): string | null => {
+    const byIdL: Record<string, LinhaRel> = Object.fromEntries(linhas.map((l: LinhaRel) => [l.id, l]))
+    const natDe = (id: string | null): string | null => {
+      if (!id) return null
+      const l = byIdL[id]; if (!l) return null
+      return (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : natDe(l.pai_id)
+    }
+    const cand = linhas.filter((l: LinhaRel) => !l.desativada && natDe(l.id) === nat)
+    if (!cand.length) return null
+    // a mais alta da árvore (menos pais acima) e, empatando, a de menor ordem
+    const prof = (l: LinhaRel) => { let n = 0, c: LinhaRel | undefined = l; while (c?.pai_id) { c = byIdL[c.pai_id]; n++ } return n }
+    return cand.sort((a: LinhaRel, b: LinhaRel) => prof(a) - prof(b) || ((a.ordem ?? 9999) - (b.ordem ?? 9999)))[0].id
   }
 
   const alvo = cfg.resultado ? linhas.find((l: LinhaRel) => l.id === cfg.resultado) : null
@@ -868,7 +886,10 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
                 layout="horizontal" margin={{ top: 6, right: 24, bottom: 34, left: 160 }}
                 colors={cor} enableGridY={false} axisBottom={{ format: (v: any) => fmt(Number(v)) }}
                 labelSkipWidth={44} label={(d: any) => fmt(Number(d.value))}
-                onClick={(d: any) => cfg.resultado && setDrill({ nodeId: cfg.resultado, ccFilter: d.data._ccs?.length ? d.data._ccs : null })} />
+                onClick={(d: any) => {
+                  const no = raizDe(chave === 'rec' || chave === 'ccRec' ? 'RECEITA' : 'DESPESA') || cfg.resultado
+                  if (no) setDrill({ nodeId: no, ccFilter: d.data._ccs?.length ? d.data._ccs : null })
+                }} />
             </div>
           </div>
         )

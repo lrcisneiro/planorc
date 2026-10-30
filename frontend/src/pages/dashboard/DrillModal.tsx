@@ -50,7 +50,10 @@ const S: Record<string, CSSProperties> = {
 }
 const crumbItem = (last: boolean): CSSProperties => ({ cursor: last ? 'default' : 'pointer', color: last ? 'var(--text)' : '#3b5bdb', fontWeight: last ? 600 : 400 })
 
-export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFilter, ccFilter, startNodeId, slot = 1, onClose }: Props) {
+// `soOrcado`: aberto a partir de uma tela que só fala de orçamento. Mostrar
+// "Realizado 0" e um Δ vermelho ali não é neutro — lê-se como se a despesa não
+// tivesse acontecido, quando o ano nem começou. Some a coluna, o Δ e a série.
+export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFilter, ccFilter, startNodeId, slot = 1, soOrcado = false, onClose }: Props & { soOrcado?: boolean }) {
   const [tree, setTree] = useState<{ byId: Record<string, RL>; childrenByPai: Record<string, RL[]>; valR: Record<string, number>; valO: Record<string, number>; disabledMasters: Set<string> } | null>(null)
   const [stack, setStack] = useState<string[]>([startNodeId])
   const [razao, setRazao] = useState<any[] | null>(null)
@@ -180,11 +183,13 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
   const push = (id: string) => { setStack([...stack, id]); setRazao(null) }
 
   const filhas = childrenVis(cur).map(c => ({ id: c.id, desc: c.descricao, R: nodeR(c.id), O: nodeO(c.id), temFilhas: childrenVis(c.id).length > 0 }))
-    .filter(c => Math.abs(c.R) > 0.005 || Math.abs(c.O) > 0.005)
-    .sort((a, b) => Math.abs(b.R) - Math.abs(a.R))   // do maior pro menor pelo Realizado
+    .filter(c => (soOrcado ? Math.abs(c.O) > 0.005 : (Math.abs(c.R) > 0.005 || Math.abs(c.O) > 0.005)))
+    .sort((a, b) => (soOrcado ? Math.abs(b.O) - Math.abs(a.O) : Math.abs(b.R) - Math.abs(a.R)))
   const filhasOcultas = childrenOf(cur).length - childrenVis(cur).length
   // gráfico ascendente (barra horizontal cresce de baixo p/ cima)
-  const chartData = [...filhas].reverse().map(c => ({ id: c.id, filha: cut(c.desc, 26), 'Orçado': Math.round(c.O), 'Realizado': Math.round(c.R) }))
+  const chartData: any[] = [...filhas].reverse().map(c => soOrcado
+    ? { id: c.id, filha: cut(c.desc, 26), 'Orçado': Math.round(c.O) }
+    : { id: c.id, filha: cut(c.desc, 26), 'Orçado': Math.round(c.O), 'Realizado': Math.round(c.R) })
   const ehFolha = filhas.length === 0
   const somaRazao = razao ? razao.reduce((s, r) => s + (r.valor || 0), 0) : 0
 
@@ -211,27 +216,29 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
           {!loading && !ehFolha && razao === null && (
             <>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
-                Clique no nome para descer; clique numa barra/valor para o razão. Total — Orçado: <strong>{fmt(nodeO(cur))}</strong> · Realizado: <strong>{fmt(nodeR(cur))}</strong>
+                Clique no nome para descer; clique numa barra/valor para o razão. Total — Orçado: <strong>{fmt(nodeO(cur))}</strong>{!soOrcado && <> · Realizado: <strong>{fmt(nodeR(cur))}</strong></>}
                 {filhasOcultas > 0 && <span title="Há linhas marcadas como não visíveis no dashboard. Elas continuam no total acima, por isso as filhas listadas podem não somar o total." style={{ marginLeft: 8, fontWeight: 600, color: '#7048e8', border: '1px solid #d0bfff', borderRadius: 4, padding: '1px 6px' }}>+{filhasOcultas} oculta{filhasOcultas > 1 ? 's' : ''}</span>}
               </div>
               <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: Math.max(200, chartData.length * 40 + 50) }}>
-                <ResponsiveBar theme={nivoTheme()} data={chartData} keys={['Orçado', 'Realizado']} indexBy="filha" layout="horizontal" groupMode="grouped"
-                  margin={{ top: 6, right: 26, bottom: 26, left: 180 }} padding={0.25} innerPadding={2} colors={['#9aa0aa', '#3b5bdb']} enableGridX
+                <ResponsiveBar theme={nivoTheme()} data={chartData} keys={soOrcado ? ['Orçado'] : ['Orçado', 'Realizado']} indexBy="filha" layout="horizontal" groupMode="grouped"
+                  margin={{ top: 6, right: 26, bottom: 26, left: 180 }} padding={0.25} innerPadding={2} colors={soOrcado ? ['#7048e8'] : ['#9aa0aa', '#3b5bdb']} enableGridX
                   valueFormat={(v: any) => fmt(Number(v))} axisBottom={{ format: (v: any) => fmt(Number(v)) }} labelSkipWidth={9999}
                   onClick={(d: any) => { const id = d.data.id; const med: Medida = d.id === 'Orçado' ? 'Orçado' : 'Realizado'; if (childrenVis(id).length) push(id); else abrirRazao(med, id) }}
                   legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]}
-                  tooltip={({ data }: any) => { const o = Number(data['Orçado'] || 0), r = Number(data['Realizado'] || 0), dd = r - o; const bom = natOf(data.id) === 'DESPESA' ? dd <= 0 : dd >= 0; return <div style={{ background: 'var(--panel)', padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, lineHeight: 1.5 }}><strong>{data.filha}</strong><br />Orçado: {fmt(o)}<br />Realizado: <strong>{fmt(r)}</strong><br /><span style={{ color: bom ? '#2f9e44' : '#e03131', fontWeight: 600 }}>Δ (R−O): {(dd >= 0 ? '+' : '') + fmt(dd)}</span></div> }} />
+                  tooltip={({ data }: any) => { const o = Number(data['Orçado'] || 0), r = Number(data['Realizado'] || 0), dd = r - o; const bom = natOf(data.id) === 'DESPESA' ? dd <= 0 : dd >= 0; return <div style={{ background: 'var(--panel)', padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, lineHeight: 1.5 }}><strong>{data.filha}</strong><br />Orçado: <strong>{fmt(o)}</strong>{!soOrcado && <><br />Realizado: <strong>{fmt(r)}</strong><br /><span style={{ color: bom ? '#2f9e44' : '#e03131', fontWeight: 600 }}>Δ (R−O): {(dd >= 0 ? '+' : '') + fmt(dd)}</span></>}</div> }} />
               </div>
               <table style={S.table}>
-                <thead><tr><th style={S.thL}>Filha</th><th style={S.th}>Orçado</th><th style={S.th}>Realizado</th><th style={S.th}>Δ</th><th style={S.th}></th></tr></thead>
+                <thead><tr><th style={S.thL}>Filha</th><th style={S.th}>Orçado</th>{!soOrcado && <><th style={S.th}>Realizado</th><th style={S.th}>Δ</th></>}<th style={S.th}></th></tr></thead>
                 <tbody>
                   {filhas.map(c => { const d = c.R - c.O; const bom = natOf(c.id) === 'DESPESA' ? d <= 0 : d >= 0; return (
                     <tr key={c.id}>
                       <td style={{ ...S.tdL, ...S.rowBtn }} title={c.temFilhas ? 'Descer' : 'Folha'} onClick={() => c.temFilhas && push(c.id)}>{c.temFilhas && <ChevronRight size={12} color="var(--muted)" style={{ verticalAlign: 'middle' }} />} {c.desc}</td>
                       <td style={{ ...S.td, ...S.rowBtn, color: 'var(--muted)' }} title="Razão do orçado" onClick={() => abrirRazao('Orçado', c.id)}>{fmt(c.O)}</td>
-                      <td style={{ ...S.td, ...S.rowBtn, fontWeight: 600, color: '#1971c2' }} title="Razão do realizado" onClick={() => abrirRazao('Realizado', c.id)}>{fmt(c.R)}</td>
-                      <td style={{ ...S.td, fontWeight: 600, color: bom ? '#2f9e44' : '#e03131' }} title="Realizado − Orçado">{(d >= 0 ? '+' : '') + fmt(d)}</td>
-                      <td style={{ ...S.td, ...S.rowBtn }} onClick={() => c.temFilhas ? push(c.id) : abrirRazao('Realizado', c.id)}><ChevronRight size={14} color="var(--muted)" /></td>
+                      {!soOrcado && <>
+                        <td style={{ ...S.td, ...S.rowBtn, fontWeight: 600, color: '#1971c2' }} title="Razão do realizado" onClick={() => abrirRazao('Realizado', c.id)}>{fmt(c.R)}</td>
+                        <td style={{ ...S.td, fontWeight: 600, color: bom ? '#2f9e44' : '#e03131' }} title="Realizado − Orçado">{(d >= 0 ? '+' : '') + fmt(d)}</td>
+                      </>}
+                      <td style={{ ...S.td, ...S.rowBtn }} onClick={() => c.temFilhas ? push(c.id) : abrirRazao(soOrcado ? 'Orçado' : 'Realizado', c.id)}><ChevronRight size={14} color="var(--muted)" /></td>
                     </tr>
                   )})}
                 </tbody>
@@ -245,8 +252,8 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
               <div style={{ fontSize: 14, marginBottom: 10 }}>{byId[cur]?.descricao}</div>
               <div style={{ display: 'flex', gap: 24, justifyContent: 'center', marginBottom: 18 }}>
                 <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Orçado</div><div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-mid)' }}>{fmt(nodeO(cur))}</div></div>
-                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Realizado</div><div style={{ fontSize: 20, fontWeight: 700, color: '#1971c2' }}>{fmt(nodeR(cur))}</div></div>
-                {(() => { const d = nodeR(cur) - nodeO(cur); const bom = natOf(cur) === 'DESPESA' ? d <= 0 : d >= 0; return <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Δ</div><div style={{ fontSize: 20, fontWeight: 700, color: bom ? '#2f9e44' : '#e03131' }}>{(d >= 0 ? '+' : '') + fmt(d)}</div></div> })()}
+                {!soOrcado && <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Realizado</div><div style={{ fontSize: 20, fontWeight: 700, color: '#1971c2' }}>{fmt(nodeR(cur))}</div></div>}
+                {!soOrcado && (() => { const d = nodeR(cur) - nodeO(cur); const bom = natOf(cur) === 'DESPESA' ? d <= 0 : d >= 0; return <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Δ</div><div style={{ fontSize: 20, fontWeight: 700, color: bom ? '#2f9e44' : '#e03131' }}>{(d >= 0 ? '+' : '') + fmt(d)}</div></div> })()}
               </div>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                 <button style={S.btn} onClick={() => abrirRazao('Orçado', cur)}><FileDown size={14} /> Razão do orçado</button>
