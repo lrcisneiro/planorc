@@ -39,7 +39,7 @@ select cco.codigo                                   as conta,
          || ' · sublote ' || coalesce(fr.sublote, '—')         as carga,
        coalesce(fr.dims->>'historico', '(sem histórico)')      as historico,
        coalesce(fr.dims->>'documento', fr.dims->>'doc', '—')   as documento,
-       fr.criado_em                                 as importado_em
+       fr.importado_em                              as importado_em
   from fat_realizado fr
   join conta_contabil cco on cco.id = fr.conta_id
   join empresa e          on e.id  = fr.empresa_id
