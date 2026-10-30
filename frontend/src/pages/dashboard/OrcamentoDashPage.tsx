@@ -47,6 +47,15 @@ const PROJ_ROTULO: Record<Proj, string> = {
 type SecCfg = { sel: string[]; pct: number; minPctTotal: number; resultado?: string }
 const SEC_PADRAO: SecCfg = { sel: [], pct: 10, minPctTotal: 0.5 }
 
+// ── Último estado da tela, por navegador. Mesma mecânica do DRE —
+// Acompanhamento ('planorc_dash_filtro'): sair da tela e voltar não deve
+// custar remarcar as empresas, a versão e o período da análise. É diferente
+// do card salvo (dashboard_card): o card é uma análise com nome, que se
+// compartilha; isto é só "onde eu estava".
+const SAVE = 'planorc_orcdash_filtro'
+function loadSaved(): any { try { return JSON.parse(localStorage.getItem(SAVE) || '{}') } catch { return {} } }
+const arr = (v: any): string[] | null => (Array.isArray(v) ? v : null)
+
 // Uma PONTE exige componentes que NÃO SE SOBREPÕEM: ela decompõe a variação de
 // UMA linha de resultado. Numa DRE, "nível 1" traz subtotais e componentes
 // misturados, e somá-los conta a mesma receita várias vezes.
@@ -87,30 +96,41 @@ export default function OrcamentoDashPage() {
   const [ccs, setCcs] = useState<CC[]>([])
 
   // ── chassi
-  const [relId, setRelId] = useState('')
+  const sv = loadSaved()
+  const [relId, setRelId] = useState<string>(sv.relId || '')
   const [linhas, setLinhas] = useState<LinhaRel[]>([])
-  const [vBase, setVBase] = useState('')
-  const [modo, setModo] = useState<Modo>('ORC')
-  const [vComp, setVComp] = useState('')
-  const [mesIni, setMesIni] = useState(1)
-  const [mesFim, setMesFim] = useState(12)
-  const [proj, setProj] = useState<Proj>('OFF')
+  const [vBase, setVBase] = useState<string>(sv.vBase || '')
+  const [modo, setModo] = useState<Modo>(sv.modo === 'REAL' ? 'REAL' : 'ORC')
+  const [vComp, setVComp] = useState<string>(sv.vComp || '')
+  const [mesIni, setMesIni] = useState<number>(sv.mesIni || 1)
+  const [mesFim, setMesFim] = useState<number>(sv.mesFim || 12)
+  const [proj, setProj] = useState<Proj>(sv.proj && PROJ_ROTULO[sv.proj as Proj] ? sv.proj : 'OFF')
   // Detectado só para AVISAR — o período é quem define o que é real. Antes
   // isto era um controle à parte e duplicava o "até", confundindo.
   const [realAte, setRealAte] = useState(0)
 
   // ── filtros de dimensão
-  const [empresaSel, setEmpresaSel] = useState<string[]>([])
-  const [filialSel, setFilialSel] = useState<string[]>([])
-  const [ccSel, setCcSel] = useState<string[]>([])
-  const [areaSel, setAreaSel] = useState<string[]>([])
-  const [divisaoSel, setDivisaoSel] = useState<string[]>([])
-  const [buSel, setBuSel] = useState<string[]>([])
+  const [empresaSel, setEmpresaSel] = useState<string[]>(arr(sv.empresaSel) || [])
+  const [filialSel, setFilialSel] = useState<string[]>(arr(sv.filialSel) || [])
+  const [ccSel, setCcSel] = useState<string[]>(arr(sv.ccSel) || [])
+  const [areaSel, setAreaSel] = useState<string[]>(arr(sv.areaSel) || [])
+  const [divisaoSel, setDivisaoSel] = useState<string[]>(arr(sv.divisaoSel) || [])
+  const [buSel, setBuSel] = useState<string[]>(arr(sv.buSel) || [])
 
   // ── seções
   const [secPonte, setSecPonte] = useState<SecCfg>(SEC_PADRAO)
   const [secVar, setSecVar] = useState<SecCfg>(SEC_PADRAO)
   const [secAcur, setSecAcur] = useState<SecCfg>(SEC_PADRAO)
+  // Configuração de seção vinda de FORA (estado salvo ou card) espera aqui até
+  // as linhas do relatório chegarem — é só então que dá para saber se os ids
+  // ainda existem. Sem essa espera o padrão derivado da estrutura chega depois
+  // e sobrescreve o que a pessoa escolheu: era essa corrida que fazia o card
+  // reabrir com as seções no padrão, e não como foram salvas.
+  const pendSec = useRef<Partial<Record<'secPonte' | 'secVar' | 'secAcur', SecCfg>> | null>(
+    sv.secPonte || sv.secVar || sv.secAcur
+      ? { secPonte: sv.secPonte, secVar: sv.secVar, secAcur: sv.secAcur }
+      : null,
+  )
 
   const [dados, setDados] = useState<null | {
     base: Record<string, number>; comp: Record<string, number>
@@ -118,7 +138,7 @@ export default function OrcamentoDashPage() {
     mensalBase: Record<string, number[]>
   }>(null)
   const [carregando, setCarregando] = useState(false)
-  const { nome: cardNome } = useCardPreset('/dashboards/orcamento', (f: any) => {
+  const { cardId, nome: cardNome } = useCardPreset('/dashboards/orcamento', (f: any) => {
     if (!f) return
     f.relId && setRelId(f.relId); f.vBase && setVBase(f.vBase); f.vComp && setVComp(f.vComp)
     f.modo && setModo(f.modo); f.proj && setProj(f.proj)
@@ -128,16 +148,38 @@ export default function OrcamentoDashPage() {
     f.divisaoSel && setDivisaoSel(f.divisaoSel); f.buSel && setBuSel(f.buSel)
     // Com seleção de linha e limiar POR SEÇÃO, o preset guarda a configuração
     // inteira da análise — "Revisão do orçamento 2027" reabre tudo como estava.
-    f.secPonte && setSecPonte(f.secPonte); f.secVar && setSecVar(f.secVar); f.secAcur && setSecAcur(f.secAcur)
+    // Pelos dois caminhos: a fila cobre o caso de o relatório mudar (as linhas
+    // serão buscadas de novo), e o setState cobre o caso de ele ser o mesmo
+    // (nenhuma busca acontece, então ninguém consome a fila).
+    if (f.secPonte || f.secVar || f.secAcur) {
+      pendSec.current = { secPonte: f.secPonte, secVar: f.secVar, secAcur: f.secAcur }
+      f.secPonte && setSecPonte(f.secPonte); f.secVar && setSecVar(f.secVar); f.secAcur && setSecAcur(f.secAcur)
+    }
   })
   const [erro, setErro] = useState<string | null>(null)
 
   // ── catálogos (pequenos: dispensam pageAll)
   useEffect(() => {
-    supabase.from('relatorio').select('id,nome').order('nome').then(r => setRelatorios(r.data || []))
+    // O padrão (versão mais nova, todas as empresas) só entra se não houver
+    // escolha salva — e a salva só vale se o id ainda existir. Um id morto
+    // deixaria a tela vazia parecendo defeito, que é pior que voltar ao padrão.
+    supabase.from('relatorio').select('id,nome').order('nome').then(r => {
+      const rs = r.data || []; setRelatorios(rs)
+      setRelId(p => (!p || rs.some((x: any) => x.id === p) ? p : ''))
+    })
     supabase.from('versao_orcamento').select('id,codigo,ano').order('ano', { ascending: false }).order('codigo')
-      .then(r => { const v = r.data || []; setVersoes(v); if (v[0]) { setVBase(v[0].id); setVComp(v[1]?.id ?? v[0].id) } })
-    supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => { setEmpresas(r.data || []); setEmpresaSel((r.data || []).map((e: any) => e.id)) })
+      .then(r => {
+        const v = r.data || []; setVersoes(v)
+        if (!v.length) return
+        const vive = (id: string) => v.some((x: any) => x.id === id)
+        setVBase(p => (p && vive(p) ? p : v[0].id))
+        setVComp(p => (p && vive(p) ? p : (v[1]?.id ?? v[0].id)))
+      })
+    supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => {
+      const es = r.data || []; setEmpresas(es)
+      const ids = es.map((e: any) => e.id)
+      setEmpresaSel(p => { const vivos = p.filter(id => ids.includes(id)); return vivos.length ? vivos : ids })
+    })
     supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo').then(r => setFiliais(r.data || []))
     supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo')
       .then(r => setCcs((r.data || []) as CC[]))
@@ -157,8 +199,21 @@ export default function OrcamentoDashPage() {
         // Linha de resultado padrão: a primeira de NÍVEL 1 cujos componentes a
         // estrutura sabe derivar — critério estrutural, não de nome.
         const res = n1.find(l => componentesDe(l, ls).length) ?? n1[0]
-        setSecPonte({ ...SEC_PADRAO, resultado: res?.id, sel: componentesDe(res, ls) })
-        setSecVar(s => ({ ...s, sel: ids })); setSecAcur(s => ({ ...s, sel: ids }))
+        // A configuração salva/do card vence o padrão — mas só nas linhas que
+        // sobreviveram a uma reestruturação do relatório. Se não sobrou
+        // nenhuma, é porque a configuração era de outro relatório: volta ao
+        // padrão em vez de abrir a seção vazia.
+        const pend = pendSec.current; pendSec.current = null
+        const vivos = new Set(ls.map(l => l.id))
+        const ou = (cfg: SecCfg | undefined, padrao: SecCfg): SecCfg => {
+          if (!cfg) return padrao
+          const sel = (cfg.sel || []).filter(id => vivos.has(id))
+          if (!sel.length) return padrao
+          return { ...cfg, sel, resultado: cfg.resultado && vivos.has(cfg.resultado) ? cfg.resultado : padrao.resultado }
+        }
+        setSecPonte(ou(pend?.secPonte, { ...SEC_PADRAO, resultado: res?.id, sel: componentesDe(res, ls) }))
+        setSecVar(p => ou(pend?.secVar, { ...p, sel: ids }))
+        setSecAcur(p => ou(pend?.secAcur, { ...p, sel: ids }))
       })
   }, [relId])
 
@@ -172,6 +227,21 @@ export default function OrcamentoDashPage() {
     supabase.from('fat_realizado').select('mes').eq('ano', anoComp).order('mes', { ascending: false }).limit(1)
       .then(r => setRealAte((r.data?.[0] as any)?.mes ?? 0))
   }, [anoComp])
+
+  // ── uma só descrição do estado da tela, para os DOIS destinos
+  // O localStorage ("onde eu estava") e o card salvo ("a análise com nome")
+  // guardam a mesma coisa. Com duas listas separadas elas divergem, e o
+  // sintoma é um filtro que o card silenciosamente não guarda.
+  const estado = () => ({
+    relId, vBase, modo, vComp, mesIni, mesFim, proj,
+    empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel,
+    secPonte, secVar, secAcur,
+  })
+  useEffect(() => {
+    if (cardId) return   // vendo um card: não contaminar o estado próprio da tela
+    localStorage.setItem(SAVE, JSON.stringify(estado()))
+  }, [cardId, relId, vBase, modo, vComp, mesIni, mesFim, proj,
+      empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, secPonte, secVar, secAcur]) // eslint-disable-line
 
   const meses = useMemo(() => Array.from({ length: Math.max(0, mesFim - mesIni + 1) }, (_, i) => mesIni + i), [mesIni, mesFim])
   // os meses DEPOIS do período, até dezembro
@@ -284,8 +354,7 @@ export default function OrcamentoDashPage() {
           <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, color: 'var(--text)' }}>Orçamento — análise{cardNome ? ` · ${cardNome}` : ''}</h1>
         </div>
         <div style={{ display: 'flex', gap: 8 }} data-noexport>
-          <SalvarCardButton base="/dashboards/orcamento" cor="#5f3dc4"
-            getFiltros={() => ({ relId, vBase, modo, vComp, mesIni, mesFim, proj, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, secPonte, secVar, secAcur })} />
+          <SalvarCardButton base="/dashboards/orcamento" cor="#5f3dc4" cardId={cardId} getFiltros={estado} />
           <ExportarButton alvo={dashRef} nome="orcamento" titulo="Orçamento — análise"
             legenda={`${versao(vBase)?.codigo ?? ''} × ${rotuloComp} · ${MES[mesIni - 1]}–${MES[mesFim - 1]}`} />
         </div>
