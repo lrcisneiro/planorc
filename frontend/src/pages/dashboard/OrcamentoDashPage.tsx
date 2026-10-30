@@ -564,8 +564,35 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
   const candidatos = useMemo(
     () => linhas.filter((l: LinhaRel) => (l.tipo_linha === 'INDICADOR' || l.tipo_linha === 'FORMULA') && !l.desativada),
     [linhas])
-  // Vazio = todos. Seção que nasce vazia parece quebrada.
-  const cards = indicSel.length ? candidatos.filter((l: LinhaRel) => indicSel.includes(l.id)) : candidatos
+  // `indicSel` é a ORDEM, não só o filtro. A ordem da estrutura chega
+  // embaralhada aqui porque as linhas de indicador ficam espalhadas pela
+  // árvore — EBITDA perto do resultado, LER lá embaixo, margens no meio de
+  // cada bloco. Faz sentido na DRE e nenhum num painel.
+  //
+  // Vazio = todos, na ordem da estrutura. Seção que nasce vazia parece quebrada.
+  const cards = indicSel.length
+    ? indicSel.map((id: string) => candidatos.find((l: LinhaRel) => l.id === id)).filter(Boolean) as LinhaRel[]
+    : candidatos
+
+  // Arrastar o card é o gesto natural para reordenar; o modal continua, para
+  // escolher QUAIS. Como `indicSel` já é a ordem, arrastar só reordena o array.
+  //
+  // Com nada escolhido a lista é "todos na ordem da estrutura" e não existe
+  // array para mexer — então o primeiro arrasto MATERIALIZA a ordem visível
+  // antes de aplicar o movimento. Sem isso, o primeiro arrasto não teria efeito
+  // e pareceria que a tela ignorou o gesto.
+  const [arrasto, setArrasto] = useState<string | null>(null)
+  const [sobre, setSobre] = useState<string | null>(null)
+  const soltar = (destinoId: string) => {
+    const origemId = arrasto
+    setArrasto(null); setSobre(null)
+    if (!origemId || origemId === destinoId) return
+    const ordem: string[] = indicSel.length ? [...indicSel] : cards.map((l: LinhaRel) => l.id)
+    const de = ordem.indexOf(origemId), para = ordem.indexOf(destinoId)
+    if (de < 0 || para < 0) return
+    ordem.splice(para, 0, ...ordem.splice(de, 1))
+    setIndicSel(ordem)
+  }
 
   const alvo = cfg.resultado ? linhas.find((l: LinhaRel) => l.id === cfg.resultado) : null
   const partes: string[] = useMemo(() => componentesDe(alvo, linhas), [alvo, linhas])
@@ -590,7 +617,7 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
           <div><div style={S.secT}>Indicadores do orçamento</div>
             <div style={S.secD}>
               As medidas que a <strong>estrutura do relatório</strong> já define, com o valor orçado de {rotuloBase}.
-              O Δ compara com {rotuloComp}.
+              O Δ compara com {rotuloComp}. <span style={{ color: 'var(--faint)' }}>Arraste um card para reordenar.</span>
             </div></div>
           <button style={{ ...S.sel, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
             onClick={() => setPick(true)} data-noexport>
@@ -610,8 +637,20 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
               const pct = vc !== 0 ? (d / Math.abs(vc)) * 100 : null
               // Mesma regra da tabela de variação: custo é bom quando encolhe.
               const bom = fac(l.id) === -1 ? Math.abs(v) < Math.abs(vc) : v > vc
+              const alvoSolta = sobre === l.id && arrasto && arrasto !== l.id
               return (
-                <div key={l.id} style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: 15 }}>
+                <div key={l.id} draggable
+                  onDragStart={e => { setArrasto(l.id); e.dataTransfer.effectAllowed = 'move' }}
+                  onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (sobre !== l.id) setSobre(l.id) }}
+                  onDragLeave={() => { if (sobre === l.id) setSobre(null) }}
+                  onDrop={e => { e.preventDefault(); soltar(l.id) }}
+                  onDragEnd={() => { setArrasto(null); setSobre(null) }}
+                  title="Arraste para reordenar"
+                  style={{ background: 'var(--panel)', borderRadius: 12, padding: 15, cursor: 'grab',
+                    border: '1px solid ' + (alvoSolta ? 'var(--violet)' : 'var(--border)'),
+                    boxShadow: alvoSolta ? '0 0 0 3px rgba(139,92,246,0.18)' : 'none',
+                    opacity: arrasto === l.id ? 0.45 : 1,
+                    transition: 'box-shadow .12s, opacity .12s' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 500, flex: 1, minWidth: 0 }}>{l.descricao}</div>
                     <ChipMeta valor={v} meta={resolverMeta(metas, l.id, anoBase, null)} />
@@ -690,27 +729,63 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
         </div>
       </div>
 
-      {pick && (
+      {pick && (() => {
+        const noPainel = indicSel.map((id: string) => candidatos.find((l: LinhaRel) => l.id === id)).filter(Boolean) as LinhaRel[]
+        const fora = candidatos.filter((l: LinhaRel) => !indicSel.includes(l.id))
+        const mover = (i: number, d: number) => {
+          const n = [...indicSel]; const j = i + d
+          if (j < 0 || j >= n.length) return
+          ;[n[i], n[j]] = [n[j], n[i]]; setIndicSel(n)
+        }
+        const lin: any = { display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', fontSize: 13, borderBottom: '1px solid var(--border)' }
+        const mini: any = { background: 'none', border: 0, color: 'var(--muted)', cursor: 'pointer', padding: 2, display: 'inline-flex' }
+        return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }} onClick={() => setPick(false)}>
-          <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, padding: 20, width: 420, maxWidth: '94vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={(e: any) => e.stopPropagation()}>
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, padding: 20, width: 460, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={(e: any) => e.stopPropagation()}>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>Indicadores no painel</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>Nenhum marcado = todos.</div>
-            <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
-              {candidatos.map((l: LinhaRel) => (
-                <label key={l.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '5px 10px', fontSize: 13, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={indicSel.includes(l.id)}
-                    onChange={() => setIndicSel(indicSel.includes(l.id) ? indicSel.filter((x: string) => x !== l.id) : [...indicSel, l.id])} />
-                  <span style={{ color: indicSel.includes(l.id) ? 'var(--text)' : 'var(--muted)' }}>{l.descricao}</span>
-                </label>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+              A ordem desta lista é a ordem dos cards. Sem nenhum escolhido, aparecem todos na ordem da estrutura — que vem embaralhada, porque na DRE cada indicador fica perto da sua seção.
+            </div>
+
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--faint)', fontWeight: 600, margin: '0 0 6px' }}>No painel ({noPainel.length})</div>
+            {!noPainel.length ? (
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0 10px' }}>Nenhum escolhido — mostrando todos.</div>
+            ) : (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, marginBottom: 14, overflow: 'hidden' }}>
+                {noPainel.map((l, i) => (
+                  <div key={l.id} style={{ ...lin, borderBottom: i === noPainel.length - 1 ? 'none' : lin.borderBottom }}>
+                    <span style={{ width: 20, color: 'var(--faint)', fontSize: 11, textAlign: 'right' }}>{i + 1}</span>
+                    <span style={{ flex: 1, color: 'var(--text)' }}>{l.descricao}</span>
+                    <button style={{ ...mini, opacity: i === 0 ? 0.3 : 1 }} disabled={i === 0} title="Subir" onClick={() => mover(i, -1)}><ChevronUp size={14} /></button>
+                    <button style={{ ...mini, opacity: i === noPainel.length - 1 ? 0.3 : 1 }} disabled={i === noPainel.length - 1} title="Descer" onClick={() => mover(i, 1)}><ChevronDown size={14} /></button>
+                    <button style={{ ...mini, color: 'var(--red)' }} title="Tirar do painel" onClick={() => setIndicSel(indicSel.filter((x: string) => x !== l.id))}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--faint)', fontWeight: 600, margin: '0 0 6px' }}>Disponíveis ({fora.length})</div>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 8, maxHeight: 240, overflowY: 'auto' }}>
+              {!fora.length ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 10px' }}>Todos já estão no painel.</div> : fora.map((l: LinhaRel, i: number) => (
+                <div key={l.id} style={{ ...lin, cursor: 'pointer', borderBottom: i === fora.length - 1 ? 'none' : lin.borderBottom }}
+                  onClick={() => setIndicSel([...indicSel, l.id])}>
+                  <span style={{ flex: 1, color: 'var(--muted)' }}>{l.descricao}</span>
+                  <span style={{ color: 'var(--violet)', fontSize: 12, fontWeight: 600 }}>+ adicionar</span>
+                </div>
               ))}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-              <button style={S.sel} onClick={() => setIndicSel([])}>Limpar</button>
-              <button style={{ ...S.sel, borderColor: 'var(--violet)', color: 'var(--violet)' }} onClick={() => setPick(false)}>Fechar</button>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 14 }}>
+              <button style={{ ...S.sel, cursor: 'pointer' }} onClick={() => setIndicSel(candidatos.map((l: LinhaRel) => l.id))}>Adicionar todos</button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button style={{ ...S.sel, cursor: 'pointer' }} onClick={() => setIndicSel([])}>Limpar</button>
+                <button style={{ ...S.sel, cursor: 'pointer', borderColor: 'var(--violet)', color: 'var(--violet)' }} onClick={() => setPick(false)}>Fechar</button>
+              </div>
             </div>
           </div>
         </div>
-      )}
+        )
+      })()}
     </>
   )
 }
