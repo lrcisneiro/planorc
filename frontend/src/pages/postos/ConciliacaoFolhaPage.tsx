@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
 import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
@@ -152,7 +153,7 @@ export default function ConciliacaoFolhaPage() {
   useEffect(() => {
     (async () => {
       const [v, e, f, c, ff] = await Promise.all([
-        carregarVersoes().then(data => ({ data })),
+        carregarVersoes('id,codigo,ano').then(data => ({ data })),
         supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
         supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
         supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
@@ -232,6 +233,16 @@ export default function ConciliacaoFolhaPage() {
     }
   }, [compSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, filiais, empresas, ccs, acesso.loading]) // eslint-disable-line
 
+  // ⚠ Versão de um ano × competência de outro devolve ZERO em silêncio.
+  // O quadro busca o orçado por (versao_id, ano, mes) e o `ano` vem da
+  // COMPETÊNCIA — mas o Aplicar grava o quadro no ano DA VERSÃO. Escolher
+  // Orçado2027 com Set/2026 procura 2027 dentro de 2026 e não acha: a tela
+  // mostra R$ 0,00, −100% e joga todo mundo em "realizado sem orçamento", que
+  // se lê como "ninguém foi orçado" — a conclusão errada mais cara desta tela.
+  const anoComp = compSel ? Number(compSel.split('-')[0]) : null
+  const anoVersao = versoes.find((v: any) => v.id === versaoSel)?.ano ?? null
+  const anosDiferem = anoComp != null && anoVersao != null && anoComp !== anoVersao
+
   return (
     <div style={S.page}>
       <div style={S.top}>
@@ -253,6 +264,17 @@ export default function ConciliacaoFolhaPage() {
           <button style={tab(abaSel === 'apontamento')} onClick={() => setAbaSel('apontamento')}>Apontamento × Folha</button>}
       </div>
 
+      {anosDiferem && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.35)', borderRadius: 10, padding: '10px 13px', margin: '0 0 12px', fontSize: 12.5, color: 'var(--text-mid)', lineHeight: 1.55 }}>
+          <AlertTriangle size={15} style={{ color: 'var(--orange)', flexShrink: 0, marginTop: 1 }} />
+          <span>
+            A versão <b>{versoes.find((v: any) => v.id === versaoSel)?.codigo}</b> é de <b>{anoVersao}</b> e a
+            competência escolhida é de <b>{anoComp}</b>. O orçado é buscado no ano da competência, então esta
+            combinação devolve <b>orçado zero</b> e joga todos os postos em “realizado sem orçamento” —
+            não é que ninguém foi orçado. Escolha uma competência de {anoVersao}, ou a versão de {anoComp}.
+          </span>
+        </div>
+      )}
       <div style={S.bar}>
         {abaSel === 'orcado' && <div style={S.fld}><span style={S.lbl}>Versão (orçado)</span>
           <select style={S.sel} value={versaoSel} onChange={e => setVersaoSel(e.target.value)}>
