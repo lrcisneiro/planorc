@@ -51,6 +51,13 @@ export const CAPACIDADES: Capacidade[] = [
   { key: 'dash.indicadores',    label: '· Indicadores',            categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },
   { key: 'menu.relatorios', label: 'Relatórios',              categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },
   { key: 'menu.orcamento',  label: 'Orçamento',               categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
+  // Três telas do grupo Orçamento dividiam `menu.orcamento`: a de dados, a
+  // grade de Orçar e o formulário de drivers. Liberar uma liberava as três, e
+  // não dava para dar a grade a um diretor sem dar junto os drivers, que são
+  // premissas do grupo. Cada uma com a sua; o padrão repete o que valia antes
+  // para não tirar acesso de ninguém ao aplicar.
+  { key: 'menu.orcar.grade', label: '· Orçar (grade)',          categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
+  { key: 'menu.formularios', label: '· Formulário de drivers',  categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
   { key: 'menu.estruturas', label: 'Estruturas de relatórios', categoria: 'Menu', padrao: { admin: true, member: false, viewer: false } },
   { key: 'menu.postos',     label: 'Posto de trabalho (folha)', categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
   // Os PASSOS de Posto de trabalho. Gateados um a um porque o diretor de área
