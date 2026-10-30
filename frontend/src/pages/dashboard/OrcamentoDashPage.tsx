@@ -460,7 +460,7 @@ export default function OrcamentoDashPage() {
           <Ponte S={S} cfg={secPonte} setCfg={setSecPonte} linhas={linhas} nome={nome}
             base={dados.base} comp={dados.comp} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
 
-          <Variacao S={S} cfg={secVar} setCfg={setSecVar} linhas={linhas} nome={nome}
+          <Variacao S={S} cfg={secVar} setCfg={setSecVar} linhas={linhas} nome={nome} fac={fac}
             base={dados.base} comp={dados.comp} val={val} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
 
           <Acuracia S={S} cfg={secAcur} setCfg={setSecAcur} linhas={linhas} nome={nome}
@@ -741,7 +741,7 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
 // Limiar DUPLO: percentual E valor mínimo, juntos. 40% numa conta de R$ 800 é
 // ruído; 3% na folha é a maior conversa do orçamento. Só o percentual enche a
 // tela de bobagem; só o absoluto esconde a conta pequena que dobrou.
-function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, rotuloBase, rotuloComp }: any) {
+function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBase, rotuloComp }: any) {
   // O limiar foca a atenção; esconder o resto para sempre tira a conferência.
   const [todas, setTodas] = useState(false)
   const total = cfg.sel.reduce((s: number, id: string) => s + Math.abs(val(base, id)), 0)
@@ -750,6 +750,21 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, rotuloBase, r
     const b = val(base, id), c = val(comp, id)
     return { id, nome: nome(id), b, c, d: b - c, pct: c !== 0 ? ((b - c) / Math.abs(c)) * 100 : (b !== 0 ? Infinity : 0) }
   })
+  // ⚠ A cor diz BOM ou RUIM, não positivo ou negativo. Numa despesa, cair é
+  // bom: Custo Pessoas −9,8 mi pintado de vermelho lê exatamente ao contrário
+  // do que aconteceu.
+  //
+  // O critério sai do MESMO lugar que decide como o número é exibido: a linha
+  // que o `fatorExibicao` inverte (natureza DESPESA, própria ou herdada do
+  // pai) é a que aparece com despesa positiva, e nela a queda é a melhora. As
+  // outras — receita, e as NEUTRAS como EBITDA ou Resultado Financeiro —
+  // mostram o sinal cru, e aí subir é que é bom.
+  //
+  // Vem de graça o caso que engana: `Impostos s/ faturamento` aparece
+  // NEGATIVO, logo não é DESPESA na estrutura, logo não inverte — e o vermelho
+  // dele, quando o imposto cresce, continua certo. Os dois comportamentos numa
+  // regra só porque exibição e semântica saem da mesma natureza.
+  const bom = (x: any) => (fac?.(x.id) === -1 ? x.d < 0 : x.d > 0)
   const marca = (x: any) => Math.abs(x.d) >= minAbs && (Math.abs(x.pct) >= cfg.pct || !Number.isFinite(x.pct))
   const destaque = linhasTodas.filter(marca).sort((a: any, b: any) => Math.abs(b.d) - Math.abs(a.d))
   const resto = linhasTodas.filter((x: any) => !marca(x))
@@ -762,6 +777,7 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, rotuloBase, r
         <div><div style={S.secT}>O que mudou</div>
           <div style={S.secD}>
             Ordenado por <strong>impacto</strong>, não por tamanho. Marcado o que passa de {cfg.pct}% <em>e</em> de {cfg.minPctTotal}% do total ({fmt(minAbs)}).
+            {' '}<span style={{ color: 'var(--green)' }}>Verde</span> é melhora e <span style={{ color: 'var(--red)' }}>vermelho</span> é piora — numa despesa, cair é melhorar.
             {resto.length > 0 && (
               <span data-noexport style={{ marginLeft: 8, color: 'var(--violet)', cursor: 'pointer' }} onClick={() => setTodas(v => !v)}>
                 {todas ? `ver só as ${destaque.length} acima do limiar` : `mostrar todas as ${todas0} linhas`}
@@ -777,7 +793,13 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, rotuloBase, r
           { key: 'c', label: String(rotuloComp), num: true, render: (r: any) => fmt(r.c) },
           { key: 'b', label: String(rotuloBase), num: true, render: (r: any) => fmt(r.b) },
           { key: 'd', label: 'variação', num: true,
-            render: (r: any) => <span style={{ color: r.d >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{r.d >= 0 ? '+' : ''}{fmt(r.d)}</span> },
+            render: (r: any) => (
+              <span style={{ color: r.d === 0 ? 'var(--muted)' : bom(r) ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}
+                    title={r.d === 0 ? 'sem variação'
+                      : `${bom(r) ? 'Melhora' : 'Piora'} o resultado · ${fac?.(r.id) === -1 ? 'linha de despesa (cair é bom)' : 'cair é ruim'}`}>
+                {r.d >= 0 ? '+' : ''}{fmt(r.d)}
+              </span>
+            ) },
           { key: 'pct', label: '%', num: true, bruto: (r: any) => (Number.isFinite(r.pct) ? r.pct : null),
             render: (r: any) => <span style={{ color: 'var(--muted)' }}>{Number.isFinite(r.pct) ? fmtPct(r.pct) : 'novo'}</span> },
         ]}
