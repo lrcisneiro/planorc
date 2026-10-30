@@ -24,6 +24,7 @@ import OrcadoDadosPage from './pages/orcamento/OrcadoDadosPage'
 import RealizadoDadosPage from './pages/realizado/RealizadoDadosPage'
 import DashboardPage from './pages/dashboard/DashboardPage'
 import DashboardsHubPage from './pages/dashboard/DashboardsHubPage'
+import OrcamentoDashPage from './pages/dashboard/OrcamentoDashPage'
 import ComparativoAnualPage from './pages/dashboard/ComparativoAnualPage'
 import CagrPage from './pages/dashboard/CagrPage'
 import ExecutivoPage from './pages/dashboard/ExecutivoPage'
@@ -260,6 +261,7 @@ function Shell({ session }: { session: Session }) {
                 em branco. */}
             <Route path="/nova-senha" element={<Navigate to="/dashboards" replace />} />
             <Route path="/dashboards"      element={<DashboardsHubPage />} />
+            <Route path="/dashboards/orcamento" element={<OrcamentoDashPage />} />
             <Route path="/dashboards/anual"     element={<ComparativoAnualPage />} />
             <Route path="/dashboards/cagr"      element={<CagrPage />} />
             <Route path="/dashboards/executivo" element={<ExecutivoPage />} />

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
-import { LayoutDashboard, BarChart3, Scale, Gauge, TrendingUp, ListChecks, Bookmark, Trash2, Pencil } from 'lucide-react'
+import { LayoutDashboard, BarChart3, Scale, Gauge, TrendingUp, ListChecks, Bookmark, Trash2, Pencil, ClipboardCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { T } from '../../lib/theme'
 
 const CARDS = [
   { to: '/dashboard',            titulo: 'DRE — Acompanhamento', desc: 'Execução orçado × realizado de UM ano, em granularidade mensal, trimestral ou semestral.', icon: LayoutDashboard, cor: '#3b5bdb' },
+  { to: '/dashboards/orcamento', titulo: 'Orçamento — análise', desc: 'Avalia o orçamento ANTES de aprovar: de onde vem a variação, o que mudou e se dá para acreditar em quem fez.', icon: ClipboardCheck, cor: '#5f3dc4' },
   { to: '/dashboards/anual',     titulo: 'DRE — Comparativo anual', desc: 'Compare vários anos lado a lado (Receita, EBITDA, Resultado…). Lê o cubo anual — rápido.', icon: BarChart3, cor: '#2f9e44' },
   { to: '/balanco',             titulo: 'Balanço', desc: 'Indicadores e índices patrimoniais: liquidez, endividamento, ciclo, estrutura.', icon: Scale, cor: '#7048e8' },
   { to: '/dashboards/executivo', titulo: 'Visão executiva', desc: 'KPIs de alto nível do ano: receita, EBITDA, resultado e execução orçamentária.', icon: Gauge, cor: '#e8590c' },

@@ -1,6 +1,7 @@
 # DESIGN — Dashboard de Orçamento
 
-Proposta (out/2026). **Não implementado.** Para discussão antes de construir.
+Out/2026. **Primeira versão implementada** em `/dashboards/orcamento`: o chassi
+completo e os blocos 1 a 4. Os demais seguem propostos.
 
 > **Procedência:** a primeira versão saiu de conhecimento geral de FP&A. Depois
 > foi confrontada com pesquisa (fontes no fim), que confirmou a ponte e o
@@ -272,8 +273,24 @@ margem está dizendo algo que o valor absoluto não diz.
 
 ## Primeira versão — o que eu faria agora
 
-**1, 2, 3 e 4.** Juntos já respondem "devo aprovar": de onde vem o crescimento,
-o que mudou, dá para acreditar em quem fez, e o que foi feito no automático.
+**1, 2, 3 e 4 — feitos.** Juntos já respondem "devo aprovar": de onde vem o
+crescimento, o que mudou, dá para acreditar em quem fez, e o que foi feito no
+automático.
+
+Decisões da implementação que valem registro:
+
+- **Cada série é uma chamada de `totaisRelatorio`**, com faixas de meses
+  diferentes. A projeção se compõe daí — realizado em `jan…fechado` mais a
+  estimativa em `fechado+1…fim` —, sem precisar de dado mensal cru. O motor do
+  relatório (rollup de `SOMAR_FILHOS`, fórmulas) vem junto de graça.
+- **O "fechado até" é detectado como sugestão e é editável.** O mês corrente
+  aparece parcial no razão; tomá-lo por fechado contamina duas vezes — entra
+  menor e ainda puxa a média que projeta o resto do ano.
+- **O mês início/fim é próprio, não o `PeriodPicker`.** Aquele escolhe pares
+  (ano, mês), e aqui o ano vem da versão — pedir o ano de novo deixaria montar
+  um par inconsistente.
+- **O detector de "linha reta" precisa do mensal**, então a base é buscada mês
+  a mês em paralelo. É o mesmo dado que alimentará a sazonalidade (bloco 8).
 
 5 e 6 na sequência — a cobertura porque é o erro que mais dói, e as premissas
 porque são a conversa real.

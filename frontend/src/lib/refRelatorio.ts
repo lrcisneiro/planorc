@@ -36,7 +36,7 @@ export const COLS_LINHA = 'id,pai_id,codigo,descricao,tipo_linha,expressao,desat
 // certo é pior do que número nenhum, porque parece só uma diferença.
 // A natureza é herdada do pai, como no editor: a linha analítica costuma não
 // declarar a sua, quem declara é o bloco de Despesas acima dela.
-function fatorExibicao(id: string, byId: Record<string, LinhaRel>): number {
+export function fatorExibicao(id: string, byId: Record<string, LinhaRel>): number {
   let cur: LinhaRel | undefined = byId[id]
   for (let g = 0; cur && g < 60; g++) {
     if (cur.natureza === 'RECEITA' || cur.natureza === 'DESPESA') return cur.natureza === 'DESPESA' ? -1 : 1
