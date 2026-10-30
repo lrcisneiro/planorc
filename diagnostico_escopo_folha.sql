@@ -1,53 +1,60 @@
 -- ============================================================
 -- CPESSOAS, FDIR e FAPOIO têm a MESMA fórmula: -1*([201]+[202]+[203]).
--- O que as separa é o `filtro_escopo` — o recorte de centro de custo de cada
--- uma. Esta consulta mostra esse recorte e confere se ele fecha.
+-- O que as separa é o `filtro_escopo`, e ele recorta por ÁREA:
+--   CPESSOAS  sem filtro (todas)      FDIR  áreas 2,3,5      FAPOIO  áreas 1,4
 --
--- Por que importa: se FDIR e FAPOIO não forem partição de CPESSOAS — isto é,
--- se algum CC ficar de fora dos dois, ou entrar nos dois —, então
---   PESTRUT = FAPOIO/(FDIR+FAPOIO)   mente sobre a proporção,
---   MGBRUTA = MCPRE - FDIR           tira folha a menos (ou a mais),
---   DLER, MLER, LERM                 herdam o erro.
--- E nada na tela denuncia: as três linhas calculam, só calculam coisas
--- diferentes do que os nomes prometem.
+-- Para FDIR + FAPOIO = CPESSOAS, as áreas 1..5 precisam cobrir TODO centro de
+-- custo que tenha folha. Área fora dessa lista, ou CC sem área, entra no
+-- CPESSOAS e em nenhum dos dois — e aí:
+--   PESTRUT = FAPOIO/(FDIR+FAPOIO)   mente sobre a proporção de estrutura,
+--   MGBRUTA = MCPRE - FDIR           tira folha a menos,
+--   DLER, MLER, LERM                 herdam.
+-- Nada na tela denuncia: as linhas calculam, só calculam coisa diferente do
+-- que os nomes prometem.
+--
+-- ⚠ A versão anterior desta consulta olhava `filtro_escopo->'cc'` e devolvia
+-- vazio porque o recorte é por 'area'. Vazio por olhar a chave errada parece
+-- "está tudo certo", que é o pior resultado possível num diagnóstico.
 --
 -- Só leitura. Uma consulta só.
 -- ============================================================
 with alvo as (
-  select rl.id, rl.codigo, rl.descricao, rl.filtro_escopo
+  select rl.codigo, rl.filtro_escopo
     from relatorio_linha rl
     join relatorio r on r.id = rl.relatorio_id
-   where r.nome ilike '%DRE Gerencial%'
-     and rl.codigo in ('CPESSOAS', 'FDIR', 'FAPOIO')
+   where r.nome ilike '%DRE Gerencial%' and rl.codigo in ('FDIR','FAPOIO')
 ),
--- os CCs que cada linha recorta (chave `cc` do filtro_escopo)
-ccs_linha as (
-  select a.codigo, a.descricao, c.cc_id
-    from alvo a
-    left join lateral jsonb_array_elements_text(coalesce(a.filtro_escopo->'cc', '[]'::jsonb)) c(cc_id) on true
+areas_linha as (
+  select a.codigo, x.area
+    from alvo a, lateral jsonb_array_elements_text(coalesce(a.filtro_escopo->'area','[]'::jsonb)) x(area)
+),
+-- toda área que aparece em centro de custo ATIVO, com quantos CCs tem
+areas_cc as (
+  select coalesce(cc.area_cod, '(sem área)') as area,
+         coalesce(max(cc.area_nome), '—')    as area_nome,
+         count(*)                            as ccs
+    from centro_custo cc where cc.ativo
+   group by 1
+),
+-- quanto de folha (contas 201/202/203 via master) cada área tem orçado
+folha as (
+  select coalesce(cc.area_cod, '(sem área)') as area, round(sum(fo.valor), 2) as valor
+    from fat_orcado fo
+    join centro_custo cc on cc.id = fo.cc_id
+    join conta_orcamentaria co on co.id = fo.linha_id
+   where co.codigo like '201%' or co.codigo like '202%' or co.codigo like '203%'
+   group by 1
 )
-select '1 · recorte de cada linha' as secao,
-       a.codigo                     as a,
-       a.descricao                  as b,
-       case when a.filtro_escopo is null or a.filtro_escopo = '{}'::jsonb
-            then 'SEM filtro — pega TODOS os centros de custo'
-            else coalesce(jsonb_array_length(a.filtro_escopo->'cc'), 0) || ' CC(s) · '
-                 || coalesce(jsonb_array_length(a.filtro_escopo->'area'), 0) || ' área(s) · '
-                 || coalesce(jsonb_array_length(a.filtro_escopo->'bu'), 0) || ' BU(s)' end as c,
-       coalesce(a.filtro_escopo::text, '—') as d
-  from alvo a
-union all
--- CC que está em FDIR e em FAPOIO ao mesmo tempo: contado duas vezes
-select '2 · CC em FDIR **e** FAPOIO (conta duas vezes)', cc.codigo, cc.descricao, '⚠ dupla contagem', ''
-  from ccs_linha f
-  join ccs_linha p on p.cc_id = f.cc_id and p.codigo = 'FAPOIO'
-  join centro_custo cc on cc.id::text = f.cc_id
- where f.codigo = 'FDIR'
-union all
--- CC ativo que não está em nenhum dos dois: fica fora da soma
-select '3 · CC fora de FDIR e de FAPOIO', cc.codigo, cc.descricao, '⚠ não entra em nenhum dos dois', ''
-  from centro_custo cc
- where cc.ativo
-   and not exists (select 1 from ccs_linha x where x.cc_id = cc.id::text and x.codigo in ('FDIR','FAPOIO'))
-   and exists (select 1 from ccs_linha x where x.codigo = 'FDIR' and x.cc_id is not null)
+select case
+         when exists (select 1 from areas_linha where area = a.area and codigo = 'FDIR')
+          and exists (select 1 from areas_linha where area = a.area and codigo = 'FAPOIO')
+              then '⚠ DUPLA — está em FDIR e em FAPOIO'
+         when exists (select 1 from areas_linha where area = a.area)
+              then '✓ ' || (select string_agg(codigo, '+') from areas_linha where area = a.area)
+         else '⚠ FORA — não entra em FDIR nem em FAPOIO'
+       end                                       as situacao,
+       a.area, a.area_nome, a.ccs               as centros_custo,
+       coalesce(to_char(f.valor, 'FM999G999G990D00'), '—') as folha_orcada
+  from areas_cc a
+  left join folha f on f.area = a.area
  order by 1, 2;
