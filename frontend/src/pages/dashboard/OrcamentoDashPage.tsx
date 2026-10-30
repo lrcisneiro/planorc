@@ -855,29 +855,6 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
     <>
       <div style={S.sec}>
         <div style={S.secH}>
-          <div><div style={S.secT}>Indicadores do orçamento</div>
-            <div style={S.secD}>
-              As medidas que a <strong>estrutura do relatório</strong> já define, com o valor orçado de {rotuloBase}.
-              O Δ compara com {rotuloComp}. <span style={{ color: 'var(--faint)' }}>Arraste um card para reordenar.</span>
-            </div></div>
-          <button style={{ ...S.sel, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            onClick={() => setPick(true)} data-noexport>
-            <ListChecks size={13} /> Escolher{indicSel.length ? ` (${indicSel.length})` : ''}
-          </button>
-        </div>
-        {!cards.length ? (
-          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-            Este relatório não tem linhas de indicador ou fórmula. Crie-as em <strong>Estruturas de relatórios</strong> e elas aparecem aqui.
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
-            {cards.map((l: LinhaRel) => <CardLinha key={l.id} l={l} {...cardProps} />)}
-          </div>
-        )}
-      </div>
-
-      <div style={S.sec}>
-        <div style={S.secH}>
           <div><div style={S.secT}>Linhas do relatório</div>
             <div style={S.secD}>
               Para acompanhar linhas que <strong>não são indicador</strong> — receita bruta, despesas totais, um subtotal.
@@ -895,6 +872,29 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
             {cardsLinha.map((l: LinhaRel) => <CardLinha key={l.id} l={l} {...cardPropsLinha} />)}
+          </div>
+        )}
+      </div>
+
+      <div style={S.sec}>
+        <div style={S.secH}>
+          <div><div style={S.secT}>Indicadores do orçamento</div>
+            <div style={S.secD}>
+              As medidas que a <strong>estrutura do relatório</strong> já define, com o valor orçado de {rotuloBase}.
+              O Δ compara com {rotuloComp}. <span style={{ color: 'var(--faint)' }}>Arraste um card para reordenar.</span>
+            </div></div>
+          <button style={{ ...S.sel, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            onClick={() => setPick(true)} data-noexport>
+            <ListChecks size={13} /> Escolher{indicSel.length ? ` (${indicSel.length})` : ''}
+          </button>
+        </div>
+        {!cards.length ? (
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+            Este relatório não tem linhas de indicador ou fórmula. Crie-as em <strong>Estruturas de relatórios</strong> e elas aparecem aqui.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
+            {cards.map((l: LinhaRel) => <CardLinha key={l.id} l={l} {...cardProps} />)}
           </div>
         )}
       </div>
