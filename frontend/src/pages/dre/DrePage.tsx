@@ -6,6 +6,7 @@
 // ============================================================
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
+import { carregarRelatorios } from '../../lib/escopoDados'
 import { computeCenario, computeTotais, formatValor } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Periodo, Formato } from '../../lib/engine'
 
@@ -67,7 +68,7 @@ export default function DrePage() {
   useEffect(() => {
     (async () => {
       const [r, e, v] = await Promise.all([
-        supabase.from('relatorio').select('id,codigo,nome').order('codigo'),
+        carregarRelatorios('id,codigo,nome', 'codigo').then(data => ({ data })),
         supabase.from('empresa').select('id,codigo,descricao').order('codigo'),
         supabase.from('versao_orcamento').select('id,codigo').order('codigo'),
       ])

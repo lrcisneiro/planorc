@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { filtrarPorEscopo } from '../../lib/escopoDados'
 import { T } from '../../lib/theme'
 import { Plus, Pencil, Trash2, ChevronRight, Copy } from 'lucide-react'
 
@@ -75,7 +76,10 @@ export default function RelatorioPage({ linkBase = '/relatorios', titulo = 'Rela
     ])
     setCats(cs || [])
     if (error) { setErro(error.message); setLoading(false); return }
-    setRels((data || []).map((r: any) => ({ ...r, _nlinhas: r.relatorio_linha?.[0]?.count ?? 0 })))
+    // Recorta pelo escopo: relatório é DADO, e quem não pode ver uma DRE não
+    // deve nem saber que ela existe nesta lista.
+    const visiveis = await filtrarPorEscopo('relatorio', data as any)
+    setRels(visiveis.map((r: any) => ({ ...r, _nlinhas: r.relatorio_linha?.[0]?.count ?? 0 })))
     setLoading(false)
   }
   useEffect(() => { load() }, [])

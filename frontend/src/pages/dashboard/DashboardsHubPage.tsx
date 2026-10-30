@@ -4,15 +4,16 @@ import { Link } from 'react-router-dom'
 import { LayoutDashboard, BarChart3, Scale, Gauge, TrendingUp, ListChecks, Bookmark, Trash2, Pencil, ClipboardCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { T } from '../../lib/theme'
+import { useCapacidades } from '../../hooks/useCapacidades'
 
 const CARDS = [
-  { to: '/dashboard',            titulo: 'DRE — Acompanhamento', desc: 'Execução orçado × realizado de UM ano, em granularidade mensal, trimestral ou semestral.', icon: LayoutDashboard, cor: '#3b5bdb' },
-  { to: '/dashboards/orcamento', titulo: 'Orçamento — análise', desc: 'Avalia o orçamento ANTES de aprovar: de onde vem a variação, o que mudou e se dá para acreditar em quem fez.', icon: ClipboardCheck, cor: '#5f3dc4' },
-  { to: '/dashboards/anual',     titulo: 'DRE — Comparativo anual', desc: 'Compare vários anos lado a lado (Receita, EBITDA, Resultado…). Lê o cubo anual — rápido.', icon: BarChart3, cor: '#2f9e44' },
-  { to: '/balanco',             titulo: 'Balanço', desc: 'Indicadores e índices patrimoniais: liquidez, endividamento, ciclo, estrutura.', icon: Scale, cor: '#7048e8' },
-  { to: '/dashboards/executivo', titulo: 'Visão executiva', desc: 'KPIs de alto nível do ano: receita, EBITDA, resultado e execução orçamentária.', icon: Gauge, cor: '#e8590c' },
-  { to: '/dashboards/cagr',      titulo: 'CAGR', desc: 'Crescimento anual composto de linhas selecionadas ao longo dos anos.', icon: TrendingUp, cor: '#1098ad' },
-  { to: '/dashboards/indicadores', titulo: 'Indicadores', desc: 'Linhas do relatório como cards (EBITDA, margens, medidas com filtro de CC) — realizado × orçado × ano anterior.', icon: ListChecks, cor: '#0c8599' },
+  { cap: 'dash.acompanhamento', to: '/dashboard',            titulo: 'DRE — Acompanhamento', desc: 'Execução orçado × realizado de UM ano, em granularidade mensal, trimestral ou semestral.', icon: LayoutDashboard, cor: '#3b5bdb' },
+  { cap: 'dash.orcamento', to: '/dashboards/orcamento', titulo: 'Orçamento — análise', desc: 'Avalia o orçamento ANTES de aprovar: de onde vem a variação, o que mudou e se dá para acreditar em quem fez.', icon: ClipboardCheck, cor: '#5f3dc4' },
+  { cap: 'dash.anual', to: '/dashboards/anual',     titulo: 'DRE — Comparativo anual', desc: 'Compare vários anos lado a lado (Receita, EBITDA, Resultado…). Lê o cubo anual — rápido.', icon: BarChart3, cor: '#2f9e44' },
+  { cap: 'dash.balanco', to: '/balanco',             titulo: 'Balanço', desc: 'Indicadores e índices patrimoniais: liquidez, endividamento, ciclo, estrutura.', icon: Scale, cor: '#7048e8' },
+  { cap: 'dash.executivo', to: '/dashboards/executivo', titulo: 'Visão executiva', desc: 'KPIs de alto nível do ano: receita, EBITDA, resultado e execução orçamentária.', icon: Gauge, cor: '#e8590c' },
+  { cap: 'dash.cagr', to: '/dashboards/cagr',      titulo: 'CAGR', desc: 'Crescimento anual composto de linhas selecionadas ao longo dos anos.', icon: TrendingUp, cor: '#1098ad' },
+  { cap: 'dash.indicadores', to: '/dashboards/indicadores', titulo: 'Indicadores', desc: 'Linhas do relatório como cards (EBITDA, margens, medidas com filtro de CC) — realizado × orçado × ano anterior.', icon: ListChecks, cor: '#0c8599' },
 ]
 const BASE_NOME: Record<string, string> = {
   '/dashboard': 'DRE — Acompanhamento', '/dashboards/anual': 'DRE — Comparativo anual', '/balanco': 'Balanço',
@@ -35,6 +36,7 @@ const S: Record<string, CSSProperties> = {
 }
 
 export default function DashboardsHubPage() {
+  const { can } = useCapacidades()
   const [meus, setMeus] = useState<MeuCard[]>([])
   const [uid, setUid] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
@@ -102,7 +104,7 @@ export default function DashboardsHubPage() {
       <h1 style={S.title}>Dashboards</h1>
       <p style={S.sub}>Escolha uma visão. Cada painel é separado para não carregar dados além do necessário.</p>
       <div style={S.grid}>
-        {CARDS.map(c => {
+        {CARDS.filter(c => can(c.cap)).map(c => {
           const Icon = c.icon
           return (
             <Link key={c.to} to={c.to} style={S.card} onMouseEnter={hover(true)} onMouseLeave={hover(false)}>

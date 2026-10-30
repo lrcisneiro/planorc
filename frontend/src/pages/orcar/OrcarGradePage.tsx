@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { carregarVersoes } from '../../lib/escopoDados'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { parseNum, numToInput, formatValor, computeCenario, pkey } from '../../lib/engine'
@@ -77,7 +78,7 @@ export default function OrcarGradePage() {
       const [rel, lr, vs, emp, fil, cc, mo] = await Promise.all([
         supabase.from('relatorio').select('nome').eq('id', relId).maybeSingle(),
         supabase.from('relatorio_linha').select('id,pai_id,codigo,descricao,tipo_linha,expressao,natureza,linha_orc_id,desativada,nao_soma,ordem').eq('relatorio_id', relId).order('ordem', { nullsFirst: false }),
-        supabase.from('versao_orcamento').select('id,codigo,descricao,ano,bloqueada').eq('ativa', true).order('ano', { ascending: false }).order('codigo'),
+        carregarVersoes('id,codigo,descricao,ano,bloqueada', { ativa: true, ordem: 'ano_desc' }).then(data => ({ data })),
         supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
         supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
         supabase.from('centro_custo').select('id,codigo,descricao').eq('ativo', true).order('codigo'),

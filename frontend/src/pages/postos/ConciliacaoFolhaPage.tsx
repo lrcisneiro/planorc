@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
+import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { PostosPills, usePassoLabel } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro, useMoedaView, MoedaSelect } from '../dashboard/DashFiltros'
@@ -119,7 +120,7 @@ export default function ConciliacaoFolhaPage() {
   const [ref, setRef] = useState<RefRelatorio | null>(null)
 
   useEffect(() => {
-    supabase.from('relatorio').select('id,codigo,nome').order('codigo').then(r => {
+    carregarRelatorios('id,codigo,nome', 'codigo').then(data => ({ data })).then(r => {
       const l = r.data || []; setRels(l)
       setRelSel(prev => l.some((x: any) => x.id === prev) ? prev : (l[0]?.id || ''))
     })
@@ -151,7 +152,7 @@ export default function ConciliacaoFolhaPage() {
   useEffect(() => {
     (async () => {
       const [v, e, f, c, ff] = await Promise.all([
-        supabase.from('versao_orcamento').select('id,codigo').order('codigo'),
+        carregarVersoes().then(data => ({ data })),
         supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
         supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
         supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),

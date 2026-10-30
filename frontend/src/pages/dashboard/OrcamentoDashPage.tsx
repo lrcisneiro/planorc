@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { totaisRelatorio } from '../../lib/relatorioTotais'
 import { COLS_LINHA, emArvore, fatorExibicao, linhasConciliaveis, type LinhaRel } from '../../lib/refRelatorio'
@@ -163,13 +164,13 @@ export default function OrcamentoDashPage() {
     // O padrão (versão mais nova, todas as empresas) só entra se não houver
     // escolha salva — e a salva só vale se o id ainda existir. Um id morto
     // deixaria a tela vazia parecendo defeito, que é pior que voltar ao padrão.
-    supabase.from('relatorio').select('id,nome').order('nome').then(r => {
+    carregarRelatorios().then(data => ({ data })).then(r => {
       const rs = r.data || []; setRelatorios(rs)
       setRelId(p => (!p || rs.some((x: any) => x.id === p) ? p : ''))
     })
-    supabase.from('versao_orcamento').select('id,codigo,ano').order('ano', { ascending: false }).order('codigo')
+    carregarVersoes('id,codigo,ano', { ordem: 'ano_desc' })
       .then(r => {
-        const v = r.data || []; setVersoes(v)
+        const v = r; setVersoes(v)
         if (!v.length) return
         const vive = (id: string) => v.some((x: any) => x.id === id)
         setVBase(p => (p && vive(p) ? p : v[0].id))

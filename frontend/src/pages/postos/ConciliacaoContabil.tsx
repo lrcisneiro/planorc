@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { carregarRelatorios } from '../../lib/escopoDados'
 import { useLocalPref } from '../../lib/uiPrefs'
 import type { RefRelatorio } from '../../lib/refRelatorio'
 import { ConciliacaoQuadro } from './ConciliacaoQuadro'
@@ -185,7 +186,7 @@ export function ConciliacaoContabil({ params: p, podeConfigurar }: { params: Con
   // desde o seletor compartilhado, para a referência vir do próprio relatório
   useEffect(() => {
     if (p.relatorioId) return
-    supabase.from('relatorio').select('id,codigo,nome').order('codigo').then(r => {
+    carregarRelatorios('id,codigo,nome', 'codigo').then(data => ({ data })).then(r => {
       const l = r.data || []; setRels(l)
       setRelLocal(prev => l.some((x: any) => x.id === prev) ? prev : (l[0]?.id || ''))
     })

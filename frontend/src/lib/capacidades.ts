@@ -38,6 +38,17 @@ export const CAPACIDADES: Capacidade[] = [
 
   // ── Menu (itens de navegação) ──
   { key: 'menu.dashboards', label: 'Dashboards',              categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },
+  // Um por dashboard. `menu.dashboards` continua sendo a seção; estas dizem
+  // QUAIS. Sem isto era tudo-ou-nada, e a análise de Orçamento — que mostra o
+  // orçamento do grupo inteiro antes de aprovar — ia junto com o acompanhamento
+  // do mês para qualquer um que pudesse ver dashboards.
+  { key: 'dash.acompanhamento', label: '· DRE — Acompanhamento',   categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },
+  { key: 'dash.orcamento',      label: '· Orçamento — análise',    categoria: 'Menu', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'dash.anual',          label: '· DRE — Comparativo anual', categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },
+  { key: 'dash.balanco',        label: '· Balanço',                categoria: 'Menu', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'dash.executivo',      label: '· Visão executiva',        categoria: 'Menu', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'dash.cagr',           label: '· CAGR',                   categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },
+  { key: 'dash.indicadores',    label: '· Indicadores',            categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },
   { key: 'menu.relatorios', label: 'Relatórios',              categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },
   { key: 'menu.orcamento',  label: 'Orçamento',               categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
   { key: 'menu.estruturas', label: 'Estruturas de relatórios', categoria: 'Menu', padrao: { admin: true, member: false, viewer: false } },

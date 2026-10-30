@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { pageAll } from '../../lib/pageAll'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { limparCacheEscopo } from '../../lib/escopoDados'
 import { limparCacheFlags } from '../../lib/tenantFlags'
 import { AlertCircle } from 'lucide-react'
 import { CAPACIDADES } from '../../lib/capacidades'
@@ -64,6 +65,7 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
       { data: filiais },
       { data: ccsData },
       { data: versoesData },
+      { data: relsData },
       { data: dimensoes },
       { data: regrasExist },
       { data: funcExist },
@@ -72,6 +74,7 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
       supabase.from('filial').select('id,codigo,descricao').order('codigo'),
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
       supabase.from('versao_orcamento').select('id,codigo,ano,bloqueada').order('ano', { ascending: false }).order('codigo'),
+      supabase.from('relatorio').select('id,codigo,nome').order('nome'),
       supabase.from('dimensao').select('id,codigo,label,tabela_ref').eq('ativo', true).order('ordem'),
       supabase.from('user_acesso_regra').select('dimensao,valor_ids').eq('user_id', user.user_id),
       supabase.from('user_acesso_funcao').select('capacidade,permitido').eq('user_id', user.user_id),
@@ -105,6 +108,14 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
       // um diretor de área enxergava e mexia em qualquer cenário, inclusive os
       // de simulação do grupo. Entra fixa, como empresa e filial, porque
       // `versao_orcamento` é tabela do núcleo e não um `dimensao_valor`.
+      // Relatório é DADO (linha de `relatorio`), não tela: por isso dimensão e
+      // não capacidade. "Pode abrir relatórios" é capacidade; "pode abrir ESTA
+      // DRE" é escopo, e muda sem deploy quando nasce um relatório novo.
+      {
+        key: 'relatorio', label: 'Relatório',
+        opcoes: (relsData || []).map((r: any) => ({ id: r.id, label: `${r.codigo ? r.codigo + ' — ' : ''}${r.nome}` })),
+        selecionados: regraMap['relatorio'] || [],
+      },
       {
         key: 'versao', label: 'Versão do orçamento',
         opcoes: (versoesData || []).map((v: any) => ({ id: v.id, label: `${v.codigo}${v.ano ? ` — ${v.ano}` : ''}${v.bloqueada ? ' 🔒' : ''}` })),
@@ -113,7 +124,7 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
     ]
 
     // Dimensões dinâmicas (CC já é fixo acima — não duplicar)
-    const JA_FIXAS = ['centro_custo', 'versao_orcamento']
+    const JA_FIXAS = ['centro_custo', 'versao_orcamento', 'relatorio']
     await Promise.all((dimensoes || []).filter((d: Dimensao) => !JA_FIXAS.includes(d.tabela_ref ?? '')).map(async (dim: Dimensao) => {
       let opcoes: DimOpcao[] = []
       if (dim.tabela_ref === 'centro_custo') {
@@ -209,6 +220,10 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
       if (ef) { setSaving(false); setErro(ef.message); return }
     }
 
+    // O escopo de versão/relatório é lido uma vez por sessão (lib/escopoDados).
+    // Sem derrubar o cache, quem acabou de alterar continua vendo o recorte
+    // antigo até recarregar a página — e acha que não salvou.
+    limparCacheEscopo()
     setSaving(false)
     onClose()
   }

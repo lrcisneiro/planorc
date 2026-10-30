@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { carregarRelatorios } from '../../lib/escopoDados'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { ArrowRight, Link2, Trash2, Search, Check, Download, Upload, RefreshCw } from 'lucide-react'
 
@@ -88,7 +89,7 @@ export default function AmarracaoPage() {
 
   useEffect(() => {
     // o salvo só vale se ainda existir (senão cai no 1º, em vez de deixar o select em branco)
-    supabase.from('relatorio').select('id,nome').order('nome').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => r.data!.some(x => x.id === p) ? p : r.data![0].id) })
+    carregarRelatorios().then(rs => { setRels(rs); if (rs.length) setRelId(p => rs.some((x: any) => x.id === p) ? p : rs[0].id) })
     supabase.from('plano_contas').select('id,codigo,nome').order('codigo').then(r => { setPlanos(r.data || []); if (r.data?.length) setPlanoId(p => r.data!.some(x => x.id === p) ? p : r.data![0].id) })
     supabase.from('versao_orcamento').select('id,codigo,ano').order('ano', { ascending: false }).order('codigo')
       .then(r => { const vs = (r.data || []) as any[]; setVersoes(vs); setVersaoId(p => (p === '' || vs.some(v => v.id === p)) ? p : '') })

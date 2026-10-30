@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { carregarVersoes } from '../../lib/escopoDados'
 import { Upload, Download, FileDown, AlertCircle, RefreshCw } from 'lucide-react'
 import { taxaOrcada } from '../../lib/cambio'
 import type { VersaoTaxaRow } from '../../lib/cambio'
@@ -80,7 +81,7 @@ export default function OrcadoDadosPage() {
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => {
       setEmpresas(r.data || []); if (r.data?.length) setEmpresaId(p => p || r.data![0].id)
     })
-    supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => {
+    carregarVersoes().then(data => ({ data })).then(r => {
       setVersoes(r.data || []); if (r.data?.length) setVersaoId(p => p || r.data![0].id)
     })
   }, [])
@@ -125,7 +126,7 @@ export default function OrcadoDadosPage() {
       const [{ data: ls }, { data: emps }, { data: vers }, { data: moe }, { data: vtx }] = await Promise.all([
         supabase.from('conta_orcamentaria').select('id,codigo'),
         supabase.from('empresa').select('id,codigo'),
-        supabase.from('versao_orcamento').select('id,codigo'),
+        carregarVersoes().then(data => ({ data })),
         supabase.from('moeda').select('slot,ativo').eq('ativo', true),
         supabase.from('versao_taxa').select('versao_id,moeda_slot,ano,mes,taxa'),
       ])

@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
+import { carregarRelatorios } from '../../lib/escopoDados'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { escopoFiltro, useMoedaView, MoedaSelect, ExportarButton } from '../dashboard/DashFiltros'
 import { computeTotais, pkey } from '../../lib/engine'
@@ -121,7 +122,7 @@ export default function BalancoDashboardPage() {
   const [evol, setEvol] = useState<any[]>([])
 
   useEffect(() => {
-    supabase.from('relatorio').select('id,nome').order('nome').then(r => { setRels(r.data || []); if (r.data?.length) { setBpId(p => p || sv.bpId || r.data![0].id); setDreId(p => p || r.data![0].id) } })
+    carregarRelatorios().then(rs => { setRels(rs); if (rs.length) { setBpId(p => (p && rs.some((x: any) => x.id === p) ? p : (rs.some((x: any) => x.id === sv.bpId) ? sv.bpId : rs[0].id))); setDreId(p => p || rs[0].id) } })
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
     supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
   }, []) // eslint-disable-line

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { carregarVersoes } from '../../lib/escopoDados'
 import { PostosPills, usePassoLabel } from './PostosPills'
 import { useTenantFlags } from '../../lib/tenantFlags'
 import { nomeCurto } from '../../lib/nomePessoa'
@@ -176,7 +177,9 @@ export default function PostosGradePage() {
   // Escopo de DADOS sobre a versão — pergunta diferente da capacidade. A
   // capacidade diz se a pessoa pode aplicar; isto diz em QUAL orçamento ela
   // mexe. Cadastrado em Configurações → acesso, dimensão "Versão do orçamento".
-  const versoesVisiveis = acesso.filterList('versao', versoes as any) as any[]
+  // `carregarVersoes` já devolve a lista recortada — este alias existe só para
+  // deixar explícito, onde o dropdown é montado, que ela NÃO é a lista crua.
+  const versoesVisiveis = versoes
   // As regras de acesso chegam DEPOIS dos catálogos — enquanto carregam, o
   // hook responde "pode tudo" (ausência de regra = sem restrição). Sem esta
   // recondução a tela escolheria o default antes de saber o escopo e ficaria
@@ -205,7 +208,7 @@ export default function PostosGradePage() {
       supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
       supabase.from('cargo').select('id,codigo,nome').order('nome'),
-      supabase.from('versao_orcamento').select('id,codigo,bloqueada').order('codigo'),
+      carregarVersoes('id,codigo,bloqueada').then(data => ({ data })),
       supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,mantem_afastado,regime,pais,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
       supabase.from('sindicato').select('id,codigo,mes_database'),
       supabase.from('rateio_regra').select('id,nome,dimensao').eq('ativo', true).order('nome'),
@@ -224,7 +227,7 @@ export default function PostosGradePage() {
     // banco — senão a tela abre numa versão fora do escopo e o escopo não vale
     // nada. Mesma razão para reconduzir quando o id guardado em localStorage
     // (usePostoCtx) aponta para uma versão que esta pessoa não pode ver.
-    const permitidas = (vs.data || []).filter((x: any) => acesso.canSee('versao', x.id))
+    const permitidas = vs.data || []   // já recortadas na origem
     if (permitidas.length) setVersaoSel(prev => permitidas.some((x: any) => x.id === prev) ? prev : permitidas[0].id)
     else setVersaoSel('')
   }

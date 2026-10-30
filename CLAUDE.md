@@ -114,13 +114,26 @@ Três camadas independentes, **hoje aplicadas no frontend** (enforcement de RLS/
 > se *esta pessoa* pode). As rotas de `/postos/*` são as primeiras com trava: `<Exige cap>` em
 > `App.tsx` — esconder a pill tira o caminho, não a porta.
 
-> **`versao` é dimensão de DADOS** (out/2026), fixa em Configurações → acesso, ao lado de
-> empresa/filial/CC. Responde "em QUAL orçamento", pergunta diferente da capacidade ("pode
-> aplicar?"). `useUserAccess` já é genérico, então não houve migration — `user_acesso_regra.dimensao`
-> é texto. Ao usar: filtrar o dropdown com `filterList('versao', …)` **e** reconduzir a seleção
-> quando `acesso.loading` virar `false`, senão a tela escolhe o default antes de saber o escopo e
-> fica parada numa versão proibida. ⚠ Aplicado hoje só na grade de Postos; os demais seletores de
-> versão (dashboards, Orçar, editor) ainda não filtram.
+> **`versao` e `relatorio` são dimensões de DADOS** (out/2026), fixas em Configurações →
+> acesso ao lado de empresa/filial/CC. Respondem "em QUAL orçamento" e "QUAL DRE" — perguntas
+> diferentes da capacidade ("pode orçar?", "pode abrir relatórios?"). Sem migration:
+> `useUserAccess` já era genérico e `user_acesso_regra.dimensao` é texto.
+>
+> **O recorte vive em `lib/escopoDados.ts`, não nas telas.** Versão é lida em ~15 telas e
+> relatório em ~16; filtrar uma a uma é o jeito de esquecer uma, e **uma tela sem filtro anula o
+> controle inteiro, em silêncio**. Use `carregarVersoes(cols, {ativa, ordem})` e
+> `carregarRelatorios(cols, ordem)` — fazem a consulta **e** o recorte, então não existe caminho
+> que devolva a lista crua. `filtrarPorEscopo(dim, rows)` serve para quem já tem as linhas (a
+> lista de relatórios, o editor abrindo por id da URL). Regras lidas **uma vez por sessão**;
+> salvar o acesso chama `limparCacheEscopo()`. Admin ignora o escopo, como no hook.
+>
+> ⚠ Ao escrever tela nova que liste versão ou relatório, chamar o helper — `supabase.from(
+> 'versao_orcamento')` direto volta a furar o escopo.
+
+> **Dashboards: uma capacidade por dashboard** (`dash.acompanhamento|orcamento|anual|balanco|
+> executivo|cagr|indicadores`), além de `menu.dashboards` para a seção. Antes era tudo-ou-nada —
+> a *Orçamento — análise*, que mostra o orçamento do grupo antes de aprovar, ia junto com o
+> acompanhamento do mês. O hub filtra os cards e as rotas têm `<Exige cap>`.
 
 > **Convenção — incluir uma funcionalidade nova no controle de acesso:** (1) adicionar uma entrada em `CAPACIDADES` (chave + label + categoria + `padrao` por papel); (2) gatear o elemento na tela com `can('chave')`. A seção "Funções e menus" em Configurações itera o catálogo, então a nova capacidade aparece sozinha com os controles Herdar/Liberar/Negar; `user_acesso_funcao` guarda por chave de texto, sem migration. Enquanto não catalogada, `can()` devolve `true` (não esconde nada por engano). Dimensão de **dados** nova é outro caminho: cadastro de `dimensao`.
 

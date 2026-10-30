@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { carregarVersoes } from '../../lib/escopoDados'
 import { PostosPills } from './PostosPills'
 import { FornecedoresPJ } from './FornecedoresPJ'
 import { usePostoCtx } from '../../lib/postoCtx'
@@ -389,7 +390,7 @@ function DissidioTab({ editavel }: { editavel: boolean }) {
   const [erro, setErro] = useState<string | null>(null)
 
   useEffect(() => {
-    supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => { setVersoes(r.data || []); if (r.data?.length) setVersaoId(prev => r.data!.some((x: any) => x.id === prev) ? prev : r.data![0].id) })
+    carregarVersoes().then(vs => { setVersoes(vs); if (vs.length) setVersaoId(prev => vs.some((x: any) => x.id === prev) ? prev : vs[0].id) })
     supabase.from('sindicato').select('id,codigo,nome,mes_database').eq('ativo', true).order('codigo').then(r => setSinds(r.data || []))
   }, [])
   useEffect(() => {

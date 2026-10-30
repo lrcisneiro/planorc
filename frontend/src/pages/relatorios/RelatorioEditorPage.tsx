@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef, Fragment } from 'rea
 import type { CSSProperties, ChangeEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { carregarVersoes, filtrarPorEscopo } from '../../lib/escopoDados'
 import { pageAll } from '../../lib/pageAll'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import {
@@ -262,6 +263,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const [adding,    setAdding]    = useState<{ paiId: string | null } | null>(null)
   const [newDesc,   setNewDesc]   = useState('')
   const [loading,   setLoading]   = useState(true)
+  const [foraDoEscopo, setForaDoEscopo] = useState(false)
   const [saving,    setSaving]    = useState(false)
   const [linhaModal, setLinhaModal] = useState<Linha | null>(null)
   const [viewModal,  setViewModal]  = useState<ViewConfig | null>(null)
@@ -408,6 +410,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const loadRelatorio = useCallback(async () => {
     if (!id) return
     const { data: r } = await supabase.from('relatorio').select('id,codigo,nome, categoria_relatorio(codigo)').eq('id', id).single()
+    // A lista já esconde o que está fora do escopo, mas o editor abre por id na
+    // URL — e um link colado é o caminho mais natural para furar isso.
+    if (r && !(await filtrarPorEscopo('relatorio', [r as any])).length) { setForaDoEscopo(true); return }
     setRelatorio(r ? { id: r.id, codigo: r.codigo, nome: r.nome, categoria: (r as any).categoria_relatorio?.codigo || null } : null)
     const { data: ls } = await supabase.from('relatorio_linha').select('*').eq('relatorio_id', id).order('ordem', { nullsFirst: false })
     setLinhas((ls || []).map((l: any) => ({ ...l, visivel_dashboard: l.visivel_dashboard !== false, visivel_relatorio: l.visivel_relatorio !== false, nao_soma: !!l.nao_soma, redutora: !!l.redutora, filtro_escopo: l.filtro_escopo || null, _depth: 0 })))
@@ -426,7 +431,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const loadDim = useCallback(async () => {
     const [{ data: emps }, { data: vers }, { data: fis }, { data: cc }, { data: mo }] = await Promise.all([
       supabase.from('empresa').select('id,codigo,descricao').order('codigo'),
-      supabase.from('versao_orcamento').select('id,codigo,ano').order('codigo'),
+      carregarVersoes('id,codigo,ano').then(data => ({ data })),
       supabase.from('filial').select('id,codigo,descricao').order('codigo'),
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo'),
       supabase.from('moeda').select('slot,codigo,simbolo,ativo').eq('ativo', true).order('slot'),
@@ -1353,6 +1358,15 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     </>
   ) : null
 
+  if (foraDoEscopo) return (
+    <div style={{ padding: 32, maxWidth: 560 }}>
+      <h1 style={{ fontSize: 19, fontWeight: 700, color: 'var(--text)', margin: '0 0 8px' }}>Relatório fora do seu acesso</h1>
+      <p style={{ fontSize: 13.5, color: 'var(--muted)', lineHeight: 1.6, margin: 0 }}>
+        Seu usuário não tem acesso a este relatório. Peça a quem administra o Planorc para
+        incluí-lo em <b>Configurações → acesso → Relatório</b>.
+      </p>
+    </div>
+  )
   if (loading) return <div style={{ padding: 32, color: 'var(--muted)', fontSize: 14 }}>Carregando...</div>
 
   // ── F1: modo ESTRUTURA — página limpa (só árvore + fórmula + simulação) ──

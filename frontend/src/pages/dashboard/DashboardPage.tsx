@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
+import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { computeCenario, computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo, RawValues } from '../../lib/engine'
 import { PeriodPicker } from './PeriodPicker'
@@ -190,8 +191,8 @@ export default function DashboardPage() {
   const [qparams, setQparams] = useState<{ empIds: string[]; anos: number[]; meses: number[]; filFilter: string[] | null; ccFilter: string[] | null } | null>(null)
 
   useEffect(() => {
-    supabase.from('relatorio').select('id,codigo,nome').order('nome').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => p || sv.relId || r.data![0].id) })
-    supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => { setVersoes(r.data || []); if (r.data?.length) setVersaoId(p => p || sv.versaoId || r.data![0].id) })
+    carregarRelatorios('id,codigo,nome', 'nome').then(rs => { setRels(rs); if (rs.length) setRelId(p => (p && rs.some((x: any) => x.id === p) ? p : (rs.some((x: any) => x.id === sv.relId) ? sv.relId : rs[0].id))) })
+    carregarVersoes().then(vs => { setVersoes(vs); if (vs.length) setVersaoId(p => (p && vs.some((x: any) => x.id === p) ? p : (vs.some((x: any) => x.id === sv.versaoId) ? sv.versaoId : vs[0].id))) })
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
     carregarMetas().then(setMetas)
     supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))

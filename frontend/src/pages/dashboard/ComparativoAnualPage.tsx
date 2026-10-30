@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { computeTotais, pkey, formatValor } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo, Formato } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
@@ -85,8 +86,8 @@ export default function ComparativoAnualPage() {
   })
 
   useEffect(() => {
-    supabase.from('relatorio').select('id,codigo,nome').order('codigo').then(r => { setRels(r.data || []); if (r.data?.length) setRelId(p => p || sv.relId || r.data![0].id) })
-    supabase.from('versao_orcamento').select('id,codigo').order('codigo').then(r => { setVersoes(r.data || []); if (r.data?.length) setVersaoId(p => p || sv.versaoId || r.data![0].id) })
+    carregarRelatorios('id,codigo,nome', 'codigo').then(rs => { setRels(rs); if (rs.length) setRelId(p => (p && rs.some((x: any) => x.id === p) ? p : (rs.some((x: any) => x.id === sv.relId) ? sv.relId : rs[0].id))) })
+    carregarVersoes().then(vs => { setVersoes(vs); if (vs.length) setVersaoId(p => (p && vs.some((x: any) => x.id === p) ? p : (vs.some((x: any) => x.id === sv.versaoId) ? sv.versaoId : vs[0].id))) })
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
     supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
     supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo').then(r => setCcs(r.data || []))

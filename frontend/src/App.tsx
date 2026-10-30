@@ -283,13 +283,13 @@ function Shell({ session }: { session: Session }) {
                 em branco. */}
             <Route path="/nova-senha" element={<Navigate to="/dashboards" replace />} />
             <Route path="/dashboards"      element={<DashboardsHubPage />} />
-            <Route path="/dashboards/orcamento" element={<OrcamentoDashPage />} />
-            <Route path="/dashboards/anual"     element={<ComparativoAnualPage />} />
-            <Route path="/dashboards/cagr"      element={<CagrPage />} />
-            <Route path="/dashboards/executivo" element={<ExecutivoPage />} />
-            <Route path="/dashboards/indicadores" element={<IndicadoresPage />} />
-            <Route path="/dashboard"       element={<DashboardPage />} />
-            <Route path="/balanco"         element={<BalancoDashboardPage />} />
+            <Route path="/dashboards/orcamento" element={<Exige cap="dash.orcamento"><OrcamentoDashPage /></Exige>} />
+            <Route path="/dashboards/anual"     element={<Exige cap="dash.anual"><ComparativoAnualPage /></Exige>} />
+            <Route path="/dashboards/cagr"      element={<Exige cap="dash.cagr"><CagrPage /></Exige>} />
+            <Route path="/dashboards/executivo" element={<Exige cap="dash.executivo"><ExecutivoPage /></Exige>} />
+            <Route path="/dashboards/indicadores" element={<Exige cap="dash.indicadores"><IndicadoresPage /></Exige>} />
+            <Route path="/dashboard"       element={<Exige cap="dash.acompanhamento"><DashboardPage /></Exige>} />
+            <Route path="/balanco"         element={<Exige cap="dash.balanco"><BalancoDashboardPage /></Exige>} />
             <Route path="/relatorios"      element={<RelatorioPage />} />
             <Route path="/relatorios/:id"  element={<RelatorioEditorPage mode="consulta" />} />
             {/* /orcar/:id era o editor em modo de edição, anterior à grade de Orçar

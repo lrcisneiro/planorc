@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { carregarVersoes } from '../../lib/escopoDados'
 import { pageAll } from '../../lib/pageAll'
 import { parseFormularioCsv } from '../../lib/importFormulario'
 import { useCapacidades } from '../../hooks/useCapacidades'
@@ -125,7 +126,7 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       setContasOrc((co.data || []) as Opt[])
       if (!isEstrutura) {
         const [vs, emp, fil, cc, mo] = await Promise.all([
-          supabase.from('versao_orcamento').select('id,codigo,descricao,ano,bloqueada').eq('ativa', true).order('ano', { ascending: false }).order('codigo'),
+          carregarVersoes('id,codigo,descricao,ano,bloqueada', { ativa: true, ordem: 'ano_desc' }).then(data => ({ data })),
           supabase.from('empresa').select('id,codigo,descricao,moeda_slot').eq('ativo', true).order('codigo'),
           supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
           supabase.from('centro_custo').select('id,codigo,descricao').eq('ativo', true).order('codigo'),

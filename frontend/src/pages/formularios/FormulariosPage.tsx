@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { T } from '../../lib/theme'
 import { Plus, Pencil, Trash2, ChevronRight, SlidersHorizontal, Settings2, Wand2, FileText, ChevronDown, AlertTriangle } from 'lucide-react'
@@ -88,8 +89,8 @@ export default function FormulariosPage() {
   useEffect(() => {
     load()
     // catálogo pequeno: dispensa pageAll
-    supabase.from('versao_orcamento').select('id,codigo,ano').order('codigo').then(r => setVersoes(r.data || []))
-    supabase.from('relatorio').select('id,nome').order('nome').then(r => setRelatorios(r.data || []))
+    carregarVersoes('id,codigo,ano').then(setVersoes)
+    carregarRelatorios().then(setRelatorios)
   }, [])
 
   const openCreate = () => setModal({ open: true, codigo: '', nome: '', descricao: '' })
