@@ -221,6 +221,7 @@ function Toolbar({ modelo, onImport, onExport, onAdd, busca, onBusca, total, mos
   total?: number
   mostrando?: number
 }) {
+  const capImp = useCapacidades()
   const ref = useRef<HTMLInputElement>(null)
   return (
     <div style={S.toolbar}>
@@ -242,7 +243,7 @@ function Toolbar({ modelo, onImport, onExport, onAdd, busca, onBusca, total, mos
           <Download size={13} /> Baixar modelo
         </button>
       )}
-      {onImport && (
+      {onImport && capImp.can('cadastros.importar') && (
         <>
           <button style={S.btnImp} onClick={() => ref.current?.click()}>
             <Upload size={13} /> Importar Excel

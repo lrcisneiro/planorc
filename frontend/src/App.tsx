@@ -295,13 +295,13 @@ function Shell({ session }: { session: Session }) {
             {/* /orcar/:id era o editor em modo de edição, anterior à grade de Orçar
                 (F3). Redireciona em vez de sumir: o link pode estar em favorito. */}
             <Route path="/orcar/:id"       element={<RedirOrcar />} />
-            <Route path="/estrutura/:id"   element={<RelatorioEditorPage mode="estrutura" />} />
-            <Route path="/estruturas"      element={<RelatorioPage linkBase="/estrutura" titulo="Estruturas de Relatórios" subtitulo="Edite a árvore, fórmulas e amarração de cada relatório" />} />
+            <Route path="/estrutura/:id"   element={<Exige cap="estrutura"><RelatorioEditorPage mode="estrutura" /></Exige>} />
+            <Route path="/estruturas"      element={<Exige cap="menu.estruturas"><RelatorioPage linkBase="/estrutura" titulo="Estruturas de Relatórios" subtitulo="Edite a árvore, fórmulas e amarração de cada relatório" /></Exige>} />
             <Route path="/orcar-grade"     element={<Exige cap="menu.orcar.grade"><RelatorioPage linkBase="/orcar-grade" titulo="Orçar (grade)" subtitulo="Escolha o relatório para orçar por empresa × filial × centro de custo" /></Exige>} />
             <Route path="/orcar-grade/:id" element={<Exige cap="menu.orcar.grade"><OrcarGradePage /></Exige>} />
             <Route path="/formularios"     element={<Exige cap="menu.formularios"><FormulariosPage /></Exige>} />
             <Route path="/formularios/:id" element={<Exige cap="menu.formularios"><FormularioEditorPage mode="preencher" /></Exige>} />
-            <Route path="/formularios/:id/estrutura" element={<Exige cap="menu.formularios"><FormularioEditorPage mode="estrutura" /></Exige>} />
+            <Route path="/formularios/:id/estrutura" element={<Exige cap="formulario.estrutura"><FormularioEditorPage mode="estrutura" /></Exige>} />
             <Route path="/postos"          element={<Exige cap="menu.postos.quadro"><PostosGradePage /></Exige>} />
             <Route path="/postos/memoria"  element={<Exige cap="menu.postos.memoria"><PostosMemoriaPage /></Exige>} />
             <Route path="/postos/rateio"   element={<Exige cap="menu.postos.rateio"><PostosRateioPage /></Exige>} />

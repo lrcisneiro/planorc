@@ -42,6 +42,7 @@ const S = {
 }
 
 export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mode }) {
+  const capImp = useCapacidades()
   const { id: formId } = useParams()
   const navigate = useNavigate()
   const cap = useCapacidades()
@@ -779,7 +780,7 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   }
 
   if (loading) return <div style={{ padding: 24, color: 'var(--muted)' }}>Carregando…</div>
-  if (isEstrutura && !cap.can('estrutura')) return <div style={{ padding: 24, color: 'var(--red)' }}>Você não tem permissão para editar estruturas (capacidade «estrutura»).</div>
+  if (isEstrutura && !cap.can('formulario.estrutura')) return <div style={{ padding: 24, color: 'var(--red)' }}>Você não tem permissão para editar a estrutura de formulários.</div>
   if (!isEstrutura && !cap.can('orcar')) return <div style={{ padding: 24, color: 'var(--red)' }}>Você não tem permissão para orçar (capacidade «orcar»).</div>
 
   return (
@@ -864,11 +865,11 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
           {/* A calibragem do baseline é iterativa: o estudo devolve o CSV, você
               confere na tela, corrige e devolve de novo. Por isso importar e
               limpar são botões, não um script de uma vez só. */}
-          <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--border-strong)', background: 'var(--panel)', cursor: bloqueada ? 'not-allowed' : 'pointer', opacity: bloqueada ? 0.5 : 1 }}
+          {capImp.can('formulario.importar') && <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--border-strong)', background: 'var(--panel)', cursor: bloqueada ? 'not-allowed' : 'pointer', opacity: bloqueada ? 0.5 : 1 }}
             disabled={bloqueada} onClick={() => setImp({ txt: '', modo: 'substituir', prev: null, res: null })}
             title="Carregar uma tabela com os 12 meses em colunas (empresa;filial;cc;linha;jan…dez)">
             <Table size={14} /> Importar
-          </button>
+          </button>}
           {/* Três limpezas, porque são coisas diferentes e confundi-las custa
               caro: o escopo atual, o formulário inteiro (sem visitar 60
               escopos) e o que já foi APLICADO no orçado — que vive noutra

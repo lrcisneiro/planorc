@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef, Fragment } from 'rea
 import type { CSSProperties, ChangeEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { useCapacidades } from '../../hooks/useCapacidades'
 import { carregarVersoes, filtrarPorEscopo } from '../../lib/escopoDados'
 import { pageAll } from '../../lib/pageAll'
 import { useUserAccess } from '../../hooks/useUserAccess'
@@ -179,6 +180,7 @@ type Group  = { label: string; span: number; period?: Period; collapsible?: bool
 
 // ─── Component ───────────────────────────────────────────────
 export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'consulta' | 'estrutura' } = {}) {
+  const capImp = useCapacidades()
   // F1 — split por modo de interação:
   //   consulta  = read-only (Relatórios/leitura)
   //   orcar     = edita valores do orçado (Orçamentação/escrita)
@@ -1477,10 +1479,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           </div>
           {/* Importar linhas é construção de ESTRUTURA — ficava no menu Importar da
               tela de Consultar, que é leitura. */}
-          <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }}
+          {capImp.can('relatorio.importar') && <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }}
             onClick={() => fileRef.current?.click()} title="Importar linhas orçamentárias (cria a hierarquia pelo código)">
             <Upload size={13} /> Importar linhas
-          </button>
+          </button>}
           <span style={{ fontSize: 11, color: 'var(--violet)', cursor: 'pointer', whiteSpace: 'nowrap' }}
             onClick={modeloLinhas} title="Baixar planilha modelo">⬇ modelo</span>
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" style={{ display: 'none' }}

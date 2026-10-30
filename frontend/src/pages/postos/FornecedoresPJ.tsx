@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { useCapacidades } from '../../hooks/useCapacidades'
 import { pageAll } from '../../lib/pageAll'
 import { AlertCircle, Download, Upload, Trash2, Search, CheckCircle2, Pencil, Save, X, Eye, EyeOff } from 'lucide-react'
 
@@ -75,6 +76,7 @@ const S: Record<string, CSSProperties> = {
 }
 
 export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
+  const capImp = useCapacidades()
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -250,7 +252,7 @@ export function FornecedoresPJ({ editavel }: { editavel: boolean }) {
             </label>
           )}
           <button style={S.btn} onClick={exportar} disabled={!rows.length}><Download size={14} /> Exportar</button>
-          {editavel && <button style={S.btn} onClick={() => fileRef.current?.click()}><Upload size={14} /> Importar</button>}
+          {editavel && capImp.can('fornecedor.importar') && <button style={S.btn} onClick={() => fileRef.current?.click()}><Upload size={14} /> Importar</button>}
           {editavel && !!rows.length && <button style={{ ...S.btn, color: 'var(--red)' }} onClick={limpar}><Trash2 size={14} /> Limpar</button>}
         </div>
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}

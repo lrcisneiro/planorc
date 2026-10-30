@@ -250,7 +250,7 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
               "Herdar" segue o padrão do perfil ({user.role}). Liberar/Negar sobrepõem só para este usuário.
             </div>
-            {(['Funções', 'Menu'] as const).map(cat => (
+            {(['Funções', 'Importações', 'Menu'] as const).map(cat => (
               <div key={cat} style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>{cat}</div>
                 {CAPACIDADES.filter(c => c.categoria === cat).map(c => {

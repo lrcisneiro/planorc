@@ -135,6 +135,17 @@ Três camadas independentes, **hoje aplicadas no frontend** (enforcement de RLS/
 > a *Orçamento — análise*, que mostra o orçamento do grupo antes de aprovar, ia junto com o
 > acompanhamento do mês. O hub filtra os cards e as rotas têm `<Exige cap>`.
 
+> **Categoria `Importações` (out/2026).** Toda carga de arquivo do app tem chave própria —
+> `orcado.importar` / `.full` / `.excel`, `realizado.importar`, `saldos.importar`,
+> `amarracao.importar`, `cadastros.importar`, `relatorio.importar`, `formulario.importar`,
+> `posto.importar`, `folha.importar`, `apontamento.importar`, `fornecedor.importar`,
+> `verba.importar`. Importação é a classe de ação mais perigosa do produto: não é editar uma
+> célula, é trocar uma base, e várias apagam antes de gravar. Por isso **nenhuma** herda de
+> `orcar`/`estrutura` e o padrão é fechado para `member`, exceto onde a carga é rotina de quem
+> usa a tela (apontamento, valores de formulário). Importação nova entra **nesta categoria**,
+> nunca em `Funções`. O modo *substituir* do Baseline tem chave separada do *adicionar* e é
+> conferido também dentro do `doImport` — o menu pode ser contornado, a função é que escreve.
+
 > **Convenção — incluir uma funcionalidade nova no controle de acesso:** (1) adicionar uma entrada em `CAPACIDADES` (chave + label + categoria + `padrao` por papel); (2) gatear o elemento na tela com `can('chave')`. A seção "Funções e menus" em Configurações itera o catálogo, então a nova capacidade aparece sozinha com os controles Herdar/Liberar/Negar; `user_acesso_funcao` guarda por chave de texto, sem migration. Enquanto não catalogada, `can()` devolve `true` (não esconde nada por engano). Dimensão de **dados** nova é outro caminho: cadastro de `dimensao`.
 
 ## Legado em transição

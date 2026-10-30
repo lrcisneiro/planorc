@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { pageAll } from '../../lib/pageAll'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { useCapacidades } from '../../hooks/useCapacidades'
 import { Upload, FileDown, AlertCircle, RefreshCw } from 'lucide-react'
 
 declare const XLSX: any
@@ -81,6 +82,7 @@ function competencia(r: any): { ano: number; mes: number } | null {
 }
 
 export default function SaldoDadosPage() {
+  const capImp = useCapacidades()
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [empId, setEmpId] = useState('')
   const [ano, setAno] = useState(2026)
@@ -191,7 +193,7 @@ export default function SaldoDadosPage() {
           <option value="add">Adicionar/atualizar</option>
           <option value="full">Substituir (escopo do arquivo)</option>
         </select>
-        <button style={S.btn} onClick={() => fileRef.current?.click()}><Upload size={14} /> Importar balancete</button>
+        {capImp.can('saldos.importar') && <button style={S.btn} onClick={() => fileRef.current?.click()}><Upload size={14} /> Importar balancete</button>}
         <button style={S.btn} onClick={loadView}><RefreshCw size={13} /></button>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={onFile} />
       </div>

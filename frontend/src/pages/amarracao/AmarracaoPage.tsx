@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { useCapacidades } from '../../hooks/useCapacidades'
 import { carregarRelatorios } from '../../lib/escopoDados'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { ArrowRight, Link2, Trash2, Search, Check, Download, Upload, RefreshCw } from 'lucide-react'
@@ -62,6 +63,7 @@ const S: Record<string, CSSProperties> = {
 }
 
 export default function AmarracaoPage() {
+  const capImp = useCapacidades()
   const [rels, setRels] = useState<Rel[]>([])
   const [planos, setPlanos] = useState<Plano[]>([])
   // parâmetros da tela persistidos: reabrir não volta pro 1º plano/relatório da lista
@@ -288,7 +290,7 @@ export default function AmarracaoPage() {
           <option value="full">Substituir (full por plano)</option>
           <option value="add">Adicionar/atualizar</option>
         </select>
-        <button style={S.btn} onClick={() => fileRef.current?.click()} title="Importar amarrações (DE-PARA)"><Upload size={13} /> Importar</button>
+        {capImp.can('amarracao.importar') && <button style={S.btn} onClick={() => fileRef.current?.click()} title="Importar amarrações (DE-PARA)"><Upload size={13} /> Importar</button>}
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={onFile} />
       </div>
 

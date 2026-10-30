@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { useCapacidades } from '../../hooks/useCapacidades'
 import { pageAll } from '../../lib/pageAll'
 import { fimDoMes, taxaRealizada, materializa } from '../../lib/cambio'
 import { Upload, Download, FileDown, AlertCircle, RefreshCw, Trash2, X, Filter } from 'lucide-react'
@@ -143,6 +144,7 @@ function competencia(row: any): { ano: number; mes: number; dataISO: string | nu
 }
 
 export default function RealizadoDadosPage() {
+  const capImp = useCapacidades()
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [empresaId, setEmpresaId] = useState('')
   const [ano, setAno] = useState(2026)
@@ -495,7 +497,7 @@ export default function RealizadoDadosPage() {
         <button style={S.btn} onClick={exportar}><FileDown size={13} /> Exportar</button>
         <button style={S.btn} onClick={recalcular} title="Recalcular os agregados mensais (DRE/dashboards) — use após mudar lotes ignorados"><RefreshCw size={13} /> Recalcular</button>
         <button style={{ ...S.btn, color: '#e67700', borderColor: 'rgba(251,191,36,0.20)' }} onClick={buscarCcFaltando} title="Lançamentos de receita/despesa sem CC cadastrado (CC obrigatório)"><AlertCircle size={13} /> CCs faltando</button>
-        <button style={{ ...S.btn, background: 'var(--violet)', color: '#ffffff', borderColor: 'var(--violet)' }} onClick={() => { setImportOpen(true); setImpProg(''); setImpLog([]); setLogXlsx(null) }}><Upload size={13} /> Importar</button>
+        {capImp.can('realizado.importar') && <button style={{ ...S.btn, background: 'var(--violet)', color: '#ffffff', borderColor: 'var(--violet)' }} onClick={() => { setImportOpen(true); setImpProg(''); setImpLog([]); setLogXlsx(null) }}><Upload size={13} /> Importar</button>}
         <button style={{ ...S.btn, color: 'var(--red)', borderColor: 'rgba(248,113,113,0.35)' }} onClick={limpar} title="Excluir o realizado (todos os anos/meses) para reimportar"><Trash2 size={13} /> Limpar</button>
       </div>
 

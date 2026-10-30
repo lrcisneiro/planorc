@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { useCapacidades } from '../../hooks/useCapacidades'
 import { carregarVersoes } from '../../lib/escopoDados'
 import { Upload, Download, FileDown, AlertCircle, RefreshCw } from 'lucide-react'
 import { taxaOrcada } from '../../lib/cambio'
@@ -66,6 +67,7 @@ function col(row: any, ...keys: string[]): string {
 }
 
 export default function OrcadoDadosPage() {
+  const capImp = useCapacidades()
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [versoes, setVersoes]   = useState<Versao[]>([])
   const [empresaId, setEmpresaId] = useState('')
@@ -201,7 +203,7 @@ export default function OrcadoDadosPage() {
         <div style={S.spacer} />
         <button style={S.btn} onClick={exportar}><FileDown size={13} /> Exportar</button>
         <button style={S.btn} onClick={() => downloadSheet('modelo_orcado.xlsx', [HEADERS, EXEMPLO])}><Download size={13} /> Baixar modelo</button>
-        <button style={S.btn} onClick={() => fileRef.current?.click()}><Upload size={13} /> Importar Excel</button>
+        {capImp.can('orcado.importar.excel') && <button style={S.btn} onClick={() => fileRef.current?.click()}><Upload size={13} /> Importar Excel</button>}
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
           onChange={(e: ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) { importar(f); e.target.value = '' } }} />
       </div>

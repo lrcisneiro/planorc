@@ -119,6 +119,7 @@ function CrudTable({ table, orderBy, cols, defaults, lookups, hint, editavel, fi
   editavel: boolean
   filterKey?: string                // coluna p/ o filtro do cabeçalho (ex.: 'pais')
 }) {
+  const capImp = useCapacidades()
   const [data, setData] = useState<any[]>([])
   const [editId, setEditId] = useState<string | null>(null)   // '__new' ao adicionar
   const [draft, setDraft] = useState<Record<string, any>>({})
@@ -296,7 +297,7 @@ function CrudTable({ table, orderBy, cols, defaults, lookups, hint, editavel, fi
         <div style={{ display: 'flex', gap: 8 }}>
           <button style={S.btnImp} onClick={baixarModelo} title="Baixar planilha modelo (com cabeçalhos e 1 exemplo)"><FileDown size={14} /> Modelo</button>
           <button style={S.btnImp} onClick={exportar} title="Exportar os registros atuais"><Download size={14} /> Exportar</button>
-          {editavel && <button style={S.btnImp} onClick={() => fileRef.current?.click()} title="Importar de xlsx (upsert por código)"><Upload size={14} /> Importar</button>}
+          {editavel && capImp.can('verba.importar') && <button style={S.btnImp} onClick={() => fileRef.current?.click()} title="Importar de xlsx (upsert por código)"><Upload size={14} /> Importar</button>}
           {editavel && <button style={S.btnAdd} onClick={startAdd}><Plus size={14} /> Novo</button>}
         </div>
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
