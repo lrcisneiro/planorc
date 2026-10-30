@@ -265,14 +265,9 @@ export default function ConciliacaoFolhaPage() {
       </div>
 
       {anosDiferem && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.35)', borderRadius: 10, padding: '10px 13px', margin: '0 0 12px', fontSize: 12.5, color: 'var(--text-mid)', lineHeight: 1.55 }}>
-          <AlertTriangle size={15} style={{ color: 'var(--orange)', flexShrink: 0, marginTop: 1 }} />
-          <span>
-            A versão <b>{versoes.find((v: any) => v.id === versaoSel)?.codigo}</b> é de <b>{anoVersao}</b> e a
-            competência escolhida é de <b>{anoComp}</b>. O orçado é buscado no ano da competência, então esta
-            combinação devolve <b>orçado zero</b> e joga todos os postos em “realizado sem orçamento” —
-            não é que ninguém foi orçado. Escolha uma competência de {anoVersao}, ou a versão de {anoComp}.
-          </span>
+        <div style={{ display: 'flex', gap: 7, alignItems: 'center', background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.35)', borderRadius: 8, padding: '6px 11px', margin: '0 0 10px', fontSize: 12.5, color: 'var(--text-mid)' }}>
+          <AlertTriangle size={14} style={{ color: 'var(--orange)', flexShrink: 0 }} />
+          <span>Versão de <b>{anoVersao}</b> com competência de <b>{anoComp}</b>: o orçado é buscado no ano da competência, então vem <b>zero</b>.</span>
         </div>
       )}
       <div style={S.bar}>
