@@ -22,7 +22,8 @@ import {
   ExportarButton, FiltrosButton, SalvarCardButton, useCardPreset,
   effectiveCcFilter, escopoFiltro, type CC,
 } from './DashFiltros'
-import { ChevronLeft, AlertTriangle, Info } from 'lucide-react'
+import { ChevronLeft, AlertTriangle, Info, Download, ChevronUp, ChevronDown } from 'lucide-react'
+import { downloadSheet } from '../../lib/planilha'
 
 const MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const fmt = (n: number, casas = 0) =>
@@ -400,6 +401,82 @@ export default function OrcamentoDashPage() {
 }
 
 // ============================================================
+/**
+ * Tabela das seções: rola, ordena por coluna e exporta.
+ *
+ * `bruto` separa o que se VÊ do que se ORDENA e EXPORTA — a célula mostra
+ * "+15.769.414" formatado, mas ordenar por texto poria "+9" depois de "+15",
+ * e o Excel receberia string em vez de número.
+ */
+type Col = {
+  key: string; label: string; num?: boolean
+  render?: (r: any) => any
+  bruto?: (r: any) => any
+}
+function Tabela({ S, cols, rows, arquivo, rodape, maxH = 430 }: {
+  S: any; cols: Col[]; rows: any[]; arquivo: string; rodape?: any; maxH?: number
+}) {
+  const [ord, setOrd] = useState<{ k: string; dir: 1 | -1 } | null>(null)
+  const bruto = (c: Col, r: any) => (c.bruto ? c.bruto(r) : r[c.key])
+  const linhas = useMemo(() => {
+    if (!ord) return rows
+    const c = cols.find(x => x.key === ord.k)
+    if (!c) return rows
+    return [...rows].sort((a, b) => {
+      const va = bruto(c, a), vb = bruto(c, b)
+      if (c.num) return ((Number(va) || 0) - (Number(vb) || 0)) * ord.dir
+      return String(va ?? '').localeCompare(String(vb ?? ''), 'pt-BR') * ord.dir
+    })
+  }, [rows, ord, cols])
+
+  const exportar = () => downloadSheet(`${arquivo}.xlsx`,
+    [cols.map(c => c.label), ...linhas.map(r => cols.map(c => bruto(c, r)))])
+
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }} data-noexport>
+        <button onClick={exportar} title="Baixar esta tabela como planilha"
+          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 9px', fontSize: 11.5, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg-soft)', color: 'var(--text-mid)', cursor: 'pointer' }}>
+          <Download size={12} /> planilha
+        </button>
+      </div>
+      <div style={{ maxHeight: maxH, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              {cols.map(c => {
+                const ativo = ord?.k === c.key
+                return (
+                  <th key={c.key} onClick={() => setOrd(o => o?.k === c.key ? (o.dir === -1 ? { k: c.key, dir: 1 } : null) : { k: c.key, dir: -1 })}
+                    title="Clique para ordenar"
+                    style={{ ...S.th, textAlign: c.num ? 'right' : 'left', cursor: 'pointer', userSelect: 'none',
+                             position: 'sticky', top: 0, background: 'var(--panel)', zIndex: 1,
+                             color: ativo ? 'var(--violet)' : undefined }}>
+                    {c.label}
+                    {ativo && (ord!.dir === -1 ? <ChevronDown size={11} style={{ verticalAlign: -1 }} /> : <ChevronUp size={11} style={{ verticalAlign: -1 }} />)}
+                  </th>
+                )
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.map((r, i) => (
+              <tr key={r.id ?? i} style={r._fraco ? { opacity: .62 } : undefined}>
+                {cols.map(c => (
+                  <td key={c.key} style={{ ...S.td, textAlign: c.num ? 'right' : 'left', fontFamily: c.num ? 'monospace' : 'inherit' }}>
+                    {c.render ? c.render(r) : bruto(c, r)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {rodape}
+          </tbody>
+        </table>
+      </div>
+    </>
+  )
+}
+
 function Aviso({ tom, children }: { tom: 'alerta' | 'info'; children: any }) {
   const cor = tom === 'alerta' ? 'var(--orange)' : 'var(--muted)'
   return (
@@ -591,16 +668,19 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
 // ruído; 3% na folha é a maior conversa do orçamento. Só o percentual enche a
 // tela de bobagem; só o absoluto esconde a conta pequena que dobrou.
 function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, rotuloBase, rotuloComp }: any) {
+  // O limiar foca a atenção; esconder o resto para sempre tira a conferência.
+  const [todas, setTodas] = useState(false)
   const total = cfg.sel.reduce((s: number, id: string) => s + Math.abs(val(base, id)), 0)
   const minAbs = total * (cfg.minPctTotal / 100)
-  const todas = cfg.sel.map((id: string) => {
+  const linhasTodas = cfg.sel.map((id: string) => {
     const b = val(base, id), c = val(comp, id)
     return { id, nome: nome(id), b, c, d: b - c, pct: c !== 0 ? ((b - c) / Math.abs(c)) * 100 : (b !== 0 ? Infinity : 0) }
   })
   const marca = (x: any) => Math.abs(x.d) >= minAbs && (Math.abs(x.pct) >= cfg.pct || !Number.isFinite(x.pct))
-  const destaque = todas.filter(marca).sort((a: any, b: any) => Math.abs(b.d) - Math.abs(a.d))
-  const resto = todas.filter((x: any) => !marca(x))
+  const destaque = linhasTodas.filter(marca).sort((a: any, b: any) => Math.abs(b.d) - Math.abs(a.d))
+  const resto = linhasTodas.filter((x: any) => !marca(x))
   const somaResto = resto.reduce((s: number, x: any) => s + x.d, 0)
+  const todas0 = linhasTodas.length
 
   return (
     <div style={S.sec}>
@@ -608,32 +688,34 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, rotuloBase, r
         <div><div style={S.secT}>O que mudou</div>
           <div style={S.secD}>
             Ordenado por <strong>impacto</strong>, não por tamanho. Marcado o que passa de {cfg.pct}% <em>e</em> de {cfg.minPctTotal}% do total ({fmt(minAbs)}).
+            {resto.length > 0 && (
+              <span data-noexport style={{ marginLeft: 8, color: 'var(--violet)', cursor: 'pointer' }} onClick={() => setTodas(v => !v)}>
+                {todas ? `ver só as ${destaque.length} acima do limiar` : `mostrar todas as ${todas0} linhas`}
+              </span>
+            )}
           </div></div>
         <SelLinhas cfg={cfg} setCfg={setCfg} linhas={linhas} limiar />
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead><tr>
-          <th style={{ ...S.th, textAlign: 'left' }}>linha</th>
-          <th style={S.th}>{rotuloComp}</th><th style={S.th}>{rotuloBase}</th>
-          <th style={S.th}>variação</th><th style={S.th}>%</th>
-        </tr></thead>
-        <tbody>
-          {destaque.map((x: any) => (
-            <tr key={x.id}>
-              <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit' }}>{x.nome}</td>
-              <td style={S.td}>{fmt(x.c)}</td><td style={S.td}>{fmt(x.b)}</td>
-              <td style={{ ...S.td, color: x.d >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{x.d >= 0 ? '+' : ''}{fmt(x.d)}</td>
-              <td style={{ ...S.td, color: 'var(--muted)' }}>{Number.isFinite(x.pct) ? fmtPct(x.pct) : 'novo'}</td>
-            </tr>
-          ))}
-          {resto.length > 0 && (
-            <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--muted)', fontStyle: 'italic' }}>
-              demais {resto.length} linha(s), abaixo do limiar</td>
-              <td style={S.td} /><td style={S.td} />
-              <td style={{ ...S.td, color: 'var(--muted)' }}>{somaResto >= 0 ? '+' : ''}{fmt(somaResto)}</td><td style={S.td} /></tr>
-          )}
-        </tbody>
-      </table>
+      <Tabela S={S} arquivo={`variacao-${rotuloBase}`}
+        rows={(todas ? [...destaque, ...resto.map((r: any) => ({ ...r, _fraco: true }))] : destaque)}
+        cols={[
+          { key: 'nome', label: 'linha' },
+          { key: 'c', label: String(rotuloComp), num: true, render: (r: any) => fmt(r.c) },
+          { key: 'b', label: String(rotuloBase), num: true, render: (r: any) => fmt(r.b) },
+          { key: 'd', label: 'variação', num: true,
+            render: (r: any) => <span style={{ color: r.d >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{r.d >= 0 ? '+' : ''}{fmt(r.d)}</span> },
+          { key: 'pct', label: '%', num: true, bruto: (r: any) => (Number.isFinite(r.pct) ? r.pct : null),
+            render: (r: any) => <span style={{ color: 'var(--muted)' }}>{Number.isFinite(r.pct) ? fmtPct(r.pct) : 'novo'}</span> },
+        ]}
+        rodape={resto.length > 0 && !todas ? (
+          <tr onClick={() => setTodas(true)} style={{ cursor: 'pointer' }} data-noexport>
+            <td style={{ ...S.td, textAlign: 'left', color: 'var(--violet)', fontStyle: 'italic' }}>
+              demais {resto.length} linha(s), abaixo do limiar — <strong>mostrar</strong></td>
+            <td style={S.td} /><td style={S.td} />
+            <td style={{ ...S.td, textAlign: 'right', fontFamily: 'monospace', color: 'var(--muted)' }}>{somaResto >= 0 ? '+' : ''}{fmt(somaResto)}</td>
+            <td style={S.td} />
+          </tr>
+        ) : null} />
     </div>
   )
 }
@@ -642,11 +724,16 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, rotuloBase, r
 // Não serve para julgar o passado: serve para CALIBRAR A CONFIANÇA no futuro.
 // Linha que errou 12% e vem com número redondo e confiante merece pergunta.
 function Acuracia({ S, cfg, setCfg, linhas, nome, orc, real, val, ano }: any) {
+  // Por padrão esconde linha sem nada nos dois lados; mas esconder para sempre
+  // tira a conferência de "por que esta linha não aparece?".
+  const [todas, setTodas] = useState(false)
   const itens = cfg.sel.map((id: string) => {
     const o = val(orc, id), r = val(real, id)
     return { id, nome: nome(id), o, r, erro: r - o, pct: o !== 0 ? ((r - o) / Math.abs(o)) * 100 : (r !== 0 ? Infinity : 0) }
-  }).filter((x: any) => x.o !== 0 || x.r !== 0)
+  }).map((x: any) => ({ ...x, _fraco: x.o === 0 && x.r === 0 }))
+    .filter((x: any) => todas || !x._fraco)
     .sort((a: any, b: any) => Math.abs(b.erro) - Math.abs(a.erro))
+  const vazias = cfg.sel.length - itens.filter((x: any) => !x._fraco).length
 
   return (
     <div style={S.sec}>
@@ -655,33 +742,37 @@ function Acuracia({ S, cfg, setCfg, linhas, nome, orc, real, val, ano }: any) {
           <div style={S.secD}>
             Orçado × realizado do ano comparado. Não é para julgar o passado — é para saber
             <strong> em quem acreditar</strong> no orçamento novo.
+            {vazias > 0 && (
+              <span data-noexport style={{ marginLeft: 8, color: 'var(--violet)', cursor: 'pointer' }} onClick={() => setTodas(v => !v)}>
+                {todas ? 'ocultar as sem valor' : `mostrar todas (${vazias} sem valor)`}
+              </span>
+            )}
           </div></div>
         <SelLinhas cfg={cfg} setCfg={setCfg} linhas={linhas} />
       </div>
       {!itens.length ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados no ano comparado.</div> : (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead><tr>
-            <th style={{ ...S.th, textAlign: 'left' }}>linha</th>
-            <th style={S.th}>orçado</th><th style={S.th}>realizado</th><th style={S.th}>erro</th><th style={S.th}>%</th>
-            <th style={{ ...S.th, textAlign: 'left' }}>leitura</th>
-          </tr></thead>
-          <tbody>
-            {itens.map((x: any) => {
-              const a = Math.abs(x.pct)
-              const leitura = !Number.isFinite(x.pct) ? 'não estava orçado'
-                : a < 5 ? 'acertou' : a < 15 ? (x.erro > 0 ? 'passou do orçado' : 'ficou abaixo') : '⚠ errou muito'
-              return (
-                <tr key={x.id}>
-                  <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit' }}>{x.nome}</td>
-                  <td style={S.td}>{fmt(x.o)}</td><td style={S.td}>{fmt(x.r)}</td>
-                  <td style={{ ...S.td, color: a >= 15 ? 'var(--orange)' : 'var(--text-mid)' }}>{x.erro >= 0 ? '+' : ''}{fmt(x.erro)}</td>
-                  <td style={{ ...S.td, color: 'var(--muted)' }}>{Number.isFinite(x.pct) ? fmtPct(x.pct) : '—'}</td>
-                  <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontSize: 12, color: a >= 15 ? 'var(--orange)' : 'var(--muted)' }}>{leitura}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+        <Tabela S={S} arquivo={`acuracia-${ano ?? ''}`} rows={itens}
+          cols={[
+            { key: 'nome', label: 'linha' },
+            { key: 'o', label: 'orçado', num: true, render: (r: any) => fmt(r.o) },
+            { key: 'r', label: 'realizado', num: true, render: (r: any) => fmt(r.r) },
+            { key: 'erro', label: 'erro', num: true,
+              render: (r: any) => <span style={{ color: Math.abs(r.pct) >= 15 ? 'var(--orange)' : 'var(--text-mid)' }}>{r.erro >= 0 ? '+' : ''}{fmt(r.erro)}</span> },
+            { key: 'pct', label: '%', num: true, bruto: (r: any) => (Number.isFinite(r.pct) ? r.pct : null),
+              render: (r: any) => <span style={{ color: 'var(--muted)' }}>{Number.isFinite(r.pct) ? fmtPct(r.pct) : '—'}</span> },
+            { key: 'leitura', label: 'leitura',
+              bruto: (r: any) => {
+                const a = Math.abs(r.pct)
+                return !Number.isFinite(r.pct) ? 'não estava orçado'
+                  : a < 5 ? 'acertou' : a < 15 ? (r.erro > 0 ? 'passou do orçado' : 'ficou abaixo') : 'errou muito'
+              },
+              render: (r: any) => {
+                const a = Math.abs(r.pct)
+                const t = !Number.isFinite(r.pct) ? 'não estava orçado'
+                  : a < 5 ? 'acertou' : a < 15 ? (r.erro > 0 ? 'passou do orçado' : 'ficou abaixo') : '⚠ errou muito'
+                return <span style={{ fontSize: 12, color: a >= 15 ? 'var(--orange)' : 'var(--muted)' }}>{t}</span>
+              } },
+          ]} />
       )}
     </div>
   )
