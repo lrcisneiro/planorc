@@ -52,12 +52,24 @@ select '1 · por posto (do dims)',
   left join centro_custo cc on cc.id = pn.cc_origem_id::uuid
  group by pn.posto, e.codigo, f.codigo, cc.codigo, cc.descricao
 union all
--- O alvo do conserto: destino de rateio sem CC. Uma regra errada explica
--- dezenas de postos, então é aqui que o esforço rende.
-select '2 · destinos de rateio SEM CC', r.nome, coalesce(de.codigo, '(empresa nula)'),
-       to_char(rd.pct * 100, 'FM990D00') || '%',
+-- O alvo do conserto. A coluna que decide tudo é a DIMENSÃO da regra:
+--
+--   cc_id: dim === 'CC' ? (d.cc_id ?? null) : c.cc_id     (lib/rateioFolha.ts)
+--
+-- Regra de dimensão EMPRESA preserva o CC de ORIGEM — é o rateio "mesmo custo,
+-- outra empresa". Só a de dimensão CC troca o centro de custo, e aí um destino
+-- sem CC vira nulo. Destino que só define empresa numa regra marcada como CC é
+-- a combinação que produz o "Sem CC".
+--
+-- `pct` já está em PERCENTUAL no banco (o motor divide por 100), então nada de
+-- multiplicar aqui — a versão anterior mostrava 754% onde eram 7,54%.
+select '2 · destinos de rateio SEM CC',
+       r.nome || '  [dimensão: ' || coalesce(r.dimensao, '—') || ']',
+       coalesce(de.codigo || ' · ' || de.descricao, '(empresa nula)'),
+       to_char(rd.pct, 'FM990D00') || '%',
        (select count(*)::text || ' posto(s) usam' from posto_rateio pr where pr.regra_id = rd.regra_id),
-       'corrigir em Postos → Rateio'
+       case when r.dimensao = 'CC' then '⚠ dimensão CC + destino sem CC = nulo. Se a intenção é só trocar de EMPRESA, mude a dimensão'
+            else 'dimensão não é CC — este destino não zera o CC' end
   from rateio_destino rd
   join rateio_regra r on r.id = rd.regra_id
   left join empresa de on de.id = rd.empresa_id
