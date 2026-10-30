@@ -186,8 +186,12 @@ export default function OrcamentoDashPage() {
   // ⚠ Os dois lados compartilham a versão da projeção: os meses projetados
   // ficam idênticos POR CONSTRUÇÃO e a variação neles é zero de mentira.
   const projContamina = modo === 'REAL' && proj === 'ORCADO' && vBase === vComp && mesesProj.length > 0
-  // o realizado não cobre o período pedido: os meses que faltam entram como ZERO
-  const realCurto = modo === 'REAL' && realAte > 0 && realAte < mesFim
+  // O realizado não cobre o período pedido: os meses que faltam entram como
+  // ZERO. Vale nos DOIS modos — a seção de Acurácia usa realizado sempre, mesmo
+  // quando a comparação principal é entre dois orçados. Antes o aviso só saía
+  // no modo Realizado, e a acurácia comparava 12 meses de orçado contra 9 de
+  // realizado em silêncio, fazendo tudo parecer "ficou abaixo".
+  const realCurto = realAte > 0 && realAte < mesFim
 
   const todasSel = useMemo(
     () => Array.from(new Set([...secPonte.sel, ...secVar.sel, ...secAcur.sel])),
@@ -362,8 +366,9 @@ export default function OrcamentoDashPage() {
         <Aviso tom="alerta">
           O realizado de {anoComp} só tem dado até <strong>{MES[realAte - 1]}</strong>, mas o período vai
           até <strong>{MES[mesFim - 1]}</strong>. Os meses {MES[realAte]}–{MES[mesFim - 1]} entram como
-          <strong> zero</strong> do lado comparado, e o crescimento aparece inflado.
-          Feche o período em {MES[realAte - 1]} e use a projeção, se quiser o ano cheio.
+          <strong> zero</strong>{modo === 'REAL' ? ' do lado comparado' : ' na seção de Acurácia'}
+          {modo === 'REAL' ? ', e o crescimento aparece inflado' : ', e quase toda linha vai parecer que "ficou abaixo"'}.
+          Feche o período em {MES[realAte - 1]}{mesesProj.length ? '' : ' e use a projeção, se quiser o ano cheio'}.
         </Aviso>
       )}
       {mesesProj.length > 0 && (
