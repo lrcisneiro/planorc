@@ -43,10 +43,14 @@ select '2 · as duas contas de câmbio', conta, conta_nome, plano,
        lancamentos || ' lanç. · maior ' || to_char(maior, 'FM999G999G990D00')
   from mov where conta in ('1304', '0805')
 union all
--- no exterior, lançamento acima de 100 mil é suspeito: a operação é pequena
-select '3 · exterior com lançamento > 100 mil', conta, conta_nome, plano,
+-- Assinatura de carga errada, sem chumbar empresa nenhuma: um único
+-- lançamento que concentra quase toda a soma da conta E passa de 100 mil.
+-- Operação de verdade pulveriza; carga errada aparece de uma vez.
+select '3 · um lançamento concentra a conta', conta, conta_nome, plano,
        to_char(soma, 'FM999G999G990D00'),
-       '⚠ maior lançamento ' || to_char(maior, 'FM999G999G990D00')
+       '⚠ ' || lancamentos || ' lanç., maior = ' || to_char(maior, 'FM999G999G990D00')
+         || ' (' || round(maior * 100 / nullif(abs(soma), 0)) || '% da soma)'
   from mov
- where empresa in ('XX', 'BO', '01', '0101', 'BO01') and maior > 100000
+ where maior > 100000
+   and maior >= abs(soma) * 0.8
  order by 1, 5 desc;
