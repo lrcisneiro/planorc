@@ -139,6 +139,19 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
 
 ## Convenções de código
 
+- **Cor de variação = bom ou ruim, nunca o sinal do número.** Verde/vermelho num Δ é uma
+  afirmação semântica, e o sinal sozinho erra metade das linhas: despesa que cai aparece
+  negativa e é melhora. O critério sai do **mesmo lugar que a exibição** — `fatorExibicao`
+  (`lib/refRelatorio.ts`) devolve `-1` para natureza `DESPESA` (própria ou herdada do pai),
+  que é exatamente a linha mostrada com despesa positiva; nela `bom = Δ < 0`, nas demais
+  `bom = Δ > 0`. Porque exibição e semântica saem da mesma natureza, o caso que engana se
+  resolve sozinho: *Impostos s/ faturamento* aparece **negativo** (não é `DESPESA` na
+  estrutura), não inverte, e o vermelho quando o imposto cresce continua certo. **Nunca**
+  resolver isso por nome de linha ou lista de exceção — o produto atende segmentos
+  diferentes. Exceção deliberada: a **ponte/cascata** usa o **sinal econômico cru** (sem
+  `fatorExibicao`), senão uma despesa que cresce vira barra verde e o caminho não fecha.
+
+
 - Estilos: mistura de objetos `S` inline e classes Tailwind. Seguir o padrão já presente em cada arquivo.
 - Sem biblioteca de componentes — tudo à mão.
 - Tipos TypeScript locais por arquivo (não há pasta `types/`).
