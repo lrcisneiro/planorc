@@ -134,6 +134,11 @@ export default function OrcamentoDashPage() {
   const [metas, setMetas] = useState<IndicadorMeta[]>([])
   const [indicSel, setIndicSel] = useState<string[]>(arr(sv.indicSel) || [])
   const [pickIndic, setPickIndic] = useState(false)
+  // Seção irmã, para linhas que NÃO são indicador — receita bruta, despesas
+  // totais, um subtotal qualquer. Aqui vazio = NENHUMA, ao contrário dos
+  // indicadores: são centenas de linhas, e "todas" encheria a tela de ruído.
+  const [linhaSel, setLinhaSel] = useState<string[]>(arr(sv.linhaSel) || [])
+  const [pickLinha, setPickLinha] = useState(false)
   const [porEmp, setPorEmp] = useState<{ empresa: string; valor: number }[]>([])
   const [porArea, setPorArea] = useState<{ rec: any[]; desp: any[]; ccRec: any[]; ccDesp: any[]; mes: any[] }>({ rec: [], desp: [], ccRec: [], ccDesp: [], mes: [] })
   const [drill, setDrill] = useState<{ nodeId: string; ccFilter?: string[] | null } | null>(null)
@@ -161,7 +166,7 @@ export default function OrcamentoDashPage() {
     if (!f) return
     f.relId && setRelId(f.relId); f.vBase && setVBase(f.vBase); f.vComp && setVComp(f.vComp)
     f.modo && setModo(f.modo); f.proj && setProj(f.proj)
-    f.aba && setAba(f.aba); Array.isArray(f.indicSel) && setIndicSel(f.indicSel)
+    f.aba && setAba(f.aba); Array.isArray(f.indicSel) && setIndicSel(f.indicSel); Array.isArray(f.linhaSel) && setLinhaSel(f.linhaSel)
     if (f.mesIni) setMesIni(f.mesIni); if (f.mesFim) setMesFim(f.mesFim)
     f.empresaSel && setEmpresaSel(f.empresaSel); f.filialSel && setFilialSel(f.filialSel)
     f.ccSel && setCcSel(f.ccSel); f.areaSel && setAreaSel(f.areaSel)
@@ -258,14 +263,14 @@ export default function OrcamentoDashPage() {
   // guardam a mesma coisa. Com duas listas separadas elas divergem, e o
   // sintoma é um filtro que o card silenciosamente não guarda.
   const estado = () => ({
-    relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel,
+    relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel,
     empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel,
     secPonte, secVar, secAcur, secOrc,
   })
   useEffect(() => {
     if (cardId) return   // vendo um card: não contaminar o estado próprio da tela
     localStorage.setItem(SAVE, JSON.stringify(estado()))
-  }, [cardId, relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel,
+  }, [cardId, relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel,
       empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, secPonte, secVar, secAcur, secOrc]) // eslint-disable-line
 
   const meses = useMemo(() => Array.from({ length: Math.max(0, mesFim - mesIni + 1) }, (_, i) => mesIni + i), [mesIni, mesFim])
@@ -550,6 +555,7 @@ export default function OrcamentoDashPage() {
         <VisaoOrcamento S={S} cfg={secOrc} setCfg={setSecOrc} linhas={linhas} nome={nome} val={val} fac={fac}
           base={dados.base} comp={dados.comp} mensal={dados.mensalBase} meses={meses} MES={MES}
           metas={metas} anoBase={anoBase} indicSel={indicSel} setIndicSel={setIndicSel} pick={pickIndic} setPick={setPickIndic}
+          linhaSel={linhaSel} setLinhaSel={setLinhaSel} pickLinha={pickLinha} setPickLinha={setPickLinha}
           porEmp={porEmp} porArea={porArea} setDrill={setDrill}
           rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
       ) : (
@@ -576,6 +582,109 @@ export default function OrcamentoDashPage() {
           filFilter={filialFilter} ccFilter={drill.ccFilter !== undefined ? drill.ccFilter : ccFilter}
           startNodeId={drill.nodeId} slot={1} soOrcado onClose={() => setDrill(null)} />
       )}
+    </div>
+  )
+}
+
+// ── Card de uma linha do relatório (indicador ou não) ──
+// O mesmo card serve às duas seções: a diferença entre elas é só QUAIS linhas
+// entram, não como se mostram.
+function CardLinha({ l, val, fac, base, comp, metas, anoBase, rotuloComp, arrasto, sobre, setArrasto, setSobre, soltar }: any) {
+  const v = val(base, l.id), vc = val(comp, l.id)
+  const d = v - vc
+  const casas = l.casas_decimais ?? (l.formato === 'PERCENTUAL' ? 1 : 0)
+  const pct = vc !== 0 ? (d / Math.abs(vc)) * 100 : null
+  // Mesma regra da tabela de variação: custo é bom quando encolhe.
+  const bom = fac(l.id) === -1 ? Math.abs(v) < Math.abs(vc) : v > vc
+  const alvoSolta = sobre === l.id && arrasto && arrasto !== l.id
+  return (
+    <div draggable
+      onDragStart={e => { setArrasto(l.id); e.dataTransfer.effectAllowed = 'move' }}
+      onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (sobre !== l.id) setSobre(l.id) }}
+      onDragLeave={() => { if (sobre === l.id) setSobre(null) }}
+      onDrop={e => { e.preventDefault(); soltar(l.id) }}
+      onDragEnd={() => { setArrasto(null); setSobre(null) }}
+      title="Arraste para reordenar"
+      style={{ background: 'var(--panel)', borderRadius: 12, padding: 15, cursor: 'grab',
+        border: '1px solid ' + (alvoSolta ? 'var(--violet)' : 'var(--border)'),
+        boxShadow: alvoSolta ? '0 0 0 3px rgba(139,92,246,0.18)' : 'none',
+        opacity: arrasto === l.id ? 0.45 : 1, transition: 'box-shadow .12s, opacity .12s' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 500, flex: 1, minWidth: 0 }}>{l.descricao}</div>
+        <ChipMeta valor={v} meta={resolverMeta(metas, l.id, anoBase, null)} />
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', margin: '6px 0 4px' }}>
+        {formatValor(v, l.formato || 'NUMERO', casas)}
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+        {rotuloComp} {formatValor(vc, l.formato || 'NUMERO', casas)}
+        {d !== 0 && <> · <span style={{ color: bom ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+          {d >= 0 ? '+' : ''}{fmt(d, casas)}{pct != null ? ` (${fmtPct(pct)})` : ''}
+        </span></>}
+      </div>
+    </div>
+  )
+}
+
+// ── Seletor com ORDEM (as duas seções usam o mesmo) ──
+function PickerLinhas({ titulo, nota, candidatos, sel, setSel, fechar }: any) {
+  const noPainel = sel.map((id: string) => candidatos.find((l: LinhaRel) => l.id === id)).filter(Boolean) as LinhaRel[]
+  const fora = candidatos.filter((l: LinhaRel) => !sel.includes(l.id))
+  const [busca, setBusca] = useState('')
+  const foraVis = busca.trim()
+    ? fora.filter((l: LinhaRel) => (l.descricao || '').toLowerCase().includes(busca.trim().toLowerCase()))
+    : fora
+  const mover = (i: number, d: number) => {
+    const n = [...sel]; const j = i + d
+    if (j < 0 || j >= n.length) return
+    ;[n[i], n[j]] = [n[j], n[i]]; setSel(n)
+  }
+  const lin: any = { display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', fontSize: 13, borderBottom: '1px solid var(--border)' }
+  const mini: any = { background: 'none', border: 0, color: 'var(--muted)', cursor: 'pointer', padding: 2, display: 'inline-flex' }
+  const bt: any = { padding: '6px 12px', fontSize: 12.5, borderRadius: 7, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)', cursor: 'pointer' }
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }} onClick={fechar}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, padding: 20, width: 460, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={(e: any) => e.stopPropagation()}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>{titulo}</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{nota}</div>
+
+        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--faint)', fontWeight: 600, margin: '0 0 6px' }}>No painel ({noPainel.length})</div>
+        {!noPainel.length ? (
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0 10px' }}>Nenhuma escolhida ainda.</div>
+        ) : (
+          <div style={{ border: '1px solid var(--border)', borderRadius: 8, marginBottom: 14, overflow: 'hidden' }}>
+            {noPainel.map((l, i) => (
+              <div key={l.id} style={{ ...lin, borderBottom: i === noPainel.length - 1 ? 'none' : lin.borderBottom }}>
+                <span style={{ width: 20, color: 'var(--faint)', fontSize: 11, textAlign: 'right' }}>{i + 1}</span>
+                <span style={{ flex: 1, color: 'var(--text)' }}>{l.descricao}</span>
+                <button style={{ ...mini, opacity: i === 0 ? 0.3 : 1 }} disabled={i === 0} title="Subir" onClick={() => mover(i, -1)}><ChevronUp size={14} /></button>
+                <button style={{ ...mini, opacity: i === noPainel.length - 1 ? 0.3 : 1 }} disabled={i === noPainel.length - 1} title="Descer" onClick={() => mover(i, 1)}><ChevronDown size={14} /></button>
+                <button style={{ ...mini, color: 'var(--red)' }} title="Tirar do painel" onClick={() => setSel(sel.filter((x: string) => x !== l.id))}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 6px' }}>
+          <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--faint)', fontWeight: 600 }}>Disponíveis ({foraVis.length})</span>
+          <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="buscar…"
+            style={{ marginLeft: 'auto', padding: '4px 9px', fontSize: 12.5, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', width: 150 }} />
+        </div>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 8, maxHeight: 240, overflowY: 'auto' }}>
+          {!foraVis.length ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 10px' }}>{busca ? 'Nada com esse texto.' : 'Todas já estão no painel.'}</div> : foraVis.map((l: LinhaRel, i: number) => (
+            <div key={l.id} style={{ ...lin, cursor: 'pointer', borderBottom: i === foraVis.length - 1 ? 'none' : lin.borderBottom }}
+              onClick={() => setSel([...sel, l.id])}>
+              <span style={{ flex: 1, color: 'var(--muted)' }}>{l.descricao}</span>
+              <span style={{ color: 'var(--violet)', fontSize: 12, fontWeight: 600 }}>+ adicionar</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+          <button style={bt} onClick={() => setSel([])}>Limpar</button>
+          <button style={{ ...bt, borderColor: 'var(--violet)', color: 'var(--violet)' }} onClick={fechar}>Fechar</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -659,7 +768,7 @@ function agregarPorArea(rows: any[], linhas: LinhaRel[], ccs: CC[]) {
  * discreto nos cards — referência, não protagonista; quem quiser comparar de
  * verdade tem a aba ao lado.
  */
-function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, mensal, meses, MES, metas, anoBase, indicSel, setIndicSel, pick, setPick, porEmp, porArea, setDrill, rotuloBase, rotuloComp }: any) {
+function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, mensal, meses, MES, metas, anoBase, indicSel, setIndicSel, pick, setPick, linhaSel, setLinhaSel, pickLinha, setPickLinha, porEmp, porArea, setDrill, rotuloBase, rotuloComp }: any) {
   // Cards = linhas INDICADOR e FORMULA da estrutura. É o que o relatório já
   // declara como "medida" — nada hardcoded, e indicador novo aparece sozinho.
   const candidatos = useMemo(
@@ -675,6 +784,14 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
     ? indicSel.map((id: string) => candidatos.find((l: LinhaRel) => l.id === id)).filter(Boolean) as LinhaRel[]
     : candidatos
 
+  // Seção irmã: linhas que NÃO são indicador — receita bruta, despesas totais,
+  // um subtotal. Aqui vazio = NENHUMA (são centenas; "todas" seria ruído), e
+  // por isso a seção explica em vez de aparecer vazia.
+  const linhasCard = useMemo(
+    () => linhas.filter((l: LinhaRel) => l.tipo_linha !== 'ESPACO' && l.tipo_linha !== 'INDICADOR' && l.tipo_linha !== 'FORMULA' && !l.desativada),
+    [linhas])
+  const cardsLinha = linhaSel.map((id: string) => linhasCard.find((l: LinhaRel) => l.id === id)).filter(Boolean) as LinhaRel[]
+
   // Arrastar o card é o gesto natural para reordenar; o modal continua, para
   // escolher QUAIS. Como `indicSel` já é a ordem, arrastar só reordena o array.
   //
@@ -684,16 +801,21 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
   // e pareceria que a tela ignorou o gesto.
   const [arrasto, setArrasto] = useState<string | null>(null)
   const [sobre, setSobre] = useState<string | null>(null)
-  const soltar = (destinoId: string) => {
+  // Uma fábrica por seção: arrastar dentro de uma não pode mexer na ordem da
+  // outra, e as duas listas são independentes.
+  const fazSoltar = (ordemAtual: string[], visiveis: LinhaRel[], setOrdem: (v: string[]) => void) => (destinoId: string) => {
     const origemId = arrasto
     setArrasto(null); setSobre(null)
     if (!origemId || origemId === destinoId) return
-    const ordem: string[] = indicSel.length ? [...indicSel] : cards.map((l: LinhaRel) => l.id)
+    const ordem = ordemAtual.length ? [...ordemAtual] : visiveis.map(l => l.id)
     const de = ordem.indexOf(origemId), para = ordem.indexOf(destinoId)
     if (de < 0 || para < 0) return
     ordem.splice(para, 0, ...ordem.splice(de, 1))
-    setIndicSel(ordem)
+    setOrdem(ordem)
   }
+  const comum = { val, fac, base, comp, metas, anoBase, rotuloComp, arrasto, sobre, setArrasto, setSobre }
+  const cardProps = { ...comum, soltar: fazSoltar(indicSel, cards, setIndicSel) }
+  const cardPropsLinha = { ...comum, soltar: fazSoltar(linhaSel, cardsLinha, setLinhaSel) }
 
   // Cada gráfico entra no drill pelo SEU nó. Clicar em "Despesas por área" e
   // cair em Receitas é o que acontecia quando todos usavam a linha de
@@ -749,43 +871,30 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
-            {cards.map((l: LinhaRel) => {
-              const v = val(base, l.id), vc = val(comp, l.id)
-              const d = v - vc
-              const casas = (l as any).casas_decimais ?? ((l as any).formato === 'PERCENTUAL' ? 1 : 0)
-              const pct = vc !== 0 ? (d / Math.abs(vc)) * 100 : null
-              // Mesma regra da tabela de variação: custo é bom quando encolhe.
-              const bom = fac(l.id) === -1 ? Math.abs(v) < Math.abs(vc) : v > vc
-              const alvoSolta = sobre === l.id && arrasto && arrasto !== l.id
-              return (
-                <div key={l.id} draggable
-                  onDragStart={e => { setArrasto(l.id); e.dataTransfer.effectAllowed = 'move' }}
-                  onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (sobre !== l.id) setSobre(l.id) }}
-                  onDragLeave={() => { if (sobre === l.id) setSobre(null) }}
-                  onDrop={e => { e.preventDefault(); soltar(l.id) }}
-                  onDragEnd={() => { setArrasto(null); setSobre(null) }}
-                  title="Arraste para reordenar"
-                  style={{ background: 'var(--panel)', borderRadius: 12, padding: 15, cursor: 'grab',
-                    border: '1px solid ' + (alvoSolta ? 'var(--violet)' : 'var(--border)'),
-                    boxShadow: alvoSolta ? '0 0 0 3px rgba(139,92,246,0.18)' : 'none',
-                    opacity: arrasto === l.id ? 0.45 : 1,
-                    transition: 'box-shadow .12s, opacity .12s' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 500, flex: 1, minWidth: 0 }}>{l.descricao}</div>
-                    <ChipMeta valor={v} meta={resolverMeta(metas, l.id, anoBase, null)} />
-                  </div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', margin: '6px 0 4px' }}>
-                    {formatValor(v, (l as any).formato || 'NUMERO', casas)}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    {rotuloComp} {formatValor(vc, (l as any).formato || 'NUMERO', casas)}
-                    {d !== 0 && <> · <span style={{ color: bom ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
-                      {d >= 0 ? '+' : ''}{fmt(d, casas)}{pct != null ? ` (${fmtPct(pct)})` : ''}
-                    </span></>}
-                  </div>
-                </div>
-              )
-            })}
+            {cards.map((l: LinhaRel) => <CardLinha key={l.id} l={l} {...cardProps} />)}
+          </div>
+        )}
+      </div>
+
+      <div style={S.sec}>
+        <div style={S.secH}>
+          <div><div style={S.secT}>Linhas do relatório</div>
+            <div style={S.secD}>
+              Para acompanhar linhas que <strong>não são indicador</strong> — receita bruta, despesas totais, um subtotal.
+              Orçado de {rotuloBase}; o Δ compara com {rotuloComp}.
+            </div></div>
+          <button style={{ ...S.sel, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            onClick={() => setPickLinha(true)} data-noexport>
+            <ListChecks size={13} /> Escolher{linhaSel.length ? ` (${linhaSel.length})` : ''}
+          </button>
+        </div>
+        {!cardsLinha.length ? (
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+            Nenhuma linha escolhida. Use <strong>Escolher</strong> — são centenas de linhas, então nada aparece até você dizer quais interessam.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
+            {cardsLinha.map((l: LinhaRel) => <CardLinha key={l.id} l={l} {...cardPropsLinha} />)}
           </div>
         )}
       </div>
@@ -895,63 +1004,10 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
         )
       })}
 
-      {pick && (() => {
-        const noPainel = indicSel.map((id: string) => candidatos.find((l: LinhaRel) => l.id === id)).filter(Boolean) as LinhaRel[]
-        const fora = candidatos.filter((l: LinhaRel) => !indicSel.includes(l.id))
-        const mover = (i: number, d: number) => {
-          const n = [...indicSel]; const j = i + d
-          if (j < 0 || j >= n.length) return
-          ;[n[i], n[j]] = [n[j], n[i]]; setIndicSel(n)
-        }
-        const lin: any = { display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', fontSize: 13, borderBottom: '1px solid var(--border)' }
-        const mini: any = { background: 'none', border: 0, color: 'var(--muted)', cursor: 'pointer', padding: 2, display: 'inline-flex' }
-        return (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }} onClick={() => setPick(false)}>
-          <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, padding: 20, width: 460, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={(e: any) => e.stopPropagation()}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>Indicadores no painel</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
-              A ordem desta lista é a ordem dos cards. Sem nenhum escolhido, aparecem todos na ordem da estrutura — que vem embaralhada, porque na DRE cada indicador fica perto da sua seção.
-            </div>
-
-            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--faint)', fontWeight: 600, margin: '0 0 6px' }}>No painel ({noPainel.length})</div>
-            {!noPainel.length ? (
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0 10px' }}>Nenhum escolhido — mostrando todos.</div>
-            ) : (
-              <div style={{ border: '1px solid var(--border)', borderRadius: 8, marginBottom: 14, overflow: 'hidden' }}>
-                {noPainel.map((l, i) => (
-                  <div key={l.id} style={{ ...lin, borderBottom: i === noPainel.length - 1 ? 'none' : lin.borderBottom }}>
-                    <span style={{ width: 20, color: 'var(--faint)', fontSize: 11, textAlign: 'right' }}>{i + 1}</span>
-                    <span style={{ flex: 1, color: 'var(--text)' }}>{l.descricao}</span>
-                    <button style={{ ...mini, opacity: i === 0 ? 0.3 : 1 }} disabled={i === 0} title="Subir" onClick={() => mover(i, -1)}><ChevronUp size={14} /></button>
-                    <button style={{ ...mini, opacity: i === noPainel.length - 1 ? 0.3 : 1 }} disabled={i === noPainel.length - 1} title="Descer" onClick={() => mover(i, 1)}><ChevronDown size={14} /></button>
-                    <button style={{ ...mini, color: 'var(--red)' }} title="Tirar do painel" onClick={() => setIndicSel(indicSel.filter((x: string) => x !== l.id))}>✕</button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--faint)', fontWeight: 600, margin: '0 0 6px' }}>Disponíveis ({fora.length})</div>
-            <div style={{ border: '1px solid var(--border)', borderRadius: 8, maxHeight: 240, overflowY: 'auto' }}>
-              {!fora.length ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 10px' }}>Todos já estão no painel.</div> : fora.map((l: LinhaRel, i: number) => (
-                <div key={l.id} style={{ ...lin, cursor: 'pointer', borderBottom: i === fora.length - 1 ? 'none' : lin.borderBottom }}
-                  onClick={() => setIndicSel([...indicSel, l.id])}>
-                  <span style={{ flex: 1, color: 'var(--muted)' }}>{l.descricao}</span>
-                  <span style={{ color: 'var(--violet)', fontSize: 12, fontWeight: 600 }}>+ adicionar</span>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 14 }}>
-              <button style={{ ...S.sel, cursor: 'pointer' }} onClick={() => setIndicSel(candidatos.map((l: LinhaRel) => l.id))}>Adicionar todos</button>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button style={{ ...S.sel, cursor: 'pointer' }} onClick={() => setIndicSel([])}>Limpar</button>
-                <button style={{ ...S.sel, cursor: 'pointer', borderColor: 'var(--violet)', color: 'var(--violet)' }} onClick={() => setPick(false)}>Fechar</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        )
-      })()}
+      {pick && <PickerLinhas titulo="Indicadores no painel" candidatos={candidatos} sel={indicSel} setSel={setIndicSel} fechar={() => setPick(false)}
+        nota="A ordem desta lista é a ordem dos cards. Sem nenhum escolhido, aparecem todos na ordem da estrutura — que vem embaralhada, porque na DRE cada indicador fica perto da sua seção." />}
+      {pickLinha && <PickerLinhas titulo="Linhas no painel" candidatos={linhasCard} sel={linhaSel} setSel={setLinhaSel} fechar={() => setPickLinha(false)}
+        nota="A ordem desta lista é a ordem dos cards. Aqui nada aparece até você escolher — são centenas de linhas." />}
     </>
   )
 }
