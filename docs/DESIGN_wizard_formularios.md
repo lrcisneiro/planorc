@@ -177,6 +177,21 @@ substitui as células `gerado = true` e preserva as suas correções.
 escapava da tela. Título e rodapé fixos, corpo rolável, teto em
 `100vh - 64px`.
 
+### Seleção de linhas (30/out)
+
+**Várias linhas, não uma.** O parâmetro virou lista de checkboxes: replicar
+reembolso *e* receitas financeiras *e* despesas recuperadas numa geração só é o
+caso comum, e `mastersDaSelecao` já aceitava um array — era só a tela que
+limitava. Marcar um bloco inclui tudo abaixo dele, e marcar bloco e filha junto
+não duplica (a resolução "primeiro a ganhar" já tratava disso).
+
+**Ordem da árvore, não alfabética.** Ordenar a lista plana por `ordem` não
+serve: `ordem` é relativa ao pai (10, 20, 30 dentro de cada bloco), então o
+resultado intercala blocos e filhas de blocos diferentes. A ordem que a pessoa
+reconhece é a da DRE — descida em profundidade, irmãs por `ordem`, com recuo.
+O helper `emArvore` em `lib/refRelatorio.ts` faz isso; é a mesma lógica do
+`buildTree` do editor de relatório, promovida a compartilhada.
+
 ### Duas decisões da réplica
 
 **O ajuste vai como premissa global 🌐** — doze células em vez de doze por

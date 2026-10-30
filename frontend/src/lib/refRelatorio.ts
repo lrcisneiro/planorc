@@ -62,6 +62,26 @@ export function mastersDaSelecao(linhas: LinhaRel[], sel: string[]) {
   return { masters: Object.keys(masterToLine), masterToLine, byId }
 }
 
+/**
+ * Linhas na ORDEM DA ÁRVORE, com a profundidade de cada uma.
+ *
+ * Ordenar o array achatado por `ordem` NÃO serve: `ordem` é relativa ao pai
+ * (10, 20, 30 dentro de cada bloco), então o resultado intercala blocos e
+ * filhas de blocos diferentes. A ordem que a pessoa reconhece é a da DRE —
+ * descida em profundidade, irmãs por `ordem`.
+ *
+ * Mesma lógica do `buildTree` do editor de relatório; aqui para quem precisa
+ * só da lista, como os seletores de linha.
+ */
+export function emArvore<T extends { id: string; pai_id: string | null; ordem?: number | null }>(
+  linhas: T[], paiId: string | null = null, prof = 0,
+): (T & { prof: number })[] {
+  return linhas
+    .filter(l => (l.pai_id ?? null) === paiId)
+    .sort((a, b) => (a.ordem ?? 9999) - (b.ordem ?? 9999))
+    .flatMap(l => [{ ...l, prof }, ...emArvore(linhas, l.id, prof + 1)])
+}
+
 // Só faz sentido oferecer linha que tenha master na subárvore: linha de fórmula
 // ou indicador tem total, mas não tem folha a conciliar contra.
 export function linhasConciliaveis(linhas: LinhaRel[]) {

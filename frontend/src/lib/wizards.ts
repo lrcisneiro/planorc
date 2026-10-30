@@ -25,7 +25,7 @@ export type ParamDef = ParamVisivel & (
   | { key: string; tipo: 'ano';        label: string; ajuda?: string }
   | { key: string; tipo: 'mes';        label: string; ajuda?: string }
   | { key: string; tipo: 'relatorio';  label: string; ajuda?: string }
-  | { key: string; tipo: 'linha';      label: string; de: string; ajuda?: string }
+  | { key: string; tipo: 'linhas';     label: string; de: string; ajuda?: string }
   | { key: string; tipo: 'percentual'; label: string; padrao?: number; ajuda?: string }
   | { key: string; tipo: 'escolha';    label: string; padrao?: string; ajuda?: string
       opcoes: { valor: string; rotulo: string }[] })
@@ -174,8 +174,8 @@ const replica: Wizard = {
   ],
   params: [
     { key: 'relatorio', tipo: 'relatorio', label: 'Relatório de origem' },
-    { key: 'linha', tipo: 'linha', de: 'relatorio', label: 'Linha a replicar',
-      ajuda: 'Tudo que estiver abaixo dela entra junto.' },
+    { key: 'linhas', tipo: 'linhas', de: 'relatorio', label: 'Linhas a replicar',
+      ajuda: 'Marque quantas quiser. Marcar um bloco inclui tudo abaixo dele — não precisa marcar as filhas.' },
     { key: 'fonte', tipo: 'escolha', label: 'Replicar a partir de', padrao: 'REALIZADO',
       opcoes: [{ valor: 'REALIZADO', rotulo: 'Realizado de um ano' }, { valor: 'ORCADO', rotulo: 'Orçado de uma versão' }] },
     // o ano do orçado sai da própria versão (versao_orcamento.ano é NOT NULL);
@@ -194,15 +194,18 @@ const replica: Wizard = {
   ],
   async preparar(p) {
     const avisos: string[] = []
-    if (!p.relatorio || !p.linha) throw new Error('Escolha o relatório e a linha de origem.')
+    const sel: string[] = Array.isArray(p.linhas) ? p.linhas : (p.linhas ? [p.linhas] : [])
+    if (!p.relatorio || !sel.length) throw new Error('Escolha o relatório e ao menos uma linha de origem.')
 
     // 1 · linha → masters (a mesma resolução que a conciliação usa)
     const { data: rl, error } = await supabase.from('relatorio_linha').select(COLS_LINHA).eq('relatorio_id', p.relatorio)
     if (error) throw new Error('Erro ao ler as linhas do relatório: ' + error.message)
-    const { masters } = mastersDaSelecao((rl || []) as LinhaRel[], [p.linha])
+    // mastersDaSelecao já desce a subárvore de cada linha marcada e resolve
+    // sobreposição (bloco + filha marcados juntos não duplicam o master)
+    const { masters } = mastersDaSelecao((rl || []) as LinhaRel[], sel)
     if (!masters.length) {
-      throw new Error('Essa linha não tem conta por trás — é fórmula, indicador ou um bloco vazio. ' +
-                      'Escolha uma linha analítica, ou um bloco que contenha alguma.')
+      throw new Error('Nenhuma das linhas marcadas tem conta por trás — são fórmula, indicador ou bloco vazio. ' +
+                      'Marque uma linha analítica, ou um bloco que contenha alguma.')
     }
 
     // 2 · ler a origem. O ano do orçado vem da VERSÃO, não de um campo à parte.
@@ -286,10 +289,11 @@ const replica: Wizard = {
     for (let m = 1; m <= 12; m++) valores.push({ linha: 'AJUSTE', e: null, f: null, c: null, m, v: aj, escopoGlobal: true })
 
     const escopos = new Set(dados.map(d => ESCOPO(d as any))).size
-    const nomeLinha = ((rl || []) as any[]).find(l => l.id === p.linha)?.descricao ?? 'linha'
+    const descs = sel.map(id => ((rl || []) as any[]).find(l => l.id === id)?.descricao).filter(Boolean)
+    const nomeLinha = descs.length === 1 ? descs[0] : `${descs.length} linhas`
     return {
       linhas, valores, avisos, escopos,
-      sugestao: { codigo: 'REPL_' + slug(nomeLinha), nome: `Réplica — ${nomeLinha}` },
+      sugestao: { codigo: 'REPL_' + slug(descs[0] ?? 'linha'), nome: `Réplica — ${nomeLinha}` },
     }
   },
 }

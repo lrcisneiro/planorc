@@ -6,7 +6,7 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 import { T } from '../../lib/theme'
 import { Plus, Pencil, Trash2, ChevronRight, SlidersHorizontal, Settings2, Wand2, FileText, ChevronDown, AlertTriangle } from 'lucide-react'
 import { WIZARDS, type Wizard } from '../../lib/wizards'
-import { COLS_LINHA, linhasConciliaveis, type LinhaRel } from '../../lib/refRelatorio'
+import { COLS_LINHA, emArvore, linhasConciliaveis, type LinhaRel } from '../../lib/refRelatorio'
 import { executarWizard } from '../../lib/wizardRun'
 
 // Hub de Formulários de drivers (F5). Lista/cria formulários; cada um abre no editor.
@@ -104,6 +104,7 @@ export default function FormulariosPage() {
     for (const pd of w.params) {
       if (pd.tipo === 'escolha') vals[pd.key] = pd.padrao ?? pd.opcoes[0]?.valor
       else if (pd.tipo === 'percentual') vals[pd.key] = pd.padrao ?? 0
+      else if (pd.tipo === 'linhas') vals[pd.key] = []
       else if (pd.tipo === 'ano') vals[pd.key] = anoPadrao - 1   // origem costuma ser o ano anterior
       else if (pd.tipo === 'mes') {
         // ano fechado → dezembro; ano corrente → o último mês FECHADO, que é o
@@ -123,7 +124,7 @@ export default function FormulariosPage() {
     setMenu(false); setLinhasRel([])
     const wp = f.wizard_params || {}
     const vals: Record<string, any> = {}
-    for (const pd of w.params) vals[pd.key] = wp[pd.key] ?? (pd.tipo === 'escolha' ? pd.padrao : pd.tipo === 'percentual' ? 0 : '')
+    for (const pd of w.params) vals[pd.key] = wp[pd.key] ?? (pd.tipo === 'escolha' ? pd.padrao : pd.tipo === 'percentual' ? 0 : pd.tipo === 'linhas' ? [] : '')
     setWz({ open: true, w, codigo: f.codigo, nome: f.nome, formularioId: f.id,
             versaoId: wp.versao_id ?? versoes[0]?.id ?? '', ano: wp.ano ?? versoes[0]?.ano ?? 0, vals })
     // o relatório guardado precisa repovoar a lista de linhas
@@ -136,7 +137,7 @@ export default function FormulariosPage() {
   // linhas do relatório escolhido, para o parâmetro `linha`
   const escolherRelatorio = async (relId: string, key: string) => {
     if (!wz.open) return
-    setWz({ ...wz, vals: { ...wz.vals, [key]: relId, linha: '' } })
+    setWz({ ...wz, vals: { ...wz.vals, [key]: relId, linhas: [] } })
     setLinhasRel([])
     if (!relId) return
     const { data } = await supabase.from('relatorio_linha').select(COLS_LINHA + ',nivel').eq('relatorio_id', relId).order('ordem')
@@ -308,16 +309,43 @@ export default function FormulariosPage() {
                         <option value="">— escolha —</option>
                         {relatorios.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
                       </select>
-                    ) : pd.tipo === 'linha' ? (
-                      <select style={S.input} value={wz.vals[pd.key] ?? ''} disabled={!linhasRel.length}
-                              onChange={e => setWz({ ...wz, vals: { ...wz.vals, [pd.key]: e.target.value } })}>
-                        <option value="">{linhasRel.length ? '— escolha —' : 'escolha o relatório primeiro'}</option>
-                        {/* só linha com conta por trás: fórmula e indicador têm total, não têm o que replicar */}
-                        {linhasConciliaveis(linhasRel).map((l: any) => (
-                          <option key={l.id} value={l.id}>{'\u00A0'.repeat(((l.nivel ?? 1) - 1) * 3)}{l.codigo ? l.codigo + ' · ' : ''}{l.descricao}</option>
-                        ))}
-                      </select>
-                    ) : pd.tipo === 'versao' ? (
+                    ) : pd.tipo === 'linhas' ? (() => {
+                      // Ordem da ÁRVORE, não alfabética nem por `ordem` achatada:
+                      // `ordem` é relativa ao pai, então ordenar a lista plana
+                      // intercala blocos e filhas de blocos diferentes.
+                      // Só linha com conta por trás — fórmula e indicador têm
+                      // total, mas não têm o que replicar.
+                      const ok = new Set(linhasConciliaveis(linhasRel).map((l: any) => l.id))
+                      const arv = emArvore(linhasRel as any).filter((l: any) => ok.has(l.id))
+                      const marcadas: string[] = wz.vals[pd.key] ?? []
+                      const alterna = (id: string) => setWz({ ...wz, vals: { ...wz.vals,
+                        [pd.key]: marcadas.includes(id) ? marcadas.filter(x => x !== id) : [...marcadas, id] } })
+                      return !linhasRel.length ? (
+                        <div style={{ ...S.input, color: T.faint }}>escolha o relatório primeiro</div>
+                      ) : (
+                        <>
+                          <div style={{ maxHeight: 220, overflowY: 'auto', border: `1px solid ${T.borderS}`, borderRadius: 8, background: T.bgSoft, padding: 4 }}>
+                            {arv.map((l: any) => (
+                              <label key={l.id} style={{ display: 'flex', gap: 7, alignItems: 'flex-start', padding: '4px 6px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: T.text }}
+                                     onMouseEnter={e => (e.currentTarget.style.background = T.panel)}
+                                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                                <input type="checkbox" checked={marcadas.includes(l.id)} onChange={() => alterna(l.id)} style={{ marginTop: 2, flexShrink: 0 }} />
+                                <span style={{ paddingLeft: l.prof * 14 }}>
+                                  {l.codigo && <span style={{ fontFamily: 'monospace', color: T.muted }}>{l.codigo} · </span>}
+                                  <span style={{ fontWeight: l.prof === 0 ? 600 : 400 }}>{l.descricao}</span>
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: T.faint, marginTop: 4 }}>
+                            <span>{marcadas.length ? `${marcadas.length} marcada(s)` : 'nenhuma marcada'}</span>
+                            {marcadas.length > 0 && (
+                              <span style={{ cursor: 'pointer', color: T.violet }} onClick={() => setWz({ ...wz, vals: { ...wz.vals, [pd.key]: [] } })}>limpar</span>
+                            )}
+                          </div>
+                        </>
+                      )
+                    })() : pd.tipo === 'versao' ? (
                       <select style={S.input} value={wz.vals[pd.key] ?? ''}
                               onChange={e => setWz({ ...wz, vals: { ...wz.vals, [pd.key]: e.target.value } })}>
                         <option value="">— escolha —</option>
