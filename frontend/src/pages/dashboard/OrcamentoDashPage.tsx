@@ -137,6 +137,11 @@ export default function OrcamentoDashPage() {
   // Seção irmã, para linhas que NÃO são indicador — receita bruta, despesas
   // totais, um subtotal qualquer. Aqui vazio = NENHUMA, ao contrário dos
   // indicadores: são centenas de linhas, e "todas" encheria a tela de ruído.
+  // Qual linha o gráfico POR EMPRESA abre. Antes seguia a linha de resultado
+  // da ponte, o que amarrava duas decisões diferentes: a ponte quer o resultado
+  // final, aqui a pergunta pode ser "EBITDA por empresa" ou "receita por
+  // empresa". Vazio = segue a da ponte, que é o padrão útil.
+  const [empLinha, setEmpLinha] = useState<string>(sv.empLinha || '')
   const [linhaSel, setLinhaSel] = useState<string[]>(arr(sv.linhaSel) || [])
   const [pickLinha, setPickLinha] = useState(false)
   const [porEmp, setPorEmp] = useState<{ empresa: string; valor: number }[]>([])
@@ -166,7 +171,7 @@ export default function OrcamentoDashPage() {
     if (!f) return
     f.relId && setRelId(f.relId); f.vBase && setVBase(f.vBase); f.vComp && setVComp(f.vComp)
     f.modo && setModo(f.modo); f.proj && setProj(f.proj)
-    f.aba && setAba(f.aba); Array.isArray(f.indicSel) && setIndicSel(f.indicSel); Array.isArray(f.linhaSel) && setLinhaSel(f.linhaSel)
+    f.aba && setAba(f.aba); Array.isArray(f.indicSel) && setIndicSel(f.indicSel); Array.isArray(f.linhaSel) && setLinhaSel(f.linhaSel); f.empLinha !== undefined && setEmpLinha(f.empLinha)
     if (f.mesIni) setMesIni(f.mesIni); if (f.mesFim) setMesFim(f.mesFim)
     f.empresaSel && setEmpresaSel(f.empresaSel); f.filialSel && setFilialSel(f.filialSel)
     f.ccSel && setCcSel(f.ccSel); f.areaSel && setAreaSel(f.areaSel)
@@ -263,14 +268,14 @@ export default function OrcamentoDashPage() {
   // guardam a mesma coisa. Com duas listas separadas elas divergem, e o
   // sintoma é um filtro que o card silenciosamente não guarda.
   const estado = () => ({
-    relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel,
+    relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel, empLinha,
     empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel,
     secPonte, secVar, secAcur, secOrc,
   })
   useEffect(() => {
     if (cardId) return   // vendo um card: não contaminar o estado próprio da tela
     localStorage.setItem(SAVE, JSON.stringify(estado()))
-  }, [cardId, relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel,
+  }, [cardId, relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel, empLinha,
       empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, secPonte, secVar, secAcur, secOrc]) // eslint-disable-line
 
   const meses = useMemo(() => Array.from({ length: Math.max(0, mesFim - mesIni + 1) }, (_, i) => mesIni + i), [mesIni, mesFim])
@@ -354,18 +359,28 @@ export default function OrcamentoDashPage() {
       // totaisRelatorio: a linha de resultado costuma ser FÓRMULA, e somar o
       // agregado direto daria um número que não existe na DRE.
       const masters = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
-      const alvo = secOrc.resultado
+      const alvo = empLinha || secOrc.resultado
       if (masters.length && alvo) {
-        const { data: le } = await supabase.rpc('relatorio_linha_empresa_agg', {
-          p_versao: vBase, p_anos: [anoBase!], p_meses: meses,
-          p_linhas: masters, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: 1,
-        })
+        // ⚠ PAGINAR. O agregado devolve EMPRESA × LINHA: com 13 empresas e
+        // ~270 masters passa de 3.500 linhas, e o PostgREST corta em 1000 sem
+        // erro nenhum. O sintoma é o gráfico vir com menos empresas do que
+        // existe — ou vazio, se as que sobraram forem as sem valor.
+        const le: any[] = []
+        for (let from = 0; ; from += 1000) {
+          const { data, error } = await supabase.rpc('relatorio_linha_empresa_agg', {
+            p_versao: vBase, p_anos: [anoBase!], p_meses: meses,
+            p_linhas: masters, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: 1,
+          }).range(from, from + 999)
+          if (error || !data?.length) break
+          le.push(...data)
+          if (data.length < 1000) break
+        }
         const rlOf: Record<string, string> = {}
         linhas.forEach(l => { if (l.linha_orc_id && !l.nao_soma) rlOf[l.linha_orc_id] = l.id })
         const calc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada, nao_soma: l.nao_soma }))
         const PER: Periodo = { ano: anoBase!, mes: 1 }; const K = pkey(PER)
         const porEmpM: Record<string, Record<string, number>> = {}
-        for (const x of (le as any[]) || []) {
+        for (const x of le) {
           if (!empFiltradas.includes(x.empresa_id)) continue
           ;(porEmpM[x.empresa_id] = porEmpM[x.empresa_id] || {})[x.linha_id] = Number(x.orcado) || 0
         }
@@ -400,7 +415,7 @@ export default function OrcamentoDashPage() {
     }
     setCarregando(false)
   }
-  useEffect(() => { carregar() /* eslint-disable-next-line */ }, [relId, vBase, vComp, modo, mesIni, mesFim, proj, todasSel.join(','), empFiltradas.join(','), filialSel.join(','), ccSel.join(','), areaSel.join(','), divisaoSel.join(','), buSel.join(','), linhas.length, secOrc.resultado, anoBase, anoComp])
+  useEffect(() => { carregar() /* eslint-disable-next-line */ }, [relId, vBase, vComp, modo, mesIni, mesFim, proj, todasSel.join(','), empFiltradas.join(','), filialSel.join(','), ccSel.join(','), areaSel.join(','), divisaoSel.join(','), buSel.join(','), linhas.length, secOrc.resultado, empLinha, anoBase, anoComp])
 
   // ── helpers de linha
   const byId = useMemo(() => Object.fromEntries(linhas.map(l => [l.id, l])) as Record<string, LinhaRel>, [linhas])
@@ -556,6 +571,7 @@ export default function OrcamentoDashPage() {
           base={dados.base} comp={dados.comp} mensal={dados.mensalBase} meses={meses} MES={MES}
           metas={metas} anoBase={anoBase} indicSel={indicSel} setIndicSel={setIndicSel} pick={pickIndic} setPick={setPickIndic}
           linhaSel={linhaSel} setLinhaSel={setLinhaSel} pickLinha={pickLinha} setPickLinha={setPickLinha}
+          empLinha={empLinha} setEmpLinha={setEmpLinha}
           porEmp={porEmp} porArea={porArea} setDrill={setDrill}
           rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
       ) : (
@@ -768,7 +784,7 @@ function agregarPorArea(rows: any[], linhas: LinhaRel[], ccs: CC[]) {
  * discreto nos cards — referência, não protagonista; quem quiser comparar de
  * verdade tem a aba ao lado.
  */
-function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, mensal, meses, MES, metas, anoBase, indicSel, setIndicSel, pick, setPick, linhaSel, setLinhaSel, pickLinha, setPickLinha, porEmp, porArea, setDrill, rotuloBase, rotuloComp }: any) {
+function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, mensal, meses, MES, metas, anoBase, indicSel, setIndicSel, pick, setPick, linhaSel, setLinhaSel, pickLinha, setPickLinha, empLinha, setEmpLinha, porEmp, porArea, setDrill, rotuloBase, rotuloComp }: any) {
   // Cards = linhas INDICADOR e FORMULA da estrutura. É o que o relatório já
   // declara como "medida" — nada hardcoded, e indicador novo aparece sozinho.
   const candidatos = useMemo(
@@ -799,6 +815,7 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
   // array para mexer — então o primeiro arrasto MATERIALIZA a ordem visível
   // antes de aplicar o movimento. Sem isso, o primeiro arrasto não teria efeito
   // e pareceria que a tela ignorou o gesto.
+  const [semCC, setSemCC] = useState<{ rotulo: string; valor: number } | null>(null)
   const [arrasto, setArrasto] = useState<string | null>(null)
   const [sobre, setSobre] = useState<string | null>(null)
   // Uma fábrica por seção: arrastar dentro de uma não pode mexer na ordem da
@@ -836,6 +853,12 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
   }
 
   const alvo = cfg.resultado ? linhas.find((l: LinhaRel) => l.id === cfg.resultado) : null
+  // Candidatas do gráfico por empresa: subtotais, fórmulas e indicadores — o
+  // que faz sentido comparar entre unidades. Analítica solta é detalhe demais.
+  const linhasEmp = useMemo(
+    () => linhas.filter((l: LinhaRel) => !l.desativada && l.tipo_linha !== 'ESPACO' && l.tipo_linha !== 'ANALITICA'),
+    [linhas])
+  const alvoEmp = (empLinha ? linhas.find((l: LinhaRel) => l.id === empLinha) : null) || alvo
   const partes: string[] = useMemo(() => componentesDe(alvo, linhas), [alvo, linhas])
 
   // ── evolução mensal das linhas escolhidas
@@ -941,11 +964,24 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
         </div>
 
         <div style={S.sec}>
-          <div style={S.secH}><div>
-            <div style={S.secT}>Por empresa</div>
-            <div style={S.secD}>{alvo ? alvo.descricao : '—'} orçado em {rotuloBase}, por empresa.</div>
-          </div></div>
-          {!porEmp.length ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>Sem valor por empresa para os filtros atuais.</div> : (
+          <div style={S.secH}>
+            <div>
+              <div style={S.secT}>Por empresa</div>
+              <div style={S.secD}>{alvoEmp ? alvoEmp.descricao : '—'} orçado em {rotuloBase}, por empresa.</div>
+            </div>
+            <select style={{ ...S.sel, maxWidth: 220 }} value={empLinha} onChange={(e: any) => setEmpLinha(e.target.value)} data-noexport
+              title="Qual linha abrir por empresa — resultado, EBITDA, receita…">
+              <option value="">(linha de resultado)</option>
+              {linhasEmp.map((l: LinhaRel) => <option key={l.id} value={l.id}>{l.descricao}</option>)}
+            </select>
+          </div>
+          {!porEmp.length ? (
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+              {!alvoEmp
+                ? <>Escolha a linha no seletor acima — é ela que este gráfico abre por empresa.</>
+                : <>Sem valor de <strong>{alvoEmp.descricao}</strong> por empresa nos filtros atuais.</>}
+            </div>
+          ) : (
             <div style={{ ...cx, height: alt(porEmp.length) }}>
               <ResponsiveBar theme={nivoTheme()} data={porEmp} keys={['valor']} indexBy="empresa"
                 layout="horizontal" margin={{ top: 6, right: 24, bottom: 34, left: 150 }}
@@ -996,13 +1032,41 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
                 colors={cor} enableGridY={false} axisBottom={{ format: (v: any) => fmt(Number(v)) }}
                 labelSkipWidth={44} label={(d: any) => fmt(Number(d.value))}
                 onClick={(d: any) => {
+                  // "Sem CC" e "Sem área" agrupam lançamentos com cc_id NULO —
+                  // não há lista de CCs para recortar o drill. Abrir mesmo
+                  // assim mostraria o relatório INTEIRO, que é pior que não
+                  // abrir: parece que aquela barra contém tudo aquilo.
+                  if (!d.data._ccs?.length) { setSemCC({ rotulo: String(d.data[idx]), valor: Number(d.data['Orçado']) || 0 }); return }
                   const no = raizDe(chave === 'rec' || chave === 'ccRec' ? 'RECEITA' : 'DESPESA') || cfg.resultado
-                  if (no) setDrill({ nodeId: no, ccFilter: d.data._ccs?.length ? d.data._ccs : null })
+                  if (no) setDrill({ nodeId: no, ccFilter: d.data._ccs })
                 }} />
             </div>
           </div>
         )
       })}
+
+      {semCC && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }} onClick={() => setSemCC(null)}>
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, padding: 22, width: 480, maxWidth: '94vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={(e: any) => e.stopPropagation()}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>{semCC.rotulo} — {fmt(semCC.valor)}</div>
+            <div style={{ fontSize: 13, color: 'var(--text-mid)', lineHeight: 1.6 }}>
+              Estes valores foram orçados <strong>sem centro de custo</strong> (<code>cc_id</code> nulo). A grade de Orçar
+              permite lançar por empresa e filial sem descer ao CC, e a importação de baseline aceita a coluna vazia —
+              então não é defeito por si, mas é despesa sem dono.
+              <br /><br />
+              O drill não abre aqui de propósito: sem lista de centros de custo ele mostraria o relatório inteiro,
+              e pareceria que esta barra contém tudo aquilo.
+              <br /><br />
+              Para ver o que há dentro, rode <code>diagnostico_orcado_sem_cc.sql</code> — ele abre por conta,
+              por empresa/filial e por <strong>origem</strong>, que é o que diz onde corrigir: digitado na tela,
+              vindo de formulário, do motor da folha ou do arquivo de baseline.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+              <button style={{ ...S.sel, cursor: 'pointer', borderColor: 'var(--violet)', color: 'var(--violet)' }} onClick={() => setSemCC(null)}>Entendi</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {pick && <PickerLinhas titulo="Indicadores no painel" candidatos={candidatos} sel={indicSel} setSel={setIndicSel} fechar={() => setPick(false)}
         nota="A ordem desta lista é a ordem dos cards. Sem nenhum escolhido, aparecem todos na ordem da estrutura — que vem embaralhada, porque na DRE cada indicador fica perto da sua seção." />}
