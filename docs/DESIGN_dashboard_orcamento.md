@@ -373,3 +373,28 @@ anterior". Custa o mesmo e serve às duas perguntas.
 - [Shapley vs waterfall variance bridge — Cleo AI](https://cleoai.tech/knowledge/shapley_vs_waterfall_variance_bridge_which_method_should_fpa_teams_use_to_explain_budget_variances.php)
 - [Budget Variance: How FP&A Teams Build a Tighter Reporting Workflow — Numeric](https://www.numeric.io/blog/budget-variance)
 - [Margin Bridge Analysis: 4 Variance Drivers Explained — eFinancialModels](https://www.efinancialmodels.com/mastering-the-gross-margin-bridge/)
+
+
+---
+
+## Duas abas (out/2026)
+
+Os filtros valem para as duas e ficam **acima** delas — trocar de aba não custa remarcar
+empresa e período.
+
+**Aba `Orçamento`** — o plano em si, sem comparar com outro ano. Quem monta quer esta.
+- **Cards de indicador**: as linhas `INDICADOR` e `FORMULA` da estrutura do relatório, com o
+  valor orçado da versão base e o chip de faixa (`indicadorMeta`). Nada de nome chumbado —
+  indicador novo na estrutura aparece sozinho. Seletor para escolher quais (vazio = todos).
+- **O ano, mês a mês**: evolução do orçado nas linhas escolhidas. Serve para ver sazonalidade —
+  e para flagrar a linha reta, que quase sempre é total anual ÷ 12.
+- **De que o resultado é feito**: componentes da linha de resultado, derivados por
+  `componentesDe` (expressão da fórmula, ou filhas de `SOMAR_FILHOS`).
+- **Por empresa**: uma chamada a `relatorio_linha_empresa_agg` e o motor roda **por empresa**.
+  ⚠ Não somar o agregado direto: a linha de resultado costuma ser FÓRMULA, e a soma daria um
+  número que não existe na DRE.
+
+**Aba `Comparativo`** — a tela anterior inteira (Ponte, O que mudou, Acurácia, Alertas).
+
+A versão comparada aparece na aba Orçamento só como um Δ discreto nos cards, com a mesma regra
+de cor da tabela de variação (custo é bom quando encolhe). Comparação de verdade é a outra aba.

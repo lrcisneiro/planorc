@@ -23,7 +23,13 @@ import {
   ExportarButton, FiltrosButton, SalvarCardButton, useCardPreset,
   effectiveCcFilter, escopoFiltro, type CC,
 } from './DashFiltros'
-import { ChevronLeft, AlertTriangle, Info, Download, ChevronUp, ChevronDown } from 'lucide-react'
+import { ChevronLeft, AlertTriangle, Info, Download, ChevronUp, ChevronDown, ListChecks } from 'lucide-react'
+import { ResponsiveBar } from '@nivo/bar'
+import { ResponsiveLine } from '@nivo/line'
+import { nivoTheme } from '../../lib/nivoTheme'
+import { computeTotais, formatValor, pkey, type Computed, type LinhaCalc, type Periodo } from '../../lib/engine'
+import { carregarMetas, resolverMeta, type IndicadorMeta } from '../../lib/indicadorMeta'
+import { ChipMeta } from './IndicCard'
 import { downloadSheet } from '../../lib/planilha'
 
 const MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
@@ -119,6 +125,15 @@ export default function OrcamentoDashPage() {
   const [buSel, setBuSel] = useState<string[]>(arr(sv.buSel) || [])
 
   // ── seções
+  // Duas abas, porque são duas perguntas. "Orçamento" mostra o plano em si —
+  // os indicadores da estrutura e a forma dele no ano. "Comparativo" julga o
+  // plano contra outro ano. Quem monta quer a primeira; quem aprova, a segunda.
+  const [aba, setAba] = useState<'orcamento' | 'comparativo'>(sv.aba === 'comparativo' ? 'comparativo' : 'orcamento')
+  const [secOrc, setSecOrc] = useState<SecCfg>(SEC_PADRAO)
+  const [metas, setMetas] = useState<IndicadorMeta[]>([])
+  const [indicSel, setIndicSel] = useState<string[]>(arr(sv.indicSel) || [])
+  const [pickIndic, setPickIndic] = useState(false)
+  const [porEmp, setPorEmp] = useState<{ empresa: string; valor: number }[]>([])
   const [secPonte, setSecPonte] = useState<SecCfg>(SEC_PADRAO)
   const [secVar, setSecVar] = useState<SecCfg>(SEC_PADRAO)
   const [secAcur, setSecAcur] = useState<SecCfg>(SEC_PADRAO)
@@ -127,9 +142,9 @@ export default function OrcamentoDashPage() {
   // ainda existem. Sem essa espera o padrão derivado da estrutura chega depois
   // e sobrescreve o que a pessoa escolheu: era essa corrida que fazia o card
   // reabrir com as seções no padrão, e não como foram salvas.
-  const pendSec = useRef<Partial<Record<'secPonte' | 'secVar' | 'secAcur', SecCfg>> | null>(
-    sv.secPonte || sv.secVar || sv.secAcur
-      ? { secPonte: sv.secPonte, secVar: sv.secVar, secAcur: sv.secAcur }
+  const pendSec = useRef<Partial<Record<'secPonte' | 'secVar' | 'secAcur' | 'secOrc', SecCfg>> | null>(
+    sv.secPonte || sv.secVar || sv.secAcur || sv.secOrc
+      ? { secPonte: sv.secPonte, secVar: sv.secVar, secAcur: sv.secAcur, secOrc: sv.secOrc }
       : null,
   )
 
@@ -143,6 +158,7 @@ export default function OrcamentoDashPage() {
     if (!f) return
     f.relId && setRelId(f.relId); f.vBase && setVBase(f.vBase); f.vComp && setVComp(f.vComp)
     f.modo && setModo(f.modo); f.proj && setProj(f.proj)
+    f.aba && setAba(f.aba); Array.isArray(f.indicSel) && setIndicSel(f.indicSel)
     if (f.mesIni) setMesIni(f.mesIni); if (f.mesFim) setMesFim(f.mesFim)
     f.empresaSel && setEmpresaSel(f.empresaSel); f.filialSel && setFilialSel(f.filialSel)
     f.ccSel && setCcSel(f.ccSel); f.areaSel && setAreaSel(f.areaSel)
@@ -153,8 +169,9 @@ export default function OrcamentoDashPage() {
     // serão buscadas de novo), e o setState cobre o caso de ele ser o mesmo
     // (nenhuma busca acontece, então ninguém consome a fila).
     if (f.secPonte || f.secVar || f.secAcur) {
-      pendSec.current = { secPonte: f.secPonte, secVar: f.secVar, secAcur: f.secAcur }
+      pendSec.current = { secPonte: f.secPonte, secVar: f.secVar, secAcur: f.secAcur, secOrc: f.secOrc }
       f.secPonte && setSecPonte(f.secPonte); f.secVar && setSecVar(f.secVar); f.secAcur && setSecAcur(f.secAcur)
+      f.secOrc && setSecOrc(f.secOrc)
     }
   })
   const [erro, setErro] = useState<string | null>(null)
@@ -176,6 +193,7 @@ export default function OrcamentoDashPage() {
         setVBase(p => (p && vive(p) ? p : v[0].id))
         setVComp(p => (p && vive(p) ? p : (v[1]?.id ?? v[0].id)))
       })
+    carregarMetas().then(setMetas)
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => {
       const es = r.data || []; setEmpresas(es)
       const ids = es.map((e: any) => e.id)
@@ -213,6 +231,9 @@ export default function OrcamentoDashPage() {
           return { ...cfg, sel, resultado: cfg.resultado && vivos.has(cfg.resultado) ? cfg.resultado : padrao.resultado }
         }
         setSecPonte(ou(pend?.secPonte, { ...SEC_PADRAO, resultado: res?.id, sel: componentesDe(res, ls) }))
+        // A visão do orçamento nasce com as linhas de nível 1 e a mesma linha
+        // de resultado da ponte — é o retrato que quem monta espera ver.
+        setSecOrc(ou(pend?.secOrc, { ...SEC_PADRAO, resultado: res?.id, sel: ids }))
         setSecVar(p => ou(pend?.secVar, { ...p, sel: ids }))
         setSecAcur(p => ou(pend?.secAcur, { ...p, sel: ids }))
       })
@@ -234,15 +255,15 @@ export default function OrcamentoDashPage() {
   // guardam a mesma coisa. Com duas listas separadas elas divergem, e o
   // sintoma é um filtro que o card silenciosamente não guarda.
   const estado = () => ({
-    relId, vBase, modo, vComp, mesIni, mesFim, proj,
+    relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel,
     empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel,
-    secPonte, secVar, secAcur,
+    secPonte, secVar, secAcur, secOrc,
   })
   useEffect(() => {
     if (cardId) return   // vendo um card: não contaminar o estado próprio da tela
     localStorage.setItem(SAVE, JSON.stringify(estado()))
-  }, [cardId, relId, vBase, modo, vComp, mesIni, mesFim, proj,
-      empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, secPonte, secVar, secAcur]) // eslint-disable-line
+  }, [cardId, relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel,
+      empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, secPonte, secVar, secAcur, secOrc]) // eslint-disable-line
 
   const meses = useMemo(() => Array.from({ length: Math.max(0, mesFim - mesIni + 1) }, (_, i) => mesIni + i), [mesIni, mesFim])
   // os meses DEPOIS do período, até dezembro
@@ -314,12 +335,42 @@ export default function OrcamentoDashPage() {
       mens.forEach((mm, i) => { for (const k in mm) (mensalBase[k] = mensalBase[k] || Array(meses.length).fill(0))[i] = mm[k] })
 
       setDados({ base: b, comp, orcAnt: oa, realAnt: ra, mensalBase })
+
+      // ── orçado por empresa (aba Orçamento)
+      // Uma chamada só e o motor roda por empresa, em vez de N chamadas de
+      // totaisRelatorio: a linha de resultado costuma ser FÓRMULA, e somar o
+      // agregado direto daria um número que não existe na DRE.
+      const masters = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
+      const alvo = secOrc.resultado
+      if (masters.length && alvo) {
+        const { data: le } = await supabase.rpc('relatorio_linha_empresa_agg', {
+          p_versao: vBase, p_anos: [anoBase!], p_meses: meses,
+          p_linhas: masters, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: 1,
+        })
+        const rlOf: Record<string, string> = {}
+        linhas.forEach(l => { if (l.linha_orc_id && !l.nao_soma) rlOf[l.linha_orc_id] = l.id })
+        const calc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada, nao_soma: l.nao_soma }))
+        const PER: Periodo = { ano: anoBase!, mes: 1 }; const K = pkey(PER)
+        const porEmpM: Record<string, Record<string, number>> = {}
+        for (const x of (le as any[]) || []) {
+          if (!empFiltradas.includes(x.empresa_id)) continue
+          ;(porEmpM[x.empresa_id] = porEmpM[x.empresa_id] || {})[x.linha_id] = Number(x.orcado) || 0
+        }
+        const nomeEmp: Record<string, string> = {}
+        empresas.forEach((e: any) => { nomeEmp[e.id] = `${e.codigo} · ${String(e.descricao || '').slice(0, 20)}` })
+        const fAlvo = fatorExibicao(alvo, Object.fromEntries(linhas.map(l => [l.id, l])) as any)
+        setPorEmp(Object.entries(porEmpM).map(([eid, byMaster]) => {
+          const computed: Computed = {}; calc.forEach(l => { computed[l.id] = {} })
+          for (const mm of masters) { const rl = rlOf[mm]; if (rl) computed[rl][K] = byMaster[mm] || 0 }
+          return { empresa: nomeEmp[eid] || '?', valor: Math.round(fAlvo * (computeTotais(calc, computed, [PER])[alvo] || 0)) }
+        }).filter(x => x.valor).sort((a, b) => b.valor - a.valor).slice(0, 14).reverse())
+      } else setPorEmp([])
     } catch (e: any) {
       setErro(e?.message ?? String(e)); setDados(null)
     }
     setCarregando(false)
   }
-  useEffect(() => { carregar() /* eslint-disable-next-line */ }, [relId, vBase, vComp, modo, mesIni, mesFim, proj, todasSel.join(','), empFiltradas.join(','), filialSel.join(','), ccSel.join(','), areaSel.join(','), divisaoSel.join(','), buSel.join(','), linhas.length])
+  useEffect(() => { carregar() /* eslint-disable-next-line */ }, [relId, vBase, vComp, modo, mesIni, mesFim, proj, todasSel.join(','), empFiltradas.join(','), filialSel.join(','), ccSel.join(','), areaSel.join(','), divisaoSel.join(','), buSel.join(','), linhas.length, secOrc.resultado])
 
   // ── helpers de linha
   const byId = useMemo(() => Object.fromEntries(linhas.map(l => [l.id, l])) as Record<string, LinhaRel>, [linhas])
@@ -450,13 +501,32 @@ export default function OrcamentoDashPage() {
       )}
       {erro && <Aviso tom="alerta">{erro}</Aviso>}
 
+      {/* Abas abaixo dos filtros: os filtros valem para as DUAS, então ficam
+          acima — mudar de aba não deve custar remarcar empresa e período. */}
+      {relId && (
+        <div style={{ display: 'flex', gap: 6, margin: '0 0 16px' }} data-noexport>
+          {([['orcamento', 'Orçamento'], ['comparativo', 'Comparativo']] as const).map(([k, lbl]) => (
+            <button key={k} onClick={() => setAba(k)}
+              style={{ padding: '7px 16px', fontSize: 13, fontWeight: aba === k ? 700 : 500, borderRadius: 99, cursor: 'pointer',
+                border: '1px solid ' + (aba === k ? 'var(--violet)' : 'var(--border)'),
+                background: aba === k ? 'rgba(139,92,246,0.16)' : 'var(--panel)',
+                color: aba === k ? 'var(--violet)' : 'var(--text-mid)' }}>{lbl}</button>
+          ))}
+        </div>
+      )}
+
       {!relId ? (
         <div style={{ ...S.sec, textAlign: 'center', color: 'var(--muted)', padding: 48 }}>
           Escolha um <strong>relatório</strong> para começar.
         </div>
       ) : carregando ? (
         <div style={{ ...S.sec, textAlign: 'center', color: 'var(--muted)', padding: 48 }}>Calculando…</div>
-      ) : !dados ? null : (
+      ) : !dados ? null : aba === 'orcamento' ? (
+        <VisaoOrcamento S={S} cfg={secOrc} setCfg={setSecOrc} linhas={linhas} nome={nome} val={val} fac={fac}
+          base={dados.base} comp={dados.comp} mensal={dados.mensalBase} meses={meses} MES={MES}
+          metas={metas} anoBase={anoBase} indicSel={indicSel} setIndicSel={setIndicSel} pick={pickIndic} setPick={setPickIndic}
+          porEmp={porEmp} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
+      ) : (
         <>
           <Ponte S={S} cfg={secPonte} setCfg={setSecPonte} linhas={linhas} nome={nome}
             base={dados.base} comp={dados.comp} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
@@ -472,6 +542,176 @@ export default function OrcamentoDashPage() {
         </>
       )}
     </div>
+  )
+}
+
+// ============================================================
+/**
+ * ABA "ORÇAMENTO" — o plano em si, sem comparar com outro ano.
+ *
+ * A outra aba julga o orçamento (de onde veio a variação, dá para acreditar).
+ * Esta mostra o que ele É: os indicadores que a estrutura do relatório já
+ * define, a forma do ano mês a mês, de que partes o resultado é feito e como
+ * se distribui entre as empresas.
+ *
+ * Tudo lê o ORÇADO da versão base. A versão comparada aparece só como um Δ
+ * discreto nos cards — referência, não protagonista; quem quiser comparar de
+ * verdade tem a aba ao lado.
+ */
+function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, mensal, meses, MES, metas, anoBase, indicSel, setIndicSel, pick, setPick, porEmp, rotuloBase, rotuloComp }: any) {
+  // Cards = linhas INDICADOR e FORMULA da estrutura. É o que o relatório já
+  // declara como "medida" — nada hardcoded, e indicador novo aparece sozinho.
+  const candidatos = useMemo(
+    () => linhas.filter((l: LinhaRel) => (l.tipo_linha === 'INDICADOR' || l.tipo_linha === 'FORMULA') && !l.desativada),
+    [linhas])
+  // Vazio = todos. Seção que nasce vazia parece quebrada.
+  const cards = indicSel.length ? candidatos.filter((l: LinhaRel) => indicSel.includes(l.id)) : candidatos
+
+  const alvo = cfg.resultado ? linhas.find((l: LinhaRel) => l.id === cfg.resultado) : null
+  const partes: string[] = useMemo(() => componentesDe(alvo, linhas), [alvo, linhas])
+
+  // ── evolução mensal das linhas escolhidas
+  const evolucao = useMemo(() => cfg.sel.filter((id: string) => mensal[id]).map((id: string) => ({
+    id: nome(id),
+    data: meses.map((m: number, i: number) => ({ x: MES[m - 1], y: Math.round((mensal[id]?.[i] ?? 0) * fac(id)) })),
+  })).filter((s: any) => s.data.some((p: any) => p.y)), [cfg.sel, mensal, meses])
+
+  // ── composição do resultado
+  const composicao = useMemo(() => partes.map(id => ({ linha: String(nome(id)).slice(0, 26), valor: Math.round(val(base, id)) }))
+    .filter(x => x.valor).sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor)).reverse(), [partes, base])
+
+  const alt = (n: number) => Math.max(220, n * 30 + 60)
+  const cx: any = { background: 'var(--chart-bg)', borderRadius: 10, padding: 8 }
+
+  return (
+    <>
+      <div style={S.sec}>
+        <div style={S.secH}>
+          <div><div style={S.secT}>Indicadores do orçamento</div>
+            <div style={S.secD}>
+              As medidas que a <strong>estrutura do relatório</strong> já define, com o valor orçado de {rotuloBase}.
+              O Δ compara com {rotuloComp}.
+            </div></div>
+          <button style={{ ...S.sel, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            onClick={() => setPick(true)} data-noexport>
+            <ListChecks size={13} /> Escolher{indicSel.length ? ` (${indicSel.length})` : ''}
+          </button>
+        </div>
+        {!cards.length ? (
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+            Este relatório não tem linhas de indicador ou fórmula. Crie-as em <strong>Estruturas de relatórios</strong> e elas aparecem aqui.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
+            {cards.map((l: LinhaRel) => {
+              const v = val(base, l.id), vc = val(comp, l.id)
+              const d = v - vc
+              const casas = (l as any).casas_decimais ?? ((l as any).formato === 'PERCENTUAL' ? 1 : 0)
+              const pct = vc !== 0 ? (d / Math.abs(vc)) * 100 : null
+              // Mesma regra da tabela de variação: custo é bom quando encolhe.
+              const bom = fac(l.id) === -1 ? Math.abs(v) < Math.abs(vc) : v > vc
+              return (
+                <div key={l.id} style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: 15 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 500, flex: 1, minWidth: 0 }}>{l.descricao}</div>
+                    <ChipMeta valor={v} meta={resolverMeta(metas, l.id, anoBase, null)} />
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', margin: '6px 0 4px' }}>
+                    {formatValor(v, (l as any).formato || 'NUMERO', casas)}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    {rotuloComp} {formatValor(vc, (l as any).formato || 'NUMERO', casas)}
+                    {d !== 0 && <> · <span style={{ color: bom ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+                      {d >= 0 ? '+' : ''}{fmt(d, casas)}{pct != null ? ` (${fmtPct(pct)})` : ''}
+                    </span></>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      <div style={S.sec}>
+        <div style={S.secH}>
+          <div><div style={S.secT}>O ano, mês a mês</div>
+            <div style={S.secD}>
+              Orçado de {rotuloBase} nas linhas escolhidas. Linha reta o ano inteiro costuma ser
+              <strong> total anual dividido por doze</strong>, não sazonalidade.
+            </div></div>
+          <SelLinhas cfg={cfg} setCfg={setCfg} linhas={linhas} />
+        </div>
+        {!evolucao.length ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>Sem valor nas linhas escolhidas.</div> : (
+          <div style={{ ...cx, height: 300 }}>
+            <ResponsiveLine theme={nivoTheme()} data={evolucao} margin={{ top: 10, right: 150, bottom: 40, left: 72 }}
+              xScale={{ type: 'point' }} yScale={{ type: 'linear', stacked: false }}
+              axisLeft={{ format: (v: any) => fmt(Number(v)) }} enablePoints pointSize={5} useMesh
+              colors={{ scheme: 'set2' }} enableGridX={false}
+              legends={[{ anchor: 'right', direction: 'column', translateX: 140, itemWidth: 130, itemHeight: 18, symbolSize: 9, itemTextColor: 'var(--text-mid)' }]}
+              tooltip={({ point }: any) => (
+                <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 7, padding: '6px 9px', fontSize: 12 }}>
+                  <strong>{point.serieId}</strong> · {point.data.x}: {fmt(Number(point.data.y))}
+                </div>)} />
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16 }}>
+        <div style={S.sec}>
+          <div style={S.secH}><div>
+            <div style={S.secT}>De que o resultado é feito</div>
+            <div style={S.secD}>Componentes de <strong>{alvo ? alvo.descricao : '—'}</strong>, derivados da estrutura.</div>
+          </div></div>
+          {!composicao.length ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>Escolha a linha de resultado na seção acima.</div> : (
+            <div style={{ ...cx, height: alt(composicao.length) }}>
+              <ResponsiveBar theme={nivoTheme()} data={composicao} keys={['valor']} indexBy="linha"
+                layout="horizontal" margin={{ top: 6, right: 24, bottom: 34, left: 170 }}
+                colors={({ data }: any) => (data.valor >= 0 ? '#2f9e44' : '#e03131')}
+                axisBottom={{ format: (v: any) => fmt(Number(v)) }} enableGridY={false}
+                labelSkipWidth={44} label={(d: any) => fmt(Number(d.value))} />
+            </div>
+          )}
+        </div>
+
+        <div style={S.sec}>
+          <div style={S.secH}><div>
+            <div style={S.secT}>Por empresa</div>
+            <div style={S.secD}>{alvo ? alvo.descricao : '—'} orçado em {rotuloBase}, por empresa.</div>
+          </div></div>
+          {!porEmp.length ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>Sem valor por empresa para os filtros atuais.</div> : (
+            <div style={{ ...cx, height: alt(porEmp.length) }}>
+              <ResponsiveBar theme={nivoTheme()} data={porEmp} keys={['valor']} indexBy="empresa"
+                layout="horizontal" margin={{ top: 6, right: 24, bottom: 34, left: 150 }}
+                colors={({ data }: any) => (data.valor >= 0 ? '#5f3dc4' : '#e03131')}
+                axisBottom={{ format: (v: any) => fmt(Number(v)) }} enableGridY={false}
+                labelSkipWidth={44} label={(d: any) => fmt(Number(d.value))} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {pick && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }} onClick={() => setPick(false)}>
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, padding: 20, width: 420, maxWidth: '94vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={(e: any) => e.stopPropagation()}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>Indicadores no painel</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>Nenhum marcado = todos.</div>
+            <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+              {candidatos.map((l: LinhaRel) => (
+                <label key={l.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '5px 10px', fontSize: 13, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={indicSel.includes(l.id)}
+                    onChange={() => setIndicSel(indicSel.includes(l.id) ? indicSel.filter((x: string) => x !== l.id) : [...indicSel, l.id])} />
+                  <span style={{ color: indicSel.includes(l.id) ? 'var(--text)' : 'var(--muted)' }}>{l.descricao}</span>
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+              <button style={S.sel} onClick={() => setIndicSel([])}>Limpar</button>
+              <button style={{ ...S.sel, borderColor: 'var(--violet)', color: 'var(--violet)' }} onClick={() => setPick(false)}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
