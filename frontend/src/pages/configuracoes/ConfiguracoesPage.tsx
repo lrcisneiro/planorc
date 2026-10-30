@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { pageAll } from '../../lib/pageAll'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { limparCacheFlags } from '../../lib/tenantFlags'
@@ -134,11 +134,34 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
     for (const c of ccRows) { const code = c[codeAttr]; if (code) m.set(code, c[nameAttr] || code) }
     return [...m.entries()].map(([code, nome]) => ({ code, nome })).sort((a, b) => a.nome.localeCompare(b.nome))
   }
-  const toggleGrupoCC = (codeAttr: string, code: string) => {
-    const ids = ccRows.filter(c => c[codeAttr] === code).map(c => c.id)
-    const sel = dims.find(d => d.key === 'centro_custo')?.selecionados || []
-    const allIn = ids.length > 0 && ids.every(id => sel.includes(id))
-    setSelecionados('centro_custo', allIn ? sel.filter(id => !ids.includes(id)) : [...new Set([...sel, ...ids])])
+  // Os chips de Área/Divisão/BU FILTRAM a lista — não marcam nada sozinhos.
+  //
+  // Antes eles marcavam em lote e iam SOMANDO, então Serviços + Novos virava
+  // UNIÃO e um `Comercial Novos` entrava pela porta da divisão. Parecia
+  // defeito porque a tela aparenta um filtro facetado (três linhas rotuladas,
+  // iguais às do dashboard), e em filtro facetado a convenção é E entre as
+  // linhas, OU dentro da linha.
+  //
+  // Marcar em lote e filtrar não cabem no mesmo clique: num filtro, clicar
+  // `Novos` depois de `Serviços` tem de ESTREITAR, e estreitar com um clique
+  // que também marca significa DESMARCAR o que já estava — e o clique de
+  // volta teria de adivinhar o que remarcar. Separando, cada gesto diz uma
+  // coisa só: o chip escolhe o que você está olhando, o checkbox e o "marcar
+  // todos" escolhem o que a pessoa pode ver. Nada fora do filtro é tocado,
+  // então dá para montar o acesso em várias passadas.
+  const [ccFacetas, setCcFacetas] = useState<Record<string, string[]>>({ area_cod: [], divisao_cod: [], bu_cod: [] })
+  const toggleFaceta = (attr: string, code: string) =>
+    setCcFacetas(prev => {
+      const atual = prev[attr] || []
+      return { ...prev, [attr]: atual.includes(code) ? atual.filter(c => c !== code) : [...atual, code] }
+    })
+  const temFaceta = Object.values(ccFacetas).some(v => v.length > 0)
+  const ccPorId = useMemo(() => Object.fromEntries(ccRows.map(c => [c.id, c])), [ccRows])
+  // E entre as linhas, OU dentro da linha.
+  const passaFacetas = (id: string) => {
+    const cc = ccPorId[id]
+    if (!cc) return !temFaceta   // CC sem atributo cadastrado some assim que há filtro
+    return Object.entries(ccFacetas).every(([attr, codes]) => !codes.length || codes.includes(cc[attr]))
   }
 
   const setSelecionados = (key: string, ids: string[]) =>
@@ -237,16 +260,41 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 10, flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{dim.label}</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <button type="button" onClick={() => setSelecionados(dim.key, dim.opcoes.map(o => o.id))}
-                    style={{ background: 'none', border: 'none', color: 'var(--violet)', fontSize: 12, cursor: 'pointer', padding: 0 }}>Marcar todos</button>
-                  <button type="button" onClick={() => setSelecionados(dim.key, [])}
-                    style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, cursor: 'pointer', padding: 0 }}>Desmarcar todos</button>
+                  {(() => {
+                    // Com filtro ligado, estes botões agem só sobre o que está À
+                    // VISTA — e dizem isso no rótulo. "Marcar todos" apagando
+                    // uma escolha que a pessoa não está vendo é o pior resultado
+                    // possível numa tela de permissão.
+                    const filtrando = dim.key === 'centro_custo' && temFaceta
+                    const alvo = filtrando ? dim.opcoes.filter(o => passaFacetas(o.id)).map(o => o.id) : dim.opcoes.map(o => o.id)
+                    return (<>
+                      <button type="button"
+                        onClick={() => setSelecionados(dim.key, [...new Set([...dim.selecionados, ...alvo])])}
+                        style={{ background: 'none', border: 'none', color: 'var(--violet)', fontSize: 12, cursor: 'pointer', padding: 0 }}>
+                        {filtrando ? `Marcar os ${alvo.length} filtrados` : 'Marcar todos'}</button>
+                      <button type="button"
+                        onClick={() => setSelecionados(dim.key, filtrando ? dim.selecionados.filter(id => !alvo.includes(id)) : [])}
+                        style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, cursor: 'pointer', padding: 0 }}>
+                        {filtrando ? 'Desmarcar os filtrados' : 'Desmarcar todos'}</button>
+                    </>)
+                  })()}
                 </div>
               </div>
               <div style={{ fontSize: 12, color: dim.selecionados.length === 0 ? 'var(--muted)' : 'var(--text-mid)', marginBottom: 6 }}>
                 {dim.selecionados.length === 0
                   ? 'Sem restrição — acesso a todos. Marque os itens permitidos para restringir.'
                   : `${dim.selecionados.length} de ${dim.opcoes.length} permitidos`}
+                {dim.key === 'centro_custo' && temFaceta && (() => {
+                  const vis = dim.opcoes.filter(o => passaFacetas(o.id))
+                  const forA = dim.selecionados.filter(id => !passaFacetas(id)).length
+                  return (
+                    <span style={{ color: 'var(--violet)', marginLeft: 8 }}>
+                      · filtro: {vis.length} à vista{forA > 0 ? ` · ${forA} marcado(s) fora do filtro` : ''}
+                      {' '}<button type="button" onClick={() => setCcFacetas({ area_cod: [], divisao_cod: [], bu_cod: [] })}
+                        style={{ background: 'none', border: 0, color: 'var(--violet)', fontSize: 12, cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>limpar</button>
+                    </span>
+                  )
+                })()}
               </div>
               {dim.key === 'centro_custo' && ccRows.length > 0 && (
                 <div style={{ marginBottom: 8 }}>
@@ -257,15 +305,23 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
                       <div key={ca} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
                         <span style={{ fontSize: 11, color: 'var(--muted)', width: 56, flexShrink: 0 }}>{lbl}:</span>
                         {grupos.map(g => {
-                          const ids = ccRows.filter(c => c[ca] === g.code).map(c => c.id)
-                          const allIn = ids.length > 0 && ids.every(id => dim.selecionados.includes(id))
-                          const someIn = ids.some(id => dim.selecionados.includes(id))
+                          const ativo = (ccFacetas[ca] || []).includes(g.code)
+                          // Quantos CCs este chip deixaria à vista JUNTO com os
+                          // outros filtros — não quantos existem no grupo. É a
+                          // diferença entre prometer 12 e mostrar 4.
+                          const quantos = dim.opcoes.filter(o => {
+                            const cc = ccPorId[o.id]
+                            if (!cc) return false
+                            return Object.entries({ ...ccFacetas, [ca]: [g.code] })
+                              .every(([attr, codes]) => !(codes as string[]).length || (codes as string[]).includes(cc[attr]))
+                          }).length
                           return (
-                            <button key={g.code} type="button" onClick={() => toggleGrupoCC(ca, g.code)} title={`${ids.length} CC(s)`}
+                            <button key={g.code} type="button" onClick={() => toggleFaceta(ca, g.code)}
+                              title={`${quantos} centro(s) de custo com os filtros atuais`}
                               style={{ fontSize: 11, padding: '2px 9px', borderRadius: 999, cursor: 'pointer',
-                                border: '1px solid ' + (allIn ? 'var(--violet)' : someIn ? 'rgba(139,92,246,0.4)' : 'var(--border-strong)'),
-                                background: allIn ? 'rgba(139,92,246,0.18)' : 'transparent',
-                                color: allIn ? '#cbb8ff' : someIn ? 'var(--text-mid)' : 'var(--muted)' }}>
+                                border: '1px solid ' + (ativo ? 'var(--violet)' : 'var(--border-strong)'),
+                                background: ativo ? 'rgba(139,92,246,0.18)' : 'transparent',
+                                color: ativo ? '#cbb8ff' : quantos ? 'var(--text-mid)' : 'var(--muted)' }}>
                               {g.nome}
                             </button>
                           )
@@ -278,7 +334,7 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
               <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 0' }}>
                 {dim.opcoes.length === 0 ? (
                   <div style={{ padding: '8px 12px', color: 'var(--muted)', fontSize: 12 }}>Nenhum item cadastrado</div>
-                ) : dim.opcoes.map(opt => (
+                ) : (dim.key === 'centro_custo' ? dim.opcoes.filter(o => passaFacetas(o.id)) : dim.opcoes).map(opt => (
                   <label key={opt.id}
                     style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', cursor: 'pointer', fontSize: 13 }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg)')}
