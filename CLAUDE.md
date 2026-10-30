@@ -104,6 +104,24 @@ Três camadas independentes, **hoje aplicadas no frontend** (enforcement de RLS/
 
 > **Apagar o orçado de uma versão (v3_127).** A ação mais destrutiva do produto vive no menu *Importar Baseline* da tela de Orçar, atrás da capacidade `orcado.apagar` (só admin por padrão). Três proteções, e a ordem importa: `orcado_resumo_versao` mostra o que vai sumir (linhas, origens, valor, escopos) **antes** de qualquer confirmação; quem confirma digita o **código da versão**; e `apagar_orcado_versao` **confere a confirmação no servidor** e recusa versão `bloqueada`. Não é senha de propósito — senha prova identidade, e o risco aqui não é um estranho clicando, é a pessoa certa apagando a versão errada. Apaga `fat_orcado` da versão/ano (todas as origens) e os carimbos de `formulario_aplicacao`; **não** apaga `formulario_valor` — quem recomeça as cargas quer reaplicar os formulários, não redigitá-los.
 
+> **Posto de trabalho — granularidade (out/2026).** Tudo ali morava sob `orcar`, então dar o
+> quadro a um diretor de área dava junto o **Aplicar** (que *substitui* todo o `fat_orcado` de
+> origem `POSTO` da versão) e os importadores. Quebrado em quatro funções — `posto.aplicar`,
+> `posto.importar`, `folha.importar`, `apontamento.importar` (esta liberada por padrão) — e sete
+> menus, um por pill (`menu.postos.quadro|memoria|folha|apontamento|conciliacao|estrutura|rateio`).
+> Pill sem capacidade some da navegação e **a numeração se refaz sem buraco** (`PostosPills.tsx`
+> cruza a capacidade com a flag do tenant: a flag diz se a funcionalidade *existe*, a capacidade
+> se *esta pessoa* pode). As rotas de `/postos/*` são as primeiras com trava: `<Exige cap>` em
+> `App.tsx` — esconder a pill tira o caminho, não a porta.
+
+> **`versao` é dimensão de DADOS** (out/2026), fixa em Configurações → acesso, ao lado de
+> empresa/filial/CC. Responde "em QUAL orçamento", pergunta diferente da capacidade ("pode
+> aplicar?"). `useUserAccess` já é genérico, então não houve migration — `user_acesso_regra.dimensao`
+> é texto. Ao usar: filtrar o dropdown com `filterList('versao', …)` **e** reconduzir a seleção
+> quando `acesso.loading` virar `false`, senão a tela escolhe o default antes de saber o escopo e
+> fica parada numa versão proibida. ⚠ Aplicado hoje só na grade de Postos; os demais seletores de
+> versão (dashboards, Orçar, editor) ainda não filtram.
+
 > **Convenção — incluir uma funcionalidade nova no controle de acesso:** (1) adicionar uma entrada em `CAPACIDADES` (chave + label + categoria + `padrao` por papel); (2) gatear o elemento na tela com `can('chave')`. A seção "Funções e menus" em Configurações itera o catálogo, então a nova capacidade aparece sozinha com os controles Herdar/Liberar/Negar; `user_acesso_funcao` guarda por chave de texto, sem migration. Enquanto não catalogada, `can()` devolve `true` (não esconde nada por engano). Dimensão de **dados** nova é outro caminho: cadastro de `dimensao`.
 
 ## Legado em transição

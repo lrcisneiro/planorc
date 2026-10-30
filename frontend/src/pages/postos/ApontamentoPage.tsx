@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { PostosPills, usePassoLabel } from './PostosPills'
 import { pageAll } from '../../lib/pageAll'
+import { useCapacidades } from '../../hooks/useCapacidades'
 import { Upload, AlertCircle, Trash2, FileDown } from 'lucide-react'
 
 // Apontamento de horas (F5.2) — importa o "Extrato de Horas Apontadas" do TOTVS
@@ -71,6 +72,10 @@ function compDoNome(nome: string): { ano: number; mes: number } | null {
 
 export default function ApontamentoPage() {
   const passoLabel = usePassoLabel()
+  // Liberado por padrão a quem tem a tela — apontar hora é rotina de quem
+  // opera por projeto, não carga de base. O gate existe para o tenant que
+  // quiser fechar, não para fechar por conta própria.
+  const podeImportar = useCapacidades().can('apontamento.importar')
   const [empresas, setEmpresas] = useState<any[]>([])
   const [filiais, setFiliais] = useState<any[]>([])
   const [ccs, setCcs] = useState<any[]>([])
@@ -335,7 +340,7 @@ export default function ApontamentoPage() {
         <PostosPills />
       </div>
 
-      <div style={S.bar}>
+      {podeImportar && <div style={S.bar}>
         <div style={S.fld}><span style={S.lbl}>Lote</span>
           <input style={S.sel} value={lote} onChange={e => setLote(e.target.value)}
             title="Separa cargas da mesma competência. 'Substituir' troca só o lote que está entrando." />
@@ -353,7 +358,7 @@ export default function ApontamentoPage() {
               onChange={e => { const f = e.target.files?.[0]; if (f) importar(f); e.currentTarget.value = '' }} />
           </label>
         </div>
-      </div>
+      </div>}
 
       {erro && <div style={S.erro}><AlertCircle size={16} /> {erro}</div>}
       {info && <div style={S.ok}>{info.map((t, i) => <div key={i}>{t}</div>)}</div>}
@@ -419,8 +424,8 @@ export default function ApontamentoPage() {
                 <td style={{ ...S.td, textAlign: 'right' }}>{hrs(c.horas)}</td>
                 <td style={{ ...S.td, textAlign: 'right' }}>{money(c.valor)}</td>
                 <td style={{ ...S.td, textAlign: 'right' }}>
-                  <button style={{ ...S.btn, padding: '3px 8px', fontSize: 11.5, color: 'var(--red)' }}
-                    onClick={() => excluir(c)}><Trash2 size={12} /> Excluir</button>
+                  {podeImportar && <button style={{ ...S.btn, padding: '3px 8px', fontSize: 11.5, color: 'var(--red)' }}
+                    onClick={() => excluir(c)}><Trash2 size={12} /> Excluir</button>}
                 </td>
               </tr>
             ))}

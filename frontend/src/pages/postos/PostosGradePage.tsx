@@ -134,6 +134,12 @@ export default function PostosGradePage() {
   // a coluna "recebe por hora" só existe onde se aponta hora em projeto
   const nCols = flags.usa_apontamento ? 14 : 13
   const editavel = cap.can('orcar')
+  // Separadas de `editavel` de propósito: mexer no quadro da sua área é uma
+  // coisa; gravar no orçado do grupo e recarregar a base do RH são outras duas.
+  // O Aplicar SUBSTITUI todo o orçado de origem POSTO da versão — não é edição,
+  // é publicação.
+  const podeAplicar  = cap.can('posto.aplicar')
+  const podeImportar = cap.can('posto.importar')
 
   const [empresas, setEmpresas] = useState<any[]>([])
   const [filiais, setFiliais] = useState<any[]>([])
@@ -167,6 +173,19 @@ export default function PostosGradePage() {
   // motor de custo
   const [versoes, setVersoes] = useState<any[]>([])
   const [versaoSel, setVersaoSel] = usePostoCtx('versaoId', '')
+  // Escopo de DADOS sobre a versão — pergunta diferente da capacidade. A
+  // capacidade diz se a pessoa pode aplicar; isto diz em QUAL orçamento ela
+  // mexe. Cadastrado em Configurações → acesso, dimensão "Versão do orçamento".
+  const versoesVisiveis = acesso.filterList('versao', versoes as any) as any[]
+  // As regras de acesso chegam DEPOIS dos catálogos — enquanto carregam, o
+  // hook responde "pode tudo" (ausência de regra = sem restrição). Sem esta
+  // recondução a tela escolheria o default antes de saber o escopo e ficaria
+  // parada numa versão proibida, que é o pior jeito de falhar: silencioso.
+  useEffect(() => {
+    if (acesso.loading || !versoes.length) return
+    if (!versoesVisiveis.length) { if (versaoSel) setVersaoSel(''); return }
+    if (!versoesVisiveis.some((v: any) => v.id === versaoSel)) setVersaoSel(versoesVisiveis[0].id)
+  }, [acesso.loading, versoes.length, versaoSel])   // eslint-disable-line
   const [verbas, setVerbas] = useState<VerbaRegra[]>([])
   const [sindMesBase, setSindMesBase] = useState<Record<string, number>>({})
   const [sindByCod, setSindByCod] = useState<Record<string, string>>({})   // codigo → sindicato_id
@@ -201,7 +220,13 @@ export default function PostosGradePage() {
     setSindMesBase(Object.fromEntries((si.data || []).map((s: any) => [s.id, s.mes_database || 1])))
     setSindByCod(Object.fromEntries((si.data || []).map((s: any) => [String(s.codigo), s.id])))
     setSindicatos(si.data || [])
-    if (vs.data?.length) setVersaoSel(prev => vs.data.some((x: any) => x.id === prev) ? prev : vs.data[0].id)
+    // O default tem de cair numa versão PERMITIDA, não na primeira que veio do
+    // banco — senão a tela abre numa versão fora do escopo e o escopo não vale
+    // nada. Mesma razão para reconduzir quando o id guardado em localStorage
+    // (usePostoCtx) aponta para uma versão que esta pessoa não pode ver.
+    const permitidas = (vs.data || []).filter((x: any) => acesso.canSee('versao', x.id))
+    if (permitidas.length) setVersaoSel(prev => permitidas.some((x: any) => x.id === prev) ? prev : permitidas[0].id)
+    else setVersaoSel('')
   }
   useEffect(() => {
     if (!versaoSel) { setDissidio({}); return }
@@ -921,8 +946,8 @@ export default function PostosGradePage() {
       <div style={S.bar}>
         <div style={S.fld}><span style={S.lbl}>Versão</span>
           <select style={S.sel} value={versaoSel} onChange={e => setVersaoSel(e.target.value)} title="Versão do orçamento — define o dissídio aplicado ao custo">
-            {!versoes.length && <option value="">—</option>}
-            {versoes.map((v: any) => <option key={v.id} value={v.id}>{v.codigo}{v.bloqueada ? ' 🔒' : ''}</option>)}
+            {!versoesVisiveis.length && <option value="">—</option>}
+            {versoesVisiveis.map((v: any) => <option key={v.id} value={v.id}>{v.codigo}{v.bloqueada ? ' 🔒' : ''}</option>)}
           </select>
         </div>
         {/* Cadastro × Cenário. Explícito de propósito: no modo Cadastro você
@@ -989,12 +1014,12 @@ export default function PostosGradePage() {
         {editavel && <button style={{ ...S.btn, opacity: modoCenario ? 0.45 : 1, cursor: modoCenario ? 'not-allowed' : 'pointer' }}
           title={modoCenario ? 'Posto novo entra no CADASTRO, não no cenário — vaga que existe só numa versão ainda não é suportada (P3). Troque para Cadastro.' : undefined}
           onClick={() => { if (modoCenario) { setErro('Posto novo entra no cadastro, não no cenário. Troque para "Cadastro" — vaga que existe só numa versão ainda não é suportada.'); return } novoPosto() }}><Plus size={14} /> Posto / vaga</button>}
-        {editavel && <button style={S.btnPri} disabled={aplicando || !versaoSel || !temMotor} onClick={aplicarNoOrcado}
+        {podeAplicar && <button style={S.btnPri} disabled={aplicando || !versaoSel || !temMotor} onClick={aplicarNoOrcado}
           title="Grava o custo do quadro ativo desta versão no orçado (origem POSTO), aplicando o rateio.">
           <Play size={13} /> {aplicando ? 'Aplicando…' : 'Aplicar no orçado'}</button>}
       </div>
 
-      {editavel && (
+      {podeImportar && (
         <div style={{ ...S.bar, margin: '0 0 16px' }}>
           <div style={S.fld}><span style={S.lbl}>Importar do RH</span>
             <div style={{ display: 'flex', gap: 6 }}>
@@ -1116,7 +1141,9 @@ export default function PostosGradePage() {
                 )
               })}
               {!filtrados.length && <tr><td colSpan={nCols} style={S.empty}>
-                {postos.length ? 'Nenhum posto para o filtro.' : 'Nenhum posto ainda. Use "Importar postos (RH)" para carregar do cadastro convertido.'}
+                {postos.length ? 'Nenhum posto para o filtro.'
+                  : podeImportar ? 'Nenhum posto ainda. Use "Importar postos (RH)" para carregar do cadastro convertido.'
+                  : 'Nenhum posto ainda — a carga do RH é feita por quem tem essa permissão.'}
               </td></tr>}
             </tbody>
           </table>

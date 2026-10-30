@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactElement } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useParams } from 'react-router-dom'
 import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, Link2, Wallet, LogOut, Menu, X, SlidersHorizontal, Users, Layers, ShieldCheck, ListChecks, Sun, Moon, ListTree, Grid3x3, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -128,6 +128,28 @@ const S = {
   topbar: { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'var(--bg-soft)', color: 'var(--text)', flexShrink: 0, borderBottom: '1px solid var(--border)' } as const,
   burger: { display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 6, background: 'transparent', border: 'none', color: 'var(--text)', cursor: 'pointer' } as const,
   toggle: { display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 4, background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'pointer' } as const,
+}
+
+// Trava de ROTA por capacidade. Esconder a pill tira o caminho, não a porta:
+// sem isto, quem digita /postos/rateio entra mesmo sem a capacidade. Enquanto o
+// `can` carrega não renderiza nada — mostrar a tela e tirar depois seria pior,
+// porque a tela já teria feito as consultas.
+//
+// ⚠ Isto é barreira de PRODUTO, não de segurança: o enforcement de verdade é
+// RLS/RPC no banco, que segue como dívida (ver CLAUDE.md, Permissões F2).
+function Exige({ cap, children }: { cap: string; children: ReactElement }) {
+  const { can, loading } = useCapacidades()
+  if (loading) return null
+  if (can(cap)) return children
+  return (
+    <div style={{ padding: 32, maxWidth: 560 }}>
+      <h1 style={{ fontSize: 19, fontWeight: 700, color: 'var(--text)', margin: '0 0 8px' }}>Sem acesso a esta tela</h1>
+      <p style={{ fontSize: 13.5, color: 'var(--muted)', lineHeight: 1.6, margin: 0 }}>
+        Seu usuário não tem a permissão necessária. Se precisar dela, peça a quem administra o
+        Planorc para liberar em <b>Configurações → Funções e menus</b>.
+      </p>
+    </div>
+  )
 }
 
 export default function App() {
@@ -280,13 +302,13 @@ function Shell({ session }: { session: Session }) {
             <Route path="/formularios"     element={<FormulariosPage />} />
             <Route path="/formularios/:id" element={<FormularioEditorPage mode="preencher" />} />
             <Route path="/formularios/:id/estrutura" element={<FormularioEditorPage mode="estrutura" />} />
-            <Route path="/postos"          element={<PostosGradePage />} />
-            <Route path="/postos/memoria"  element={<PostosMemoriaPage />} />
-            <Route path="/postos/rateio"   element={<PostosRateioPage />} />
-            <Route path="/postos/folha"    element={<FolhaRealizadaPage />} />
-            <Route path="/postos/apontamento" element={<ApontamentoPage />} />
-            <Route path="/postos/conciliacao" element={<ConciliacaoFolhaPage />} />
-            <Route path="/postos/regras"   element={<PostosRegrasPage />} />
+            <Route path="/postos"          element={<Exige cap="menu.postos.quadro"><PostosGradePage /></Exige>} />
+            <Route path="/postos/memoria"  element={<Exige cap="menu.postos.memoria"><PostosMemoriaPage /></Exige>} />
+            <Route path="/postos/rateio"   element={<Exige cap="menu.postos.rateio"><PostosRateioPage /></Exige>} />
+            <Route path="/postos/folha"    element={<Exige cap="menu.postos.folha"><FolhaRealizadaPage /></Exige>} />
+            <Route path="/postos/apontamento" element={<Exige cap="menu.postos.apontamento"><ApontamentoPage /></Exige>} />
+            <Route path="/postos/conciliacao" element={<Exige cap="menu.postos.conciliacao"><ConciliacaoFolhaPage /></Exige>} />
+            <Route path="/postos/regras"   element={<Exige cap="menu.postos.estrutura"><PostosRegrasPage /></Exige>} />
             <Route path="/dre"             element={<DrePage />} />
             <Route path="/orcamento"       element={<OrcadoDadosPage />} />
             <Route path="/realizado"       element={<RealizadoDadosPage />} />

@@ -63,6 +63,7 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
       { data: empresas },
       { data: filiais },
       { data: ccsData },
+      { data: versoesData },
       { data: dimensoes },
       { data: regrasExist },
       { data: funcExist },
@@ -70,6 +71,7 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
       supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
       supabase.from('filial').select('id,codigo,descricao').order('codigo'),
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
+      supabase.from('versao_orcamento').select('id,codigo,ano,bloqueada').order('ano', { ascending: false }).order('codigo'),
       supabase.from('dimensao').select('id,codigo,label,tabela_ref').eq('ativo', true).order('ordem'),
       supabase.from('user_acesso_regra').select('dimensao,valor_ids').eq('user_id', user.user_id),
       supabase.from('user_acesso_funcao').select('capacidade,permitido').eq('user_id', user.user_id),
@@ -98,10 +100,21 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
         opcoes: (ccsData || []).map((c: any) => ({ id: c.id, label: `${c.codigo} — ${c.descricao}` })),
         selecionados: regraMap['centro_custo'] || [],
       },
+      // Versão do orçamento é dimensão de DADOS, não capacidade: a capacidade
+      // diz se a pessoa pode aplicar/orçar, isto diz EM QUAL orçamento. Sem ela
+      // um diretor de área enxergava e mexia em qualquer cenário, inclusive os
+      // de simulação do grupo. Entra fixa, como empresa e filial, porque
+      // `versao_orcamento` é tabela do núcleo e não um `dimensao_valor`.
+      {
+        key: 'versao', label: 'Versão do orçamento',
+        opcoes: (versoesData || []).map((v: any) => ({ id: v.id, label: `${v.codigo}${v.ano ? ` — ${v.ano}` : ''}${v.bloqueada ? ' 🔒' : ''}` })),
+        selecionados: regraMap['versao'] || [],
+      },
     ]
 
     // Dimensões dinâmicas (CC já é fixo acima — não duplicar)
-    await Promise.all((dimensoes || []).filter((d: Dimensao) => d.tabela_ref !== 'centro_custo').map(async (dim: Dimensao) => {
+    const JA_FIXAS = ['centro_custo', 'versao_orcamento']
+    await Promise.all((dimensoes || []).filter((d: Dimensao) => !JA_FIXAS.includes(d.tabela_ref ?? '')).map(async (dim: Dimensao) => {
       let opcoes: DimOpcao[] = []
       if (dim.tabela_ref === 'centro_custo') {
         const { data } = await supabase.from('centro_custo').select('id,codigo,descricao').eq('ativo', true).order('codigo')

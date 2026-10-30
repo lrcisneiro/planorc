@@ -88,7 +88,10 @@ type FolhaRow = { posto_id: string | null; matricula: string; nome: string; empr
 export default function FolhaRealizadaPage() {
   const acesso = useUserAccess()
   const cap = useCapacidades()
-  const editavel = cap.can('orcar')   // importar folha = ação de escrita (mesma capacidade do quadro/rateio)
+  // Importar a folha e apagar um lote são ação de CARGA, não de orçar: quem
+  // acompanha o quadro da área não recarrega a base do grupo nem apaga
+  // competência. Antes as duas moravam sob `orcar` junto com a edição.
+  const editavel = cap.can('folha.importar')
   const fileRef = useRef<HTMLInputElement>(null)
   const [empresas, setEmpresas] = useState<any[]>([])
   const [filiais, setFiliais] = useState<any[]>([])
