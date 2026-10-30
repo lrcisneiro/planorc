@@ -30,6 +30,7 @@ import { nivoTheme } from '../../lib/nivoTheme'
 import { computeTotais, formatValor, pkey, type Computed, type LinhaCalc, type Periodo } from '../../lib/engine'
 import { carregarMetas, resolverMeta, type IndicadorMeta } from '../../lib/indicadorMeta'
 import { ChipMeta } from './IndicCard'
+import DrillModal from './DrillModal'
 import { downloadSheet } from '../../lib/planilha'
 
 const MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
@@ -134,6 +135,8 @@ export default function OrcamentoDashPage() {
   const [indicSel, setIndicSel] = useState<string[]>(arr(sv.indicSel) || [])
   const [pickIndic, setPickIndic] = useState(false)
   const [porEmp, setPorEmp] = useState<{ empresa: string; valor: number }[]>([])
+  const [porArea, setPorArea] = useState<{ rec: any[]; desp: any[]; ccRec: any[]; ccDesp: any[]; mes: any[] }>({ rec: [], desp: [], ccRec: [], ccDesp: [], mes: [] })
+  const [drill, setDrill] = useState<{ nodeId: string; ccFilter?: string[] | null } | null>(null)
   const [secPonte, setSecPonte] = useState<SecCfg>(SEC_PADRAO)
   const [secVar, setSecVar] = useState<SecCfg>(SEC_PADRAO)
   const [secAcur, setSecAcur] = useState<SecCfg>(SEC_PADRAO)
@@ -207,7 +210,7 @@ export default function OrcamentoDashPage() {
   // ── linhas do relatório
   useEffect(() => {
     if (!relId) { setLinhas([]); return }
-    supabase.from('relatorio_linha').select(COLS_LINHA + ',nivel').eq('relatorio_id', relId).order('ordem')
+    supabase.from('relatorio_linha').select(COLS_LINHA + ',nivel,formato,casas_decimais,redutora').eq('relatorio_id', relId).order('ordem')
       .then(r => {
         const ls = (r.data || []) as unknown as LinhaRel[]
         setLinhas(ls)
@@ -370,6 +373,23 @@ export default function OrcamentoDashPage() {
           return { empresa: nomeEmp[eid] || '?', valor: Math.round(fAlvo * (computeTotais(calc, computed, [PER])[alvo] || 0)) }
         }).filter(x => x.valor).sort((a, b) => b.valor - a.valor).slice(0, 14).reverse())
       } else setPorEmp([])
+
+      // ── por ÁREA e por CC (só orçado)
+      // `dashboard_cc_agg` devolve cc × linha × mês e passa de mil linhas fácil,
+      // então pagina — o PostgREST corta em 1000 sem avisar.
+      const ccAgg: any[] = []
+      if (masters.length) {
+        for (let from = 0; ; from += 1000) {
+          const { data, error } = await supabase.rpc('dashboard_cc_agg', {
+            p_versao: vBase, p_empresas: empFiltradas, p_anos: [anoBase!], p_meses: meses,
+            p_linhas: masters, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: 1,
+          }).range(from, from + 999)
+          if (error || !data?.length) break
+          ccAgg.push(...data)
+          if (data.length < 1000) break
+        }
+      }
+      setPorArea(agregarPorArea(ccAgg, linhas, ccs))
     } catch (e: any) {
       setErro(e?.message ?? String(e)); setDados(null)
     }
@@ -530,7 +550,8 @@ export default function OrcamentoDashPage() {
         <VisaoOrcamento S={S} cfg={secOrc} setCfg={setSecOrc} linhas={linhas} nome={nome} val={val} fac={fac}
           base={dados.base} comp={dados.comp} mensal={dados.mensalBase} meses={meses} MES={MES}
           metas={metas} anoBase={anoBase} indicSel={indicSel} setIndicSel={setIndicSel} pick={pickIndic} setPick={setPickIndic}
-          porEmp={porEmp} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
+          porEmp={porEmp} porArea={porArea} setDrill={setDrill}
+          rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
       ) : (
         <>
           <Ponte S={S} cfg={secPonte} setCfg={setSecPonte} linhas={linhas} nome={nome}
@@ -546,8 +567,83 @@ export default function OrcamentoDashPage() {
             base={dados.base} comp={dados.comp} mensal={dados.mensalBase} val={val} nMeses={meses.length} />
         </>
       )}
+
+      {/* Drill herdado do dash de acompanhamento — mesmo componente, sem
+          reescrever: ele abre a linha do relatório, desce pela árvore e chega
+          ao razão. Aqui entra escopado ao CC ou à área clicada. */}
+      {drill && (
+        <DrillModal relId={relId} versaoId={vBase} empIds={empFiltradas} anos={[anoBase!]} meses={meses}
+          filFilter={filialFilter} ccFilter={drill.ccFilter !== undefined ? drill.ccFilter : ccFilter}
+          startNodeId={drill.nodeId} slot={1} onClose={() => setDrill(null)} />
+      )}
     </div>
   )
+}
+
+// ============================================================
+/**
+ * Agrega o `dashboard_cc_agg` por ÁREA e por CC de nível 2 — só o ORÇADO.
+ *
+ * Mesmas três exclusões do dash de acompanhamento, e cada uma evita um erro
+ * diferente: só FOLHAS (senão o pai soma junto com os filhos e dobra), só
+ * natureza RECEITA ou DESPESA herdada (o resto não é operação), e receita por
+ * área é BRUTA — redutora de receita ali apareceria como se fosse faturamento
+ * negativo de uma área.
+ */
+function agregarPorArea(rows: any[], linhas: LinhaRel[], ccs: CC[]) {
+  const byId: Record<string, any> = Object.fromEntries(linhas.map(l => [l.id, l]))
+  const natDe = (id: string | null): string | null => {
+    if (!id) return null
+    const l = byId[id]; if (!l) return null
+    return (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : natDe(l.pai_id)
+  }
+  const temFilha = new Set(linhas.map(l => l.pai_id).filter(Boolean) as string[])
+  const natByMaster: Record<string, string | null> = {}
+  const redByMaster: Record<string, boolean> = {}
+  const folha = new Set<string>()
+  for (const l of linhas) {
+    if (!l.linha_orc_id || l.desativada || l.nao_soma || temFilha.has(l.id)) continue
+    folha.add(l.linha_orc_id)
+    natByMaster[l.linha_orc_id] = natDe(l.id)
+    redByMaster[l.linha_orc_id] = !!(l as any).redutora
+  }
+  const ccById: Record<string, CC> = Object.fromEntries(ccs.map(c => [c.id, c]))
+  const corta = (t: string, n: number) => (t || '').length > n ? t.slice(0, n) + '…' : (t || '')
+  const areaDe = (ccId: string | null) => ccId && ccById[ccId]?.area_nome ? ccById[ccId].area_nome! : 'Sem área'
+  const nivel2 = (ccId: string | null) => {
+    const c = ccId ? ccById[ccId] : null
+    if (!c) return 'Sem CC'
+    const cod2 = String(c.codigo || '').slice(0, 2)
+    return cod2.length < 2 ? `${c.codigo} · ${corta(c.descricao, 18)}` : `${cod2} · ${corta(c.area_nome || cod2, 18)}`
+  }
+
+  const recA: Record<string, { v: number; ccs: Set<string> }> = {}, despA: Record<string, { v: number; ccs: Set<string> }> = {}
+  const recC: Record<string, { v: number; ccs: Set<string> }> = {}, despC: Record<string, { v: number; ccs: Set<string> }> = {}
+  const recM: Record<number, number> = {}, despM: Record<number, number> = {}
+  const acum = (m: Record<string, { v: number; ccs: Set<string> }>, k: string, v: number, cc: string | null) => {
+    const b = (m[k] = m[k] || { v: 0, ccs: new Set<string>() }); b.v += v; if (cc) b.ccs.add(cc)
+  }
+  for (const r of rows) {
+    if (!folha.has(r.linha_id)) continue
+    const nat = natByMaster[r.linha_id]
+    if (nat !== 'RECEITA' && nat !== 'DESPESA') continue
+    if (nat === 'RECEITA' && redByMaster[r.linha_id]) continue
+    const v = (nat === 'DESPESA' ? -1 : 1) * (Number(r.orcado) || 0)   // exibição: positivo dos dois lados
+    if (nat === 'RECEITA') { acum(recA, areaDe(r.cc_id), v, r.cc_id); acum(recC, nivel2(r.cc_id), v, r.cc_id); recM[r.mes] = (recM[r.mes] || 0) + v }
+    else { acum(despA, areaDe(r.cc_id), v, r.cc_id); acum(despC, nivel2(r.cc_id), v, r.cc_id); despM[r.mes] = (despM[r.mes] || 0) + v }
+  }
+  const lista = (m: Record<string, { v: number; ccs: Set<string> }>, chave: string) =>
+    Object.entries(m).filter(([, b]) => b.v).map(([k, b]) => ({ [chave]: k, Orçado: Math.round(b.v), _ccs: [...b.ccs] }))
+      .sort((a: any, b: any) => b.Orçado - a.Orçado)
+  const mesesOrd = [...new Set([...Object.keys(recM), ...Object.keys(despM)].map(Number))].sort((a, b) => a - b)
+  return {
+    rec: lista(recA, 'area'), desp: lista(despA, 'area'),
+    ccRec: lista(recC, 'cc'), ccDesp: lista(despC, 'cc'),
+    mes: [
+      { id: 'Receitas', data: mesesOrd.map(m => ({ x: MES[m - 1], y: Math.round(recM[m] || 0) })) },
+      { id: 'Despesas', data: mesesOrd.map(m => ({ x: MES[m - 1], y: Math.round(despM[m] || 0) })) },
+    ],
+  }
 }
 
 // ============================================================
@@ -563,7 +659,7 @@ export default function OrcamentoDashPage() {
  * discreto nos cards — referência, não protagonista; quem quiser comparar de
  * verdade tem a aba ao lado.
  */
-function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, mensal, meses, MES, metas, anoBase, indicSel, setIndicSel, pick, setPick, porEmp, rotuloBase, rotuloComp }: any) {
+function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, mensal, meses, MES, metas, anoBase, indicSel, setIndicSel, pick, setPick, porEmp, porArea, setDrill, rotuloBase, rotuloComp }: any) {
   // Cards = linhas INDICADOR e FORMULA da estrutura. É o que o relatório já
   // declara como "medida" — nada hardcoded, e indicador novo aparece sozinho.
   const candidatos = useMemo(
@@ -733,6 +829,50 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
           )}
         </div>
       </div>
+
+      <div style={S.sec}>
+        <div style={S.secH}><div>
+          <div style={S.secT}>Receitas × Despesas ao longo do ano</div>
+          <div style={S.secD}>Orçado de {rotuloBase}, pelas folhas do relatório. Despesa mostrada positiva.</div>
+        </div></div>
+        {!porArea.mes?.[0]?.data?.length ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>Sem dado por centro de custo no período.</div> : (
+          <div style={{ ...cx, height: 290 }}>
+            <ResponsiveLine theme={nivoTheme()} data={porArea.mes} margin={{ top: 10, right: 110, bottom: 40, left: 72 }}
+              xScale={{ type: 'point' }} yScale={{ type: 'linear' }} axisLeft={{ format: (v: any) => fmt(Number(v)) }}
+              colors={['#2f9e44', '#e03131']} enablePoints pointSize={5} useMesh enableGridX={false}
+              legends={[{ anchor: 'right', direction: 'column', translateX: 100, itemWidth: 90, itemHeight: 18, symbolSize: 9, itemTextColor: 'var(--text-mid)' }]}
+              tooltip={({ point }: any) => (
+                <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 7, padding: '6px 9px', fontSize: 12 }}>
+                  <strong>{point.serieId}</strong> · {point.data.x}: {fmt(Number(point.data.y))}
+                </div>)} />
+          </div>
+        )}
+      </div>
+
+      {([
+        ['Receitas por área', 'rec', 'area', '#2f9e44'],
+        ['Despesas por área', 'desp', 'area', '#e8590c'],
+        ['Receitas por centro de custo', 'ccRec', 'cc', '#2f9e44'],
+        ['Despesas por centro de custo', 'ccDesp', 'cc', '#e8590c'],
+      ] as const).map(([titulo, chave, idx, cor]) => {
+        const dados = (porArea as any)[chave] as any[]
+        if (!dados?.length) return null
+        return (
+          <div key={chave} style={S.sec}>
+            <div style={S.secH}><div>
+              <div style={S.secT}>{titulo}</div>
+              <div style={S.secD}>Orçado de {rotuloBase}. <span style={{ color: 'var(--violet)' }}>Clique numa barra para abrir a linha do relatório e chegar ao razão.</span></div>
+            </div></div>
+            <div style={{ ...cx, height: alt(dados.length) }}>
+              <ResponsiveBar theme={nivoTheme()} data={dados} keys={['Orçado']} indexBy={idx}
+                layout="horizontal" margin={{ top: 6, right: 24, bottom: 34, left: 160 }}
+                colors={cor} enableGridY={false} axisBottom={{ format: (v: any) => fmt(Number(v)) }}
+                labelSkipWidth={44} label={(d: any) => fmt(Number(d.value))}
+                onClick={(d: any) => cfg.resultado && setDrill({ nodeId: cfg.resultado, ccFilter: d.data._ccs?.length ? d.data._ccs : null })} />
+            </div>
+          </div>
+        )
+      })}
 
       {pick && (() => {
         const noPainel = indicSel.map((id: string) => candidatos.find((l: LinhaRel) => l.id === id)).filter(Boolean) as LinhaRel[]
