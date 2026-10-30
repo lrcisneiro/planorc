@@ -51,6 +51,108 @@ Três tratamentos possíveis, e o dashboard precisa dizer qual está usando:
 
 ---
 
+## Refinamento do Ricardo (30/out) — e o que ele muda
+
+### Período + chave de projeção substitui os "três modos"
+
+Mês início/fim mais uma chave *projetar os meses seguintes* gera os três modos
+que eu havia listado, e com uma mecânica só. **É melhor que a minha proposta** e
+substitui a tabela acima:
+
+| o que se quer ver | período | projeção |
+|---|---|---|
+| ano cheio contra ano cheio | jan–dez | **ligada** |
+| só o que está fechado | jan–set | desligada |
+| plano contra plano | jan–dez | irrelevante (os dois lados são orçado) |
+
+> **A chave esconde uma decisão de método.** "Projetar out–nov–dez" a partir de
+> quê? Três respostas, três números diferentes:
+> **(a)** o **orçado daquele ano** para esses meses — é a estimativa da própria
+> empresa, e é o que o mercado chama de *projeção de fechamento*; **(b)** a
+> média dos 3 últimos fechados — ignora sazonalidade de fim de ano, que é forte;
+> **(c)** repetir o último mês — pior ainda em dezembro.
+>
+> **Proposta: (a) como padrão**, com (b) disponível. E o motivo de (a) ser
+> seguro aqui é que o lado comparado é outra versão/ano: projetar 2026 com o
+> orçado de 2026 não contamina o julgamento de 2027.
+
+> ⚠ **Mas há um caso em que contamina.** Se alguém puser a **mesma versão** nos
+> dois lados — ou comparar 2027 contra 2027 com projeção ligada —, os meses
+> projetados ficam idênticos por construção e a variação neles é zero **de
+> mentira**. A tela precisa avisar quando os dois lados compartilham a versão
+> usada na projeção.
+
+> **Meses projetados têm de parecer projetados.** Hachura, tom mais claro, o que
+> for — mas distintos. Projeção lida como fato é o jeito mais fácil de um
+> orçamento ser aprovado por engano.
+
+### A versão carrega o ano — um seletor só, dois modos
+
+Comparar é sempre **contra uma versão**. O modo diz apenas o que ler dela:
+
+| modo | lê da versão escolhida |
+|---|---|
+| **Orçado × Orçado** | o `fat_orcado` dela |
+| **Orçado × Realizado** | o `fat_realizado` do **ano** dela |
+
+Comparar com o ano retrasado vira trocar a versão de comparação. Simples e sem
+seletor de ano em lugar nenhum.
+
+> Um cuidado de rótulo: no modo Realizado, a versão escolhida serve só para
+> dizer **o ano**. A tela deve mostrar "Realizado **2025**", não o código da
+> versão — senão sugere que aquele realizado pertence àquela versão, o que não
+> existe.
+
+### Linha pequena que varia 1000%: dois remédios, e eles se somam
+
+Você está certo, e o problema tem duas soluções que resolvem coisas diferentes:
+
+1. **Escolher o nível certo** — comparar pela linha **agrupadora** em vez das
+   analíticas. No administrativo, uma linha fechada no lugar de trinta. Isso
+   *elimina* o ruído na origem.
+2. **Limiar duplo** — percentual **e** valor mínimo, juntos. Isso filtra o que
+   sobra depois de escolher o nível.
+
+Os dois, porque nenhum basta: agrupar demais esconde a conta que dobrou, e
+filtrar sem agrupar deixa trinta linhas pequenas disputando atenção.
+
+> **O valor mínimo deve se auto-escalar.** Um limiar fixo em R$ está errado em
+> alguma seção por definição — receita e despesa de viagem não cabem no mesmo
+> número. Proposta: padrão em **0,5% do total da seção**, editável para
+> absoluto quando a pessoa quiser.
+
+### Seleção de linhas POR SEÇÃO
+
+No dashboard de acompanhamento a seleção vale para o relatório inteiro. Aqui
+**cada seção escolhe as suas** — e é melhor assim: a ponte quer os blocos de
+nível 1, a tabela de variação pode querer descer num bloco específico, e a
+acurácia quer as analíticas onde o erro mora.
+
+Já existe a peça: o seletor em árvore com checkbox do wizard de réplica
+(`emArvore` + `linhasConciliaveis`). É o mesmo componente.
+
+> **Padrão: as linhas de nível 1 do relatório.** Seção que nasce vazia parece
+> quebrada, e nível 1 é exatamente o que a ponte quer.
+
+### Reuso do dashboard de acompanhamento
+
+Tudo em `pages/dashboard/DashFiltros.tsx`, importado e não reescrito:
+
+| peça | o que faz |
+|---|---|
+| `FiltrosButton` | empresa · filial · CC · área · divisão · BU |
+| `PeriodoButton` + `PeriodPicker` | mês início/fim |
+| `SalvarCardButton` | preset em `dashboard_card`, com `owner_id` |
+| `ExportarButton` | PNG/PDF, já atrás de `can('exportar')` |
+| `escopoFiltro` | cruza o filtro com o escopo de dados do usuário |
+
+> **O preset ganha mais valor aqui.** Com seleção de linha e limiar por seção, o
+> `filtros jsonb` do card passa a guardar a **configuração inteira da análise** —
+> "Revisão do orçamento 2027" vira um card que reabre tudo como estava. É mais
+> do que o card do acompanhamento guarda hoje, e cabe no mesmo campo.
+
+---
+
 ## O que eu construiria, em ordem de valor
 
 ### 1 · A ponte (waterfall) — EBITDA 2026 → 2027
