@@ -24,6 +24,12 @@ export const CAPACIDADES: Capacidade[] = [
   // A ação mais destrutiva do produto: apaga o orçado inteiro de uma versão/ano.
   // Só admin por padrão, e mesmo para ele há confirmação pelo código da versão,
   // conferida no servidor (v3_127).
+  // Importar baseline vinha junto com `orcar`: liberar a grade a um diretor de
+  // área dava a ele a carga em massa do orçamento. Dois níveis, porque os dois
+  // modos não têm o mesmo risco — "adicionar" soma ao que existe, "substituir"
+  // APAGA o escopo do arquivo antes de gravar.
+  { key: 'orcado.importar',      label: 'Importar Baseline (adicionar)',            categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
+  { key: 'orcado.importar.full', label: 'Importar Baseline — substituir (full)',    categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
   { key: 'orcado.apagar', label: 'Apagar todo o orçado de uma versão', categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
 
   // ── Posto de trabalho (folha) ──

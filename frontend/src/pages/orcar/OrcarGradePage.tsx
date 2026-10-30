@@ -310,6 +310,10 @@ export default function OrcarGradePage() {
   const doImport = async (file: File, modo: ImportModo) => {
     if (!versaoId) { alert('Selecione a versão de destino.'); return }
     if (bloqueada) { alert('Versão bloqueada — não é possível importar.'); return }
+    // Confere aqui também, não só no menu: esta é a chamada que escreve, e o
+    // modo vem de um estado que sobrevive à troca de tela.
+    if (modo === 'full' && !cap.can('orcado.importar.full')) { alert('Você não tem permissão para importar no modo substituir.'); return }
+    if (modo !== 'full' && !cap.can('orcado.importar')) { alert('Você não tem permissão para importar baseline.'); return }
     const verCod = versao?.codigo || ''
     const msgModo = modo === 'full'
       ? `SUBSTITUIR (full load): apaga o orçado manual (dentro do seu escopo) da versão "${verCod}" das empresas presentes no arquivo e importa de novo.`
@@ -403,6 +407,14 @@ export default function OrcarGradePage() {
   }
 
   if (loading || acesso.loading) return <div style={{ padding: 24, color: 'var(--muted)' }}>Carregando…</div>
+  // Os dois modos de import e o apagar moram no mesmo menu, mas são três
+  // permissões: adicionar soma, substituir APAGA o escopo do arquivo antes de
+  // gravar, e o apagar leva a versão inteira.
+  const podeImp  = cap.can('orcado.importar')
+  const podeFull = cap.can('orcado.importar.full')
+  const podeZap  = cap.can('orcado.apagar')
+  const temMenu  = podeImp || podeFull || podeZap
+
   if (!cap.can('orcar')) return <div style={{ padding: 24, color: 'var(--red)' }}>Você não tem permissão para orçar (capacidade «orcar»).</div>
 
   const folhas = linhas.filter(editavel)
@@ -445,20 +457,20 @@ export default function OrcarGradePage() {
             {moedas.map(m => <option key={m.slot} value={m.slot}>{m.simbolo ? `${m.simbolo} ` : ''}{m.codigo}</option>)}
           </select></div>}
         {pronto && <div style={{ alignSelf: 'flex-end', fontSize: 12, color: 'var(--muted)' }}>{preenchidas} de {totalCelulas} células preenchidas</div>}
-        <div style={{ marginLeft: 'auto', alignSelf: 'flex-end', position: 'relative' }}>
+        {temMenu && <div style={{ marginLeft: 'auto', alignSelf: 'flex-end', position: 'relative' }}>
           <button
             style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, cursor: versaoId && !bloqueada ? 'pointer' : 'not-allowed', opacity: versaoId && !bloqueada ? 1 : 0.5 }}
             disabled={!versaoId || bloqueada}
             onClick={() => setImpMenu(o => !o)}
             title={!versaoId ? 'Selecione a versão de destino' : (bloqueada ? 'Versão bloqueada' : 'Importar orçado de planilha (por empresa/filial/CC)')}>
-            <Upload size={13} /> Importar Baseline ▾
+            <Upload size={13} /> {podeImp || podeFull ? 'Importar Baseline' : 'Orçado'} ▾
           </button>
           {impMenu && (
             <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', zIndex: 1000, minWidth: 260 }}>
-              {[
-                { m: 'full' as ImportModo, label: 'Orçado Baseline — substituir (full)' },
-                { m: 'add' as ImportModo, label: 'Orçado Baseline — adicionar' },
-              ].map(o => (
+              {([
+                ...(podeFull ? [{ m: 'full' as ImportModo, label: 'Orçado Baseline — substituir (full)' }] : []),
+                ...(podeImp  ? [{ m: 'add'  as ImportModo, label: 'Orçado Baseline — adicionar' }] : []),
+              ]).map(o => (
                 <div key={o.m} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 12px', fontSize: 13, color: 'var(--text)' }}
                   onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,0.14)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'var(--panel)')}>
@@ -467,7 +479,7 @@ export default function OrcarGradePage() {
                     onClick={e => { e.stopPropagation(); modeloBaseline(ano || new Date().getFullYear()) }} title="Baixar planilha modelo"><Download size={11} /> modelo</span>
                 </div>
               ))}
-              {cap.can('orcado.apagar') && (
+              {podeZap && (
                 <>
                   <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
                   <div style={{ padding: '8px 12px', fontSize: 13, color: 'var(--red)', cursor: 'pointer' }}
@@ -482,7 +494,7 @@ export default function OrcarGradePage() {
           )}
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" style={{ display: 'none' }}
             onChange={e => { const f = e.target.files?.[0]; if (f) { doImport(f, impMode); e.target.value = '' } }} />
-        </div>
+        </div>}
       </div>
 
       {pronto && !bloqueada && !escopoOk && (
