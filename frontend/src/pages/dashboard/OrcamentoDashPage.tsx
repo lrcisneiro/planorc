@@ -751,20 +751,30 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
     return { id, nome: nome(id), b, c, d: b - c, pct: c !== 0 ? ((b - c) / Math.abs(c)) * 100 : (b !== 0 ? Infinity : 0) }
   })
   // ⚠ A cor diz BOM ou RUIM, não positivo ou negativo. Numa despesa, cair é
-  // bom: Custo Pessoas −9,8 mi pintado de vermelho lê exatamente ao contrário
-  // do que aconteceu.
+  // bom: Custo Pessoas −9,8 mi pintado de vermelho lê ao contrário do que
+  // aconteceu.
   //
-  // O critério sai do MESMO lugar que decide como o número é exibido: a linha
-  // que o `fatorExibicao` inverte (natureza DESPESA, própria ou herdada do
-  // pai) é a que aparece com despesa positiva, e nela a queda é a melhora. As
-  // outras — receita, e as NEUTRAS como EBITDA ou Resultado Financeiro —
-  // mostram o sinal cru, e aí subir é que é bom.
+  // `fac` serve aqui como SEMÂNTICA, não como sinal: fator −1 significa que a
+  // linha é de natureza DESPESA (própria ou herdada do pai), ou seja, é custo.
+  // E em custo o que é bom é ENCOLHER.
   //
-  // Vem de graça o caso que engana: `Impostos s/ faturamento` aparece
-  // NEGATIVO, logo não é DESPESA na estrutura, logo não inverte — e o vermelho
-  // dele, quando o imposto cresce, continua certo. Os dois comportamentos numa
-  // regra só porque exibição e semântica saem da mesma natureza.
-  const bom = (x: any) => (fac?.(x.id) === -1 ? x.d < 0 : x.d > 0)
+  // Encolher é comparação de MAGNITUDE, de propósito. A primeira versão desta
+  // regra olhava a direção do Δ, o que embute a suposição de que despesa está
+  // guardada com valor negativo — e tem linha que não está: os INDICADOR de
+  // Custo Pessoas e Folha montam o valor pela EXPRESSÃO, que devolve custo
+  // positivo. Com a direção do Δ, a mesma linha dava vermelho nas DUAS
+  // naturezas possíveis, porque regra e exibição concordavam entre si e
+  // discordavam do dado. Magnitude não pergunta como o número foi guardado.
+  //
+  // As outras linhas — receita, e as neutras como EBITDA ou Resultado
+  // Financeiro — não têm essa ambiguidade: valem mais quando sobem, e
+  // `Resultado Financeiro` indo de −727 mil para −643 mil sobe de verdade.
+  //
+  // Limite conhecido: despesa que ATRAVESSA o zero no período (virar
+  // recuperação) não é lida bem por magnitude. É patológico num custo e
+  // preferível à suposição que já falhou.
+  const ehCusto = (x: any) => fac?.(x.id) === -1
+  const bom = (x: any) => (ehCusto(x) ? Math.abs(x.b) < Math.abs(x.c) : x.b > x.c)
   const marca = (x: any) => Math.abs(x.d) >= minAbs && (Math.abs(x.pct) >= cfg.pct || !Number.isFinite(x.pct))
   const destaque = linhasTodas.filter(marca).sort((a: any, b: any) => Math.abs(b.d) - Math.abs(a.d))
   const resto = linhasTodas.filter((x: any) => !marca(x))
@@ -796,7 +806,7 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
             render: (r: any) => (
               <span style={{ color: r.d === 0 ? 'var(--muted)' : bom(r) ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}
                     title={r.d === 0 ? 'sem variação'
-                      : `${bom(r) ? 'Melhora' : 'Piora'} o resultado · ${fac?.(r.id) === -1 ? 'linha de despesa (cair é bom)' : 'cair é ruim'}`}>
+                      : `${bom(r) ? 'Melhora' : 'Piora'} o resultado · ${ehCusto(r) ? 'linha de despesa: vale pelo tamanho do custo, não pelo sinal' : 'vale mais quando sobe'}`}>
                 {r.d >= 0 ? '+' : ''}{fmt(r.d)}
               </span>
             ) },
