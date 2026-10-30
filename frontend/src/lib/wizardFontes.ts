@@ -56,20 +56,27 @@ export async function lerCampoFilial(campo: string) {
 }
 
 // ============================================================
+/** Como preencher os meses depois do último fechado. Os mesmos do dashboard
+ *  de Orçamento — mesma pergunta, mesmas palavras. */
+export type MetodoCauda = 'VAZIO' | 'MEDIA3' | 'MEDIAPER' | 'ULTIMO'
+
 /**
- * Completa a CAUDA do ano nos meses sem dado, com a média dos últimos `n`
- * meses de cada escopo.
+ * Completa a CAUDA do ano nos meses sem dado.
  *
  * `ultimoFechado` é dado de FORA, não deduzido do maior mês com dado — essa
  * dedução estava errada: o mês corrente aparece no realizado parcial, e tomá-lo
  * por fechado contamina duas vezes (ele entra menor E puxa a média para baixo).
  *
  * Preenche de `ultimoFechado + 1` até dezembro, e só para escopos que já têm
- * dado. O corte é do CONJUNTO, não por escopo: um escopo que parou em agosto
- * porque a operação fechou não deve ganhar meses inventados.
+ * dado. Cada método responde a uma pergunta diferente:
+ *   MEDIA3    o ritmo recente        (sensível a inflexão, cego a sazonalidade)
+ *   MEDIAPER  o ritmo do ano todo    (estável, dilui pico e vale)
+ *   ULTIMO    "daqui para frente é assim"  (o mais agressivo dos três)
  */
-export function completarCauda(linhas: Leitura[], ultimoFechado: number, n = 3): { linhas: Leitura[]; estimados: number } {
-  if (!linhas.length || ultimoFechado >= 12) return { linhas, estimados: 0 }
+export function completarCauda(
+  linhas: Leitura[], ultimoFechado: number, metodo: MetodoCauda = 'MEDIA3',
+): { linhas: Leitura[]; estimados: number } {
+  if (!linhas.length || ultimoFechado >= 12 || metodo === 'VAZIO') return { linhas, estimados: 0 }
 
   const grupos = new Map<string, Leitura[]>()
   for (const l of linhas) {
@@ -80,13 +87,16 @@ export function completarCauda(linhas: Leitura[], ultimoFechado: number, n = 3):
   }
   const extra: Leitura[] = []
   for (const g of grupos.values()) {
-    const ult = [...g].sort((a, b) => b.m - a.m).slice(0, n)
-    if (!ult.length) continue
-    const media = Math.round((ult.reduce((s, x) => s + x.v, 0) / ult.length) * 100) / 100
-    if (!media) continue
+    const porMes = [...g].sort((a, b) => b.m - a.m)
+    const usa = metodo === 'MEDIA3' ? porMes.slice(0, 3)
+              : metodo === 'ULTIMO' ? porMes.slice(0, 1)
+              : porMes                                   // MEDIAPER
+    if (!usa.length) continue
+    const v = Math.round((usa.reduce((s, x) => s + x.v, 0) / usa.length) * 100) / 100
+    if (!v) continue
     const tem = new Set(g.map(x => x.m))
     for (let m = ultimoFechado + 1; m <= 12; m++)
-      if (!tem.has(m)) extra.push({ ...g[0], m, v: media })
+      if (!tem.has(m)) extra.push({ ...g[0], m, v })
   }
   return { linhas: [...linhas, ...extra], estimados: extra.length }
 }

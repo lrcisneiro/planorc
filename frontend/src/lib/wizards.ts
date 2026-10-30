@@ -18,6 +18,7 @@
 import { supabase } from './supabase'
 import { COLS_LINHA, mastersDaSelecao, type LinhaRel } from './refRelatorio'
 import { completarCauda, lerCampoFilial, lerOrcadoPorConta, lerOrcadoTotal, lerRealizadoPorConta } from './wizardFontes'
+import type { MetodoCauda } from './wizardFontes'
 
 // ── parâmetros: a tela desenha a partir daqui ──
 export type ParamDef = ParamVisivel & (
@@ -185,11 +186,16 @@ const replica: Wizard = {
     { key: 'mesCorte', tipo: 'mes', label: 'Usar o realizado até o mês', visivelSe: { key: 'fonte', valor: 'REALIZADO' },
       ajuda: 'O último mês FECHADO. Um mês parcial no fim contamina duas vezes: entra menor e ainda puxa a média da projeção para baixo.' },
     { key: 'ajuste', tipo: 'percentual', label: '% de acréscimo (negativo para reduzir)', padrao: 0 },
-    { key: 'cauda', tipo: 'escolha', label: 'Meses sem dado no fim do ano', padrao: 'MEDIA3',
-      ajuda: 'O realizado do ano em curso para no último mês fechado.',
+    // Mesmos métodos do dashboard de Orçamento: é a mesma pergunta — "e se o
+    // resto do ano seguir este ritmo?" — e duas telas respondendo igual com
+    // palavras diferentes é como se divergem.
+    { key: 'cauda', tipo: 'escolha', label: 'Meses seguintes, até dezembro', padrao: 'MEDIA3',
+      ajuda: 'O realizado do ano em curso para no mês de corte; daí até dezembro é projeção.',
       opcoes: [
-        { valor: 'MEDIA3', rotulo: 'Completar com a média dos 3 últimos meses' },
-        { valor: 'VAZIO',  rotulo: 'Deixar vazio (vira zero no orçado)' },
+        { valor: 'VAZIO',    rotulo: 'não projetar — ficam vazios (viram zero no orçado)' },
+        { valor: 'MEDIA3',   rotulo: 'projetar pela média dos 3 últimos meses' },
+        { valor: 'MEDIAPER', rotulo: 'projetar pela média de todo o período' },
+        { valor: 'ULTIMO',   rotulo: 'projetar repetindo o último mês' },
       ] },
   ],
   async preparar(p) {
@@ -235,12 +241,16 @@ const replica: Wizard = {
       `${antes - dados.length} célula(s) depois do mês ${corte} foram descartadas, por serem de mês não fechado.`)
 
     // 4 · cauda do ano
-    if (p.cauda === 'MEDIA3') {
-      const r = completarCauda(dados, corte)
+    const metodo = (p.cauda ?? 'MEDIA3') as MetodoCauda
+    if (metodo !== 'VAZIO') {
+      const r = completarCauda(dados, corte, metodo)
       dados = r.linhas
+      const como = metodo === 'MEDIA3' ? 'pela média dos 3 últimos meses'
+                 : metodo === 'MEDIAPER' ? 'pela média de todo o período'
+                 : 'repetindo o último mês'
       if (r.estimados) avisos.push(
-        `${r.estimados} célula(s) dos meses ${corte + 1}–12 foram ESTIMADAS pela média dos 3 últimos ` +
-        'meses de cada escopo — confira antes de aplicar.')
+        `${r.estimados} célula(s) dos meses ${corte + 1}–12 foram ESTIMADAS ${como} de cada escopo — ` +
+        'projeção não é fato, confira antes de aplicar.')
     } else if (corte < 12) {
       avisos.push(
         `Os meses ${corte + 1}–12 ficam VAZIOS, e célula vazia vale zero no orçado.`)

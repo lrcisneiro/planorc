@@ -198,6 +198,14 @@ O helper `emArvore` em `lib/refRelatorio.ts` faz isso; é a mesma lógica do
 escopo. A grade de cada empresa herda em itálico, e sobrescrever uma continua
 possível.
 
+**A cauda do ano usa os mesmos métodos do dashboard de Orçamento** (30/out):
+não projetar · média dos **3 últimos** meses · média de **todo o período** ·
+repetir o **último** mês. É a mesma pergunta nos dois lugares — *"e se o resto
+do ano seguir este ritmo?"* —, e duas telas respondendo igual com palavras
+diferentes é como elas divergem. Cada método responde a uma coisa: a média de 3
+pega inflexão recente e é cega a sazonalidade; a do período todo é estável mas
+dilui pico e vale; repetir o último é o mais agressivo.
+
 **A cauda do ano é escolha na tela.** O realizado do ano em curso para no
 último mês fechado; replicar sem mais nada deixaria novembro e dezembro
 zerados, e célula vazia vale zero. A opção *completar com a média dos 3 últimos
