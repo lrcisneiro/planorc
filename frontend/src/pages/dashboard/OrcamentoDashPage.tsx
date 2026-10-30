@@ -30,7 +30,17 @@ const fmt = (n: number, casas = 0) =>
 const fmtPct = (n: number) => (Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${n.toFixed(1)}%` : '—')
 
 type Modo = 'ORC' | 'REAL'
-type Proj = 'OFF' | 'ORCADO' | 'MEDIA3' | 'ULTIMO'
+// Projeção dos meses DEPOIS do período, até dezembro — anualização. Vale nos
+// dois modos: limitar o período e perguntar "e se o resto do ano seguir este
+// ritmo?" é a mesma pergunta comparando orçados ou comparando com realizado.
+type Proj = 'OFF' | 'MEDIA3' | 'MEDIAPER' | 'ULTIMO' | 'ORCADO'
+const PROJ_ROTULO: Record<Proj, string> = {
+  OFF:      'não projetar — analisa só o período',
+  MEDIA3:   'projetar pela média dos 3 últimos meses do período',
+  MEDIAPER: 'projetar pela média de todo o período',
+  ULTIMO:   'projetar repetindo o último mês do período',
+  ORCADO:   'projetar pelo orçado do ano (só no modo Realizado)',
+}
 
 /** uma seção escolhe as próprias linhas e o próprio limiar */
 type SecCfg = { sel: string[]; pct: number; minPctTotal: number; resultado?: string }
@@ -83,8 +93,10 @@ export default function OrcamentoDashPage() {
   const [vComp, setVComp] = useState('')
   const [mesIni, setMesIni] = useState(1)
   const [mesFim, setMesFim] = useState(12)
-  const [proj, setProj] = useState<Proj>('ORCADO')
-  const [fechadoAte, setFechadoAte] = useState(0)   // último mês FECHADO do realizado comparado
+  const [proj, setProj] = useState<Proj>('OFF')
+  // Detectado só para AVISAR — o período é quem define o que é real. Antes
+  // isto era um controle à parte e duplicava o "até", confundindo.
+  const [realAte, setRealAte] = useState(0)
 
   // ── filtros de dimensão
   const [empresaSel, setEmpresaSel] = useState<string[]>([])
@@ -110,7 +122,6 @@ export default function OrcamentoDashPage() {
     f.relId && setRelId(f.relId); f.vBase && setVBase(f.vBase); f.vComp && setVComp(f.vComp)
     f.modo && setModo(f.modo); f.proj && setProj(f.proj)
     if (f.mesIni) setMesIni(f.mesIni); if (f.mesFim) setMesFim(f.mesFim)
-    if (f.fechadoAte != null) setFechadoAte(f.fechadoAte)
     f.empresaSel && setEmpresaSel(f.empresaSel); f.filialSel && setFilialSel(f.filialSel)
     f.ccSel && setCcSel(f.ccSel); f.areaSel && setAreaSel(f.areaSel)
     f.divisaoSel && setDivisaoSel(f.divisaoSel); f.buSel && setBuSel(f.buSel)
@@ -154,19 +165,18 @@ export default function OrcamentoDashPage() {
   const anoBase = versao(vBase)?.ano
   const anoComp = versao(vComp)?.ano
 
-  // ── último mês FECHADO do realizado do ano comparado.
-  // Detectado como SUGESTÃO: o mês corrente aparece parcial no razão, e tomá-lo
-  // por fechado contamina duas vezes — entra menor e ainda puxa a média que
-  // projeta o resto do ano. Por isso é editável.
+  // ── até que mês o realizado do ano comparado tem dado (para o aviso)
   useEffect(() => {
     if (!anoComp) return
     supabase.from('fat_realizado').select('mes').eq('ano', anoComp).order('mes', { ascending: false }).limit(1)
-      .then(r => setFechadoAte((r.data?.[0] as any)?.mes ?? 0))
+      .then(r => setRealAte((r.data?.[0] as any)?.mes ?? 0))
   }, [anoComp])
 
   const meses = useMemo(() => Array.from({ length: Math.max(0, mesFim - mesIni + 1) }, (_, i) => mesIni + i), [mesIni, mesFim])
-  const mesesReal = useMemo(() => meses.filter(m => m <= fechadoAte), [meses, fechadoAte])
-  const mesesProj = useMemo(() => meses.filter(m => m > fechadoAte), [meses, fechadoAte])
+  // os meses DEPOIS do período, até dezembro
+  const mesesProj = useMemo(
+    () => (proj === 'OFF' ? [] : Array.from({ length: 12 - mesFim }, (_, i) => mesFim + 1 + i)),
+    [proj, mesFim])
 
   const filialFilter = useMemo(() => escopoFiltro(filialSel.length ? filialSel : null, filiais, 'filial', acesso.canSee), [filialSel, filiais, acesso])
   const ccFilter = useMemo(() => escopoFiltro(effectiveCcFilter(ccs, ccSel, areaSel, divisaoSel, buSel), ccs, 'centro_custo', acesso.canSee), [ccs, ccSel, areaSel, divisaoSel, buSel, acesso])
@@ -175,6 +185,8 @@ export default function OrcamentoDashPage() {
   // ⚠ Os dois lados compartilham a versão da projeção: os meses projetados
   // ficam idênticos POR CONSTRUÇÃO e a variação neles é zero de mentira.
   const projContamina = modo === 'REAL' && proj === 'ORCADO' && vBase === vComp && mesesProj.length > 0
+  // o realizado não cobre o período pedido: os meses que faltam entram como ZERO
+  const realCurto = modo === 'REAL' && realAte > 0 && realAte < mesFim
 
   const todasSel = useMemo(
     () => Array.from(new Set([...secPonte.sel, ...secVar.sel, ...secAcur.sel])),
@@ -188,44 +200,40 @@ export default function OrcamentoDashPage() {
       const chamar = (cen: string, anos: number[], ms: number[]) =>
         ms.length ? totaisRelatorio({ ...base, cen, anos, meses: ms }) : Promise.resolve({} as Record<string, number>)
 
-      // ── o lado BASE: sempre o orçado da versão escolhida
-      const pBase = chamar(vBase, [anoBase!], meses)
-
-      // ── o lado COMPARADO
-      let pComp: Promise<Record<string, number>>
-      let pProj: Promise<Record<string, number>> = Promise.resolve({})
-      let fatorProj = 1
-      if (modo === 'ORC') {
-        pComp = chamar(vComp, [anoComp!], meses)
-      } else {
-        pComp = chamar('REALIZADO', [anoComp!], mesesReal)
-        if (proj !== 'OFF' && mesesProj.length) {
-          if (proj === 'ORCADO') {
-            // a estimativa da própria empresa para aqueles meses
-            pProj = chamar(vComp, [anoComp!], mesesProj)
-          } else if (proj === 'MEDIA3') {
-            const ult3 = [fechadoAte - 2, fechadoAte - 1, fechadoAte].filter(m => m >= 1)
-            pProj = chamar('REALIZADO', [anoComp!], ult3)
-            fatorProj = ult3.length ? mesesProj.length / ult3.length : 0
-          } else {
-            pProj = chamar('REALIZADO', [anoComp!], [fechadoAte].filter(m => m >= 1))
-            fatorProj = mesesProj.length
-          }
+      // Uma SÉRIE = o período pedido, mais a projeção dos meses seguintes até
+      // dezembro. A projeção se compõe de outra leitura com faixa de meses
+      // diferente, vezes um fator — não precisa de dado mensal cru.
+      const serie = async (cen: string, ano: number): Promise<Record<string, number>> => {
+        const periodo = await chamar(cen, [ano], meses)
+        if (!mesesProj.length) return periodo
+        let fonte: Record<string, number>, fator: number
+        if (proj === 'ORCADO' && cen === 'REALIZADO') {
+          // a estimativa da própria empresa para aqueles meses
+          fonte = await chamar(vComp, [ano], mesesProj); fator = 1
+        } else if (proj === 'MEDIA3') {
+          const u3 = meses.slice(-3)
+          fonte = await chamar(cen, [ano], u3); fator = u3.length ? mesesProj.length / u3.length : 0
+        } else if (proj === 'MEDIAPER') {
+          fonte = periodo; fator = meses.length ? mesesProj.length / meses.length : 0
+        } else {  // ULTIMO
+          fonte = await chamar(cen, [ano], [mesFim]); fator = mesesProj.length
         }
+        const out = { ...periodo }
+        for (const k in fonte) out[k] = (out[k] || 0) + fonte[k] * fator
+        return out
       }
 
-      // ── acurácia: orçado × realizado DO ANO COMPARADO, sempre
-      const pOrcAnt = chamar(vComp, [anoComp!], meses)
-      const pRealAnt = chamar('REALIZADO', [anoComp!], mesesReal.length ? mesesReal : meses)
+      const [b, c, oa, ra, mens] = await Promise.all([
+        serie(vBase, anoBase!),
+        modo === 'ORC' ? serie(vComp, anoComp!) : serie('REALIZADO', anoComp!),
+        // acurácia: orçado × realizado do ano comparado, sempre no período
+        chamar(vComp, [anoComp!], meses),
+        chamar('REALIZADO', [anoComp!], meses),
+        // mensal da base: alimenta o detector de "linha reta"
+        Promise.all(meses.map(m => chamar(vBase, [anoBase!], [m]))),
+      ])
 
-      // ── mensal da base: alimenta o detector de "12 meses idênticos"
-      const pMensal = Promise.all(meses.map(m => chamar(vBase, [anoBase!], [m])))
-
-      const [b, c, pr, oa, ra, mens] = await Promise.all([pBase, pComp, pProj, pOrcAnt, pRealAnt, pMensal])
-
-      const comp: Record<string, number> = { ...c }
-      for (const k in pr) comp[k] = (comp[k] || 0) + pr[k] * fatorProj
-
+      const comp = c
       const mensalBase: Record<string, number[]> = {}
       mens.forEach((mm, i) => { for (const k in mm) (mensalBase[k] = mensalBase[k] || Array(meses.length).fill(0))[i] = mm[k] })
 
@@ -235,7 +243,7 @@ export default function OrcamentoDashPage() {
     }
     setCarregando(false)
   }
-  useEffect(() => { carregar() /* eslint-disable-next-line */ }, [relId, vBase, vComp, modo, mesIni, mesFim, proj, fechadoAte, todasSel.join(','), empFiltradas.join(','), filialSel.join(','), ccSel.join(','), areaSel.join(','), divisaoSel.join(','), buSel.join(','), linhas.length])
+  useEffect(() => { carregar() /* eslint-disable-next-line */ }, [relId, vBase, vComp, modo, mesIni, mesFim, proj, todasSel.join(','), empFiltradas.join(','), filialSel.join(','), ccSel.join(','), areaSel.join(','), divisaoSel.join(','), buSel.join(','), linhas.length])
 
   // ── helpers de linha
   const byId = useMemo(() => Object.fromEntries(linhas.map(l => [l.id, l])) as Record<string, LinhaRel>, [linhas])
@@ -272,7 +280,7 @@ export default function OrcamentoDashPage() {
         </div>
         <div style={{ display: 'flex', gap: 8 }} data-noexport>
           <SalvarCardButton base="/dashboards/orcamento" cor="#5f3dc4"
-            getFiltros={() => ({ relId, vBase, modo, vComp, mesIni, mesFim, proj, fechadoAte, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, secPonte, secVar, secAcur })} />
+            getFiltros={() => ({ relId, vBase, modo, vComp, mesIni, mesFim, proj, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, secPonte, secVar, secAcur })} />
           <ExportarButton alvo={dashRef} nome="orcamento" titulo="Orçamento — análise"
             legenda={`${versao(vBase)?.codigo ?? ''} × ${rotuloComp} · ${MES[mesIni - 1]}–${MES[mesFim - 1]}`} />
         </div>
@@ -323,21 +331,16 @@ export default function OrcamentoDashPage() {
             {MES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
           </select></div>
 
-        {modo === 'REAL' && (
-          <>
-            <div><div style={S.lbl}>Fechado até</div>
-              <select style={S.sel} value={fechadoAte} onChange={e => setFechadoAte(Number(e.target.value))}>
-                <option value={0}>— nenhum —</option>
-                {MES.map((m, i) => <option key={i} value={i + 1}>{m}/{String(anoComp ?? '').slice(-2)}</option>)}
-              </select></div>
-            <div><div style={S.lbl}>Meses seguintes</div>
-              <select style={S.sel} value={proj} onChange={e => setProj(e.target.value as Proj)}>
-                <option value="OFF">não projetar (ficam vazios)</option>
-                <option value="ORCADO">projetar pelo orçado do ano</option>
-                <option value="MEDIA3">projetar pela média dos 3 últimos</option>
-                <option value="ULTIMO">projetar repetindo o último mês</option>
-              </select></div>
-          </>
+                {/* A projeção vale nos DOIS modos: limitar o período e perguntar "e se
+            o resto do ano seguir este ritmo?" é a mesma pergunta comparando
+            orçados ou comparando com realizado. Antes isto só aparecia no modo
+            Realizado — e sumia sem explicação no outro. */}
+        {mesFim < 12 && (
+          <div><div style={S.lbl}>Meses seguintes ({MES[mesFim]}–dez)</div>
+            <select style={{ ...S.sel, maxWidth: 320 }} value={proj} onChange={e => setProj(e.target.value as Proj)}>
+              {(['OFF', 'MEDIA3', 'MEDIAPER', 'ULTIMO', ...(modo === 'REAL' ? ['ORCADO' as Proj] : [])] as Proj[])
+                .map(k => <option key={k} value={k}>{PROJ_ROTULO[k]}</option>)}
+            </select></div>
         )}
 
         <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs}
@@ -354,17 +357,18 @@ export default function OrcamentoDashPage() {
           Troque a versão de comparação ou o método de projeção.
         </Aviso>
       )}
-      {modo === 'REAL' && proj === 'OFF' && mesesProj.length > 0 && (
-        <Aviso tom="info">
-          O realizado de {anoComp} vai até <strong>{MES[fechadoAte - 1] ?? '—'}</strong>.
-          Os meses {MES[mesesProj[0] - 1]}–{MES[mesesProj[mesesProj.length - 1] - 1]} entram como <strong>zero</strong> do
-          lado comparado — o crescimento aparece inflado.
+      {realCurto && (
+        <Aviso tom="alerta">
+          O realizado de {anoComp} só tem dado até <strong>{MES[realAte - 1]}</strong>, mas o período vai
+          até <strong>{MES[mesFim - 1]}</strong>. Os meses {MES[realAte]}–{MES[mesFim - 1]} entram como
+          <strong> zero</strong> do lado comparado, e o crescimento aparece inflado.
+          Feche o período em {MES[realAte - 1]} e use a projeção, se quiser o ano cheio.
         </Aviso>
       )}
-      {modo === 'REAL' && proj !== 'OFF' && mesesProj.length > 0 && (
+      {mesesProj.length > 0 && (
         <Aviso tom="info">
-          {mesesProj.length} mês(es) <strong>projetado(s)</strong> do lado comparado
-          ({proj === 'ORCADO' ? 'pelo orçado do ano' : proj === 'MEDIA3' ? 'pela média dos 3 últimos fechados' : 'repetindo o último mês'}).
+          {mesesProj.length} mês(es) <strong>projetado(s)</strong> dos <strong>dois lados</strong>
+          {' '}({PROJ_ROTULO[proj].replace('projetar ', '')}). O período analisado passa a ser o ano cheio.
           Projeção não é fato — confira antes de decidir com ela.
         </Aviso>
       )}

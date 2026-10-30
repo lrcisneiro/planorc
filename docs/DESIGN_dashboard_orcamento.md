@@ -66,6 +66,24 @@ substitui a tabela acima:
 | só o que está fechado | jan–set | desligada |
 | plano contra plano | jan–dez | irrelevante (os dois lados são orçado) |
 
+> **A projeção é ANUALIZAÇÃO, e vale nos dois modos** (ajustado em 30/out).
+> Ela projeta os meses **depois do período** até dezembro, nos **dois lados**.
+> Limitar o período e perguntar *"e se o resto do ano seguir este ritmo?"* é a
+> mesma pergunta comparando dois orçados ou comparando com realizado — a
+> primeira versão só a oferecia no modo Realizado, e o controle sumia sem
+> explicação no outro.
+>
+> Isso também tornou o seletor **"fechado até" desnecessário**: o **período é
+> quem define o que é real**, e o que vem depois é projeção. Dois controles
+> dizendo quase a mesma coisa confundiam; sobrou um, e a detecção do último mês
+> com realizado virou só um **aviso** — "o realizado vai até setembro mas o
+> período vai até dezembro: esses meses entram como zero".
+>
+> Cinco métodos, porque cada um responde a uma pergunta diferente:
+> não projetar · média dos **3 últimos** meses do período · média de **todo** o
+> período · repetir o **último** mês · (só no modo Realizado) o **orçado** do
+> ano, que é a projeção de fechamento da própria empresa.
+
 > **A chave esconde uma decisão de método.** "Projetar out–nov–dez" a partir de
 > quê? Três respostas, três números diferentes:
 > **(a)** o **orçado daquele ano** para esses meses — é a estimativa da própria
