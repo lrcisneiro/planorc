@@ -2,6 +2,12 @@
 
 Proposta (out/2026). **Não implementado.** Para discussão antes de construir.
 
+> **Procedência:** a primeira versão saiu de conhecimento geral de FP&A. Depois
+> foi confrontada com pesquisa (fontes no fim), que confirmou a ponte e o
+> painel de premissas, e **acrescentou quatro coisas** — o *run rate* como
+> terceira régua, a tabela ao lado da ponte, o limiar duplo e o comentário por
+> linha. O que veio de pesquisa está marcado com ⌕.
+
 ## A pergunta que ele responde
 
 Os seis dashboards de hoje respondem **"como estamos indo?"** — execução,
@@ -32,6 +38,13 @@ Três tratamentos possíveis, e o dashboard precisa dizer qual está usando:
 | **Mesmo período** | jan–set/27 × jan–set/26 | o mais honesto; o padrão |
 | **Ano cheio × orçado** | 2027 × **orçado** 2026 | compara plano com plano |
 | **Anualizado** | 2027 × 2026 projetado | só com o método declarado na tela |
+| **⌕ Run rate** | 2027 × **3 últimos meses fechados × 4** | a régua que pega inflexão recente |
+
+> ⌕ **O run rate é uma régua separada, não um detalhe.** A prática de revisão
+> manda explicar a variação contra o ano anterior **e contra o ritmo atual** —
+> são perguntas diferentes. Um orçamento 5% acima de 2026 pode estar 15% abaixo
+> do que a empresa está rodando hoje, e o total anual esconde isso. Já temos a
+> máquina: é a média dos 3 últimos meses fechados que o wizard de réplica usa.
 
 > Nunca o ano cheio contra o realizado parcial, calado. É exatamente o tipo de
 > comparação que ninguém confere e que vira slide.
@@ -54,12 +67,28 @@ Se a ponte tem uma barra gigante e o resto nivelado, o orçamento tem **uma
 aposta só** — e essa é a conversa a ter. Se tem muitas barras pequenas se
 cancelando, ninguém sabe de onde vem o número.
 
+> ⌕ **Sempre com a tabela ao lado.** Cascata se lê por aproximação — a altura
+> da barra dá a ordem de grandeza, não o número. Quem aprova precisa do valor
+> exato, e a prática é parear o gráfico com o resumo tabular em vez de escolher
+> um dos dois.
+
 ### 2 · Variação por linha, ordenada por IMPACTO
 
 Não alfabética nem por tamanho: pela **contribuição ao delta**. As 15 linhas
 que explicam a mudança, com absoluto e %. O resto colapsado em "demais".
 
 Quem revisa orçamento quer saber o que mudou, não ler a DRE inteira.
+
+> ⌕ **Limiar duplo em vez de "as 15 maiores".** A prática é marcar o que passa
+> de **5–10% E de um valor mínimo absoluto** ao mesmo tempo. As duas condições
+> juntas importam: 40% numa conta de R$ 800 é ruído, e 3% na folha é a maior
+> conversa do orçamento. Só o percentual enche a tela de bobagem; só o absoluto
+> esconde a conta pequena que dobrou.
+
+> ⌕ **Comentário por linha, gravado.** Variação marcada pede três coisas — *o
+> que mudou, por que, e o que se faz a respeito*. Já existe o precedente no
+> produto: a `conciliacao_folha_nota`, onde o resíduo pede justificativa
+> escrita. Uma linha explicada deixa de voltar à pauta na reunião seguinte.
 
 ### 3 · Acurácia do orçamento ANTERIOR  ⟵ o mais subutilizado
 
@@ -108,6 +137,12 @@ As premissas que **geram** o orçamento, hoje enterradas nos formulários:
 A credibilidade de um orçamento mora nesses números, não no total. Mostrá-los
 lado a lado com o ano anterior — *"churn era 0,95%, virou 0,80%: por quê?"* —
 é a conversa que de fato muda o resultado.
+
+> ⌕ **A pesquisa põe isto mais alto do que eu havia posto.** O padrão de revisão
+> antes da aprovação é que as premissas sejam **documentadas e mensuráveis**, e
+> que o CFO *"teste de onde vêm os números"* — porque uma projeção detalhada
+> pode parecer precisa dependendo inteiramente de premissa não testada. Isso
+> empata com os quatro primeiros em prioridade, não vem depois deles.
 
 ### 7 · Mix e composição
 
@@ -163,3 +198,15 @@ anterior". Custa o mesmo e serve às duas perguntas.
 - **Realizado como protagonista** — aqui ele é régua, não assunto
 - **Drill até lançamento** — o `DrillModal` serve ao acompanhamento; aqui o
   grão é a linha e a premissa
+
+---
+
+## Fontes
+
+- [18 Point Budget Checklist — CFO Leadership Council](https://cfoleadershipcouncil.com/18-point-budget-checklist/)
+- [What is budget planning checklist? — Hyperbots](https://www.hyperbots.com/glossary/budget-planning-checklist)
+- [CFO Budget Planning: A Strategic Three-quarter Guide — CBH](https://www.cbh.com/insights/articles/cfo-budget-planning-best-practices-a-strategic-guide/)
+- [The Budgeting Process: Step-by-Step Guide for FP&A — Corporate Finance Institute](https://corporatefinanceinstitute.com/resources/fpa/budgeting-process-guide-fpa/)
+- [Shapley vs waterfall variance bridge — Cleo AI](https://cleoai.tech/knowledge/shapley_vs_waterfall_variance_bridge_which_method_should_fpa_teams_use_to_explain_budget_variances.php)
+- [Budget Variance: How FP&A Teams Build a Tighter Reporting Workflow — Numeric](https://www.numeric.io/blog/budget-variance)
+- [Margin Bridge Analysis: 4 Variance Drivers Explained — eFinancialModels](https://www.efinancialmodels.com/mastering-the-gross-margin-bridge/)
