@@ -7,6 +7,7 @@ import { useSearchParams } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { exportarPng, exportarPdf } from '../../lib/exportarDash'
 import { useCapacidades } from '../../hooks/useCapacidades'
+import { papelMaisAlto } from '../../lib/capacidades'
 
 export type Item = { id: string; codigo: string; descricao: string }
 
@@ -158,8 +159,8 @@ export function SalvarCardButton({ base, getFiltros, cor, cardId }: { base: stri
     const { data: { user } } = await supabase.auth.getUser()
     const uid = user?.id ?? null
     let owner_id: string | null = uid
-    const { data: ut } = await supabase.from('user_tenant').select('role').eq('user_id', uid).limit(1)
-    const isAdmin = ((ut?.[0]?.role as string) ?? '') === 'admin'
+    const { data: ut } = await supabase.from('user_tenant').select('role').eq('user_id', uid)
+    const isAdmin = papelMaisAlto(ut) === 'admin'
     if (isAdmin && window.confirm('Compartilhar este card com todo o time?\n\nOK = compartilhado (todos veem) · Cancelar = só para você')) owner_id = null
     const { error } = await supabase.from('dashboard_card').insert({ tenant_id: TENANT_ID, nome, base, cor: cor || 'var(--violet)', filtros: getFiltros(), owner_id })
     if (error) { alert('Erro ao salvar: ' + error.message); return }

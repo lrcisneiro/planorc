@@ -13,6 +13,7 @@
 // capacidades, não aqui.
 // ============================================================
 import { supabase } from './supabase'
+import { papelMaisAlto } from './capacidades'
 
 type Regra = { allow: string[]; deny: string[] }
 
@@ -37,7 +38,7 @@ function carregarRegras() {
       if (r.escopo === 'ORCAR') continue        // aqui só interessa o VER
       regras[r.dimensao] = { allow: r.valor_ids || [], deny: r.negados || [] }
     }
-    return { isAdmin: ((td?.[0]?.role as string) ?? '') === 'admin', regras }
+    return { isAdmin: papelMaisAlto(td) === 'admin', regras }
   })
   return cache
 }

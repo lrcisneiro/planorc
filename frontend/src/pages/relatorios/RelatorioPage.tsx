@@ -5,6 +5,7 @@ import { supabase, TENANT_ID } from '../../lib/supabase'
 import { filtrarPorEscopo } from '../../lib/escopoDados'
 import { T } from '../../lib/theme'
 import { Plus, Pencil, Trash2, ChevronRight, Copy } from 'lucide-react'
+import { papelMaisAlto } from '../../lib/capacidades'
 
 async function fetchAll(build: () => any): Promise<any[]> {
   const out: any[] = []; const size = 1000; let from = 0
@@ -94,8 +95,8 @@ export default function RelatorioPage({ linkBase = '/relatorios', titulo = 'Rela
     loadPresets()
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       const u = user?.id ?? null; setUid(u)
-      const { data: ut } = await supabase.from('user_tenant').select('role').eq('user_id', u).limit(1)
-      setIsAdmin(((ut?.[0]?.role as string) ?? '') === 'admin')
+      const { data: ut } = await supabase.from('user_tenant').select('role').eq('user_id', u)
+      setIsAdmin(papelMaisAlto(ut) === 'admin')
     })
   }, [linkBase])
   const relNomeDeBase = (base: string) => rels.find(r => r.id === base.replace('/relatorios/', ''))?.nome || 'Relatório'

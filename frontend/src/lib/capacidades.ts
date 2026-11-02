@@ -3,8 +3,12 @@
 // Fonte única do que é "gateável" no app. Adicionar um menu/função
 // novo no futuro = adicionar uma entrada aqui; o controle já passa a existir.
 //
-// Cada capacidade tem um padrão por papel (admin/member/viewer).
-// (Próximo incremento: override por usuário em user_acesso_funcao.)
+// Cada capacidade tem um padrão por papel (admin/member/viewer), e o padrão de
+// `member` é o de um DIRETOR DE ÁREA: acompanha e orça a área dele, não opera o
+// sistema. Fechado por padrão em importação, cadastro, amarração, realizado,
+// saldos e nos dashboards do grupo — libera-se por pessoa, na tela de acesso.
+// O padrão vive aqui (código) e só o OVERRIDE em `user_acesso_funcao` (banco):
+// uma verdade só, ao custo de que mudar padrão exige deploy.
 // ============================================================
 export type Papel = 'admin' | 'member' | 'viewer'
 
@@ -17,6 +21,33 @@ export type Capacidade = {
    *  Serve para a tela de acesso avisar em vez de prometer o que não cumpre. */
   escrita?: boolean
   padrao: Record<Papel, boolean>
+}
+
+const RANK: Record<Papel, number> = { admin: 3, member: 2, viewer: 1 }
+
+/** Papel efetivo de quem está logado = **o mais privilegiado** das linhas de
+ *  `user_tenant`.
+ *
+ *  Por que não `linhas[0].role`: nada garante que exista uma linha só. O banco
+ *  não tinha unique por (tenant, pessoa) e os testes de perfil deixaram a mesma
+ *  conta como admin, member E viewer. Sem ordem explícita, qual linha vem é
+ *  decidido pelo plano de execução — a pessoa abria como admin numa sessão e
+ *  como viewer na outra. Pior: o banco resolve por EXISTS (`eh_admin()`), então
+ *  dizia admin sempre, e os dois discordavam sobre quem a pessoa é.
+ *
+ *  `v3_140` cria o unique e apaga as duplicatas; isto aqui é a outra metade —
+ *  com unique ou sem, a resposta é sempre a mesma. Escolher o mais privilegiado
+ *  é o que o banco já praticava, então o frontend passa a concordar com ele.
+ *
+ *  Sem nenhuma linha devolve `''` — ausência não é viewer: quem chama decide,
+ *  e todos decidem pelo menor acesso. */
+export function papelMaisAlto(linhas: { role?: string | null }[] | null | undefined): Papel | '' {
+  let melhor: Papel | '' = ''
+  for (const l of linhas || []) {
+    const r = l?.role as Papel | undefined
+    if (r && RANK[r] && (melhor === '' || RANK[r] > RANK[melhor])) melhor = r
+  }
+  return melhor
 }
 
 export const CAPACIDADES: Capacidade[] = [
@@ -35,7 +66,7 @@ export const CAPACIDADES: Capacidade[] = [
   // precisa mexer na outra.
   { escrita: true, key: 'formulario.estrutura', label: 'Editar estrutura de formulários', categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
   { key: 'exportar',  label: 'Exportar dashboards (imagem/PDF)',  categoria: 'Funções', padrao: { admin: true,  member: true,  viewer: true  } },
-  { escrita: true, key: 'indicador.meta', label: 'Editar metas de indicadores',   categoria: 'Funções', padrao: { admin: true,  member: true,  viewer: false } },
+  { escrita: true, key: 'indicador.meta', label: 'Editar metas de indicadores',   categoria: 'Funções', padrao: { admin: true,  member: false,  viewer: false } },
   // A ação mais destrutiva do produto: apaga o orçado inteiro de uma versão/ano.
   // Só admin por padrão, e mesmo para ele há confirmação pelo código da versão,
   // conferida no servidor (v3_127).
@@ -68,10 +99,10 @@ export const CAPACIDADES: Capacidade[] = [
   { key: 'amarracao.importar', escrita: true,    label: 'Amarração — importar DE-PARA',             categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
   { key: 'cadastros.importar', escrita: true,    label: 'Cadastros — importar Excel',               categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
   { key: 'relatorio.importar', escrita: true,    label: 'Relatório — importar estrutura e matriz',  categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'formulario.importar', escrita: true,   label: 'Formulário — importar valores',            categoria: 'Importações', padrao: { admin: true, member: true,  viewer: false } },
+  { key: 'formulario.importar', escrita: true,   label: 'Formulário — importar valores',            categoria: 'Importações', padrao: { admin: true, member: false,  viewer: false } },
   { key: 'posto.importar', escrita: true,        label: 'Postos — importar do RH',                  categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
   { key: 'folha.importar', escrita: true,        label: 'Folha realizada — importar e excluir lote', categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'apontamento.importar', escrita: true,  label: 'Apontamento — importar e excluir extrato', categoria: 'Importações', padrao: { admin: true, member: true,  viewer: false } },
+  { key: 'apontamento.importar', escrita: true,  label: 'Apontamento — importar e excluir extrato', categoria: 'Importações', padrao: { admin: true, member: false,  viewer: false } },
   { key: 'fornecedor.importar', escrita: true,   label: 'Fornecedores (PJ) — importar de-para',     categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
   { key: 'verba.importar', escrita: true,        label: 'Estrutura de folha — importar verbas/regras', categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
 
@@ -83,20 +114,20 @@ export const CAPACIDADES: Capacidade[] = [
   // do mês para qualquer um que pudesse ver dashboards.
   { key: 'dash.acompanhamento', label: '· DRE — Acompanhamento',   categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },
   { key: 'dash.orcamento',      label: '· Orçamento — análise',    categoria: 'Menu', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'dash.anual',          label: '· DRE — Comparativo anual', categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },
+  { key: 'dash.anual',          label: '· DRE — Comparativo anual', categoria: 'Menu', padrao: { admin: true, member: false,  viewer: true  } },
   { key: 'dash.balanco',        label: '· Balanço',                categoria: 'Menu', padrao: { admin: true, member: false, viewer: false } },
   { key: 'dash.executivo',      label: '· Visão executiva',        categoria: 'Menu', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'dash.cagr',           label: '· CAGR',                   categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },
-  { key: 'dash.indicadores',    label: '· Indicadores',            categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },
+  { key: 'dash.cagr',           label: '· CAGR',                   categoria: 'Menu', padrao: { admin: true, member: false,  viewer: true  } },
+  { key: 'dash.indicadores',    label: '· Indicadores',            categoria: 'Menu', padrao: { admin: true, member: false,  viewer: true  } },
   { key: 'menu.relatorios', label: 'Relatórios',              categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },
-  { key: 'menu.orcamento',  label: 'Orçamento',               categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
+  { key: 'menu.orcamento',  label: 'Orçamento',               categoria: 'Menu', padrao: { admin: true, member: false,  viewer: false } },
   // Três telas do grupo Orçamento dividiam `menu.orcamento`: a de dados, a
   // grade de Orçar e o formulário de drivers. Liberar uma liberava as três, e
   // não dava para dar a grade a um diretor sem dar junto os drivers, que são
   // premissas do grupo. Cada uma com a sua; o padrão repete o que valia antes
   // para não tirar acesso de ninguém ao aplicar.
   { key: 'menu.orcar.grade', label: '· Orçar (grade)',          categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
-  { key: 'menu.formularios', label: '· Formulário de drivers',  categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
+  { key: 'menu.formularios', label: '· Formulário de drivers',  categoria: 'Menu', padrao: { admin: true, member: false,  viewer: false } },
   { key: 'menu.estruturas', label: 'Estruturas de relatórios', categoria: 'Menu', padrao: { admin: true, member: false, viewer: false } },
   { key: 'menu.postos',     label: 'Posto de trabalho (folha)', categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
   // Os PASSOS de Posto de trabalho. Gateados um a um porque o diretor de área
@@ -110,10 +141,10 @@ export const CAPACIDADES: Capacidade[] = [
   { key: 'menu.postos.conciliacao', label: '· Conciliação',            categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
   { key: 'menu.postos.estrutura',   label: '· Estrutura (verbas/regras)', categoria: 'Menu', padrao: { admin: true, member: false, viewer: false } },
   { key: 'menu.postos.rateio',      label: '· Rateio',                 categoria: 'Menu', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'menu.realizado',  label: 'Realizado',               categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
-  { key: 'menu.saldos',     label: 'Saldos (BP)',             categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
-  { key: 'menu.amarracao',  label: 'Amarração',               categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
-  { key: 'menu.cadastros',  label: 'Cadastros',               categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
+  { key: 'menu.realizado',  label: 'Realizado',               categoria: 'Menu', padrao: { admin: true, member: false,  viewer: false } },
+  { key: 'menu.saldos',     label: 'Saldos (BP)',             categoria: 'Menu', padrao: { admin: true, member: false,  viewer: false } },
+  { key: 'menu.amarracao',  label: 'Amarração',               categoria: 'Menu', padrao: { admin: true, member: false,  viewer: false } },
+  { key: 'menu.cadastros',  label: 'Cadastros',               categoria: 'Menu', padrao: { admin: true, member: false,  viewer: false } },
   { key: 'menu.config',     label: 'Configurações',           categoria: 'Menu', padrao: { admin: true, member: false, viewer: false } },
 ]
 

@@ -203,6 +203,23 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > retorno era conferido: a célula *sempre* parecia salva, e falha de rede ou violação de unique
 > sumiam no refresh. O RLS não criou isso, só o tornou frequente.
 
+> **Padrão de `member` = diretor de área (nov/2026).** Nasce **fechado** em importação de
+> apontamento/formulário, metas de indicador, menus de Orçamento, Formulários, Realizado, Saldos,
+> Amarração, Cadastros e nos dashboards Comparativo anual / CAGR / Indicadores — libera-se por
+> pessoa. Virar um padrão **muda o acesso de quem herdava, em silêncio**, então a `v3_138`
+> materializa o acesso de hoje como override explícito antes de o padrão novo valer, e a `v3_139`
+> (⚠ **só depois do deploy**) limpa as negações que viraram redundantes. A ordem é o ponto: o
+> padrão vive no código e só existe quando o build sobe.
+
+> **Papel efetivo = `papelMaisAlto()`, nunca `linhas[0].role`.** `user_tenant` não tinha unique
+> por (tenant, pessoa) e os testes de perfil deixaram a mesma conta como admin, member **e**
+> viewer. Sem `ORDER BY`, qual linha vem é escolha do plano — a pessoa abria como admin numa
+> sessão e viewer na outra, enquanto o banco (`eh_admin()`, por `EXISTS`) dizia admin sempre: os
+> dois discordando sobre quem a pessoa é. Corrigido nas duas pontas — `v3_140` cria o unique e
+> apaga as duplicatas; `papelMaisAlto()` (em `lib/capacidades.ts`, usada nos 7 pontos que leem o
+> papel) devolve o mais privilegiado, com ou sem unique. Ausência de linha devolve `''`, e quem
+> chama decide pelo menor acesso.
+
 > **Convenção — incluir uma funcionalidade nova no controle de acesso:** (1) adicionar uma entrada em `CAPACIDADES` (chave + label + categoria + `padrao` por papel); (2) gatear o elemento na tela com `can('chave')`. A seção "Funções e menus" em Configurações itera o catálogo, então a nova capacidade aparece sozinha com os controles Herdar/Liberar/Negar; `user_acesso_funcao` guarda por chave de texto, sem migration. Enquanto não catalogada, `can()` devolve `true` (não esconde nada por engano). Dimensão de **dados** nova é outro caminho: cadastro de `dimensao`.
 
 ## Legado em transição

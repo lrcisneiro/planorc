@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 // Uma fonte só para "o banco recorta esta dimensão?" — ver o comentário lá.
 import { DIMS_NO_BANCO } from '../lib/escopoDados'
+import { papelMaisAlto } from '../lib/capacidades'
 
 // Regra por dimensão: allow (vazio = todos) menos deny (exclusões).
 type Rule = { allow: string[]; deny: string[] }
@@ -66,7 +67,7 @@ export function useUserAccess(): UserAccess {
         else v[r.dimensao] = rule   // escopo padrão = VER
       }
       setVer(v); setOrcar(o)
-      const pap = (tenantData?.[0]?.role as string) ?? ''
+      const pap = papelMaisAlto(tenantData)
       setPapel(pap); setIsAdmin(pap === 'admin')
       setLoading(false)
     })

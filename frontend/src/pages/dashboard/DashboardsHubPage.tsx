@@ -5,6 +5,7 @@ import { LayoutDashboard, BarChart3, Scale, Gauge, TrendingUp, ListChecks, Bookm
 import { supabase } from '../../lib/supabase'
 import { T } from '../../lib/theme'
 import { useCapacidades } from '../../hooks/useCapacidades'
+import { papelMaisAlto } from '../../lib/capacidades'
 
 const CARDS = [
   { cap: 'dash.acompanhamento', to: '/dashboard',            titulo: 'DRE — Acompanhamento', desc: 'Execução orçado × realizado de UM ano, em granularidade mensal, trimestral ou semestral.', icon: LayoutDashboard, cor: '#3b5bdb' },
@@ -46,8 +47,8 @@ export default function DashboardsHubPage() {
     loadMeus()
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       const u = user?.id ?? null; setUid(u)
-      const { data: ut } = await supabase.from('user_tenant').select('role').eq('user_id', u).limit(1)
-      setIsAdmin(((ut?.[0]?.role as string) ?? '') === 'admin')
+      const { data: ut } = await supabase.from('user_tenant').select('role').eq('user_id', u)
+      setIsAdmin(papelMaisAlto(ut) === 'admin')
     })
   }, [])
   const pessoais = meus.filter(m => !!m.owner_id && m.owner_id === uid)

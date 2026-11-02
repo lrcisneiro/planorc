@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { CAP_BY_KEY } from '../lib/capacidades'
+import { CAP_BY_KEY, papelMaisAlto } from '../lib/capacidades'
 import type { Papel } from '../lib/capacidades'
 
 // Resolve a permissão efetiva de cada capacidade:
@@ -19,7 +19,7 @@ export function useCapacidades() {
         supabase.from('user_tenant').select('role').eq('user_id', uid),
         supabase.from('user_acesso_funcao').select('capacidade,permitido').eq('user_id', uid),
       ])
-      setPapel(((tenantData?.[0]?.role as Papel) ?? 'viewer'))
+      setPapel(papelMaisAlto(tenantData) || 'viewer')
       const o: Record<string, boolean> = {}
       for (const r of (ovr as any[]) || []) o[r.capacidade] = r.permitido
       setOverrides(o)
