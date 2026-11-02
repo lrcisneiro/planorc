@@ -84,13 +84,20 @@ SELECT c.relname                                                  AS tabela,
        count(*) FILTER (WHERE p.polcmd = '*')                      AS for_all_restante,
        count(*) FILTER (WHERE p.polcmd IN ('r','*')
                           AND pg_get_expr(p.polqual, p.polrelid) NOT ILIKE '%escopo_%') AS leem_SEM_recorte,
-       count(*) FILTER (WHERE pg_get_expr(p.polqual, p.polrelid)   ~ '(?<!select )escopo_(cc|empresa|filial)\(\)'
-                           OR pg_get_expr(p.polwithcheck, p.polrelid) ~ '(?<!select )edit_(cc|empresa|filial)\(\)')
+       -- ⚠ `~*` e não `~`: o `pg_get_expr` deparsa o SELECT em MAIÚSCULAS, e o
+       -- lookbehind sensível a caixa contava toda função envelopada como solta.
+       -- Era falso positivo meu — e o veredito abaixo nem olhava esta coluna,
+       -- então dava ✓ com 3 "soltas" na cara. Agora olha.
+       count(*) FILTER (WHERE pg_get_expr(p.polqual, p.polrelid)        ~* '(?<!select )escopo_(cc|empresa|filial)\(\)'
+                           OR pg_get_expr(p.polwithcheck, p.polrelid)   ~* '(?<!select )edit_(cc|empresa|filial)\(\)')
                                                                    AS funcao_SOLTA,
        CASE
          WHEN count(*) FILTER (WHERE p.polcmd = '*') > 0 THEN '⛔ FOR ALL ainda vaza na leitura'
          WHEN count(*) FILTER (WHERE p.polcmd IN ('r','*')
                                 AND pg_get_expr(p.polqual, p.polrelid) NOT ILIKE '%escopo_%') > 0 THEN '⛔ SELECT sem recorte'
+         WHEN count(*) FILTER (WHERE pg_get_expr(p.polqual, p.polrelid)      ~* '(?<!select )escopo_(cc|empresa|filial)\(\)'
+                                  OR pg_get_expr(p.polwithcheck, p.polrelid) ~* '(?<!select )edit_(cc|empresa|filial)\(\)') > 0
+              THEN '⛔ função de escopo FORA de subconsulta — volta a ser por linha'
          ELSE '✓ recortado e envelopado em InitPlan'
        END                                                         AS veredito
   FROM pg_class c
