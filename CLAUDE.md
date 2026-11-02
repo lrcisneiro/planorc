@@ -108,6 +108,13 @@ Todas as tabelas têm `tenant_id` e RLS. Base SQL em `schema_v2.sql`; evoluçõe
 > ⚠ No hub, "Compartilhados" é `owner_id !== uid`, **não** `!owner_id`: card de outra pessoa
 > dirigido a mim tem dono, e com o teste antigo não cairia em lista nenhuma e sumiria.
 >
+> ⚠ **Política que lê outra tabela com política pode RECURSAR** (v3_154). A escrita em
+> `dashboard_card_acesso` perguntava "sou dono?" lendo `dashboard_card`, cuja leitura pergunta
+> "é dirigido a mim?" lendo `dashboard_card_acesso`: *infinite recursion detected*. **Não é
+> preciso que o ciclo se feche — basta a reentrada.** A saída é tirar uma ponta do RLS:
+> `eh_dono_card()` é `SECURITY DEFINER`, responde o mesmo e não reentra. Vale para qualquer par
+> de tabelas cujas políticas se consultem.
+>
 > ⚠ **Derivar a visibilidade dos filtros do preset NÃO funciona aqui** — era a ideia inicial e os
 > dados a desmentiram: nenhum dos 14 filtra CC (`ccSel` vazio em todos); eles usam `empresaSel` e
 > `areaSel`. O que separa "DRE Serviços" de "DRE Comercial" é a área, não o centro de custo.
