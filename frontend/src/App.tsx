@@ -63,7 +63,9 @@ const NAV_GROUPS: NavGroup[] = [
     { to: '/formularios', label: 'Formulário de drivers', icon: SlidersHorizontal, cap: 'menu.formularios' },
     { to: '/postos', label: 'Posto de trabalho', icon: Users, cap: 'menu.postos' },
   ] },
-  { area: 'Relatórios', mode: 'leitura', dot: '#34d399', items: [
+  // "Saídas" e não "Relatórios": o grupo tem Dashboards e Relatórios dentro, e
+  // repetir o nome do filho no pai fazia parecer que um era o outro.
+  { area: 'Saídas', mode: 'leitura', dot: '#34d399', items: [
     { to: '/dashboards', label: 'Dashboards', icon: LayoutDashboard, cap: 'menu.dashboards' },
     { to: '/relatorios', label: 'Relatórios', icon: Table2,          cap: 'menu.relatorios' },
   ] },
