@@ -10,8 +10,9 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 // SheetJS carregado via CDN no index.html
 declare const XLSX: any
 import { Plus, Trash2, Check, X, Upload, AlertCircle, Download, FileDown, Pencil, Copy, CopyPlus, Link2 } from 'lucide-react'
+import { CargosTab } from './CargosTab'
 
-type Aba = 'empresas' | 'filiais' | 'cc' | 'planos' | 'contas' | 'estrutura' | 'funcionarios' | 'verbas' | 'versoes' | 'lotes' | 'moedas' | 'cambio' | 'taxaorcada' | 'metas'
+type Aba = 'empresas' | 'filiais' | 'cc' | 'planos' | 'contas' | 'estrutura' | 'cargos' | 'funcionarios' | 'verbas' | 'versoes' | 'lotes' | 'moedas' | 'cambio' | 'taxaorcada' | 'metas'
 
 // ─── Styles ──────────────────────────────────────────────────
 const S = {
@@ -1811,6 +1812,7 @@ const ABAS: { id: Aba; label: string }[] = [
   { id: 'planos',       label: 'Planos de Contas' },
   { id: 'contas',       label: 'Conta Contábil' },
   { id: 'estrutura',    label: 'Estrutura Orçamentária' },
+  { id: 'cargos',       label: 'Cargos' },
   { id: 'funcionarios', label: 'Funcionários' },
   { id: 'verbas',       label: 'Verbas' },
   { id: 'versoes',      label: 'Versões/Cenários' },
@@ -2180,7 +2182,7 @@ export default function CadastrosPage() {
     <div style={S.page}>
       <div style={S.header}>
         <h1 style={S.title}>Cadastros</h1>
-        <p style={S.subtitle}>Empresas · Filiais · Centro de Custo · Conta Contábil · Funcionários · Verbas</p>
+        <p style={S.subtitle}>Empresas · Filiais · Centro de Custo · Conta Contábil · Cargos · Funcionários · Verbas</p>
       </div>
       <div style={S.tabs}>
         {abas.map(a => (
@@ -2193,6 +2195,7 @@ export default function CadastrosPage() {
       {aba === 'planos'       && <PlanosTab />}
       {aba === 'contas'       && <ContasTab />}
       {aba === 'estrutura'    && <EstruturaTab />}
+      {aba === 'cargos'       && <CargosTab />}
       {aba === 'funcionarios' && <FuncionariosTab />}
       {aba === 'verbas'       && <VerbasTab />}
       {aba === 'versoes'      && <VersoesTab />}

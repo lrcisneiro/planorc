@@ -265,6 +265,26 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > criar dimensão de **dados**, isto é, definir por onde o escopo recorta: é mexer no controle de
 > acesso. Leitura não mudou.
 
+> **Cargos — árvore de carreira (v3_144, Cadastros → Cargos).** `cargo` não tinha tela: nascia do
+> import do RH (upsert por código) e só era lido em dropdown. Ganhou `pai_id` + `nivel` e uma aba
+> com **arrastar e soltar** (HTML5 nativo, mesmo padrão dos cards do dashboard — sem biblioteca).
+> `nivel` é **senioridade comparável entre ramos**, separado da profundidade de propósito: um
+> "Analista III" de TI e um do Comercial são o mesmo nível em subárvores diferentes, e é o nível —
+> não a profundidade — que torna a futura hierarquia de PESSOAS *conferível* em vez de só
+> desenhável.
+>
+> ⚠ **Ciclo é o único defeito grave:** arrastar o pai para baixo do próprio filho faz a árvore
+> virar laço, a tela recursa até travar e consulta recursiva nunca termina. Travado nos **dois
+> lados** — a tela recusa no drop (`descendentes()`, e pinta o alvo de vermelho) e a `v3_144` põe
+> gatilho no banco, porque a API é outro caminho. Gatilho e não `CHECK`: a verificação sobe a
+> árvore, e `CHECK` não enxerga outras linhas. `ON DELETE SET NULL` promove os filhos à raiz em vez
+> de apagar a subárvore.
+>
+> Por que **não** virou pill em Postos: cargo é catálogo, e catálogo mora em Cadastros, ao lado de
+> Funcionários e Verbas. A hierarquia de **pessoas** (quando `posto.gestor_posto_id` existir) é o
+> contrário — vai como *modo* na própria tela do Organograma, porque a árvore que se olha é a que
+> se conserta; tela separada vira duas renderizações que divergem.
+
 > **Convenção — incluir uma funcionalidade nova no controle de acesso:** (1) adicionar uma entrada em `CAPACIDADES` (chave + label + categoria + `padrao` por papel); (2) gatear o elemento na tela com `can('chave')`. A seção "Funções e menus" em Configurações itera o catálogo, então a nova capacidade aparece sozinha com os controles Herdar/Liberar/Negar; `user_acesso_funcao` guarda por chave de texto, sem migration. Enquanto não catalogada, `can()` devolve `true` (não esconde nada por engano). Dimensão de **dados** nova é outro caminho: cadastro de `dimensao`.
 
 ## Legado em transição
