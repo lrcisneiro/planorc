@@ -233,6 +233,12 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > na tabela** — 9 × `from('posto_v').select` contra 7 × `from('posto').update|insert|upsert|
 > delete`. Gravar não é ler, então escrever salário continua podendo.
 >
+> ⚠ **Coluna nova em `posto` tem DUAS pontas:** o `GRANT` de coluna (o que pode ser lido na
+> tabela) e a view (o que as telas enxergam). A `v3_148` resolveu a primeira **por regra** — nega
+> as três de remuneração e concede o resto, re-executável, porque a lista fixa da `v3_143` fazia
+> toda coluna nova cair no balde dos negados por omissão (foi o que houve com `area_func_id`:
+> ninguém negou, ela só não estava na lista).
+>
 > ⚠ **Toda coluna nova em `posto` entra em `posto_v` na MESMA migration** — com `CREATE OR REPLACE
 > VIEW` e a coluna **no fim**, que é o único jeito de acrescentar mantendo os GRANTs (sem janela
 > sem permissão, sem reconceder). A `v3_146` esqueceu, e como as sete telas leem a view, o
