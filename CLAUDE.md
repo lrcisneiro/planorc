@@ -173,6 +173,27 @@ Três camadas independentes, **hoje aplicadas no frontend** (enforcement de RLS/
 > nunca em `Funções`. O modo *substituir* do Baseline tem chave separada do *adicionar* e é
 > conferido também dentro do `doImport` — o menu pode ser contornado, a função é que escreve.
 
+> **Papel × capacidade — a divisão (nov/2026).** O **papel** é a trava grossa (lê × escreve) e
+> vive no banco: `pode_escrever()` = `admin` ou `member`. A **capacidade** é o ajuste fino *entre*
+> quem escreve (qual tela, qual importação) e vive no frontend. **Capacidade de escrita liberada a
+> um `viewer` não tem efeito** — o banco barra pelo papel. Quem preenche orçamento é `member`;
+> `viewer` só consulta.
+>
+> Não fazer o banco decidir por capacidade: os padrões por papel moram em `lib/capacidades.ts`, e
+> só os *overrides* estão em `user_acesso_funcao`. Replicar o catálogo em SQL criaria duas fontes
+> de verdade que divergem no primeiro deploy.
+>
+> Três guardas para o descasamento não voltar: telas de edição cruzam `can(...)` **e**
+> `acesso.podeEscrever` (espelho de `pode_escrever()`, **mesmo nome de propósito**); o catálogo
+> marca `escrita: true` e Configurações avisa ao liberá-las a um viewer; e **toda gravação confere
+> o retorno** — ver abaixo.
+>
+> ⚠ **`UPDATE` barrado por RLS NÃO dá erro.** A política filtra as linhas, o comando afeta zero e
+> volta sucesso — só o `INSERT` levanta `42501`. Em `OrcarGradePage` toda escrita passa por
+> `gravar()`, que exige `.select('id')` e trata **erro E zero-linhas** como falha. Antes nenhum
+> retorno era conferido: a célula *sempre* parecia salva, e falha de rede ou violação de unique
+> sumiam no refresh. O RLS não criou isso, só o tornou frequente.
+
 > **Convenção — incluir uma funcionalidade nova no controle de acesso:** (1) adicionar uma entrada em `CAPACIDADES` (chave + label + categoria + `padrao` por papel); (2) gatear o elemento na tela com `can('chave')`. A seção "Funções e menus" em Configurações itera o catálogo, então a nova capacidade aparece sozinha com os controles Herdar/Liberar/Negar; `user_acesso_funcao` guarda por chave de texto, sem migration. Enquanto não catalogada, `can()` devolve `true` (não esconde nada por engano). Dimensão de **dados** nova é outro caminho: cadastro de `dimensao`.
 
 ## Legado em transição

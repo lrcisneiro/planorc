@@ -250,6 +250,27 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
               "Herdar" segue o padrão do perfil ({user.role}). Liberar/Negar sobrepõem só para este usuário.
             </div>
+            {papelUser === 'viewer' && (() => {
+              // Capacidade de escrita liberada a um viewer NÃO tem efeito: a
+              // política de RLS (v3_130) barra a gravação pelo PAPEL. Sem este
+              // aviso, quem configura libera, testa, e o sistema recusa em
+              // silêncio — foi exatamente o que aconteceu no primeiro teste.
+              const liberadas = CAPACIDADES.filter(c => c.escrita && (funcOv[c.key] === true || (funcOv[c.key] === undefined && c.padrao.viewer)))
+              if (!liberadas.length) return null
+              return (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', margin: '0 0 12px', padding: '10px 13px',
+                              background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.4)', borderRadius: 9,
+                              fontSize: 12.5, color: 'var(--text-mid)', lineHeight: 1.55 }}>
+                  <span style={{ color: 'var(--orange)', flexShrink: 0 }}>⚠</span>
+                  <span>
+                    Este usuário é <b>viewer</b>, e perfil viewer <b>não grava</b> — o banco barra a escrita
+                    pelo perfil, não pela capacidade. As {liberadas.length} capacidade(s) de escrita liberada(s)
+                    aqui ({liberadas.slice(0, 3).map(c => c.label).join(', ')}{liberadas.length > 3 ? '…' : ''})
+                    <b> não terão efeito</b>. Para que grave, mude o perfil para <b>member</b>.
+                  </span>
+                </div>
+              )
+            })()}
             {(['Funções', 'Importações', 'Menu'] as const).map(cat => (
               <div key={cat} style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>{cat}</div>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
+import { useUserAccess } from '../../hooks/useUserAccess'
 import { carregarVersoes } from '../../lib/escopoDados'
 import { pageAll } from '../../lib/pageAll'
 import { parseFormularioCsv } from '../../lib/importFormulario'
@@ -42,6 +43,7 @@ const S = {
 }
 
 export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mode }) {
+  const acessoDados = useUserAccess()
   const capImp = useCapacidades()
   const { id: formId } = useParams()
   const navigate = useNavigate()
@@ -782,6 +784,18 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   if (loading) return <div style={{ padding: 24, color: 'var(--muted)' }}>Carregando…</div>
   if (isEstrutura && !cap.can('formulario.estrutura')) return <div style={{ padding: 24, color: 'var(--red)' }}>Você não tem permissão para editar a estrutura de formulários.</div>
   if (!isEstrutura && !cap.can('orcar')) return <div style={{ padding: 24, color: 'var(--red)' }}>Você não tem permissão para orçar (capacidade «orcar»).</div>
+  // Mesmo motivo da grade de Orçar: o banco barra por PAPEL.
+  if (!acessoDados.podeEscrever && !acessoDados.loading) return <div style={{ padding: 32, maxWidth: 560 }}>
+      <h1 style={{ fontSize: 19, fontWeight: 700, color: 'var(--text)', margin: '0 0 8px' }}>Esta tela é de edição</h1>
+      <p style={{ fontSize: 13.5, color: 'var(--muted)', lineHeight: 1.6, margin: 0 }}>
+        Seu perfil é <b>viewer</b>, que só consulta. Capacidade de escrita liberada a um viewer
+        não tem efeito: o banco barra a gravação pelo <b>perfil</b>, não pela capacidade — você
+        conseguiria digitar e perderia no próximo refresh.
+        <br /><br />
+        Se você precisa preencher orçamento, peça para mudarem seu perfil para <b>member</b> em
+        Configurações → Usuários.
+      </p>
+    </div>
 
   return (
     <div style={{ padding: 24, fontFamily: 'system-ui, sans-serif' }}>

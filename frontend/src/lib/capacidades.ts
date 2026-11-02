@@ -12,26 +12,30 @@ export type Capacidade = {
   key: string
   label: string
   categoria: 'Funções' | 'Importações' | 'Menu'
+  /** Capacidade que GRAVA no banco. Em perfil `viewer` ela não tem efeito: a
+   *  política de RLS (v3_130) barra escrita por PAPEL, não por capacidade.
+   *  Serve para a tela de acesso avisar em vez de prometer o que não cumpre. */
+  escrita?: boolean
   padrao: Record<Papel, boolean>
 }
 
 export const CAPACIDADES: Capacidade[] = [
   // ── Funções (capacidades de ação) ──
-  { key: 'orcar',     label: 'Orçar (editar valores do orçado)', categoria: 'Funções', padrao: { admin: true,  member: true,  viewer: false } },
+  { escrita: true, key: 'orcar',     label: 'Orçar (editar valores do orçado)', categoria: 'Funções', padrao: { admin: true,  member: true,  viewer: false } },
   // Ver a estrutura e MEXER nela são coisas diferentes. A árvore, as fórmulas
   // e a amarração explicam de onde vem cada número da DRE — é material de
   // consulta legítimo para quem analisa. Mudar ali muda o resultado de todo
   // mundo. Com `estrutura.ver` sozinha a tela abre em leitura: sem mover,
   // indentar, excluir, e o modal de linha com os campos travados.
   { key: 'estrutura.ver', label: 'Abrir estrutura de relatórios (só leitura)', categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
-  { key: 'estrutura', label: 'Editar estrutura de relatórios',    categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
+  { escrita: true, key: 'estrutura', label: 'Editar estrutura de relatórios',    categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
   // A estrutura do FORMULÁRIO dividia a chave com a do relatório. São árvores
   // diferentes, com donos diferentes: a do relatório é a DRE do grupo, a do
   // formulário é a memória de cálculo de uma receita. Quem mexe numa não
   // precisa mexer na outra.
-  { key: 'formulario.estrutura', label: 'Editar estrutura de formulários', categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
+  { escrita: true, key: 'formulario.estrutura', label: 'Editar estrutura de formulários', categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
   { key: 'exportar',  label: 'Exportar dashboards (imagem/PDF)',  categoria: 'Funções', padrao: { admin: true,  member: true,  viewer: true  } },
-  { key: 'indicador.meta', label: 'Editar metas de indicadores',   categoria: 'Funções', padrao: { admin: true,  member: true,  viewer: false } },
+  { escrita: true, key: 'indicador.meta', label: 'Editar metas de indicadores',   categoria: 'Funções', padrao: { admin: true,  member: true,  viewer: false } },
   // A ação mais destrutiva do produto: apaga o orçado inteiro de uma versão/ano.
   // Só admin por padrão, e mesmo para ele há confirmação pelo código da versão,
   // conferida no servidor (v3_127).
@@ -39,14 +43,14 @@ export const CAPACIDADES: Capacidade[] = [
   // área dava a ele a carga em massa do orçamento. Dois níveis, porque os dois
   // modos não têm o mesmo risco — "adicionar" soma ao que existe, "substituir"
   // APAGA o escopo do arquivo antes de gravar.
-  { key: 'orcado.apagar', label: 'Apagar todo o orçado de uma versão', categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
+  { escrita: true, key: 'orcado.apagar', label: 'Apagar todo o orçado de uma versão', categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
 
   // ── Posto de trabalho (folha) ──
   // Quebradas em quatro porque o diretor de área precisa MEXER no quadro dele
   // sem poder gravar no orçado nem recarregar base. Antes tudo isto estava sob
   // `orcar`, então dar o quadro a alguém dava junto o Aplicar e os importadores
   // — e o Aplicar SUBSTITUI todo o orçado de origem POSTO da versão.
-  { key: 'posto.aplicar',       label: 'Aplicar o quadro de postos no orçado',   categoria: 'Funções', padrao: { admin: true, member: false, viewer: false } },
+  { escrita: true, key: 'posto.aplicar',       label: 'Aplicar o quadro de postos no orçado',   categoria: 'Funções', padrao: { admin: true, member: false, viewer: false } },
 
   // ── Importações ──
   // TODA carga de arquivo do app tem chave própria, inclusive as que ficam
@@ -56,20 +60,20 @@ export const CAPACIDADES: Capacidade[] = [
   //
   // O padrão é FECHADO para member em tudo que substitui base, e aberto só
   // onde a carga é rotina de quem usa a tela.
-  { key: 'orcado.importar',       label: 'Orçado — Importar Baseline (adicionar)',   categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'orcado.importar.full',  label: 'Orçado — Importar Baseline (SUBSTITUIR)',  categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'orcado.importar.excel', label: 'Orçado — Importar Excel (tela de dados)',  categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'realizado.importar',    label: 'Realizado — importar razão do ERP',        categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'saldos.importar',       label: 'Saldos — importar balancete',              categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'amarracao.importar',    label: 'Amarração — importar DE-PARA',             categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'cadastros.importar',    label: 'Cadastros — importar Excel',               categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'relatorio.importar',    label: 'Relatório — importar estrutura e matriz',  categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'formulario.importar',   label: 'Formulário — importar valores',            categoria: 'Importações', padrao: { admin: true, member: true,  viewer: false } },
-  { key: 'posto.importar',        label: 'Postos — importar do RH',                  categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'folha.importar',        label: 'Folha realizada — importar e excluir lote', categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'apontamento.importar',  label: 'Apontamento — importar e excluir extrato', categoria: 'Importações', padrao: { admin: true, member: true,  viewer: false } },
-  { key: 'fornecedor.importar',   label: 'Fornecedores (PJ) — importar de-para',     categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
-  { key: 'verba.importar',        label: 'Estrutura de folha — importar verbas/regras', categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'orcado.importar', escrita: true,       label: 'Orçado — Importar Baseline (adicionar)',   categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'orcado.importar.full', escrita: true,  label: 'Orçado — Importar Baseline (SUBSTITUIR)',  categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'orcado.importar.excel', escrita: true, label: 'Orçado — Importar Excel (tela de dados)',  categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'realizado.importar', escrita: true,    label: 'Realizado — importar razão do ERP',        categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'saldos.importar', escrita: true,       label: 'Saldos — importar balancete',              categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'amarracao.importar', escrita: true,    label: 'Amarração — importar DE-PARA',             categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'cadastros.importar', escrita: true,    label: 'Cadastros — importar Excel',               categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'relatorio.importar', escrita: true,    label: 'Relatório — importar estrutura e matriz',  categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'formulario.importar', escrita: true,   label: 'Formulário — importar valores',            categoria: 'Importações', padrao: { admin: true, member: true,  viewer: false } },
+  { key: 'posto.importar', escrita: true,        label: 'Postos — importar do RH',                  categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'folha.importar', escrita: true,        label: 'Folha realizada — importar e excluir lote', categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'apontamento.importar', escrita: true,  label: 'Apontamento — importar e excluir extrato', categoria: 'Importações', padrao: { admin: true, member: true,  viewer: false } },
+  { key: 'fornecedor.importar', escrita: true,   label: 'Fornecedores (PJ) — importar de-para',     categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
+  { key: 'verba.importar', escrita: true,        label: 'Estrutura de folha — importar verbas/regras', categoria: 'Importações', padrao: { admin: true, member: false, viewer: false } },
 
   // ── Menu (itens de navegação) ──
   { key: 'menu.dashboards', label: 'Dashboards',              categoria: 'Menu', padrao: { admin: true, member: true,  viewer: true  } },

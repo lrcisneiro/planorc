@@ -30,6 +30,34 @@ const S = {
   th: { padding: '8px 10px', fontSize: 12, color: 'var(--muted)', fontWeight: 600, background: 'var(--bg)', borderBottom: '1px solid var(--border)', textAlign: 'right' as const, whiteSpace: 'nowrap' as const },
 }
 
+// ⚠ TODA gravação passa por aqui, e por um motivo que não é permissão.
+//
+// `UPDATE` barrado por RLS **não dá erro**: a política filtra as linhas, a sua
+// não casa, o comando afeta ZERO linhas e volta sucesso. Diferente do INSERT,
+// que viola o WITH CHECK e levanta 42501.
+//
+// Antes isto aqui era `await supabase...update(...)` sem conferir nada — nem
+// erro, nem contagem. Então a célula SEMPRE parecia salva: falha de rede,
+// violação de unique, qualquer coisa aparecia na tela e sumia no refresh. O
+// RLS não criou o problema, só o tornou frequente.
+//
+// `.select('id')` no update é o que permite contar o que foi afetado.
+const gravar = async (q: any, oque: string): Promise<boolean> => {
+  const { data, error } = await q.select('id')
+  if (error) {
+    alert(`Não foi possível ${oque}.\n\n${error.message}` +
+      (/permission|policy|row-level/i.test(error.message)
+        ? '\n\nIsto é restrição de acesso: seu perfil ou seu escopo de edição não alcança esta linha.'
+        : ''))
+    return false
+  }
+  if (!data || data.length === 0) {
+    alert(`Não foi possível ${oque}.\n\nNenhuma linha foi alterada — a gravação foi recusada pelo seu escopo de edição (empresa, filial ou centro de custo), ou o perfil não permite escrever.`)
+    return false
+  }
+  return true
+}
+
 export default function OrcarGradePage() {
   const { id: relId } = useParams()
   const navigate = useNavigate()
@@ -236,9 +264,9 @@ export default function OrcarGradePage() {
     sel = filialId ? sel.eq('filial_id', filialId) : sel.is('filial_id', null)
     sel = ccId ? sel.eq('cc_id', ccId) : sel.is('cc_id', null)
     const { data: ex } = await sel.maybeSingle()
-    if (ex) await supabase.from('fat_orcado').update({ ...mat, expressao, origem: 'MANUAL' }).eq('id', (ex as any).id)
-    else await supabase.from('fat_orcado').insert({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, ...mat, expressao, origem: 'MANUAL', dims: {} })
-    return true
+    return ex
+      ? gravar(supabase.from('fat_orcado').update({ ...mat, expressao, origem: 'MANUAL' }).eq('id', (ex as any).id), 'gravar a célula')
+      : gravar(supabase.from('fat_orcado').insert({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, ...mat, expressao, origem: 'MANUAL', dims: {} }), 'gravar a célula')
   }
   // grava o HISTÓRICO/comentário da linha (nota por linha, replicada nos 12 meses via dims.historico)
   const saveHistLinha = async (master: string, texto: string) => {
@@ -258,10 +286,10 @@ export default function OrcarGradePage() {
         const dims = { ...(row.dims || {}) }
         if (t) dims.historico = t; else delete dims.historico
         const phantom = row.valor == null && row.expressao == null && Object.keys(dims).length === 0
-        if (phantom) await supabase.from('fat_orcado').delete().eq('id', row.id)
-        else await supabase.from('fat_orcado').update({ dims }).eq('id', row.id)
+        if (phantom) await gravar(supabase.from('fat_orcado').delete().eq('id', row.id), 'remover a nota')
+        else await gravar(supabase.from('fat_orcado').update({ dims }).eq('id', row.id), 'gravar a nota')
       } else if (t) {
-        await supabase.from('fat_orcado').insert({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, valor: null, expressao: null, origem: 'MANUAL', dims: { historico: t } })
+        await gravar(supabase.from('fat_orcado').insert({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, valor: null, expressao: null, origem: 'MANUAL', dims: { historico: t } }), 'gravar a nota')
       }
     }))
     setHist(prev => { const n = { ...prev }; if (t) n[master] = t; else delete n[master]; return n })
@@ -415,7 +443,21 @@ export default function OrcarGradePage() {
   const podeZap  = cap.can('orcado.apagar')
   const temMenu  = podeImp || podeFull || podeZap
 
+  // Cruza CAPACIDADE e PAPEL. Só a capacidade não basta: liberar `orcar` a um
+  // viewer abria a grade, ele digitava, e o banco recusava em silêncio —
+  // `pode_escrever()` (v3_130) olha o papel, não a capacidade.
   if (!cap.can('orcar')) return <div style={{ padding: 24, color: 'var(--red)' }}>Você não tem permissão para orçar (capacidade «orcar»).</div>
+  if (!acesso.podeEscrever && !acesso.loading) return <div style={{ padding: 32, maxWidth: 560 }}>
+      <h1 style={{ fontSize: 19, fontWeight: 700, color: 'var(--text)', margin: '0 0 8px' }}>Esta tela é de edição</h1>
+      <p style={{ fontSize: 13.5, color: 'var(--muted)', lineHeight: 1.6, margin: 0 }}>
+        Seu perfil é <b>viewer</b>, que só consulta. Capacidade de escrita liberada a um viewer
+        não tem efeito: o banco barra a gravação pelo <b>perfil</b>, não pela capacidade — você
+        conseguiria digitar e perderia no próximo refresh.
+        <br /><br />
+        Se você precisa preencher orçamento, peça para mudarem seu perfil para <b>member</b> em
+        Configurações → Usuários.
+      </p>
+    </div>
 
   const folhas = linhas.filter(editavel)
   const preenchidas = folhas.reduce((s, l) => s + Object.values(cells[l.linha_orc_id!] || {}).filter(c => c.valor !== 0 || c.expressao).length, 0)
@@ -717,7 +759,7 @@ function LancamentosModal({ master, mes, linhaDesc, fac, versaoId, empresaId, fi
   const editarManual = async (id: string, txt: string) => {
     const mat = matOrc(fac * parseNum(txt), mes)   // digitado na moeda em exibição → materializa
     if (!mat) { alert(`Sem taxa orçada de ${moedaCod(moedaSlot)} em ${mes}/${ano} — cadastre em Cadastros › Taxa orçada.`); return }
-    setBusy(true); await supabase.from('fat_orcado').update({ ...mat, expressao: null, origem: 'MANUAL' }).eq('id', id)
+    setBusy(true); await gravar(supabase.from('fat_orcado').update({ ...mat, expressao: null, origem: 'MANUAL' }).eq('id', id), 'alterar o lançamento')
     await load(); onChanged(); setBusy(false)
   }
   const excluir = async (id: string) => {

@@ -12,6 +12,12 @@ export type UserAccess = {
    *  não vê nada nelas. Vazio para admin. A tela usa isto para explicar, em vez
    *  de mostrar painéis zerados. */
   semCadastro: string[]
+  /** Papel no tenant. `''` enquanto carrega. */
+  papel: string
+  /** Espelho EXATO de `pode_escrever()` no banco (v3_130): só admin e member
+   *  escrevem. Mesmo nome de propósito — quando um dos dois mudar, o outro
+   *  tem de mudar junto, e o nome igual é o que faz alguém lembrar. */
+  podeEscrever: boolean
   rules: Record<string, string[]>   // compat: allow-list do escopo VER por dimensão
   isAdmin: boolean
   loading: boolean
@@ -46,6 +52,7 @@ export function useUserAccess(): UserAccess {
   const [ver, setVer] = useState<RuleMap>({})
   const [orcar, setOrcar] = useState<RuleMap>({})
   const [isAdmin, setIsAdmin] = useState(false)
+  const [papel, setPapel] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -60,7 +67,8 @@ export function useUserAccess(): UserAccess {
         else v[r.dimensao] = rule   // escopo padrão = VER
       }
       setVer(v); setOrcar(o)
-      setIsAdmin((tenantData?.[0]?.role ?? '') === 'admin')
+      const pap = (tenantData?.[0]?.role as string) ?? ''
+      setPapel(pap); setIsAdmin(pap === 'admin')
       setLoading(false)
     })
   }, [])
@@ -77,5 +85,6 @@ export function useUserAccess(): UserAccess {
   const rules: Record<string, string[]> = Object.fromEntries(Object.entries(ver).map(([d, r]) => [d, r.allow]))
   const semCadastro = isAdmin ? [] : DIMS_NO_BANCO.filter(d => !ver[d])
 
-  return { ver, orcar, rules, isAdmin, loading, canSee, canEdit, filterList, filterEdit, semCadastro }
+  return { ver, orcar, rules, isAdmin, loading, canSee, canEdit, filterList, filterEdit, semCadastro,
+           papel, podeEscrever: papel === 'admin' || papel === 'member' }
 }
