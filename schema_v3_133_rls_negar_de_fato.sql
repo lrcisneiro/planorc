@@ -1,3 +1,13 @@
+-- ⛔⛔ NÃO RODAR ESTE ARQUIVO. ⛔⛔
+-- Ele terminava com um bloco de prova por `RAISE EXCEPTION`, e o SQL Editor
+-- roda o script inteiro em UMA transação — então a exceção DESFAZIA a própria
+-- migration. A prova rodava dentro da transação (por isso exibia sucesso) e o
+-- COMMIT nunca acontecia. Verificado no banco em 02/11: nada aqui foi aplicado.
+--
+-- ➜ O conteúdo está CONSOLIDADO em `schema_v3_137_reaplicar.sql`, que termina
+--   em SELECT. As provas viraram arquivos separados, porque prova e aplicação
+--   não podem compartilhar transação.
+
 -- ============================================================
 -- v3_133 · O "negar por padrão" do v3_132 NÃO pegou — armadilha de NULL
 --
