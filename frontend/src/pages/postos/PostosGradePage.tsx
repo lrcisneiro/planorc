@@ -461,9 +461,16 @@ export default function PostosGradePage() {
     if (!temMotor) { setErro('Sem verbas cadastradas — cadastre a Estrutura antes de aplicar.'); return }
     // O Aplicar grava o quadro EFETIVO: no modo cenário são as decisões da versão,
     // fora dele é o mestre. Sem isto o cenário existiria só na tela.
+    // IGNORA os filtros de tela de propósito: o Aplicar SUBSTITUI todo o orçado
+    // POSTO da versão, então gravar só o que está filtrado apagaria o resto.
+    // Um filtro esquecido viraria perda de orçamento.
     const ativos = postosEf.filter(p => p.ativo !== false)
+    // "ativos" aqui é "não demitidos": férias e afastamento seguem custando —
+    // para o afastado o motor zera a base e mantém as verbas marcadas com
+    // `mantem_afastado`. Dizer só "ativos" escondia esses 16.
+    const fora = ativos.filter(p => situacaoPosto(p as any) !== 'ativo').length
     const versaoCod = versoes.find(v => v.id === versaoSel)?.codigo || String(anoCalc)
-    if (!confirm(`Aplicar ${ativos.length} postos ativos no orçado da versão ${versaoCod} (ano ${anoCalc})?\n\nIsto SUBSTITUI todo o orçado de origem POSTO desta versão. Lançamentos manuais e de formulário não são afetados.\n\nDespesa é gravada com sinal NEGATIVO, como o orçado manual e o realizado.`)) return
+    if (!confirm(`Aplicar ${ativos.length} postos no orçado da versão ${versaoCod} (ano ${anoCalc})?\n\nEntram todos os não demitidos${fora ? `, incluindo ${fora} em férias ou afastados — quem está afastado ou de férias continua custando` : ''}. Os filtros da tela NÃO afetam o que é gravado.\n\nIsto SUBSTITUI todo o orçado de origem POSTO desta versão. Lançamentos manuais e de formulário não são afetados.\n\nDespesa é gravada com sinal NEGATIVO, como o orçado manual e o realizado.`)) return
     setAplicando(true)
     try {
       const round2 = (n: number) => Math.round(n * 100) / 100
