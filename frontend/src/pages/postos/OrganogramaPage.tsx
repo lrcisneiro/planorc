@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { PostosPills } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { pageAll } from '../../lib/pageAll'
+import { pessoaChave } from '../../lib/pessoaChave'
 import { ChevronDown, ChevronRight, Users, X, Maximize2, Minimize2, Pencil } from 'lucide-react'
 
 // ============================================================
@@ -310,9 +311,10 @@ export default function OrganogramaPage() {
     () => postos.filter(p => (comDemitidos || p.ativo !== false) && (!empresaId || p.empresa_id === empresaId)),
     [postos, empresaId, comDemitidos])
 
-  // Headcount = matrículas distintas; posto sem matrícula é vaga e conta sozinho.
-  // Mesma definição da grade, para os dois números nunca discordarem.
-  const chave = (p: Posto) => (p.matricula || '').trim() || `__posto_${p.id}`
+  // Headcount: a regra de "quem é uma pessoa" mora em `pessoaChave` — a mesma
+  // que a grade usa, senão os dois números discordam. Não é matrícula: ela é
+  // por empresa, e quem tem pró-labore em várias virava várias pessoas.
+  const chave = pessoaChave
 
   // Por qual coluna o nó agrupa. Vive aqui, e não dentro do useMemo, porque o
   // painel lateral precisa da MESMA resposta — ele testava `cc_id` fixo, e na
@@ -521,7 +523,7 @@ export default function OrganogramaPage() {
 
       <div style={S.kpis}>
         <div style={S.kpi}><div style={S.kpiL}>Pessoas</div><div style={S.kpiV}>{total.pessoas}</div>
-          <div style={S.kpiH}>matrículas distintas</div></div>
+          <div style={S.kpiH}>nomes distintos (matrícula é por empresa)</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Postos</div><div style={S.kpiV}>{total.postos}</div>
           <div style={S.kpiH}>{total.postos - total.pessoas} a mais que pessoas</div></div>
         {/* Mostra FTE onde ele informa (algum posto com ½ período) e, onde não,

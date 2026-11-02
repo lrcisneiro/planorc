@@ -17,6 +17,7 @@ import { usePostoCtx } from '../../lib/postoCtx'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
 import { slugCargo as slug } from '../../lib/slugCargo'
+import { pessoaChave } from '../../lib/pessoaChave'
 import { resolvePosto, camposAlterados, overlayVazio, CAMPOS_CENARIO } from '../../lib/postoVersao'
 import type { PostoVersao, CampoCenario } from '../../lib/postoVersao'
 import { taxaOrcada, materializa } from '../../lib/cambio'
@@ -779,7 +780,7 @@ export default function PostosGradePage() {
     // são pagamentos reais; para QUADRO, não — "45 pessoas" seria falso se
     // algumas aparecem duas vezes. Conta por matrícula; sem matrícula (vaga
     // planejada ou cadastro incompleto) cada posto é um, que é o mais seguro.
-    const pessoas = new Set(filtrados.map(p => (p.matricula || '').trim() || `__posto_${p.id}`)).size
+    const pessoas = new Set(filtrados.map(pessoaChave)).size
     const fte = filtrados.reduce((s, p) => s + (Number(p.fte) || 0), 0)
     const ano = filtrados.reduce((s, p) => s + custoAnoP(p), 0)
     const cat = Object.fromEntries(CATEGORIAS.map(c => [c, 0])) as Record<string, number>
