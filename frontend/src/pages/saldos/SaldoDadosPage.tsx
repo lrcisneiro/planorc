@@ -4,6 +4,7 @@ import { pageAll } from '../../lib/pageAll'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { Upload, FileDown, AlertCircle, RefreshCw } from 'lucide-react'
+import { ErpPills } from '../erp/ErpPills'
 
 declare const XLSX: any
 
@@ -182,6 +183,7 @@ export default function SaldoDadosPage() {
     <div style={S.page}>
       <h1 style={S.title}>Saldos (Balancete)</h1>
       <p style={S.sub}>Saldo final por conta contábil e mês — usado pelo Balanço. Reimportar o mesmo mês substitui o saldo (upsert).</p>
+      <ErpPills />
 
       <div style={S.bar}>
         <select style={S.sel} value={empId} onChange={e => setEmpId(e.target.value)}><option value="">Todas empresas</option>{empresas.map(e => <option key={e.id} value={e.id}>{e.codigo} · {e.descricao}</option>)}</select>

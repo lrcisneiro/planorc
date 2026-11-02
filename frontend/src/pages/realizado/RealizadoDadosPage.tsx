@@ -7,6 +7,7 @@ import { fimDoMes, taxaRealizada, materializa } from '../../lib/cambio'
 import { Upload, Download, FileDown, AlertCircle, RefreshCw, Trash2, X, Filter } from 'lucide-react'
 import { useGrid, GridHead } from '../../lib/grid'
 import type { GCol } from '../../lib/grid'
+import { ErpPills } from '../erp/ErpPills'
 
 declare const XLSX: any
 
@@ -478,6 +479,7 @@ export default function RealizadoDadosPage() {
         <h1 style={S.title}>Realizado — dados (fato)</h1>
         <p style={S.sub}>Lançamentos do realizado (fat_realizado), grão de razão. A conta contábil é resolvida para a linha do relatório pelo DE-PARA (conta → linha). Valor = crédito − débito; o sinal final na linha vem do conta_linha (+/−).</p>
       </div>
+      <ErpPills />
 
       <div style={S.bar}>
         <select style={S.sel} value={empresaId} onChange={e => setEmpresaId(e.target.value)}>

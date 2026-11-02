@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useParams } from 'react-router-dom'
-import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, Link2, Wallet, LogOut, Menu, X, SlidersHorizontal, Users, ShieldCheck, Sun, Moon, ListTree, Grid3x3, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, LogOut, Menu, X, SlidersHorizontal, Users, ShieldCheck, Sun, Moon, ListTree, Grid3x3, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { setTheme, getTheme } from './lib/theme'
 import { useCapacidades } from './hooks/useCapacidades'
@@ -38,12 +38,16 @@ import SaldoDadosPage from './pages/saldos/SaldoDadosPage'
 import ConfiguracoesPage from './pages/configuracoes/ConfiguracoesPage'
 import LoginPage from './pages/login/LoginPage'
 import NovaSenhaPage from './pages/login/NovaSenhaPage'
+import { PASSOS as ERP_TELAS } from './pages/erp/ErpPills'
 
 // Menu agrupado por modo de interação (igual ao protótipo planorc-v2-menu-mesclado).
 // Menu só com o que navega. Itens "em breve" ocupavam espaço permanente para
 // prometer função futura — e promessa no menu é ruído em toda sessão de quem
 // usa. O roadmap vive no CLAUDE.md, que é onde se decide o que vem depois.
-type NavItem = { label: string; icon: LucideIcon; to: string; cap?: string }
+// `capAny` = item de menu que REÚNE várias telas (Dados do ERP). Aparece se a
+// pessoa alcança qualquer uma delas, e aponta para a PRIMEIRA que ela alcança —
+// fixar o destino mandaria quem só tem Amarração para uma tela negada.
+type NavItem = { label: string; icon: LucideIcon; to: string; cap?: string; capAny?: { to: string; cap: string }[] }
 function RedirOrcar() {
   const { id } = useParams()
   return <Navigate to={id ? `/orcar-grade/${id}` : '/orcar-grade'} replace />
@@ -59,16 +63,14 @@ const NAV_GROUPS: NavGroup[] = [
     { to: '/formularios', label: 'Formulário de drivers', icon: SlidersHorizontal, cap: 'menu.formularios' },
     { to: '/postos', label: 'Posto de trabalho', icon: Users, cap: 'menu.postos' },
   ] },
-  { area: 'Dados · ERP', mode: 'realizado', dot: '#22d3ee', items: [
-    { to: '/realizado', label: 'Realizado',   icon: Receipt, cap: 'menu.realizado' },
-    { to: '/saldos',    label: 'Saldos (BP)', icon: Wallet,  cap: 'menu.saldos' },
-    { to: '/amarracao', label: 'Amarração',   icon: Link2,   cap: 'menu.amarracao' },
-  ] },
   { area: 'Relatórios', mode: 'leitura', dot: '#34d399', items: [
     { to: '/dashboards', label: 'Dashboards', icon: LayoutDashboard, cap: 'menu.dashboards' },
     { to: '/relatorios', label: 'Relatórios', icon: Table2,          cap: 'menu.relatorios' },
   ] },
   { area: 'Base', mode: '', dot: 'var(--muted)', items: [
+    // Três telas do mesmo assunto — o que o ERP manda — que ocupavam um grupo
+    // inteiro na lateral. Viraram um item com pills, como Posto de trabalho.
+    { to: '/realizado', label: 'Dados do ERP', icon: Receipt, capAny: ERP_TELAS },
     { to: '/cadastros', label: 'Cadastros',     icon: BookOpen, cap: 'menu.cadastros' },
     { to: '/config',    label: 'Configurações', icon: Settings, cap: 'menu.config' },
   ] },
@@ -241,7 +243,9 @@ function Shell({ session }: { session: Session }) {
         `}</style>
         <nav style={S.nav}>
           {NAV_GROUPS.map(g => {
-            const itens = g.items.filter(it => !it.cap || can(it.cap))
+            const itens = g.items
+              .filter(it => it.capAny ? it.capAny.some(d => can(d.cap)) : (!it.cap || can(it.cap)))
+              .map(it => it.capAny ? { ...it, to: it.capAny.find(d => can(d.cap))!.to } : it)
             if (!itens.length) return null
             return (
             <div key={g.area} style={S.group}>

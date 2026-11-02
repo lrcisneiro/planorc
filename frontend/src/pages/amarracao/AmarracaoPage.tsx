@@ -5,6 +5,7 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 import { carregarRelatorios } from '../../lib/escopoDados'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { ArrowRight, Link2, Trash2, Search, Check, Download, Upload, RefreshCw } from 'lucide-react'
+import { ErpPills } from '../erp/ErpPills'
 
 declare const XLSX: any
 function downloadSheet(filename: string, aoa: any[][]) {
@@ -271,6 +272,7 @@ export default function AmarracaoPage() {
 
   return (
     <div style={S.page}>
+      <ErpPills />
       <div style={S.bar}>
         <span style={S.title}><Link2 size={18} /> Amarração de contas</span>
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>Plano (contas):</span>
