@@ -16,6 +16,13 @@ import { supabase } from './supabase'
 
 type Regra = { allow: string[]; deny: string[] }
 
+/** Dimensões que o **banco** recorta por RLS (`escopo_dim`, v3_132/137). Nelas,
+ *  ausência de regra = **não vê nada**, aqui e lá — se divergir, o combo vem
+ *  cheio e a tela vem vazia, que é o pior dos dois mundos: parece defeito.
+ *  `relatorio` fica fora de propósito: `relatorio_linha` é lida para montar
+ *  qualquer DRE, então RLS nela trancaria o motor. É recorte só de tela. */
+export const DIMS_NO_BANCO = ['empresa', 'filial', 'centro_custo', 'versao']
+
 // Uma leitura por sessão. As regras de quem está logado não mudam no meio do
 // uso; quando mudam (Configurações), `limparCacheEscopo()` derruba o cache.
 let cache: Promise<{ isAdmin: boolean; regras: Record<string, Regra> }> | null = null
@@ -42,7 +49,8 @@ export async function filtrarPorEscopo<T extends { id: string }>(dimensao: strin
   const { isAdmin, regras } = await carregarRegras()
   if (isAdmin) return lista
   const r = regras[dimensao]
-  if (!r) return lista                           // sem regra = sem restrição
+  // Sem regra: nega onde o banco nega, libera onde ele não chega.
+  if (!r) return DIMS_NO_BANCO.includes(dimensao) ? [] : lista
   return lista.filter(x => !r.deny.includes(x.id) && (r.allow.length === 0 || r.allow.includes(x.id)))
 }
 

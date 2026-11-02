@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+// Uma fonte só para "o banco recorta esta dimensão?" — ver o comentário lá.
+import { DIMS_NO_BANCO } from '../lib/escopoDados'
 
 // Regra por dimensão: allow (vazio = todos) menos deny (exclusões).
 type Rule = { allow: string[]; deny: string[] }
@@ -27,10 +29,7 @@ export type UserAccess = {
   filterEdit: <T extends { id: string }>(dimensao: string, list: T[]) => T[]
 }
 
-// Dimensões que o BANCO enforça (v3_129..132). Fora destas, o recorte é só de
-// tela, então manter o padrão permissivo — `versao` e `relatorio` nasceram hoje
-// e ninguém tem regra cadastrada; negá-las aqui trancaria todo mundo.
-const DIMS_NO_BANCO = ['empresa', 'filial', 'centro_custo']
+
 
 // Passa no escopo? nega explícito > allow-list (vazia = tudo).
 //

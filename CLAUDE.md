@@ -112,16 +112,25 @@ Todas as tabelas têm `tenant_id` e RLS. Base SQL em `schema_v2.sql`; evoluçõe
 >
 > **Negar por padrão (`v3_132`):** ausência de linha em `user_acesso_regra` = **não vê nada**;
 > linha com lista vazia = vê tudo (escolha explícita). `useUserAccess` segue o mesmo critério,
-> mas **só nas dimensões que o banco enforça** (`DIMS_NO_BANCO`) — `versao`/`relatorio` seguem
-> permissivas porque ninguém tem regra delas. `AvisoSemAcesso` em `App.tsx` explica a tela vazia.
+> mas **só nas dimensões que o banco enforça** — `DIMS_NO_BANCO`, exportada de
+> `lib/escopoDados.ts` e importada pelo hook, **uma fonte só**: divergir ali enche o combo e
+> esvazia a tela, que é o pior dos dois mundos, porque parece defeito.
+> `AvisoSemAcesso` em `App.tsx` explica a tela vazia.
 > Admin ignora todo o escopo, então sempre há quem conserte; o conserto é abrir
 > **Configurações → acesso** e salvar.
 >
-> ⚠ **Pendente:** `versao`/`relatorio` ainda são recorte só de tela (`lib/escopoDados.ts`), sem
-> RLS. Dimensões configuráveis (`dimensao`/`dims jsonb`) idem.
+> **`versao` entrou no RLS (`v3_137`)** — `fat_orcado` e `fat_folha` recortam por versão, provado
+> por personificação em `prova_rls_escopo.sql`: quem marcou 1 versão enxerga 1, quem tem regra
+> vazia enxerga 3. Fecha o furo de selecionar uma *visão* que aponta para versão fora do escopo —
+> antes a tela escondia o combo e a consulta entregava o dado.
+>
+> ⚠ **`relatorio` fica de fora, de propósito:** `relatorio_linha` é lida para montar qualquer DRE,
+> então RLS nela trancaria o próprio motor de cálculo. É recorte só de tela (`escopoDados.ts`) —
+> limitação estrutural, não pendência. Dimensões configuráveis (`dimensao`/`dims jsonb`) idem.
 
 
-Três camadas independentes, **hoje aplicadas no frontend** (enforcement de RLS/RPC no banco é dívida pendente):
+Três camadas independentes. A **1ª (dados) é enforçada no banco** desde `v3_129..137`; as outras
+duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta entrega:
 
 **1. Dados — quem vê/orça quais dimensões.** Hook `useUserAccess` (`hooks/useUserAccess.ts`) lê `user_acesso_regra` e expõe `canSee` (escopo `VER`), `canEdit` (escopo `ORCAR`, com fallback para `VER`), `filterList`/`filterEdit`, e `isAdmin`. Regra por dimensão = allow-list (`valor_ids`; vazio = tudo) menos `negados`. **Admin ignora todo o escopo de dados** (`canSee`/`canEdit` retornam `true`). O escopo é cruzado com os filtros de tela por interseção (`aplicaEscopo` no editor; `escopoFiltro` em `DashFiltros.tsx`, usado por todos os dashboards). Linhas INDICADOR com `filtro_escopo` próprio também são cruzadas com o escopo do usuário (no editor e em `lib/relatorioTotais.ts`, via `ccPermitidos`).
 

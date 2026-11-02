@@ -143,7 +143,7 @@ const S = {
 function AvisoSemAcesso() {
   const { semCadastro, loading } = useUserAccess()
   if (loading || !semCadastro.length) return null
-  const nome: Record<string, string> = { empresa: 'Empresa', filial: 'Filial', centro_custo: 'Centro de custo' }
+  const nome: Record<string, string> = { empresa: 'Empresa', filial: 'Filial', centro_custo: 'Centro de custo', versao: 'Versão do orçamento' }
   return (
     <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', margin: '0 0 14px', padding: '11px 14px',
                   background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.4)', borderRadius: 10,
