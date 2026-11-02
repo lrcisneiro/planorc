@@ -4,8 +4,9 @@ import { useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { filtrarPorEscopo, filtrarCardsPorEscopo } from '../../lib/escopoDados'
 import { T } from '../../lib/theme'
-import { Plus, Pencil, Trash2, ChevronRight, Copy } from 'lucide-react'
+import { Share2, Plus, Pencil, Trash2, ChevronRight, Copy } from 'lucide-react'
 import { papelMaisAlto } from '../../lib/capacidades'
+import { CompartilharCard, gravarAlvo, type Alvo } from '../dashboard/CompartilharCard'
 
 async function fetchAll(build: () => any): Promise<any[]> {
   const out: any[] = []; const size = 1000; let from = 0
@@ -106,7 +107,16 @@ export default function RelatorioPage({ linkBase = '/relatorios', titulo = 'Rela
     })
   }, [linkBase])
   const relNomeDeBase = (base: string) => rels.find(r => r.id === base.replace('/relatorios/', ''))?.nome || 'Relatório'
-  const podeEditarPreset = (p: Preset) => (!!p.owner_id && p.owner_id === uid) || (!p.owner_id && isAdmin)
+  // Dirigido a mim: tem dono (outra pessoa) e eu estou na lista. Quem recebeu
+  // não edita nem compartilha adiante — só o dono e o admin.
+  const podeEditarPreset = (p: Preset) => (!!p.owner_id && p.owner_id === uid) || (!p.owner_id && isAdmin) || isAdmin
+
+  const [comp, setComp] = useState<{ card: Preset; inicial: Alvo } | null>(null)
+  const abrirCompartilhar = async (p: Preset) => {
+    const { data } = await supabase.from('dashboard_card_acesso').select('user_id').eq('card_id', p.id)
+    const users = (data || []).map((x: any) => x.user_id as string)
+    setComp({ card: p, inicial: { modo: users.length ? 'pessoas' : (p.owner_id ? 'eu' : 'todos'), users } })
+  }
   const excluirPreset = async (pid: string, nome: string, e: ReactMouseEvent) => { e.stopPropagation(); if (!window.confirm(`Excluir o preset "${nome}"?`)) return; const { error } = await supabase.from('dashboard_card').delete().eq('id', pid); if (error) { alert('Erro: ' + error.message); return } loadPresets() }
   const renomearPreset = async (pid: string, atual: string, e: ReactMouseEvent) => { e.stopPropagation(); const novo = window.prompt('Novo nome do preset:', atual)?.trim(); if (!novo || novo === atual) return; const { error } = await supabase.from('dashboard_card').update({ nome: novo }).eq('id', pid); if (error) { alert('Erro: ' + error.message); return } loadPresets() }
   const pbadge: CSSProperties = { marginLeft: 8, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--blue)', background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 99, padding: '1px 6px' }
@@ -130,6 +140,8 @@ export default function RelatorioPage({ linkBase = '/relatorios', titulo = 'Rela
               <span style={{ fontSize: 12, color: T.muted }}>preset salvo</span>
               {podeEditarPreset(p) && (
                 <div style={S.actions}>
+                  <button style={S.btnIcon} title="Compartilhar"
+                          onClick={e => { e.preventDefault(); e.stopPropagation(); abrirCompartilhar(p) }}><Share2 size={14} /></button>
                   <button style={S.btnIcon} title="Renomear" onClick={e => renomearPreset(p.id, p.nome, e)}><Pencil size={14} /></button>
                   <button style={S.btnIcon} title="Excluir" onClick={e => excluirPreset(p.id, p.nome, e)}><Trash2 size={14} /></button>
                 </div>
@@ -271,7 +283,10 @@ export default function RelatorioPage({ linkBase = '/relatorios', titulo = 'Rela
       {linkBase === '/relatorios' && (
         <>
           {presetSection('Meus Relatórios', presets.filter(p => !!p.owner_id && p.owner_id === uid))}
-          {presetSection('Compartilhados', presets.filter(p => !p.owner_id))}
+          {/* Tudo que não é meu — inclusive o preset de outra pessoa DIRIGIDO a
+              mim (v3_153), que tem dono. Com o teste antigo (`!owner_id`) ele
+              não cairia em lista nenhuma e sumiria da tela. */}
+          {presetSection('Compartilhados', presets.filter(p => p.owner_id !== uid))}
         </>
       )}
 
@@ -308,6 +323,15 @@ export default function RelatorioPage({ linkBase = '/relatorios', titulo = 'Rela
             </div>
           </div>
         </div>
+      )}
+      {comp && (
+        <CompartilharCard titulo={comp.card.nome} inicial={comp.inicial} podeTodos={isAdmin}
+          onFechar={() => setComp(null)}
+          onAplicar={async al => {
+            try { await gravarAlvo(comp.card.id, al, uid) }
+            catch (e: any) { alert('Erro: ' + e.message); return }
+            setComp(null); loadPresets()
+          }} />
       )}
     </div>
   )
