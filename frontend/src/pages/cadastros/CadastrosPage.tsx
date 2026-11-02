@@ -869,7 +869,28 @@ function FuncionariosTab() {
     { key: 'cc_id', placeholder: 'CC', type: 'select' as const, options: ccs.map(c => ({ value: c.id, label: c.descricao })) },
   ]
 
+  // Vínculos da pessoa, vindos dos POSTOS. Sem isto a tabela mostra travessão em
+  // matrícula/filial/CC para todo mundo que veio da importação — e parece
+  // defeito, quando é o contrário: a pessoa não TEM uma matrícula, tem várias
+  // (uma por empresa), e é exatamente isso que o cadastro não deve fixar.
+  const [vinc, setVinc] = useState<Record<string, { mat: string[]; fil: string[]; cc: string[]; n: number }>>({})
+  const loadVinculos = async () => {
+    const ps = await fetchAll(() => supabase.from('posto_v')
+      .select('funcionario_id,matricula, filial(codigo), centro_custo(codigo)').not('funcionario_id', 'is', null))
+    const v: Record<string, { mat: Set<string>; fil: Set<string>; cc: Set<string>; n: number }> = {}
+    for (const p of ps as any[]) {
+      const e = (v[p.funcionario_id] ||= { mat: new Set(), fil: new Set(), cc: new Set(), n: 0 })
+      e.n++
+      if (p.matricula) e.mat.add(String(p.matricula).trim())
+      if (p.filial?.codigo) e.fil.add(p.filial.codigo)
+      if (p.centro_custo?.codigo) e.cc.add(p.centro_custo.codigo)
+    }
+    setVinc(Object.fromEntries(Object.entries(v).map(([k, e]) =>
+      [k, { mat: [...e.mat].sort(), fil: [...e.fil].sort(), cc: [...e.cc].sort(), n: e.n }])))
+  }
+
   const load = async () => {
+    loadVinculos()
     try { setData(await fetchAll(() => supabase.from('funcionario').select('id,matricula,nome,filial_id,cc_id,ativo, filial(codigo,descricao), centro_custo(codigo,descricao)').order('nome'))) }
     catch (e: any) { setErro(String(e)) }
   }
@@ -971,10 +992,16 @@ function FuncionariosTab() {
             <AddRow key={f.id} cols={FN_COLS} initial={{ matricula: f.matricula, nome: f.nome, filial_id: f.filial_id || '', cc_id: f.cc_id || '' }} onSave={v => save(v, f.id)} onCancel={() => setEditId(null)} />
           ) : (
             <tr key={f.id}>
-              <td style={S.tdMono}>{f.matricula}</td>
-              <td style={S.td}>{f.nome}</td>
-              <td style={{ ...S.td, color: 'var(--muted)' }}>{f.filial?.descricao || '—'}</td>
-              <td style={{ ...S.td, color: 'var(--muted)' }}>{f.centro_custo?.descricao || '—'}</td>
+              <td style={S.tdMono}>{f.matricula || vinc[f.id]?.mat.join(' · ') || '—'}</td>
+              <td style={S.td}>{f.nome}
+                {(vinc[f.id]?.n ?? 0) > 1 && <span style={{ marginLeft: 7, fontSize: 10.5, fontWeight: 700, color: 'var(--violet)',
+                      background: 'rgba(139,92,246,0.14)', border: '1px solid rgba(139,92,246,0.35)', borderRadius: 5, padding: '1px 5px' }}
+                      title="Vínculos em mais de um posto — normalmente pró-labore em empresas diferentes">
+                  {vinc[f.id]!.n} postos
+                </span>}
+              </td>
+              <td style={{ ...S.td, color: 'var(--muted)' }}>{f.filial?.descricao || vinc[f.id]?.fil.join(' · ') || '—'}</td>
+              <td style={{ ...S.td, color: 'var(--muted)' }}>{f.centro_custo?.descricao || vinc[f.id]?.cc.join(' · ') || '—'}</td>
               <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
                 <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(f.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>
                 <button style={S.btnDel} title="Excluir" onClick={() => del(f.id)}><Trash2 size={14} /></button>
