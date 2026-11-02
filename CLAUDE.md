@@ -337,6 +337,12 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ **Nenhum CPF em arquivo**: a carga vai da planilha ao banco pelo navegador. Gerar um `.sql`
   com os 513 CPFs os poria no histórico do git — era o caminho que eu ia tomar e foi barrado.
 
+  ⚠ **`REVOKE` de coluna só vale depois de tirar o `GRANT` de tabela** (v3_150). A `v3_149`
+  revogou `SELECT (cpf)` e **não teve efeito**: o `GRANT SELECT` da tabela inteira continuava
+  cobrindo todas as colunas. Mesmo mecanismo que a `v3_143` já tratara em `posto` — revogar a
+  tabela e conceder coluna a coluna. Consequência: **`select('*')` em `funcionario` passa a
+  falhar**, e isso é recurso — quebra visível em vez de CPF vazando calado para quem pedisse tudo.
+
   **Importação como padrão, não como caso (nov/2026).** O alvo é receber de **mais de um ERP**, e
   nome de coluna é a primeira coisa que muda entre eles. Três partes separadas:
   `lerPlanilha` (`lib/planilha.ts`, ao lado do `downloadSheet` — ler e escrever planilha moram

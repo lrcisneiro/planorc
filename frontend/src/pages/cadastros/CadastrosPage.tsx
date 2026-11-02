@@ -870,7 +870,7 @@ function FuncionariosTab() {
   ]
 
   const load = async () => {
-    try { setData(await fetchAll(() => supabase.from('funcionario').select('*, filial(codigo,descricao), centro_custo(codigo,descricao)').order('nome'))) }
+    try { setData(await fetchAll(() => supabase.from('funcionario').select('id,matricula,nome,filial_id,cc_id,ativo, filial(codigo,descricao), centro_custo(codigo,descricao)').order('nome'))) }
     catch (e: any) { setErro(String(e)) }
   }
   useEffect(() => {
