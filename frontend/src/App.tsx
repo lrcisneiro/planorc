@@ -5,6 +5,7 @@ import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, Link2, 
 import type { LucideIcon } from 'lucide-react'
 import { setTheme, getTheme } from './lib/theme'
 import { useCapacidades } from './hooks/useCapacidades'
+import { useUserAccess } from './hooks/useUserAccess'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 import CadastrosPage from './pages/cadastros/CadastrosPage'
@@ -128,6 +129,33 @@ const S = {
   topbar: { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'var(--bg-soft)', color: 'var(--text)', flexShrink: 0, borderBottom: '1px solid var(--border)' } as const,
   burger: { display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 6, background: 'transparent', border: 'none', color: 'var(--text)', cursor: 'pointer' } as const,
   toggle: { display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 4, background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'pointer' } as const,
+}
+
+// Aviso de usuário SEM cadastro de acesso.
+//
+// Desde a v3_132 o banco NEGA quando não há regra — o que é o certo, mas faz a
+// pessoa ver a interface inteira com tudo zerado. Zero em todo lugar se parece
+// com sistema quebrado, não com falta de permissão, e chega como chamado.
+//
+// Fica acima do conteúdo em vez de barrar a navegação: a pessoa ainda precisa
+// alcançar Configurações, e barrar cedo demais esconderia o próprio caminho da
+// solução.
+function AvisoSemAcesso() {
+  const { semCadastro, loading } = useUserAccess()
+  if (loading || !semCadastro.length) return null
+  const nome: Record<string, string> = { empresa: 'Empresa', filial: 'Filial', centro_custo: 'Centro de custo' }
+  return (
+    <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', margin: '0 0 14px', padding: '11px 14px',
+                  background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.4)', borderRadius: 10,
+                  fontSize: 13, color: 'var(--text-mid)', lineHeight: 1.55 }}>
+      <ShieldCheck size={16} style={{ color: 'var(--orange)', flexShrink: 0, marginTop: 1 }} />
+      <span>
+        <strong>Seu acesso a dados ainda não foi cadastrado</strong> em {semCadastro.map(d => nome[d] || d).join(', ')}.
+        Por isso as telas aparecem vazias — não é falha do sistema. Peça a quem administra o Planorc
+        para configurar em <b>Configurações → Usuários → acesso</b>.
+      </span>
+    </div>
+  )
 }
 
 // Trava de ROTA por capacidade. Esconder a pill tira o caminho, não a porta:
@@ -277,6 +305,7 @@ function Shell({ session }: { session: Session }) {
           </div>
         )}
         <div style={S.content}>
+          <AvisoSemAcesso />
           <Routes>
             <Route path="/" element={<Navigate to="/dashboards" replace />} />
             {/* destino do link de recuperação: quem chega aqui em recuperação

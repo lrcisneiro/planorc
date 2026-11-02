@@ -94,6 +94,33 @@ Todas as tabelas têm `tenant_id` e RLS. Base SQL em `schema_v2.sql`; evoluçõe
 
 ## Permissões (F2)
 
+> **ACS-02 fechado no banco (nov/2026) — `v3_129` a `v3_132`.** O escopo de dados deixou de
+> existir só no frontend. Políticas de RLS em `fat_orcado`, `fat_realizado`, `fat_folha`, `posto`
+> (empresa+filial+CC) e `fat_saldo`, `fat_apontamento` (empresa+filial — **não têm `cc_id`**, logo
+> o Balanço não é recortável por centro de custo). **Leitura e escrita são políticas separadas**:
+> `authenticated` tem `GRANT ALL`, então com a policy antiga `FOR ALL` um `viewer` apagava o
+> orçado pela API.
+>
+> **Três armadilhas que custaram uma migration cada, nesta ordem:**
+> 1. **`FOR ALL` inclui `SELECT`**, e políticas permissivas se combinam com **OU** — a policy de
+>    escrita vazava a leitura inteira para `admin`/`member`. Escrita vai por comando
+>    (`INSERT`/`UPDATE`/`DELETE`), nunca `FOR ALL`.
+> 2. **Função `STABLE` em policy roda POR LINHA.** Só vira avaliação única dentro de subconsulta
+>    escalar: `(SELECT escopo_cc())`. Sem isso, 1,07 mi de linhas × função PL/pgSQL = timeout.
+> 3. **`ANY((SELECT f()))` precisa de `::uuid[]`** — sem o cast é lido como a forma de subconsulta
+>    do `ANY` e dá `operator does not exist: uuid = uuid[]`.
+>
+> **Negar por padrão (`v3_132`):** ausência de linha em `user_acesso_regra` = **não vê nada**;
+> linha com lista vazia = vê tudo (escolha explícita). `useUserAccess` segue o mesmo critério,
+> mas **só nas dimensões que o banco enforça** (`DIMS_NO_BANCO`) — `versao`/`relatorio` seguem
+> permissivas porque ninguém tem regra delas. `AvisoSemAcesso` em `App.tsx` explica a tela vazia.
+> Admin ignora todo o escopo, então sempre há quem conserte; o conserto é abrir
+> **Configurações → acesso** e salvar.
+>
+> ⚠ **Pendente:** `versao`/`relatorio` ainda são recorte só de tela (`lib/escopoDados.ts`), sem
+> RLS. Dimensões configuráveis (`dimensao`/`dims jsonb`) idem.
+
+
 Três camadas independentes, **hoje aplicadas no frontend** (enforcement de RLS/RPC no banco é dívida pendente):
 
 **1. Dados — quem vê/orça quais dimensões.** Hook `useUserAccess` (`hooks/useUserAccess.ts`) lê `user_acesso_regra` e expõe `canSee` (escopo `VER`), `canEdit` (escopo `ORCAR`, com fallback para `VER`), `filterList`/`filterEdit`, e `isAdmin`. Regra por dimensão = allow-list (`valor_ids`; vazio = tudo) menos `negados`. **Admin ignora todo o escopo de dados** (`canSee`/`canEdit` retornam `true`). O escopo é cruzado com os filtros de tela por interseção (`aplicaEscopo` no editor; `escopoFiltro` em `DashFiltros.tsx`, usado por todos os dashboards). Linhas INDICADOR com `filtro_escopo` próprio também são cruzadas com o escopo do usuário (no editor e em `lib/relatorioTotais.ts`, via `ccPermitidos`).
