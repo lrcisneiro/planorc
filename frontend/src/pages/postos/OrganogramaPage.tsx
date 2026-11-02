@@ -5,6 +5,7 @@ import { PostosPills } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { pageAll } from '../../lib/pageAll'
 import { pessoaChave } from '../../lib/pessoaChave'
+import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
 import { ChevronDown, ChevronRight, Users, X, Maximize2, Minimize2, Pencil } from 'lucide-react'
 
 // ============================================================
@@ -37,6 +38,7 @@ type Posto = {
 type CC = {
   id: string; codigo: string; descricao: string | null; pai_id: string | null
   area_nome: string | null; divisao_nome: string | null; bu_nome: string | null
+  area_cod: string | null; divisao_cod: string | null; bu_cod: string | null
 }
 type Area = { id: string; codigo: string; nome: string; pai_id: string | null }
 type No = {
@@ -273,10 +275,17 @@ export default function OrganogramaPage() {
   const [ccs, setCcs] = useState<CC[]>([])
   const [areas, setAreas] = useState<Area[]>([])
   const [cargos, setCargos] = useState<Record<string, string>>({})
-  const [empresas, setEmpresas] = useState<{ id: string; codigo: string }[]>([])
+  const [empresas, setEmpresas] = useState<any[]>([])
+  const [filiais, setFiliais] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [fonte, setFonte] = useState<Fonte>('areaf')
-  const [empresaId, setEmpresaId] = useState('')
+  const [empresaSel, setEmpresaSel] = useState<string[]>([])
+  const [filialSel, setFilialSel] = useState<string[]>([])
+  const [ccSel, setCcSel] = useState<string[]>([])
+  const [areaSel, setAreaSel] = useState<string[]>([])
+  const [divisaoSel, setDivisaoSel] = useState<string[]>([])
+  const [buSel, setBuSel] = useState<string[]>([])
+  const [cargoSel, setCargoSel] = useState('')
   const [comDemitidos, setComDemitidos] = useState(false)
   const [abertos, setAbertos] = useState<Set<string>>(new Set())
   const [sel, setSel] = useState<string | null>(null)
@@ -293,16 +302,17 @@ export default function OrganogramaPage() {
   // quando `posto_v` ainda não tinha `area_func_id` (v3_147).
   const carregar = async () => {
     try {
-    const [pd, cd, gd, ed, ad] = await Promise.all([
+    const [pd, cd, gd, ed, fd, ad] = await Promise.all([
       pageAll(() => supabase.from('posto_v').select('id,codigo,nome,matricula,cargo_id,cc_id,empresa_id,filial_id,fte,ativo,regime,area_func_id,funcionario_id')),
-      pageAll(() => supabase.from('centro_custo').select('id,codigo,descricao,pai_id,area_nome,divisao_nome,bu_nome').eq('ativo', true).order('codigo')),
+      pageAll(() => supabase.from('centro_custo').select('id,codigo,descricao,pai_id,area_nome,divisao_nome,bu_nome,area_cod,divisao_cod,bu_cod').eq('ativo', true).order('codigo')),
       pageAll(() => supabase.from('cargo').select('id,nome')),
-      supabase.from('empresa').select('id,codigo').order('codigo').then(r => r.data || []),
+      supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => r.data || []),
+      supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => r.data || []),
       pageAll(() => supabase.from('area_funcional').select('id,codigo,nome,pai_id').eq('ativo', true).order('codigo')),
     ])
     setPostos(pd as Posto[]); setCcs(cd as CC[])
     setCargos(Object.fromEntries((gd as any[]).map(c => [c.id, c.nome])))
-    setEmpresas(ed as any[]); setAreas(ad as Area[])
+    setEmpresas(ed as any[]); setFiliais(fd as any[]); setAreas(ad as Area[])
     setErro('')
     } catch (e: any) {
       setErro(e?.message || String(e))
@@ -312,9 +322,21 @@ export default function OrganogramaPage() {
   }
   useEffect(() => { if (!acesso.loading) carregar() }, [acesso.loading])
 
-  const filtrados = useMemo(
-    () => postos.filter(p => (comDemitidos || p.ativo !== false) && (!empresaId || p.empresa_id === empresaId)),
-    [postos, empresaId, comDemitidos])
+  // Filtro genérico (mesmo componente dos dashboards e da Memória) cruzado com
+  // o escopo do usuário, mais um corte por cargo. `escopoFiltro` faz a
+  // interseção: filtro de tela ∩ o que a pessoa pode ver.
+  const filtrados = useMemo(() => {
+    const empF = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSee)
+    const filF = escopoFiltro((filialSel.length && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSee)
+    const ccF  = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee)
+    return postos.filter(p =>
+      (comDemitidos || p.ativo !== false) &&
+      (!empF || (p.empresa_id && empF.includes(p.empresa_id))) &&
+      (!filF || (p.filial_id && filF.includes(p.filial_id))) &&
+      (!ccF  || (p.cc_id && ccF.includes(p.cc_id))) &&
+      (!cargoSel || p.cargo_id === cargoSel))
+  }, [postos, comDemitidos, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, cargoSel,
+      empresas, filiais, ccs, acesso])
 
   // Headcount: a regra de "quem é uma pessoa" mora em `pessoaChave` — a mesma
   // que a grade usa, senão os dois números discordam. Não é matrícula: ela é
@@ -433,7 +455,7 @@ export default function OrganogramaPage() {
 
   // Começa com o primeiro nível aberto: a tela abre mostrando a estrutura, não
   // uma lista de caixas fechadas que a pessoa tem de descobrir que clica.
-  useEffect(() => { setAbertos(new Set(raizes.map(r => r.key))) }, [fonte, empresaId])
+  useEffect(() => { setAbertos(new Set(raizes.map(r => r.key))) }, [fonte])
 
   const todos = useMemo(() => {
     const out: No[] = []
@@ -494,6 +516,13 @@ export default function OrganogramaPage() {
     }).sort((a, b) => a.nome.localeCompare(b.nome))
   }, [pessoasSel, cargos, noSel, rotuloNo, campoFonte])
 
+  const cargosOrdenados = useMemo(() => {
+    const n: Record<string, number> = {}
+    for (const p of postos) if (comDemitidos || p.ativo !== false) n[p.cargo_id || ''] = (n[p.cargo_id || ''] || 0) + 1
+    return Object.entries(cargos).map(([id, nome]) => ({ id, nome, n: n[id] || 0 }))
+      .filter(c => c.n > 0).sort((a, b) => b.n - a.n || a.nome.localeCompare(b.nome))
+  }, [postos, cargos, comDemitidos])
+
   const preench = useMemo(() => {
     const c = (f: keyof CC) => ccs.filter(x => (x[f] as string | null)?.trim()).length
     return { area: c('area_nome'), divisao: c('divisao_nome'), bu: c('bu_nome'), tot: ccs.length }
@@ -524,10 +553,23 @@ export default function OrganogramaPage() {
           </select>
         </div>
         <div style={S.fld}>
-          <span style={S.lbl}>Empresa</span>
-          <select style={S.sel} value={empresaId} onChange={e => setEmpresaId(e.target.value)}>
-            <option value="">Todas</option>
-            {acesso.filterList('empresa', empresas).map(e => <option key={e.id} value={e.id}>{e.codigo}</option>)}
+          <span style={S.lbl}>Filtros</span>
+          <FiltrosButton empresas={acesso.filterList('empresa', empresas)} filiais={acesso.filterList('filial', filiais)}
+                         ccs={acesso.filterList('centro_custo', ccs as any) as any}
+                         empresaSel={empresaSel} setEmpresaSel={setEmpresaSel}
+                         filialSel={filialSel} setFilialSel={setFilialSel}
+                         ccSel={ccSel} setCcSel={setCcSel}
+                         areaSel={areaSel} setAreaSel={setAreaSel}
+                         divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel}
+                         buSel={buSel} setBuSel={setBuSel} />
+        </div>
+        <div style={S.fld}>
+          <span style={S.lbl}>Cargo</span>
+          {/* Ordenado por quantidade de gente: com 106 cargos e 82% num só, a
+              lista alfabética esconderia justamente os que importam. */}
+          <select style={{ ...S.sel, maxWidth: 240 }} value={cargoSel} onChange={e => setCargoSel(e.target.value)}>
+            <option value="">Todos os cargos</option>
+            {cargosOrdenados.map(c => <option key={c.id} value={c.id}>{c.nome} ({c.n})</option>)}
           </select>
         </div>
         <button style={S.btn} onClick={() => setAbertos(new Set(todos.map(n => n.key)))}><Maximize2 size={14} /> Expandir tudo</button>
