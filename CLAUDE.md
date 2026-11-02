@@ -358,6 +358,15 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   editar tela. Convenção da instalação (concatenar empresa+filial) mora **no perfil**, perto das
   colunas, para o banco seguir genérico — mesma razão de `planorc_pj_frag()`.
 
+  **Situação do posto vem da FOLHA, com dedução como reserva** (v3_152). `RA_SITFOLH` — uma letra:
+  `D` demitido, `A` afastado, `F` férias, vazio trabalhando — chega na *Relação de Funcionários* e
+  a importação carimba em **`posto.sit_folha`**. Guardada no **posto** e não na pessoa porque a
+  situação é por **vínculo**: a relação traz uma linha por (empresa, filial, matrícula), e alguém
+  pode estar demitido numa empresa do grupo e ativo em outra. `situacaoPosto()` prefere a fonte e
+  cai na janela `afast_ini`/`afast_fim` quando não há (posto criado à mão, ou que nunca casou).
+  ⚠ **Férias não é dedutível** de nada — era por isso que afastado passava por ativo antes. O
+  filtro da tela é por situação (4 estados, multi-seleção), não mais "só ativos / com demitidos".
+
   ⚠ **Headcount não é matrícula distinta** (`lib/pessoaChave.ts`, nov/2026). `matricula` é por
   **empresa**: quem tem pró-labore em mais de uma empresa do grupo ganha uma em cada, e contar
   matrícula transformava 2 diretores em "7 pessoas" no CC 411. O identificador certo seria

@@ -7,7 +7,7 @@ import { pageAll } from '../../lib/pageAll'
 import { pessoaChave } from '../../lib/pessoaChave'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro, ModalPanel, Checklist } from '../dashboard/DashFiltros'
-import { ChevronDown, ChevronRight, Users, X, Maximize2, Minimize2, Pencil, Briefcase } from 'lucide-react'
+import { ChevronDown, ChevronRight, X, Maximize2, Minimize2, Pencil, Briefcase } from 'lucide-react'
 
 // ============================================================
 // Organograma do quadro — leitura.
@@ -34,7 +34,9 @@ type Posto = {
   id: string; codigo: string; nome: string | null; matricula: string | null
   cargo_id: string | null; cc_id: string | null; empresa_id: string; filial_id: string | null
   fte: number | null; ativo: boolean | null; regime: string | null; area_func_id: string | null
-  funcionario_id: string | null
+  funcionario_id: string | null; sit_folha: string | null
+  afast_ini_ano: number | null; afast_ini_mes: number | null
+  afast_fim_ano: number | null; afast_fim_mes: number | null; afast_motivo: string | null
 }
 type CC = {
   id: string; codigo: string; descricao: string | null; pai_id: string | null
@@ -59,6 +61,47 @@ const FONTES = [
 type Fonte = typeof FONTES[number]['k']
 
 const SEM = '— sem classificação —'
+const CORES: Record<Situacao, [string, string]> = {
+  ativo:    ['var(--green)',  '34,197,94'],
+  afastado: ['var(--orange)', '251,146,60'],
+  ferias:   ['var(--blue)',   '59,130,246'],
+  demitido: ['var(--red)',    '239,68,68'],
+}
+const corSit = (s: Situacao) => ({ color: CORES[s][0], borderColor: `rgba(${CORES[s][1]},0.4)`, background: `rgba(${CORES[s][1]},0.12)` })
+
+export type Situacao = 'ativo' | 'afastado' | 'ferias' | 'demitido'
+const SITUACOES: { k: Situacao; rot: string; cor: string }[] = [
+  { k: 'ativo',     rot: 'Ativos',    cor: 'var(--green)' },
+  { k: 'afastado',  rot: 'Afastados', cor: 'var(--orange)' },
+  { k: 'ferias',    rot: 'Férias',    cor: 'var(--blue)' },
+  { k: 'demitido',  rot: 'Demitidos', cor: 'var(--red)' },
+]
+
+// Situação: FONTE quando há, dedução quando não há.
+//
+// A folha define isso bem — `RA_SITFOLH`, uma letra: D demitido, A afastado,
+// F férias, vazio trabalhando — e a Relação de Funcionários traz a coluna. A
+// importação carimba em `posto.sit_folha` (v3_152). Férias não dá para deduzir
+// de lugar nenhum, e era por isso que gente afastada aparecia como ativa.
+//
+// A reserva, para posto que nunca casou com a relação ou foi criado à mão: a
+// JANELA de afastamento do posto, com referência no mês corrente — afastamento
+// é estado com data, não atributo, e quem voltou mês passado está ativo hoje.
+export function situacaoPosto(p: { ativo: boolean | null; sit_folha?: string | null; afast_ini_ano: number | null; afast_ini_mes: number | null; afast_fim_ano: number | null; afast_fim_mes: number | null }): Situacao {
+  const f = (p.sit_folha || '').toUpperCase()
+  if (f === 'D') return 'demitido'
+  if (f === 'A') return 'afastado'
+  if (f === 'F') return 'ferias'
+  if (p.ativo === false) return 'demitido'
+  if (p.afast_ini_ano) {
+    const d = new Date()
+    const ref = d.getFullYear() * 100 + (d.getMonth() + 1)
+    const ini = p.afast_ini_ano * 100 + (p.afast_ini_mes || 1)
+    const fim = p.afast_fim_ano ? p.afast_fim_ano * 100 + (p.afast_fim_mes || 12) : Infinity
+    if (ref >= ini && ref <= fim) return 'afastado'
+  }
+  return 'ativo'
+}
 const nf = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })
 
 const S: Record<string, CSSProperties> = {
@@ -81,6 +124,7 @@ const S: Record<string, CSSProperties> = {
   sideT: { fontSize: 13, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   pess:  { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: 12.5 },
   vazio: { fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 },
+  tagSit: { fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, border: '1px solid', borderRadius: 5, padding: '1px 5px' },
   divisor: { fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--violet)', padding: '10px 0 4px', borderBottom: '1px solid var(--border)' },
   dica:  { fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 },
   aviso: { fontSize: 12.5, color: 'var(--orange)', background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.4)', borderRadius: 8, padding: '9px 12px', margin: '0 0 12px' },
@@ -342,7 +386,7 @@ export default function OrganogramaPage() {
   const [cargoSel, setCargoSel] = useLocalPref<string[]>('planorc_organograma_cargos', [])
   const [cargoModo, setCargoModo] = useLocalPref<'incluir' | 'ocultar'>('planorc_organograma_cargomodo', 'ocultar')
   const [cargoAberto, setCargoAberto] = useState(false)
-  const [comDemitidos, setComDemitidos] = useLocalPref('planorc_organograma_demitidos', false)
+  const [sits, setSits] = useLocalPref<Situacao[]>('planorc_organograma_situacoes', ['ativo'])
   const [abertos, setAbertos] = useState<Set<string>>(new Set())
   const [sel, setSel] = useState<string | null>(null)
   const [modo, setModo] = useState<'ver' | 'atribuir'>('ver')
@@ -363,7 +407,7 @@ export default function OrganogramaPage() {
   const carregar = async () => {
     try {
     const [pd, cd, gd, ed, fd, ad] = await Promise.all([
-      pageAll(() => supabase.from('posto_v').select('id,codigo,nome,matricula,cargo_id,cc_id,empresa_id,filial_id,fte,ativo,regime,area_func_id,funcionario_id')),
+      pageAll(() => supabase.from('posto_v').select('id,codigo,nome,matricula,cargo_id,cc_id,empresa_id,filial_id,fte,ativo,regime,area_func_id,funcionario_id,afast_ini_ano,afast_ini_mes,afast_fim_ano,afast_fim_mes,afast_motivo,sit_folha')),
       pageAll(() => supabase.from('centro_custo').select('id,codigo,descricao,pai_id,area_nome,divisao_nome,bu_nome,area_cod,divisao_cod,bu_cod').eq('ativo', true).order('codigo')),
       pageAll(() => supabase.from('cargo').select('id,nome')),
       supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => r.data || []),
@@ -390,14 +434,14 @@ export default function OrganogramaPage() {
     const filF = escopoFiltro((filialSel.length && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSee)
     const ccF  = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee)
     return postos.filter(p =>
-      (comDemitidos || p.ativo !== false) &&
+      sits.includes(situacaoPosto(p)) &&
       (!empF || (p.empresa_id && empF.includes(p.empresa_id))) &&
       (!filF || (p.filial_id && filF.includes(p.filial_id))) &&
       (!ccF  || (p.cc_id && ccF.includes(p.cc_id))) &&
       (!cargoSel.length || (cargoModo === 'incluir'
         ? cargoSel.includes(p.cargo_id || '')
         : !cargoSel.includes(p.cargo_id || ''))))
-  }, [postos, comDemitidos, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, cargoSel, cargoModo,
+  }, [postos, sits, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, cargoSel, cargoModo,
       empresas, filiais, ccs, acesso])
 
   // Headcount: a regra de "quem é uma pessoa" mora em `pessoaChave` — a mesma
@@ -580,16 +624,19 @@ export default function OrganogramaPage() {
       // postos aqui e abaixo conta como daqui: é a resposta à pergunta "quem
       // são os 2 desta caixa".
       const aqui = !!noSel && e.postos.some(x => ((x as any)[campoFonte] || '__sem') === noSel.key)
-      return { ...e, aqui, detalhe: [cargos_.join(' · '), regimes.join('/'), areas_.join(' · ')].filter(Boolean).join(' · ') }
+      const sit: Situacao = e.postos.some(x => situacaoPosto(x) === 'afastado') ? 'afastado'
+        : e.postos.some(x => situacaoPosto(x) === 'ferias') ? 'ferias'
+        : e.postos.every(x => situacaoPosto(x) === 'demitido') ? 'demitido' : 'ativo'
+      return { ...e, aqui, sit, detalhe: [cargos_.join(' · '), regimes.join('/'), areas_.join(' · ')].filter(Boolean).join(' · ') }
     }).sort((a, b) => Number(b.aqui) - Number(a.aqui) || a.nome.localeCompare(b.nome))
   }, [pessoasSel, cargos, noSel, rotuloNo, campoFonte])
 
   const cargosOrdenados = useMemo(() => {
     const n: Record<string, number> = {}
-    for (const p of postos) if (comDemitidos || p.ativo !== false) n[p.cargo_id || ''] = (n[p.cargo_id || ''] || 0) + 1
+    for (const p of postos) if (sits.includes(situacaoPosto(p))) n[p.cargo_id || ''] = (n[p.cargo_id || ''] || 0) + 1
     return Object.entries(cargos).map(([id, nome]) => ({ id, nome, n: n[id] || 0 }))
       .filter(c => c.n > 0).sort((a, b) => b.n - a.n || a.nome.localeCompare(b.nome))
-  }, [postos, cargos, comDemitidos])
+  }, [postos, cargos, sits])
 
   // Dividir a lista só faz sentido quando o nó TEM filhos e TEM gente própria —
   // caso contrário o cabeçalho seria ruído.
@@ -663,11 +710,26 @@ export default function OrganogramaPage() {
                 title="Dizer em que área funcional cada posto está. O caminho rápido é filtrar por centro de custo e atribuir o lote.">
           <Pencil size={14} /> {modo === 'atribuir' ? 'Voltar ao organograma' : 'Atribuir área'}
         </button>
-        <button style={{ ...S.btn, ...(comDemitidos ? { borderColor: 'var(--violet)', color: 'var(--violet)' } : {}) }}
-                onClick={() => setComDemitidos(v => !v)}
-                title="Postos inativos (demitidos) ficam fora por padrão, como na grade.">
-          <Users size={14} /> {comDemitidos ? 'Com demitidos' : 'Só ativos'}
-        </button>
+        <div style={S.fld}>
+          <span style={S.lbl}>Situação</span>
+          <div style={{ display: 'flex', gap: 2, border: '1px solid var(--border-strong)', borderRadius: 8, overflow: 'hidden' }}>
+            {SITUACOES.map(({ k, rot, cor }) => {
+              const on = sits.includes(k)
+              const n = postos.filter(p => situacaoPosto(p) === k).length
+              return (
+                <button key={k} title={`${n} posto(s)`}
+                  onClick={() => setSits(v => v.includes(k) ? v.filter(x => x !== k) : [...v, k])}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 10px', fontSize: 12.5,
+                           border: 'none', cursor: 'pointer', fontWeight: 600,
+                           background: on ? 'rgba(139,92,246,0.16)' : 'transparent',
+                           color: on ? 'var(--violet)' : 'var(--muted)' }}>
+                  <span style={{ width: 7, height: 7, borderRadius: 99, background: on ? cor : 'var(--border-strong)' }} />
+                  {rot} <span style={{ opacity: 0.6, fontWeight: 400 }}>{n}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
       </div>
 
       {cargoAberto && (
@@ -760,6 +822,7 @@ export default function OrganogramaPage() {
                         <span style={{ color: 'var(--text)', fontWeight: 600, display: 'block', overflow: 'hidden',
                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {g.nome}
+                          {g.sit !== 'ativo' && <span style={{ marginLeft: 6, ...S.tagSit, ...corSit(g.sit) }}>{g.sit}</span>}
                           {g.postos.length > 1 && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: 'var(--violet)',
                                 background: 'rgba(139,92,246,0.14)', border: '1px solid rgba(139,92,246,0.35)',
                                 borderRadius: 5, padding: '0 4px' }}
@@ -783,6 +846,7 @@ export default function OrganogramaPage() {
                         <span style={{ color: 'var(--text)', fontWeight: 600, display: 'block', overflow: 'hidden',
                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {p.nome || <i style={{ color: 'var(--muted)', fontWeight: 400 }}>vaga planejada</i>}
+                          {situacaoPosto(p) !== 'ativo' && <span style={{ marginLeft: 6, ...S.tagSit, ...corSit(situacaoPosto(p)) }}>{situacaoPosto(p)}</span>}
                         </span>
                         <span style={{ color: 'var(--muted)', fontSize: 11, display: 'block', overflow: 'hidden',
                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

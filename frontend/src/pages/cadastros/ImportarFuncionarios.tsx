@@ -35,14 +35,22 @@ const PERFIL: PerfilImport = {
     { campo: 'matricula', aliases: ['Matrícula do funcionário', 'Matrícula', 'Matricula', 'RA_MAT'], obrigatorio: true },
     { campo: 'empresa',   aliases: ['Código da empresa', 'Empresa', 'Cod. Empresa'], obrigatorio: true },
     { campo: 'filial',    aliases: ['Código da filial', 'Filial', 'Cod. Filial', 'RA_FILIAL'], obrigatorio: true },
+    // Situação da folha — o código de UMA letra do Protheus (D/A/F; vazio ou
+    // N/A = trabalhando). NÃO é obrigatória: quem não a tiver cai na dedução
+    // pela janela de afastamento do posto. Mas férias só vem por aqui.
+    { campo: 'situacao',  aliases: ['Situação da folha do funcionário', 'Situação', 'Situacao', 'RA_SITFOLH'] },
   ],
 }
 
 type Previa = {
   simulado: boolean; linhas: number; pessoas: number; pessoas_novas: number
   postos_chave: number; postos_nome: number; postos_sem: number
+  situacoes: Record<string, number>
   sem_detalhe: { posto: string; nome: string }[]
 }
+
+// D/A/F do Protheus em palavra — o código sozinho não diz nada a quem confere.
+const SIT: Record<string, string> = { D: 'demitidos', A: 'afastados', F: 'em férias', trabalhando: 'trabalhando' }
 
 const S: Record<string, CSSProperties> = {
   btn:   { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 8, cursor: 'pointer' },
@@ -88,6 +96,7 @@ export function ImportarFuncionarios({ onFim }: { onFim: () => void }) {
           matricula: String(r.matricula ?? '').trim(),
           filial_cod: String(r.empresa ?? '').trim().padStart(2, '0')
                     + String(r.filial ?? '').trim().padStart(2, '0'),
+          situacao: String(r.situacao ?? '').trim(),
         }
       }).filter(r => r.cpf && r.nome)
       setLinhas(dados)
@@ -131,6 +140,15 @@ export function ImportarFuncionarios({ onFim }: { onFim: () => void }) {
               <div style={S.linha}><span>Pessoas novas no cadastro</span><span style={S.num}>{prev.pessoas_novas}</span></div>
               <div style={S.linha}><span>Postos casados por <b>filial + matrícula</b></span><span style={S.num}>{prev.postos_chave}</span></div>
               <div style={S.linha}><span>Postos casados por <b>nome</b> <span style={{ color: 'var(--muted)' }}>(pró-labore)</span></span><span style={S.num}>{prev.postos_nome}</span></div>
+              {prev.situacoes && Object.keys(prev.situacoes).length > 0 && (
+                <div style={S.linha}>
+                  <span>Situação na folha</span>
+                  <span style={{ fontSize: 12.5, color: 'var(--text-mid)', textAlign: 'right' }}>
+                    {Object.entries(prev.situacoes).sort((a, b) => b[1] - a[1])
+                      .map(([k, n]) => `${n} ${SIT[k] || k}`).join(' · ')}
+                  </span>
+                </div>
+              )}
               <div style={S.linha}><span>Postos ativos que ficam sem CPF</span><span style={{ ...S.num, color: prev.postos_sem ? 'var(--orange)' : 'var(--green)' }}>{prev.postos_sem}</span></div>
 
               {prev.sem_detalhe?.length > 0 && (
