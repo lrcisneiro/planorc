@@ -11,9 +11,10 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 declare const XLSX: any
 import { Plus, Trash2, Check, X, Upload, AlertCircle, Download, FileDown, Pencil, Copy, CopyPlus, Link2 } from 'lucide-react'
 import { CargosTab } from './CargosTab'
+import { AreasFuncionaisTab } from './AreasFuncionaisTab'
 import { ImportarFuncionarios } from './ImportarFuncionarios'
 
-type Aba = 'empresas' | 'filiais' | 'cc' | 'planos' | 'contas' | 'estrutura' | 'cargos' | 'funcionarios' | 'verbas' | 'versoes' | 'lotes' | 'moedas' | 'cambio' | 'taxaorcada' | 'metas'
+type Aba = 'empresas' | 'filiais' | 'cc' | 'planos' | 'contas' | 'estrutura' | 'areasf' | 'cargos' | 'funcionarios' | 'verbas' | 'versoes' | 'lotes' | 'moedas' | 'cambio' | 'taxaorcada' | 'metas'
 
 // ─── Styles ──────────────────────────────────────────────────
 const S = {
@@ -1849,6 +1850,7 @@ const ABAS: { id: Aba; label: string }[] = [
   { id: 'planos',       label: 'Planos de Contas' },
   { id: 'contas',       label: 'Conta Contábil' },
   { id: 'estrutura',    label: 'Estrutura Orçamentária' },
+  { id: 'areasf',       label: 'Áreas funcionais' },
   { id: 'cargos',       label: 'Cargos' },
   { id: 'funcionarios', label: 'Funcionários' },
   { id: 'verbas',       label: 'Verbas' },
@@ -2232,6 +2234,7 @@ export default function CadastrosPage() {
       {aba === 'planos'       && <PlanosTab />}
       {aba === 'contas'       && <ContasTab />}
       {aba === 'estrutura'    && <EstruturaTab />}
+      {aba === 'areasf'       && <AreasFuncionaisTab />}
       {aba === 'cargos'       && <CargosTab />}
       {aba === 'funcionarios' && <FuncionariosTab />}
       {aba === 'verbas'       && <VerbasTab />}

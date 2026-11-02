@@ -369,6 +369,16 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   **mesma função** de propósito: dois jeitos de contar gente dão dois números e ninguém sabe qual
   está certo.
 
+  **Editor de árvore compartilhado** — `lib/ArvoreEditavel.tsx`. Nasceu em Cargos e foi extraído
+  quando a segunda árvore apareceu (áreas funcionais); a terceira já se vê no horizonte (gestor).
+  Sabe montar de `pai_id`, abrir/fechar, arrastar para reparentar, soltar na raiz, renomear no
+  lugar e **recusar ciclo pintando o alvo de vermelho antes do drop**. Não sabe o que é cargo ou
+  área: isso vem por `colunas`, `prefixo` e callbacks. ⚠ **Seções vivem dentro de UMA instância**
+  (`secoes`), não em duas — em Cargos se arrasta *da* seção "folha" *para* a "plano", e duas
+  instâncias teriam dois estados de arrasto, com o gesto morrendo na fronteira.
+  **Cadastros → Áreas funcionais** edita a árvore do organograma (as 37 da `v3_146`, que até então
+  só se mexia por SQL — fiz o motor e a atribuição e esqueci a manutenção). Escrita é **admin**.
+
   **Três estruturas, três perguntas** (nov/2026) — e confundi-las é o erro fácil:
   `centro_custo` = **onde o dinheiro cai** (nível 2 é Base × Novos, nível 3 é produto — recorte
   comercial, 84 nós); `cargo` = **o que a pessoa é** (carreira, `pai_id`+`nivel`, em reestruturação);

@@ -3,46 +3,34 @@ import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
 import { slugCargo } from '../../lib/slugCargo'
-import { ChevronDown, ChevronRight, GripVertical, Plus, Trash2, CornerDownLeft, Users } from 'lucide-react'
+import { ArvoreEditavel, type No } from '../../lib/ArvoreEditavel'
+import { Plus, Users } from 'lucide-react'
 
 // ============================================================
-// Cargos — árvore de carreira, arrastando e soltando.
+// Cargos — árvore de carreira. A mecânica de arrastar, soltar, renomear e
+// recusar ciclo vive em `lib/ArvoreEditavel`; aqui fica só o que é de cargo.
 //
-// Até aqui `cargo` não tinha tela: nascia do import do RH (upsert por código) e
-// era lido em dropdown. Esta é a primeira, e por isso ela também renomeia, cria
-// e apaga — não só reorganiza.
+// O NÍVEL é separado da profundidade de propósito: um "Analista III" de TI e um
+// do Comercial são o mesmo nível em ramos diferentes, e é o nível — não a
+// profundidade — que depois torna a hierarquia de pessoas conferível.
 //
-// Duas coisas que a árvore responde e a lista não: onde cada cargo está na
-// carreira, e qual o NÍVEL dele. O nível é separado da profundidade de
-// propósito — um "Analista III" de TI e um do Comercial são o mesmo nível em
-// ramos diferentes, e é o nível, não a profundidade, que depois torna a
-// hierarquia de pessoas conferível.
-//
-// ⚠ Ciclo é o defeito grave: arrastar o pai para baixo do próprio filho faz a
-// árvore virar laço e a tela recursar até travar. Aqui a prevenção é no drop
-// (`descendentes()`), e a v3_144 põe a mesma trava no banco por gatilho —
-// porque a API é outro caminho e a tela não guarda a porta dos fundos.
-//
-// Apagar só é oferecido para cargo SEM posto: a contagem de uso fica visível na
-// linha, então ninguém precisa descobrir pela mensagem de erro.
+// `origem` separa o que a FOLHA manda (dado de entrada, em reestruturação) do
+// PLANO de cargos (decisão). Arrastar um da folha para dentro de um do plano é,
+// ao mesmo tempo, o de-para — por isso as duas seções são UMA árvore só: em
+// duas instâncias o arrasto morreria na fronteira.
 // ============================================================
 
 type Cargo = { id: string; codigo: string | null; nome: string; pai_id: string | null; nivel: number | null; ativo: boolean | null; origem: string | null }
-type No = Cargo & { filhos: No[]; usos: number; usosArvore: number }
+type CargoX = Cargo & { usos: number; usosArvore: number }
+type CargoNo = No<CargoX>
 
 const S: Record<string, CSSProperties> = {
   bar:   { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '0 0 14px' },
   btn:   { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 8, cursor: 'pointer' },
   dica:  { fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6, margin: '0 0 14px' },
-  raiz:  { border: '1px dashed var(--border-strong)', borderRadius: 10, padding: '10px 14px', fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 },
-  linha: { display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 8, border: '1px solid transparent' },
-  nome:  { fontSize: 13.5, color: 'var(--text)', fontWeight: 600, background: 'transparent', border: '1px solid transparent', borderRadius: 6, padding: '2px 6px', minWidth: 160, flex: 1 },
-  cod:   { fontSize: 11, color: 'var(--violet)', fontWeight: 700, fontVariantNumeric: 'tabular-nums', minWidth: 64 },
   niv:   { width: 54, fontSize: 12, textAlign: 'center', background: 'var(--bg-soft)', color: 'var(--text-mid)', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 4px' },
   uso:   { fontSize: 11.5, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', display: 'inline-flex', alignItems: 'center', gap: 3 },
-  ico:   { cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 },
   tag:   { fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--orange)', background: 'rgba(251,146,60,0.14)', border: '1px solid rgba(251,146,60,0.35)', borderRadius: 5, padding: '1px 5px', flexShrink: 0 },
-  secT:  { fontSize: 12, fontWeight: 700, color: 'var(--text-mid)', textTransform: 'uppercase', letterSpacing: 0.5, margin: '22px 0 8px', display: 'flex', alignItems: 'center', gap: 8 },
   aviso: { fontSize: 12.5, color: 'var(--orange)', background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.4)', borderRadius: 8, padding: '9px 12px', margin: '0 0 12px' },
 }
 
@@ -50,8 +38,6 @@ export function CargosTab() {
   const [cargos, setCargos] = useState<Cargo[]>([])
   const [usos, setUsos] = useState<Record<string, number>>({})
   const [abertos, setAbertos] = useState<Set<string>>(new Set())
-  const [arrasto, setArrasto] = useState<string | null>(null)
-  const [sobre, setSobre] = useState<string | null>(null)
   const [erro, setErro] = useState('')
   const [loading, setLoading] = useState(true)
 
@@ -67,138 +53,43 @@ export function CargosTab() {
   }
   useEffect(() => { carregar() }, [])
 
-  const { raizes, entrada, byId } = useMemo(() => {
-    const byId: Record<string, No> = {}
-    for (const c of cargos) byId[c.id] = { ...c, filhos: [], usos: usos[c.id] || 0, usosArvore: 0 }
-    const raizes: No[] = []
-    for (const c of cargos) {
-      const pai = c.pai_id && byId[c.pai_id] ? byId[c.pai_id] : null
-      if (pai) pai.filhos.push(byId[c.id]); else raizes.push(byId[c.id])
-    }
+  // Uso próprio e uso da subárvore. O segundo mostra o peso do ramo enquanto se
+  // organiza — é o que diz se vale a pena mexer naquele galho.
+  const itens = useMemo<CargoX[]>(() => {
+    const filhos: Record<string, string[]> = {}
+    for (const c of cargos) if (c.pai_id) (filhos[c.pai_id] ||= []).push(c.id)
+    const memo: Record<string, number> = {}
     const vistos = new Set<string>()
-    const somar = (n: No): number => {
-      if (vistos.has(n.id)) return 0       // guarda: ciclo vindo de antes do gatilho
-      vistos.add(n.id)
-      n.usosArvore = n.usos + n.filhos.reduce((s, f) => s + somar(f), 0)
-      n.filhos.sort((a, b) => (a.nivel ?? 99) - (b.nivel ?? 99) || a.nome.localeCompare(b.nome))
-      return n.usosArvore
+    const soma = (id: string): number => {
+      if (memo[id] != null) return memo[id]
+      if (vistos.has(id)) return 0        // guarda contra ciclo herdado
+      vistos.add(id)
+      return (memo[id] = (usos[id] || 0) + (filhos[id] || []).reduce((s, f) => s + soma(f), 0))
     }
-    raizes.forEach(somar)
-    raizes.sort((a, b) => (a.nivel ?? 99) - (b.nivel ?? 99) || a.nome.localeCompare(b.nome))
-    // Raiz do PLANO é estrutura; raiz vinda da FOLHA é só cargo ainda não
-    // classificado — misturar as duas é o que convidava a hierarquizar o que
-    // está sendo reestruturado.
-    return { raizes: raizes.filter(r => r.origem !== 'ERP'), entrada: raizes.filter(r => r.origem === 'ERP'), byId }
+    return cargos.map(c => ({ ...c, usos: usos[c.id] || 0, usosArvore: soma(c.id) }))
   }, [cargos, usos])
 
-  // Quem está abaixo de `id`: soltar dentro da própria subárvore é o que cria
-  // o laço, então é isto que o drop consulta antes de aceitar.
-  const descendentes = (id: string): Set<string> => {
-    const out = new Set<string>()
-    const vai = (n: No) => { for (const f of n.filhos) { out.add(f.id); vai(f) } }
-    if (byId[id]) vai(byId[id])
-    return out
-  }
-
-  const mover = async (filhoId: string, novoPaiId: string | null) => {
+  // Confere o retorno: UPDATE barrado por RLS não dá erro, filtra as linhas,
+  // afeta zero e volta sucesso. Sem isto a tela mentiria.
+  const gravar = async (q: any, oque: string): Promise<boolean> => {
     setErro('')
-    if (filhoId === novoPaiId) return
-    if (novoPaiId && descendentes(filhoId).has(novoPaiId)) {
-      setErro(`"${byId[novoPaiId].nome}" está abaixo de "${byId[filhoId].nome}" — mover criaria um ciclo. Tire o destino de dentro da origem primeiro.`)
-      return
-    }
-    const { error } = await supabase.from('cargo').update({ pai_id: novoPaiId }).eq('id', filhoId).select('id')
-    if (error) { setErro(error.message); return }
-    if (novoPaiId) setAbertos(s => new Set(s).add(novoPaiId))
-    carregar()
-  }
-
-  const salvar = async (id: string, patch: Partial<Cargo>) => {
-    setErro('')
-    const { data, error } = await supabase.from('cargo').update(patch).eq('id', id).select('id')
-    if (error) { setErro(error.message); return }
-    if (!data?.length) { setErro('A gravação foi recusada — você não tem permissão para editar cargos.'); return }
-    carregar()
+    const { data, error } = await q.select('id')
+    if (error) { setErro(error.message); return false }
+    if (!data?.length) { setErro(`Não foi possível ${oque} — a gravação foi recusada pelas suas permissões.`); return false }
+    await carregar(); return true
   }
 
   const criar = async (pai_id: string | null) => {
-    setErro('')
-    const nome = window.prompt(pai_id ? `Novo cargo abaixo de "${byId[pai_id].nome}":` : 'Novo cargo (na raiz):')
+    const nome = window.prompt(pai_id ? `Novo cargo abaixo de "${cargos.find(c => c.id === pai_id)?.nome}":` : 'Novo cargo (na raiz):')
     if (!nome?.trim()) return
-    // `tenant_id` explícito: `cargo` não tem o gatilho de auto-tenant que outras
-    // tabelas têm, e a política de INSERT exige `tenant_id = current_tenant_id()`.
-    // Sem ele o erro é "new row violates row-level security policy", que soa
-    // como falta de permissão quando na verdade é campo faltando.
-    // `codigo` é NOT NULL e tem unique por tenant. A regra de geração é a MESMA
-    // da importação (`slugCargo`); o sufixo entra só quando o código já existe,
-    // o que acontece com nomes que diferem apenas em acento ou pontuação.
     const nm = nome.trim().toUpperCase()
+    // Mesma regra de código da importação; o sufixo só entra se já existir —
+    // nomes que diferem só em acento geram o mesmo código.
     const usados = new Set(cargos.map(c => (c.codigo || '').toUpperCase()))
     let cod = slugCargo(nm)
     for (let i = 2; usados.has(cod); i++) cod = `${slugCargo(nm).slice(0, 25)}_${i}`
-    const { error } = await supabase.from('cargo')
-      .insert({ tenant_id: TENANT_ID, codigo: cod, nome: nm, pai_id, ativo: true, origem: 'PLANO' })
-    if (error) { setErro(error.message); return }
-    if (pai_id) setAbertos(s => new Set(s).add(pai_id))
-    carregar()
-  }
-
-  const apagar = async (n: No) => {
-    if (n.usos > 0) return
-    if (!window.confirm(`Apagar "${n.nome}"?${n.filhos.length ? `\n\nOs ${n.filhos.length} cargo(s) abaixo sobem para a raiz — não são apagados.` : ''}`)) return
-    const { error } = await supabase.from('cargo').delete().eq('id', n.id)
-    if (error) { setErro(error.message); return }
-    carregar()
-  }
-
-  const Linha = ({ n, nivel }: { n: No; nivel: number }) => {
-    const temFilhos = n.filhos.length > 0
-    const aberto = abertos.has(n.id)
-    const alvo = sobre === n.id && arrasto && arrasto !== n.id
-    const proibido = !!(alvo && descendentes(arrasto!).has(n.id))
-    return (
-      <>
-        <div draggable
-          onDragStart={e => { setArrasto(n.id); e.dataTransfer.effectAllowed = 'move' }}
-          onDragEnd={() => { setArrasto(null); setSobre(null) }}
-          onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (sobre !== n.id) setSobre(n.id) }}
-          onDragLeave={() => { if (sobre === n.id) setSobre(null) }}
-          onDrop={e => { e.preventDefault(); if (arrasto) mover(arrasto, n.id); setArrasto(null); setSobre(null) }}
-          style={{ ...S.linha, marginLeft: nivel * 22,
-                   borderColor: alvo ? (proibido ? 'var(--red)' : 'var(--violet)') : 'transparent',
-                   background: alvo ? (proibido ? 'rgba(239,68,68,0.10)' : 'rgba(139,92,246,0.12)') : (arrasto === n.id ? 'var(--bg-soft)' : 'transparent'),
-                   opacity: arrasto === n.id ? 0.5 : 1 }}>
-          <GripVertical size={14} style={{ color: 'var(--border-strong)', cursor: 'grab', flexShrink: 0 }} />
-          {temFilhos
-            ? <span onClick={() => setAbertos(s => { const x = new Set(s); x.has(n.id) ? x.delete(n.id) : x.add(n.id); return x })} style={S.ico}>
-                {aberto ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              </span>
-            : <span style={{ width: 14, flexShrink: 0 }} />}
-          <span style={S.cod}>{n.codigo || '—'}</span>
-          {n.origem === 'ERP' && <span style={S.tag} title="Veio da folha. Pendurado num cargo do plano, isto também é o de-para.">folha</span>}
-          <input style={S.nome} defaultValue={n.nome}
-                 onFocus={e => { e.target.style.borderColor = 'var(--border-strong)'; e.target.style.background = 'var(--bg-soft)' }}
-                 onBlur={e => {
-                   e.target.style.borderColor = 'transparent'; e.target.style.background = 'transparent'
-                   const v = e.target.value.trim(); if (v && v !== n.nome) salvar(n.id, { nome: v })
-                 }} />
-          <input style={S.niv} type="number" min={1} max={99} defaultValue={n.nivel ?? ''} placeholder="nível"
-                 title="Senioridade comparável entre ramos — um Analista III de TI e um do Comercial têm o mesmo nível."
-                 onBlur={e => {
-                   const v = e.target.value.trim() === '' ? null : Number(e.target.value)
-                   if (v !== n.nivel) salvar(n.id, { nivel: v })
-                 }} />
-          <span style={S.uso} title={temFilhos ? `${n.usos} neste cargo · ${n.usosArvore} com os de baixo` : `${n.usos} posto(s) neste cargo`}>
-            <Users size={12} />{n.usos}{temFilhos && n.usosArvore !== n.usos && <span style={{ opacity: 0.6 }}>/{n.usosArvore}</span>}
-          </span>
-          <Plus size={14} style={S.ico} onClick={() => criar(n.id)} />
-          {n.pai_id && <CornerDownLeft size={14} style={S.ico} onClick={() => mover(n.id, null)} />}
-          <Trash2 size={14} onClick={() => apagar(n)}
-                  style={{ ...S.ico, opacity: n.usos > 0 ? 0.25 : 1, cursor: n.usos > 0 ? 'not-allowed' : 'pointer' }} />
-        </div>
-        {temFilhos && aberto && n.filhos.map(f => <Linha key={f.id} n={f} nivel={nivel + 1} />)}
-      </>
-    )
+    const ok = await gravar(supabase.from('cargo').insert({ tenant_id: TENANT_ID, codigo: cod, nome: nm, pai_id, ativo: true, origem: 'PLANO' }), 'criar o cargo')
+    if (ok && pai_id) setAbertos(s => new Set(s).add(pai_id))
   }
 
   const nPlano = cargos.filter(c => c.origem !== 'ERP').length
@@ -209,9 +100,9 @@ export function CargosTab() {
     <div>
       <p style={S.dica}>
         <b style={{ color: 'var(--text)' }}>Arraste um cargo para dentro de outro</b> para definir a carreira.
-        A seta <CornerDownLeft size={12} style={{ verticalAlign: -1 }} /> devolve à raiz; o número é o <b>nível</b>,
-        que é a senioridade comparável entre ramos — e é ele que depois permite conferir a hierarquia de pessoas,
-        não a profundidade da árvore. O contador mostra quantos postos usam o cargo (e, entre barras, com os de baixo).
+        O número é o <b>nível</b> — senioridade comparável entre ramos, e é ele que depois permite
+        conferir a hierarquia de pessoas, não a profundidade da árvore. O contador mostra quantos
+        postos usam o cargo (e, após a barra, com os de baixo).
       </p>
 
       {erro && <div style={S.aviso}>{erro}</div>}
@@ -225,38 +116,46 @@ export function CargosTab() {
         </span>
       </div>
 
-      {/* Soltar aqui tira o cargo de qualquer pai. Sem esta área, um cargo que
-          foi para o lugar errado só sairia pela seta, que é menos descoberto. */}
-      <div style={{ ...S.raiz, borderColor: sobre === '__raiz' ? 'var(--violet)' : 'var(--border-strong)',
-                    background: sobre === '__raiz' ? 'rgba(139,92,246,0.10)' : 'transparent' }}
-           onDragOver={e => { e.preventDefault(); setSobre('__raiz') }}
-           onDragLeave={() => setSobre(s => s === '__raiz' ? null : s)}
-           onDrop={e => { e.preventDefault(); if (arrasto) mover(arrasto, null); setArrasto(null); setSobre(null) }}>
-        Solte aqui para tirar de qualquer pai (voltar à raiz)
-      </div>
-
       {loading ? <div style={S.dica}>Carregando…</div> : (
-        <>
-          <div style={S.secT}>Estrutura · plano de cargos</div>
-          {raizes.length === 0
-            ? <div style={S.dica}>
-                Ainda não há cargo do plano. Comece pelo topo — <b style={{ color: 'var(--text)' }}>Novo cargo na raiz</b> —
-                e vá descendo. Os cargos da folha ficam na lista abaixo até serem pendurados aqui.
-              </div>
-            : raizes.map(r => <Linha key={r.id} n={r} nivel={0} />)}
-
-          {entrada.length > 0 && (
-            <>
-              <div style={S.secT}>
-                Vindos da folha · ainda não classificados
+        <ArvoreEditavel<CargoX>
+          itens={itens} abertos={abertos} setAbertos={setAbertos} onErro={setErro}
+          raizRotulo="Solte aqui para tirar de qualquer pai (voltar à raiz)"
+          ordenar={(a, b) => (a.nivel ?? 99) - (b.nivel ?? 99) || a.nome.localeCompare(b.nome)}
+          onMover={async (id, pai) => {
+            const ok = await gravar(supabase.from('cargo').update({ pai_id: pai }).eq('id', id), 'mover o cargo')
+            if (ok && pai) setAbertos(s => new Set(s).add(pai))
+          }}
+          onRenomear={(id, nome) => { gravar(supabase.from('cargo').update({ nome }).eq('id', id), 'renomear') }}
+          onCriar={criar}
+          podeApagar={(n: CargoNo) => n.usos > 0 ? `${n.usos} posto(s) usam este cargo` : null}
+          onApagar={(n: CargoNo) => {
+            if (!window.confirm(`Apagar "${n.nome}"?${n.filhos.length ? `\n\nOs ${n.filhos.length} cargo(s) abaixo sobem para a raiz — não são apagados.` : ''}`)) return
+            gravar(supabase.from('cargo').delete().eq('id', n.id), 'apagar')
+          }}
+          prefixo={(n: CargoNo) => n.origem === 'ERP'
+            ? <span style={S.tag} title="Veio da folha. Pendurado num cargo do plano, isto também é o de-para.">folha</span>
+            : null}
+          colunas={(n: CargoNo, temFilhos) => <>
+            <input style={S.niv} type="number" min={1} max={99} defaultValue={n.nivel ?? ''} placeholder="nível"
+                   title="Senioridade comparável entre ramos — um Analista III de TI e um do Comercial têm o mesmo nível."
+                   onBlur={e => {
+                     const v = e.target.value.trim() === '' ? null : Number(e.target.value)
+                     if (v !== n.nivel) gravar(supabase.from('cargo').update({ nivel: v }).eq('id', n.id), 'gravar o nível')
+                   }} />
+            <span style={S.uso} title={temFilhos ? `${n.usos} neste cargo · ${n.usosArvore} com os de baixo` : `${n.usos} posto(s) neste cargo`}>
+              <Users size={12} />{n.usos}{temFilhos && n.usosArvore !== n.usos && <span style={{ opacity: 0.6 }}>/{n.usosArvore}</span>}
+            </span>
+          </>}
+          secoes={[
+            { chave: 'plano', titulo: 'Estrutura · plano de cargos', filtro: n => n.origem !== 'ERP',
+              vazio: <>Ainda não há cargo do plano. Comece pelo topo — <b style={{ color: 'var(--text)' }}>Novo cargo na raiz</b> — e vá descendo. Os cargos da folha ficam na lista abaixo até serem pendurados aqui.</> },
+            { chave: 'erp', filtro: n => n.origem === 'ERP',
+              titulo: <>Vindos da folha · ainda não classificados
                 <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--muted)', fontSize: 11.5 }}>
-                  {entrada.length} — arraste para dentro de um cargo do plano; isso também é o de-para
-                </span>
-              </div>
-              {entrada.map(r => <Linha key={r.id} n={r} nivel={0} />)}
-            </>
-          )}
-        </>
+                  arraste para dentro de um cargo do plano; isso também é o de-para
+                </span></> },
+          ]}
+        />
       )}
     </div>
   )
