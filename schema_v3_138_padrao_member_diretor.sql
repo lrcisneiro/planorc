@@ -43,7 +43,7 @@ SELECT ut.tenant_id, ut.user_id, k.capacidade, true
 ON CONFLICT (tenant_id, user_id, capacidade) DO NOTHING;
 
 -- Quem foi preservado, e em quantas das 12.
-SELECT split_part(u.email,'@',1) AS quem,
+SELECT u.email,   -- completo: o domínio é o que distingue as contas de teste
        count(*)                  AS liberadas_explicitamente
   FROM user_acesso_funcao f
   LEFT JOIN auth.users u ON u.id = f.user_id

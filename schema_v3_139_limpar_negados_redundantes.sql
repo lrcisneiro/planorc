@@ -29,7 +29,7 @@ DELETE FROM user_acesso_funcao f
                         'menu.formularios','menu.orcamento','menu.realizado','menu.saldos');
 
 -- O que sobrou de override, por pessoa. Esperado: nenhuma negação nas 12 acima.
-SELECT split_part(u.email,'@',1) AS quem,
+SELECT u.email,   -- completo: o domínio é o que distingue as contas de teste
        ut.role                   AS papel,
        count(*) FILTER (WHERE f.permitido)       AS liberados,
        count(*) FILTER (WHERE NOT f.permitido)   AS negados
