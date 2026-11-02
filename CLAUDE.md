@@ -233,6 +233,13 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > na tabela** — 9 × `from('posto_v').select` contra 7 × `from('posto').update|insert|upsert|
 > delete`. Gravar não é ler, então escrever salário continua podendo.
 >
+> ⚠ **Toda coluna nova em `posto` entra em `posto_v` na MESMA migration** — com `CREATE OR REPLACE
+> VIEW` e a coluna **no fim**, que é o único jeito de acrescentar mantendo os GRANTs (sem janela
+> sem permissão, sem reconceder). A `v3_146` esqueceu, e como as sete telas leem a view, o
+> Organograma pedia coluna inexistente: consulta falhava, `Promise.all` rejeitava e a tela ficava
+> em "Carregando…" **para sempre** com tudo zerado. Consertado na `v3_147` — e a carga agora tem
+> `try/finally`, porque erro que vira tela travada é o mais caro de diagnosticar: não diz nada.
+>
 > ⚠ A view roda como **dono** (sem `security_invoker`) por necessidade: com ele herdaria o
 > privilégio de coluna do chamador e mascararia para todo mundo, admin incluído. Rodando como
 > dono o RLS de `posto` não se aplica, então **o recorte de linha vai explícito no `WHERE` da

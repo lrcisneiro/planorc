@@ -275,8 +275,14 @@ export default function OrganogramaPage() {
   const [abertos, setAbertos] = useState<Set<string>>(new Set())
   const [sel, setSel] = useState<string | null>(null)
   const [modo, setModo] = useState<'ver' | 'atribuir'>('ver')
+  const [erro, setErro] = useState('')
 
+  // try/finally não é zelo: sem ele, UMA consulta que falha deixa `loading` em
+  // true para sempre e a tela fica "Carregando…" com tudo zerado — que é o
+  // sintoma mais caro de depurar, porque não diz nada. Aconteceu de verdade
+  // quando `posto_v` ainda não tinha `area_func_id` (v3_147).
   const carregar = async () => {
+    try {
     const [pd, cd, gd, ed, ad] = await Promise.all([
       pageAll(() => supabase.from('posto_v').select('id,codigo,nome,matricula,cargo_id,cc_id,empresa_id,filial_id,fte,ativo,regime,area_func_id')),
       pageAll(() => supabase.from('centro_custo').select('id,codigo,descricao,pai_id,area_nome,divisao_nome,bu_nome').eq('ativo', true).order('codigo')),
@@ -286,7 +292,13 @@ export default function OrganogramaPage() {
     ])
     setPostos(pd as Posto[]); setCcs(cd as CC[])
     setCargos(Object.fromEntries((gd as any[]).map(c => [c.id, c.nome])))
-    setEmpresas(ed as any[]); setAreas(ad as Area[]); setLoading(false)
+    setEmpresas(ed as any[]); setAreas(ad as Area[])
+    setErro('')
+    } catch (e: any) {
+      setErro(e?.message || String(e))
+    } finally {
+      setLoading(false)
+    }
   }
   useEffect(() => { if (!acesso.loading) carregar() }, [acesso.loading])
 
@@ -482,6 +494,8 @@ export default function OrganogramaPage() {
           <Users size={14} /> {comDemitidos ? 'Com demitidos' : 'Só ativos'}
         </button>
       </div>
+
+      {erro && <div style={S.aviso}>Não foi possível carregar: {erro}</div>}
 
       <div style={S.kpis}>
         <div style={S.kpi}><div style={S.kpiL}>Pessoas</div><div style={S.kpiV}>{total.pessoas}</div>
