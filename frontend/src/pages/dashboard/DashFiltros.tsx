@@ -8,6 +8,7 @@ import { supabase, TENANT_ID } from '../../lib/supabase'
 import { exportarPng, exportarPdf } from '../../lib/exportarDash'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { papelMaisAlto } from '../../lib/capacidades'
+import { CompartilharCard, gravarAlvo } from './CompartilharCard'
 
 export type Item = { id: string; codigo: string; descricao: string }
 
@@ -152,19 +153,22 @@ export function FiltrosButton({ empresas, filiais, ccs, empresaSel, setEmpresaSe
 // ── "Meus Cards": salvar o estado atual (filtros) como preset de um dashboard-base.
 // Se cardId estiver presente (visualizando um card), oferece também "Atualizar card".
 export function SalvarCardButton({ base, getFiltros, cor, cardId }: { base: string; getFiltros: () => any; cor?: string; cardId?: string | null }) {
+  // O card nasce pessoal e o compartilhamento é um segundo passo, com modal:
+  // o `confirm()` de antes só sabia perguntar "todos ou ninguém", e era por
+  // isso que tudo virava "todos".
+  const [alvoDe, setAlvoDe] = useState<{ id: string; nome: string; uid: string | null; admin: boolean } | null>(null)
   const salvarNovo = async () => {
     const nome = window.prompt('Nome do card (ex.: Análise Serviços):')?.trim()
     if (!nome) return
-    // pessoal por padrão (owner_id = usuário). Admin pode compartilhar com o tenant (owner_id null).
     const { data: { user } } = await supabase.auth.getUser()
     const uid = user?.id ?? null
-    let owner_id: string | null = uid
     const { data: ut } = await supabase.from('user_tenant').select('role').eq('user_id', uid)
     const isAdmin = papelMaisAlto(ut) === 'admin'
-    if (isAdmin && window.confirm('Compartilhar este card com todo o time?\n\nOK = compartilhado (todos veem) · Cancelar = só para você')) owner_id = null
-    const { error } = await supabase.from('dashboard_card').insert({ tenant_id: TENANT_ID, nome, base, cor: cor || 'var(--violet)', filtros: getFiltros(), owner_id })
+    const { data, error } = await supabase.from('dashboard_card')
+      .insert({ tenant_id: TENANT_ID, nome, base, cor: cor || 'var(--violet)', filtros: getFiltros(), owner_id: uid })
+      .select('id').single()
     if (error) { alert('Erro ao salvar: ' + error.message); return }
-    alert(`Card salvo! Veja em Dashboards › ${owner_id ? 'Meus dashboards' : 'Compartilhados'}.`)
+    setAlvoDe({ id: data.id, nome, uid, admin: isAdmin })
   }
   const atualizar = async () => {
     if (!cardId) return
@@ -177,6 +181,19 @@ export function SalvarCardButton({ base, getFiltros, cor, cardId }: { base: stri
     <>
       {cardId && <button style={{ ...btn, background: 'rgba(59,130,246,0.16)', borderColor: 'var(--blue)', color: 'var(--blue)' }} onClick={atualizar} title="Salvar os filtros atuais NESTE card"><Bookmark size={13} /> Atualizar card</button>}
       <button style={btn} onClick={salvarNovo} title="Salvar os filtros atuais como um NOVO card"><Bookmark size={13} /> {cardId ? 'Salvar como novo' : 'Salvar card'}</button>
+      {alvoDe && (
+        <CompartilharCard titulo={alvoDe.nome} podeTodos={alvoDe.admin}
+          inicial={{ modo: 'eu', users: [] }}
+          onFechar={() => { setAlvoDe(null); alert('Card salvo em Dashboards › Meus dashboards.') }}
+          onAplicar={async a => {
+            try { await gravarAlvo(alvoDe.id, a, alvoDe.uid) }
+            catch (e: any) { alert('Erro ao compartilhar: ' + e.message); return }
+            setAlvoDe(null)
+            alert(a.modo === 'eu' ? 'Card salvo só para você.'
+                : a.modo === 'todos' ? 'Card salvo e compartilhado com o time.'
+                : `Card salvo e compartilhado com ${a.users.length} pessoa(s).`)
+          }} />
+      )}
     </>
   )
 }

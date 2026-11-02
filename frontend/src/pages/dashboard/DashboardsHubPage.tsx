@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
-import { LayoutDashboard, BarChart3, Scale, Gauge, TrendingUp, ListChecks, Bookmark, Trash2, Pencil, ClipboardCheck } from 'lucide-react'
+import { Share2, LayoutDashboard, BarChart3, Scale, Gauge, TrendingUp, ListChecks, Bookmark, Trash2, Pencil, ClipboardCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { T } from '../../lib/theme'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { papelMaisAlto } from '../../lib/capacidades'
+import { filtrarCardsPorEscopo } from '../../lib/escopoDados'
+import { CompartilharCard, gravarAlvo, type Alvo } from './CompartilharCard'
 
 const CARDS = [
   { cap: 'dash.acompanhamento', to: '/dashboard',            titulo: 'DRE — Acompanhamento', desc: 'Execução orçado × realizado de UM ano, em granularidade mensal, trimestral ou semestral.', icon: LayoutDashboard, cor: '#3b5bdb' },
@@ -21,7 +23,7 @@ const BASE_NOME: Record<string, string> = {
   '/dashboards/executivo': 'Visão executiva', '/dashboards/cagr': 'CAGR', '/dashboards/indicadores': 'Indicadores',
 }
 
-type MeuCard = { id: string; nome: string; base: string; cor: string | null; owner_id: string | null }
+type MeuCard = { id: string; nome: string; base: string; cor: string | null; owner_id: string | null; filtros?: any }
 
 const S: Record<string, CSSProperties> = {
   page:  { padding: 24, fontFamily: 'system-ui, sans-serif' },
@@ -42,7 +44,16 @@ export default function DashboardsHubPage() {
   const [uid, setUid] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   // só presets de DASHBOARD; os de relatório (base '/relatorios/…') aparecem na lista de Relatórios, não aqui.
-  const loadMeus = () => { supabase.from('dashboard_card').select('id,nome,base,cor,owner_id').order('ordem', { nullsFirst: false }).order('created_at').then(r => setMeus(((r.data || []) as MeuCard[]).filter(m => !m.base.startsWith('/relatorios/')))) }
+  const loadMeus = () => {
+    supabase.from('dashboard_card').select('id,nome,base,cor,owner_id,filtros')
+      .order('ordem', { nullsFirst: false }).order('created_at')
+      .then(async r => {
+        const so = ((r.data || []) as MeuCard[]).filter(m => !m.base.startsWith('/relatorios/'))
+        // Preset de relatório fora do escopo some: o atalho não pode alcançar
+        // o que a lista de relatórios já não mostra.
+        setMeus(await filtrarCardsPorEscopo(so))
+      })
+  }
   useEffect(() => {
     loadMeus()
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -52,7 +63,19 @@ export default function DashboardsHubPage() {
     })
   }, [])
   const pessoais = meus.filter(m => !!m.owner_id && m.owner_id === uid)
-  const compartilhados = meus.filter(m => !m.owner_id)
+  // Tudo que não é meu entra em "Compartilhados" — inclusive o card de outra
+  // pessoa DIRIGIDO a mim (v3_153), que tem dono e não é nulo. Com o teste
+  // antigo (`!owner_id`) ele não cairia em lista nenhuma e sumiria da tela.
+  const compartilhados = meus.filter(m => m.owner_id !== uid)
+  // Abre já sabendo o estado atual: um modal que sempre abrisse em "só para
+  // mim" faria quem quer acrescentar uma pessoa tirar o card de todo mundo.
+  const [comp, setComp] = useState<{ card: MeuCard; inicial: Alvo } | null>(null)
+  const abrirCompartilhar = async (m: MeuCard) => {
+    const { data } = await supabase.from('dashboard_card_acesso').select('user_id').eq('card_id', m.id)
+    const users = (data || []).map((x: any) => x.user_id as string)
+    setComp({ card: m, inicial: { modo: users.length ? 'pessoas' : (m.owner_id ? 'eu' : 'todos'), users } })
+  }
+
   const excluir = async (id: string, nome: string) => {
     if (!window.confirm(`Excluir o card "${nome}"?`)) return
     const { error } = await supabase.from('dashboard_card').delete().eq('id', id)
@@ -85,6 +108,10 @@ export default function DashboardsHubPage() {
               </div>
               {podeEditar(m) && (
                 <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  <span title="Compartilhar" style={{ display: 'inline-flex' }}
+                        onClick={e => { e.preventDefault(); e.stopPropagation(); abrirCompartilhar(m) }}>
+                    <Share2 size={15} style={{ color: 'var(--muted)', cursor: 'pointer' }} />
+                  </span>
                   <span title="Renomear" style={{ display: 'inline-flex' }} onClick={e => { e.preventDefault(); e.stopPropagation(); renomear(m.id, m.nome) }}>
                     <Pencil size={15} style={{ color: 'var(--muted)', cursor: 'pointer' }} />
                   </span>
@@ -121,6 +148,15 @@ export default function DashboardsHubPage() {
 
       {cardSection('Meus dashboards', pessoais)}
       {cardSection('Compartilhados', compartilhados)}
+      {comp && (
+        <CompartilharCard titulo={comp.card.nome} inicial={comp.inicial} podeTodos={isAdmin}
+          onFechar={() => setComp(null)}
+          onAplicar={async al => {
+            try { await gravarAlvo(comp.card.id, al, uid) }
+            catch (e: any) { alert('Erro: ' + e.message); return }
+            setComp(null); loadMeus()
+          }} />
+      )}
     </div>
   )
 }

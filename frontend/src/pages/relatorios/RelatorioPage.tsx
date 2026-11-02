@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
-import { filtrarPorEscopo } from '../../lib/escopoDados'
+import { filtrarPorEscopo, filtrarCardsPorEscopo } from '../../lib/escopoDados'
 import { T } from '../../lib/theme'
 import { Plus, Pencil, Trash2, ChevronRight, Copy } from 'lucide-react'
 import { papelMaisAlto } from '../../lib/capacidades'
@@ -89,7 +89,13 @@ export default function RelatorioPage({ linkBase = '/relatorios', titulo = 'Rela
   const [presets, setPresets] = useState<Preset[]>([])
   const [uid, setUid] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
-  const loadPresets = () => { supabase.from('dashboard_card').select('id,nome,base,cor,owner_id').like('base', '/relatorios/%').order('created_at', { ascending: false }).then(r => setPresets((r.data || []) as Preset[])) }
+  // Preset herda o escopo do relatório que abre: quem não vê o Balanço na
+  // lista não deve ver um atalho para ele logo abaixo dela.
+  const loadPresets = () => {
+    supabase.from('dashboard_card').select('id,nome,base,cor,owner_id')
+      .like('base', '/relatorios/%').order('created_at', { ascending: false })
+      .then(async r => setPresets(await filtrarCardsPorEscopo((r.data || []) as Preset[])))
+  }
   useEffect(() => {
     if (linkBase !== '/relatorios') return
     loadPresets()

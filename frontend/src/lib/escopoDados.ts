@@ -55,6 +55,31 @@ export async function filtrarPorEscopo<T extends { id: string }>(dimensao: strin
   return lista.filter(x => !r.deny.includes(x.id) && (r.allow.length === 0 || r.allow.includes(x.id)))
 }
 
+// ── Presets (dashboard_card) recortados pelo RELATÓRIO que usam ──
+//
+// Todo preset está amarrado a um relatório: os de dashboard guardam `relId` nos
+// filtros, os de relatório trazem o id na própria rota (`/relatorios/<id>`).
+// Quem não pode ver o Balanço não deveria ver, no hub, um atalho para ele.
+//
+// Preset sem relatório identificável passa: o recorte é por exclusão do que se
+// sabe estar fora, nunca por suposição do que está dentro — esconder por falta
+// de informação viraria sumiço inexplicável.
+export function relatorioDoCard(c: { base?: string | null; filtros?: any }): string | null {
+  const m = /^\/relatorios\/([0-9a-f-]{36})/.exec(c.base || '')
+  if (m) return m[1]
+  const r = c.filtros?.relId ?? c.filtros?.relatorioId
+  return typeof r === 'string' && r ? r : null
+}
+
+export async function filtrarCardsPorEscopo<T extends { base?: string | null; filtros?: any }>(cards: T[]): Promise<T[]> {
+  const { isAdmin, regras } = await carregarRegras()
+  if (isAdmin) return cards
+  const r = regras['relatorio']
+  if (!r) return cards                              // sem regra de relatório = sem restrição
+  const ok = (id: string) => !r.deny.includes(id) && (r.allow.length === 0 || r.allow.includes(id))
+  return cards.filter(c => { const id = relatorioDoCard(c); return !id || ok(id) })
+}
+
 // ── Versões do orçamento, já recortadas ──
 // `ordem`: 'codigo' (o padrão histórico) ou 'ano_desc' (mais nova primeiro).
 export async function carregarVersoes(

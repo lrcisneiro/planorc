@@ -92,6 +92,26 @@ Todas as tabelas têm `tenant_id` e RLS. Base SQL em `schema_v2.sql`; evoluçõe
 >
 > **Ao medir, o `EXPLAIN` engana duas vezes:** o trabalho do nó é o **intervalo** do `actual time` (`fim − início`), não o total — um diagnóstico que monta parâmetros com `array_agg(DISTINCT …)` cria InitPlans que varrem a tabela e inflam o total; e `ANY((SELECT array_agg(...)))` sem cast `::uuid[]`/`::int[]` é lido como subconsulta e nem roda.
 
+> **Preset compartilhado: duas camadas de recorte (v3_153, nov/2026).** Com 14 presets
+> compartilhados, quem entra para validar a própria área recebia quatorze cartões.
+> **1. O preset herda o escopo do RELATÓRIO que abre** — `relatorioDoCard()` em `escopoDados.ts`
+> tira o id de `filtros.relId` (dashboards) ou da rota `/relatorios/<id>` (presets de relatório),
+> e `filtrarCardsPorEscopo()` aplica a dimensão `relatorio` que já existe no cadastro de acesso.
+> Quem não vê o Balanço não vê atalho para ele. Preset sem relatório identificável **passa**:
+> recorta-se o que se sabe estar fora, nunca por suposição do que está dentro.
+> **2. Compartilhamento dirigido a PESSOAS** — `dashboard_card_acesso`, semântica **aditiva**:
+> sem linhas = comportamento antigo (owner nulo = todos · owner preenchido = só o dono); com
+> linhas = dono + listados, e "todos" deixa de valer. Os cards existentes não mudam até alguém
+> restringir um. ⚠ A visibilidade está na **política de `dashboard_card`**, não só na tela —
+> esconder no frontend deixaria o preset, e os filtros que contam que áreas existem, a um
+> `select` de distância (lição da ACS-02).
+> ⚠ No hub, "Compartilhados" é `owner_id !== uid`, **não** `!owner_id`: card de outra pessoa
+> dirigido a mim tem dono, e com o teste antigo não cairia em lista nenhuma e sumiria.
+>
+> ⚠ **Derivar a visibilidade dos filtros do preset NÃO funciona aqui** — era a ideia inicial e os
+> dados a desmentiram: nenhum dos 14 filtra CC (`ccSel` vazio em todos); eles usam `empresaSel` e
+> `areaSel`. O que separa "DRE Serviços" de "DRE Comercial" é a área, não o centro de custo.
+
 > **Dados do ERP virou um item com pills (nov/2026).** Realizado, Saldos (BP) e Amarração
 > ocupavam um **grupo inteiro** na lateral — três linhas permanentes para telas do mesmo assunto,
 > em que quem orça não entra todo dia. Viraram um item em **Base**, com `pages/erp/ErpPills.tsx`
