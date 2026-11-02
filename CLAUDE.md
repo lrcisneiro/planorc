@@ -247,6 +247,19 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
 - Tipos TypeScript locais por arquivo (não há pasta `types/`).
 - Sem testes automatizados.
 - Dados: `supabase.from(...)` / `supabase.rpc(...)` direto nos componentes (sem React Query).
+- **Migration termina em `SELECT`, nunca em `RAISE`.** O SQL Editor roda o script inteiro em
+  **uma transação**, e `RAISE EXCEPTION` é erro: uma prova por exceção no fim **desfaz a própria
+  migration** — ela roda dentro da transação, exibe o resultado correto, e o `COMMIT` nunca
+  acontece. Aconteceu com `v3_133`, `v3_134` e `v3_136`, que reportaram sucesso e não aplicaram
+  nada (consolidados em `v3_137`). **Prova vai em arquivo separado** (`prova_*.sql`), rodado
+  depois. Ali a exceção é inofensiva — ou é recurso: em `prova_auditoria.sql` o rollback apaga a
+  regra de teste e os registros de auditoria juntos. A diferença nunca é a exceção, é **o que mais
+  está na transação com ela**. Corolário: ao ver erro no editor, presuma que **nada** foi aplicado.
+- **Verificação mede efeito, não intenção.** `SELECT` sobre `pg_policy` confirma que a política
+  existe; não confirma que ela filtra. Conferência de acesso **personifica e conta**:
+  `set_config('request.jwt.claims', …)` + `SET LOCAL ROLE authenticated` — sem trocar de papel, o
+  dono das tabelas ignora RLS e toda contagem volta cheia. Padrão em
+  `seguranca_passo2_naoregressao.sql`.
 - **Paginação obrigatória:** o PostgREST corta em **1000 linhas por chamada, sem erro**. Todo `.select()` numa tabela que cresce com o negócio (fatos `fat_*`, plano de contas `conta_contabil`/`conta_orcamentaria`, junções `posto_verba`/`posto_rateio`, dropdowns de competência distinct) DEVE usar o helper `pageAll()` de `frontend/src/lib/pageAll.ts`. Dispensam: `.single()`/`.maybeSingle()`, `.in(ids.slice(...))` já em lotes, e catálogos naturalmente pequenos (empresa, filial, versão, sindicato). Sintoma de esquecer: "sumiu gente/conta" que só aparece quando a base passa de 1000.
 
 ## Como rodar
