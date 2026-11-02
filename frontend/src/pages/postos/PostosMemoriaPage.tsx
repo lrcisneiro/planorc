@@ -8,6 +8,8 @@ import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/Das
 import { calcularPosto, CATEGORIAS } from '../../lib/motorFolha'
 import { usePostoCtx } from '../../lib/postoCtx'
 import { pageAll } from '../../lib/pageAll'
+import { situacaoPosto, SeletorSituacao, type Situacao } from '../../lib/situacaoPosto'
+import { useLocalPref } from '../../lib/uiPrefs'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
 import { ChevronDown, ChevronRight, Printer, Split, Search, X } from 'lucide-react'
 import { RateioModal } from './RateioModal'
@@ -134,15 +136,20 @@ export default function PostosMemoriaPage() {
     return map
   }, [postos, verbas, dissidio, sindMesBase, anoCalc, postoVerbas, empPais])
 
+  // Mesmo seletor da grade e do organograma: aqui o custo é do quadro de HOJE,
+  // então a situação atual é a pergunta certa. (Em tela por COMPETÊNCIA não
+  // vale — ver o aviso em lib/situacaoPosto.)
+  const [sits, setSits] = useLocalPref<Situacao[]>('planorc_memoria_situacoes', ['ativo'])
+
   const filtrados = useMemo(() => {
     const empF = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSee)
     const filF = escopoFiltro((filialSel.length && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSee)
     const ccF = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee)
     const sEmp = empF ? new Set(empF) : null, sFil = filF ? new Set(filF) : null, sCc = ccF ? new Set(ccF) : null
     const q = busca.trim().toLowerCase()
-    return postos.filter(p => p.ativo !== false && (!sEmp || sEmp.has(p.empresa_id)) && (!sFil || (p.filial_id != null && sFil.has(p.filial_id))) && (!sCc || (p.cc_id != null && sCc.has(p.cc_id)))
+    return postos.filter(p => sits.includes(situacaoPosto(p as any)) && (!sEmp || sEmp.has(p.empresa_id)) && (!sFil || (p.filial_id != null && sFil.has(p.filial_id))) && (!sCc || (p.cc_id != null && sCc.has(p.cc_id)))
       && (!q || [p.nome, p.codigo, p.cargo?.nome, p.centro_custo?.codigo, p.centro_custo?.descricao].some(x => (x || '').toLowerCase().includes(q))))
-  }, [postos, busca, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
+  }, [postos, sits, busca, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
 
   // agregados do escopo
   const agg = useMemo(() => {
@@ -187,6 +194,10 @@ export default function PostosMemoriaPage() {
           <FiltrosButton empresas={acesso.filterList('empresa', empresas)} filiais={acesso.filterList('filial', filiais)} ccs={acesso.filterList('centro_custo', ccs as any) as any}
             empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel}
             areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
+        </div>
+        <div style={S.fld}>
+          <span style={S.lbl} title="Quem entra no custo e no headcount desta memória.">Situação</span>
+          <SeletorSituacao sel={sits} setSel={setSits} universo={postos as any} compacto />
         </div>
         <div style={S.fld}><span style={S.lbl}>Buscar</span>
           <div style={{ position: 'relative' }}>

@@ -18,6 +18,7 @@ import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
 import { slugCargo as slug } from '../../lib/slugCargo'
 import { pessoaChave } from '../../lib/pessoaChave'
+import { situacaoPosto, SeletorSituacao, type Situacao } from '../../lib/situacaoPosto'
 import { resolvePosto, camposAlterados, overlayVazio, CAMPOS_CENARIO } from '../../lib/postoVersao'
 import type { PostoVersao, CampoCenario } from '../../lib/postoVersao'
 import { taxaOrcada, materializa } from '../../lib/cambio'
@@ -165,7 +166,9 @@ export default function PostosGradePage() {
   const [overlays, setOverlays] = useState<Map<string, PostoVersao>>(new Map())
   const [soAlteradas, setSoAlteradas] = useState(false)
   const [cenForm, setCenForm] = useState<{ posto: Posto; ov: PostoVersao | null } | null>(null)
-  const [mostrarInativos, setMostrarInativos] = useState(false)
+  // Quatro estados em vez de "demitido sim/não": o toggle antigo deixava
+  // afastado e em férias contando como ativo no headcount, no FTE e no custo.
+  const [sits, setSits] = useLocalPref<Situacao[]>('planorc_postos_situacoes', ['ativo'])
   const [editHora, setEditHora] = useState<string | null>(null)   // posto com o seletor de hora aberto
   const [erro, setErro] = useState<string | null>(null)
   const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[]; afastados: number } | null>(null)
@@ -688,14 +691,13 @@ export default function PostosGradePage() {
       .some(x => (x || '').toString().toLowerCase().includes(q))
     return postosEf.filter(p =>
       (!soAlteradas || alterados.has(p.id)) &&
-      (mostrarInativos || p.ativo !== false) &&
+      sits.includes(situacaoPosto(p)) &&
       (!sEmp || sEmp.has(p.empresa_id)) &&
       (!sFil || (p.filial_id != null && sFil.has(p.filial_id))) &&
       (!sCc || (p.cc_id != null && sCc.has(p.cc_id))) &&
       (!regimeSel || p.regime === regimeSel) && match(p)
     )
-  }, [postosEf, soAlteradas, alterados, mostrarInativos, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, regimeSel, busca, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
-  const nInativos = useMemo(() => postosEf.filter(p => p.ativo === false).length, [postosEf])
+  }, [postosEf, soAlteradas, alterados, sits, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, regimeSel, busca, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
 
   // ── motor: custo por posto (com encargos/provisões/benefícios) ──
   const anoCalc = useMemo(() => {
@@ -1009,11 +1011,10 @@ export default function PostosGradePage() {
             <option value="CLT">CLT</option><option value="PRESTADOR">Prestador</option><option value="PROLABORE">Pró-labore</option>
           </select>
         </div>
-        {nInativos > 0 && <div style={S.fld}><span style={S.lbl}>Demitidos</span>
-          <button style={{ ...S.sel, cursor: 'pointer', color: mostrarInativos ? 'var(--orange)' : 'var(--muted)', borderColor: mostrarInativos ? 'var(--orange)' : 'var(--border-strong)' }}
-            title="Demitidos (posto inativo) ficam fora do headcount, FTE e custo. Ative para revê-los." onClick={() => setMostrarInativos(v => !v)}>
-            {mostrarInativos ? `Mostrando ${nInativos}` : `Ocultos (${nInativos})`}</button>
-        </div>}
+        <div style={S.fld}>
+          <span style={S.lbl} title="Quem fica fora do headcount, do FTE e do custo.">Situação</span>
+          <SeletorSituacao sel={sits} setSel={setSits} universo={postosEf} compacto />
+        </div>
         <div style={{ flex: 1 }} />
         {editavel && <button style={{ ...S.btn, opacity: modoCenario ? 0.45 : 1, cursor: modoCenario ? 'not-allowed' : 'pointer' }}
           title={modoCenario ? 'Posto novo entra no CADASTRO, não no cenário — vaga que existe só numa versão ainda não é suportada (P3). Troque para Cadastro.' : undefined}
@@ -1096,7 +1097,7 @@ export default function PostosGradePage() {
             <div style={S.kpi}><div style={S.kpiL}>Custo anual {temMotor ? '(c/ encargos)' : '(base)'}</div><div style={S.kpiV}>{milAno(tot.ano)}</div>
               {/* Só com filtro limpo o delta é comparável: `tot.ano` respeita os
                   filtros da tela e o base é o quadro inteiro. */}
-              {modoCenario && custoBaseAno != null && filtrados.length === postosEf.filter(x => mostrarInativos || x.ativo !== false).length
+              {modoCenario && custoBaseAno != null && filtrados.length === postosEf.filter(x => sits.includes(situacaoPosto(x))).length
                 ? <div style={{ ...S.kpiH, color: tot.ano < custoBaseAno ? 'var(--green)' : tot.ano > custoBaseAno ? 'var(--red)' : 'var(--muted)' }}>
                     {tot.ano === custoBaseAno ? 'igual ao cadastro' : `${tot.ano < custoBaseAno ? '−' : '+'}${milAno(Math.abs(tot.ano - custoBaseAno))} vs cadastro`}
                   </div>

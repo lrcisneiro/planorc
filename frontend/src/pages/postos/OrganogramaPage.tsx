@@ -6,6 +6,7 @@ import { useUserAccess } from '../../hooks/useUserAccess'
 import { pageAll } from '../../lib/pageAll'
 import { pessoaChave } from '../../lib/pessoaChave'
 import { useLocalPref } from '../../lib/uiPrefs'
+import { situacaoPosto, SeletorSituacao, corSit, tagSit, type Situacao } from '../../lib/situacaoPosto'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro, ModalPanel, Checklist } from '../dashboard/DashFiltros'
 import { ChevronDown, ChevronRight, X, Maximize2, Minimize2, Pencil, Briefcase } from 'lucide-react'
 
@@ -61,47 +62,7 @@ const FONTES = [
 type Fonte = typeof FONTES[number]['k']
 
 const SEM = '— sem classificação —'
-const CORES: Record<Situacao, [string, string]> = {
-  ativo:    ['var(--green)',  '34,197,94'],
-  afastado: ['var(--orange)', '251,146,60'],
-  ferias:   ['var(--blue)',   '59,130,246'],
-  demitido: ['var(--red)',    '239,68,68'],
-}
-const corSit = (s: Situacao) => ({ color: CORES[s][0], borderColor: `rgba(${CORES[s][1]},0.4)`, background: `rgba(${CORES[s][1]},0.12)` })
 
-export type Situacao = 'ativo' | 'afastado' | 'ferias' | 'demitido'
-const SITUACOES: { k: Situacao; rot: string; cor: string }[] = [
-  { k: 'ativo',     rot: 'Ativos',    cor: 'var(--green)' },
-  { k: 'afastado',  rot: 'Afastados', cor: 'var(--orange)' },
-  { k: 'ferias',    rot: 'Férias',    cor: 'var(--blue)' },
-  { k: 'demitido',  rot: 'Demitidos', cor: 'var(--red)' },
-]
-
-// Situação: FONTE quando há, dedução quando não há.
-//
-// A folha define isso bem — `RA_SITFOLH`, uma letra: D demitido, A afastado,
-// F férias, vazio trabalhando — e a Relação de Funcionários traz a coluna. A
-// importação carimba em `posto.sit_folha` (v3_152). Férias não dá para deduzir
-// de lugar nenhum, e era por isso que gente afastada aparecia como ativa.
-//
-// A reserva, para posto que nunca casou com a relação ou foi criado à mão: a
-// JANELA de afastamento do posto, com referência no mês corrente — afastamento
-// é estado com data, não atributo, e quem voltou mês passado está ativo hoje.
-export function situacaoPosto(p: { ativo: boolean | null; sit_folha?: string | null; afast_ini_ano: number | null; afast_ini_mes: number | null; afast_fim_ano: number | null; afast_fim_mes: number | null }): Situacao {
-  const f = (p.sit_folha || '').toUpperCase()
-  if (f === 'D') return 'demitido'
-  if (f === 'A') return 'afastado'
-  if (f === 'F') return 'ferias'
-  if (p.ativo === false) return 'demitido'
-  if (p.afast_ini_ano) {
-    const d = new Date()
-    const ref = d.getFullYear() * 100 + (d.getMonth() + 1)
-    const ini = p.afast_ini_ano * 100 + (p.afast_ini_mes || 1)
-    const fim = p.afast_fim_ano ? p.afast_fim_ano * 100 + (p.afast_fim_mes || 12) : Infinity
-    if (ref >= ini && ref <= fim) return 'afastado'
-  }
-  return 'ativo'
-}
 const nf = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })
 
 const S: Record<string, CSSProperties> = {
@@ -124,7 +85,6 @@ const S: Record<string, CSSProperties> = {
   sideT: { fontSize: 13, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   pess:  { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: 12.5 },
   vazio: { fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 },
-  tagSit: { fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, border: '1px solid', borderRadius: 5, padding: '1px 5px' },
   divisor: { fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--violet)', padding: '10px 0 4px', borderBottom: '1px solid var(--border)' },
   dica:  { fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 },
   aviso: { fontSize: 12.5, color: 'var(--orange)', background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.4)', borderRadius: 8, padding: '9px 12px', margin: '0 0 12px' },
@@ -712,23 +672,7 @@ export default function OrganogramaPage() {
         </button>
         <div style={S.fld}>
           <span style={S.lbl}>Situação</span>
-          <div style={{ display: 'flex', gap: 2, border: '1px solid var(--border-strong)', borderRadius: 8, overflow: 'hidden' }}>
-            {SITUACOES.map(({ k, rot, cor }) => {
-              const on = sits.includes(k)
-              const n = postos.filter(p => situacaoPosto(p) === k).length
-              return (
-                <button key={k} title={`${n} posto(s)`}
-                  onClick={() => setSits(v => v.includes(k) ? v.filter(x => x !== k) : [...v, k])}
-                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 10px', fontSize: 12.5,
-                           border: 'none', cursor: 'pointer', fontWeight: 600,
-                           background: on ? 'rgba(139,92,246,0.16)' : 'transparent',
-                           color: on ? 'var(--violet)' : 'var(--muted)' }}>
-                  <span style={{ width: 7, height: 7, borderRadius: 99, background: on ? cor : 'var(--border-strong)' }} />
-                  {rot} <span style={{ opacity: 0.6, fontWeight: 400 }}>{n}</span>
-                </button>
-              )
-            })}
-          </div>
+          <SeletorSituacao sel={sits} setSel={setSits} universo={postos} />
         </div>
       </div>
 
@@ -822,7 +766,7 @@ export default function OrganogramaPage() {
                         <span style={{ color: 'var(--text)', fontWeight: 600, display: 'block', overflow: 'hidden',
                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {g.nome}
-                          {g.sit !== 'ativo' && <span style={{ marginLeft: 6, ...S.tagSit, ...corSit(g.sit) }}>{g.sit}</span>}
+                          {g.sit !== 'ativo' && <span style={{ marginLeft: 6, ...tagSit, ...corSit(g.sit) }}>{g.sit}</span>}
                           {g.postos.length > 1 && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: 'var(--violet)',
                                 background: 'rgba(139,92,246,0.14)', border: '1px solid rgba(139,92,246,0.35)',
                                 borderRadius: 5, padding: '0 4px' }}
@@ -846,7 +790,7 @@ export default function OrganogramaPage() {
                         <span style={{ color: 'var(--text)', fontWeight: 600, display: 'block', overflow: 'hidden',
                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {p.nome || <i style={{ color: 'var(--muted)', fontWeight: 400 }}>vaga planejada</i>}
-                          {situacaoPosto(p) !== 'ativo' && <span style={{ marginLeft: 6, ...S.tagSit, ...corSit(situacaoPosto(p)) }}>{situacaoPosto(p)}</span>}
+                          {situacaoPosto(p) !== 'ativo' && <span style={{ marginLeft: 6, ...tagSit, ...corSit(situacaoPosto(p)) }}>{situacaoPosto(p)}</span>}
                         </span>
                         <span style={{ color: 'var(--muted)', fontSize: 11, display: 'block', overflow: 'hidden',
                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

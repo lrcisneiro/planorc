@@ -358,7 +358,15 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   editar tela. Convenção da instalação (concatenar empresa+filial) mora **no perfil**, perto das
   colunas, para o banco seguir genérico — mesma razão de `planorc_pj_frag()`.
 
-  **Situação do posto vem da FOLHA, com dedução como reserva** (v3_152). `RA_SITFOLH` — uma letra:
+  **Situação do posto** — regra e seletor em **`lib/situacaoPosto.tsx`**, usados por *Postos*,
+  *Memória de cálculo* e *Organograma*. ⚠⚠ **Não usar em tela por COMPETÊNCIA** (Folha realizada,
+  Apontamento, Conciliação): `sit_folha` é um retrato do momento da importação, sobrescrito na
+  carga seguinte, e aplicá-lo lá esconderia linhas de **março** com a situação de **outubro** —
+  quem foi demitido em outubro trabalhou e foi pago em março, e o número mudaria sem dizer por
+  quê. Para servir ali, a situação teria de ser **histórica por competência**: outro desenho.
+  O aviso está no topo do arquivo, para que "completar" as telas que faltam não introduza o erro.
+
+  **A fonte da situação vem da FOLHA, com dedução como reserva** (v3_152). `RA_SITFOLH` — uma letra:
   `D` demitido, `A` afastado, `F` férias, vazio trabalhando — chega na *Relação de Funcionários* e
   a importação carimba em **`posto.sit_folha`**. Guardada no **posto** e não na pessoa porque a
   situação é por **vínculo**: a relação traz uma linha por (empresa, filial, matrícula), e alguém
