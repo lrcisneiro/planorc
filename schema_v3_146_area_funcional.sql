@@ -138,8 +138,10 @@ UPDATE area_funcional f SET pai_id = p.id
     ('1711','171'), ('1712','171'), ('1713','171'),
     ('1721','172'), ('1722','172')
   ) AS m(filho, pai)
-  JOIN area_funcional p ON p.codigo = m.pai AND p.tenant_id = f.tenant_id
- WHERE f.codigo = m.filho AND f.pai_id IS DISTINCT FROM p.id;
+  JOIN area_funcional p ON p.codigo = m.pai
+ WHERE f.codigo    = m.filho
+   AND p.tenant_id = f.tenant_id      -- aqui, não no JOIN: a tabela-alvo de um
+   AND f.pai_id IS DISTINCT FROM p.id; -- UPDATE..FROM só é visível no WHERE
 
 SELECT coalesce(p.codigo, '—') AS pai, f.codigo, f.nome
   FROM area_funcional f LEFT JOIN area_funcional p ON p.id = f.pai_id
