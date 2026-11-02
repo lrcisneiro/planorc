@@ -214,6 +214,12 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > lista de relatórios, o editor abrindo por id da URL). Regras lidas **uma vez por sessão**;
 > salvar o acesso chama `limparCacheEscopo()`. Admin ignora o escopo, como no hook.
 >
+> ⚠ **O cache de regras tem PRAZO (60 s) e revalida ao focar a aba** — e isso é correção, não
+> otimização. `limparCacheEscopo()` só alcança o navegador de **quem edita**; quem TEVE o acesso
+> alterado seguia com as regras antigas em memória até recarregar, então *tirar* acesso não
+> surtia efeito numa sessão longa. Vale para `relatorio`, que é recorte de tela; empresa, filial,
+> CC e versão são barradas por RLS, onde cache nenhum alcança.
+>
 > ⚠ Ao escrever tela nova que liste versão ou relatório, chamar o helper — `supabase.from(
 > 'versao_orcamento')` direto volta a furar o escopo.
 

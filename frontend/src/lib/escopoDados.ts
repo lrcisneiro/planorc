@@ -27,9 +27,29 @@ export const DIMS_NO_BANCO = ['empresa', 'filial', 'centro_custo', 'versao']
 // Uma leitura por sessão. As regras de quem está logado não mudam no meio do
 // uso; quando mudam (Configurações), `limparCacheEscopo()` derruba o cache.
 let cache: Promise<{ isAdmin: boolean; regras: Record<string, Regra> }> | null = null
+let lido = 0
+
+// O cache tem PRAZO, e isso não é otimização — é correção. `limparCacheEscopo()`
+// só alcança o navegador de quem edita; quem TEVE o acesso alterado continua
+// com as regras antigas em memória até recarregar a página. Numa sessão longa,
+// tirar o acesso de alguém não surtia efeito.
+//
+// Um minuto: curto o bastante para que uma mudança de acesso apareça sozinha,
+// longo o bastante para a leitura (duas consultas pequenas) não virar tráfego.
+// ⚠ Vale só para `relatorio`, que é recorte de TELA. Empresa, filial, CC e
+// versão são barradas por RLS no banco, onde cache nenhum alcança.
+const TTL = 60_000
+
+// Voltar para a aba revalida na hora: é quando a pessoa foi avisada de que o
+// acesso mudou e vem conferir, e esperar o minuto ali é o pior momento.
+if (typeof window !== 'undefined') {
+  window.addEventListener('focus', () => { lido = 0 })
+}
 
 function carregarRegras() {
-  cache ||= Promise.all([
+  if (cache && Date.now() - lido < TTL) return cache
+  lido = Date.now()
+  cache = Promise.all([
     supabase.from('user_acesso_regra').select('dimensao,valor_ids,escopo,negados'),
     supabase.from('user_tenant').select('role'),
   ]).then(([{ data: rd }, { data: td }]) => {
@@ -43,7 +63,7 @@ function carregarRegras() {
   return cache
 }
 
-export function limparCacheEscopo() { cache = null }
+export function limparCacheEscopo() { cache = null; lido = 0 }
 
 export async function filtrarPorEscopo<T extends { id: string }>(dimensao: string, rows: T[] | null | undefined): Promise<T[]> {
   const lista = rows || []
