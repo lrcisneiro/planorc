@@ -62,4 +62,26 @@ select '3 · a empresa já usou CC alguma vez?',
             else '✓ usa CC → nulo aqui é falha de carga' end
   from empresa e
  where exists (select 1 from fat_realizado r where r.empresa_id = e.id and r.cc_id is null)
+union all
+-- ⚠ A HIPÓTESE QUE DECIDE TUDO. 562 mil de 1,07 milhão de linhas do razão não
+-- têm CC — 53%. Se forem contas de BALANÇO (banco, fornecedores, duplicatas),
+-- isso é normal: balanço não tem centro de custo, e "zero CC nulo" seria uma
+-- meta impossível. Se houver muita conta de RESULTADO sem CC, aí sim é falha.
+--
+-- A natureza vem da conta ORÇAMENTÁRIA amarrada (conta_linha → master), que é
+-- o que a DRE usa. Conta sem amarração não entra na DRE de jeito nenhum.
+select '4 · o CC nulo do razão é balanço ou resultado?',
+       coalesce(co.natureza, '(conta SEM amarração)'),
+       '', '',
+       count(*)::text || ' linha(s)',
+       case when co.natureza in ('RECEITA','DESPESA')
+            then '⚠ conta de RESULTADO sem CC → entra na DRE e some do usuário restrito'
+            else 'balanço ou sem amarração → não aparece na DRE' end
+  from fat_realizado f
+  left join lateral (
+    select c.linha_id from conta_linha c where c.conta_id = f.conta_id order by c.id desc limit 1
+  ) cl on true
+  left join conta_orcamentaria co on co.id = cl.linha_id
+ where f.cc_id is null
+ group by co.natureza
  order by 1, 5 desc;
