@@ -76,24 +76,38 @@ $$;
 -- ---------- gatilho de LINHA: tabelas de acesso ----------
 CREATE OR REPLACE FUNCTION auditar_linha() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE q record;
+DECLARE
+  q      record;
+  j_old  jsonb;
+  j_new  jsonb;
 BEGIN
+  -- ⚠ Nada de `OLD.role` aqui. Esta função serve a TRÊS tabelas, e o PL/pgSQL
+  -- resolve o campo do registro ANTES de o CASE rodar — então `OLD.role` numa
+  -- tabela sem `role` falha mesmo com a condição protegendo. Foi assim que a
+  -- primeira versão quebrou em `user_acesso_regra`.
+  --
+  -- Converter para jsonb primeiro resolve de vez: `->>` sobre chave ausente
+  -- devolve NULL em vez de erro, e vale para qualquer tabela.
+  --
+  -- As conversões também ficam em IF separados: referenciar OLD num gatilho de
+  -- INSERT (ou NEW num de DELETE) é registro não atribuído, não nulo.
+  IF TG_OP <> 'INSERT' THEN j_old := to_jsonb(OLD); END IF;
+  IF TG_OP <> 'DELETE' THEN j_new := to_jsonb(NEW); END IF;
+
   SELECT * INTO q FROM auditoria_quem();
+
   INSERT INTO auditoria (tenant_id, quem, quem_papel, origem, tabela, operacao, chave, antes, depois, detalhe)
   VALUES (
-    coalesce(
-      CASE WHEN TG_OP <> 'DELETE' THEN (to_jsonb(NEW) ->> 'tenant_id')::uuid END,
-      CASE WHEN TG_OP <> 'INSERT' THEN (to_jsonb(OLD) ->> 'tenant_id')::uuid END),
+    coalesce((j_new ->> 'tenant_id')::uuid, (j_old ->> 'tenant_id')::uuid),
     q.uid, q.papel, q.origem, TG_TABLE_NAME, TG_OP,
-    coalesce(CASE WHEN TG_OP <> 'DELETE' THEN to_jsonb(NEW) ->> 'id' END,
-             CASE WHEN TG_OP <> 'INSERT' THEN to_jsonb(OLD) ->> 'id' END),
-    CASE WHEN TG_OP <> 'INSERT' THEN to_jsonb(OLD) END,
-    CASE WHEN TG_OP <> 'DELETE' THEN to_jsonb(NEW) END,
-    -- O caso que motivou tudo: mudança de papel merece destaque no detalhe,
-    -- para aparecer numa leitura rápida sem abrir o jsonb.
-    CASE WHEN TG_TABLE_NAME = 'user_tenant' AND TG_OP = 'UPDATE'
-              AND OLD.role IS DISTINCT FROM NEW.role
-         THEN 'PAPEL: ' || OLD.role || ' → ' || NEW.role END
+    coalesce(j_new ->> 'id', j_old ->> 'id'),
+    j_old, j_new,
+    -- O caso que motivou tudo: mudança de papel em destaque, para aparecer numa
+    -- leitura rápida sem abrir o jsonb.
+    CASE WHEN TG_TABLE_NAME = 'user_tenant'
+              AND (j_old ->> 'role') IS DISTINCT FROM (j_new ->> 'role')
+         THEN 'PAPEL: ' || coalesce(j_old ->> 'role', '(novo)')
+                        || ' → ' || coalesce(j_new ->> 'role', '(removido)') END
   );
   RETURN NULL;   -- AFTER trigger
 END $$;
