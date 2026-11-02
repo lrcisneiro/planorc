@@ -5,8 +5,8 @@ import { PostosPills } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { pageAll } from '../../lib/pageAll'
 import { pessoaChave } from '../../lib/pessoaChave'
-import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
-import { ChevronDown, ChevronRight, Users, X, Maximize2, Minimize2, Pencil } from 'lucide-react'
+import { FiltrosButton, effectiveCcFilter, escopoFiltro, ModalPanel, Checklist } from '../dashboard/DashFiltros'
+import { ChevronDown, ChevronRight, Users, X, Maximize2, Minimize2, Pencil, Briefcase } from 'lucide-react'
 
 // ============================================================
 // Organograma do quadro — leitura.
@@ -285,7 +285,12 @@ export default function OrganogramaPage() {
   const [areaSel, setAreaSel] = useState<string[]>([])
   const [divisaoSel, setDivisaoSel] = useState<string[]>([])
   const [buSel, setBuSel] = useState<string[]>([])
-  const [cargoSel, setCargoSel] = useState('')
+  // Cargo tem DOIS modos porque as duas perguntas são legítimas e a segunda é a
+  // frequente: "só este cargo" e "o quadro sem estes". Com 106 cargos, forçar a
+  // segunda pela primeira significaria marcar 104 caixas.
+  const [cargoSel, setCargoSel] = useState<string[]>([])
+  const [cargoModo, setCargoModo] = useState<'incluir' | 'ocultar'>('ocultar')
+  const [cargoAberto, setCargoAberto] = useState(false)
   const [comDemitidos, setComDemitidos] = useState(false)
   const [abertos, setAbertos] = useState<Set<string>>(new Set())
   const [sel, setSel] = useState<string | null>(null)
@@ -334,8 +339,10 @@ export default function OrganogramaPage() {
       (!empF || (p.empresa_id && empF.includes(p.empresa_id))) &&
       (!filF || (p.filial_id && filF.includes(p.filial_id))) &&
       (!ccF  || (p.cc_id && ccF.includes(p.cc_id))) &&
-      (!cargoSel || p.cargo_id === cargoSel))
-  }, [postos, comDemitidos, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, cargoSel,
+      (!cargoSel.length || (cargoModo === 'incluir'
+        ? cargoSel.includes(p.cargo_id || '')
+        : !cargoSel.includes(p.cargo_id || ''))))
+  }, [postos, comDemitidos, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, cargoSel, cargoModo,
       empresas, filiais, ccs, acesso])
 
   // Headcount: a regra de "quem é uma pessoa" mora em `pessoaChave` — a mesma
@@ -564,13 +571,12 @@ export default function OrganogramaPage() {
                          buSel={buSel} setBuSel={setBuSel} />
         </div>
         <div style={S.fld}>
-          <span style={S.lbl}>Cargo</span>
-          {/* Ordenado por quantidade de gente: com 106 cargos e 82% num só, a
-              lista alfabética esconderia justamente os que importam. */}
-          <select style={{ ...S.sel, maxWidth: 240 }} value={cargoSel} onChange={e => setCargoSel(e.target.value)}>
-            <option value="">Todos os cargos</option>
-            {cargosOrdenados.map(c => <option key={c.id} value={c.id}>{c.nome} ({c.n})</option>)}
-          </select>
+          <span style={S.lbl}>Cargos</span>
+          <button style={S.btn} onClick={() => setCargoAberto(true)}>
+            <Briefcase size={14} /> {!cargoSel.length ? 'Todos'
+              : cargoModo === 'ocultar' ? `${cargoSel.length} oculto${cargoSel.length > 1 ? 's' : ''}`
+              : `só ${cargoSel.length}`}
+          </button>
         </div>
         <button style={S.btn} onClick={() => setAbertos(new Set(todos.map(n => n.key)))}><Maximize2 size={14} /> Expandir tudo</button>
         <button style={S.btn} onClick={() => setAbertos(new Set())}><Minimize2 size={14} /> Recolher</button>
@@ -598,6 +604,28 @@ export default function OrganogramaPage() {
           <Users size={14} /> {comDemitidos ? 'Com demitidos' : 'Só ativos'}
         </button>
       </div>
+
+      {cargoAberto && (
+        <ModalPanel titulo="Cargos" onClose={() => setCargoAberto(false)} width="min(560px, calc(100vw - 40px))">
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {([['ocultar', 'Tirar do quadro'], ['incluir', 'Mostrar só']] as const).map(([k, rot]) => (
+              <button key={k} onClick={() => setCargoModo(k)}
+                style={{ padding: '6px 11px', fontSize: 12.5, borderRadius: 8, cursor: 'pointer', fontWeight: 600,
+                         border: '1px solid ' + (cargoModo === k ? 'var(--violet)' : 'var(--border-strong)'),
+                         background: cargoModo === k ? 'rgba(139,92,246,0.16)' : 'var(--panel)',
+                         color: cargoModo === k ? 'var(--violet)' : 'var(--text-mid)' }}>{rot}</button>
+            ))}
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              {cargoModo === 'ocultar' ? 'marque os cargos que devem SAIR' : 'marque os únicos que devem aparecer'}
+            </span>
+          </div>
+          {/* O número à esquerda é quanta gente tem o cargo. Ordenado por ele, e
+              não alfabeticamente: com 82% do quadro num cargo só, a ordem
+              alfabética esconde justamente os que se quer tirar. */}
+          <Checklist titulo="" items={cargosOrdenados.map(c => ({ id: c.id, codigo: String(c.n), descricao: c.nome }))}
+                     sel={cargoSel} setSel={setCargoSel} />
+        </ModalPanel>
+      )}
 
       {erro && <div style={S.aviso}>Não foi possível carregar: {erro}</div>}
 
