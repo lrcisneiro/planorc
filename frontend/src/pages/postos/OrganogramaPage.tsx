@@ -32,6 +32,7 @@ type Posto = {
   id: string; codigo: string; nome: string | null; matricula: string | null
   cargo_id: string | null; cc_id: string | null; empresa_id: string; filial_id: string | null
   fte: number | null; ativo: boolean | null; regime: string | null; area_func_id: string | null
+  funcionario_id: string | null
 }
 type CC = {
   id: string; codigo: string; descricao: string | null; pai_id: string | null
@@ -280,6 +281,10 @@ export default function OrganogramaPage() {
   const [abertos, setAbertos] = useState<Set<string>>(new Set())
   const [sel, setSel] = useState<string | null>(null)
   const [modo, setModo] = useState<'ver' | 'atribuir'>('ver')
+  // Listar por pessoa ou por posto. Sem isto o painel dizia "6 pessoas" e
+  // mostrava 11 linhas com nomes repetidos — o cabeçalho contava gente e a
+  // lista contava vínculo, e quem lê conclui que um dos dois está errado.
+  const [listar, setListar] = useState<'pessoas' | 'postos'>('pessoas')
   const [erro, setErro] = useState('')
 
   // try/finally não é zelo: sem ele, UMA consulta que falha deixa `loading` em
@@ -289,7 +294,7 @@ export default function OrganogramaPage() {
   const carregar = async () => {
     try {
     const [pd, cd, gd, ed, ad] = await Promise.all([
-      pageAll(() => supabase.from('posto_v').select('id,codigo,nome,matricula,cargo_id,cc_id,empresa_id,filial_id,fte,ativo,regime,area_func_id')),
+      pageAll(() => supabase.from('posto_v').select('id,codigo,nome,matricula,cargo_id,cc_id,empresa_id,filial_id,fte,ativo,regime,area_func_id,funcionario_id')),
       pageAll(() => supabase.from('centro_custo').select('id,codigo,descricao,pai_id,area_nome,divisao_nome,bu_nome').eq('ativo', true).order('codigo')),
       pageAll(() => supabase.from('cargo').select('id,nome')),
       supabase.from('empresa').select('id,codigo').order('codigo').then(r => r.data || []),
@@ -469,6 +474,26 @@ export default function OrganogramaPage() {
       .sort((a, b) => (a.nome || a.codigo).localeCompare(b.nome || b.codigo))
   }, [noSel, filtrados, campoFonte])
 
+  // Uma linha por pessoa, com os postos dela somados. O cargo e o regime vêm
+  // dos vínculos — quem tem pró-labore em quatro empresas tem quatro, e o
+  // interessante é ver isso junto, não espalhado em quatro linhas iguais.
+  const agrupado = useMemo(() => {
+    const g: Record<string, { chave: string; nome: string; postos: Posto[]; fte: number }> = {}
+    for (const p of pessoasSel) {
+      const k = pessoaChave(p)
+      const e = (g[k] ||= { chave: k, nome: p.nome || 'vaga planejada', postos: [], fte: 0 })
+      e.postos.push(p); e.fte += Number(p.fte) || 0
+    }
+    return Object.values(g).map(e => {
+      const cargos_ = [...new Set(e.postos.map(x => cargos[x.cargo_id || ''] || '—'))]
+      const regimes = [...new Set(e.postos.map(x => (x.regime || '').replace('BR-', '')).filter(Boolean))]
+      const areas_ = noSel && noSel.filhos.length > 0
+        ? [...new Set(e.postos.map(x => rotuloNo[(x as any)[campoFonte] || ''] || '').filter(Boolean))]
+        : []
+      return { ...e, detalhe: [cargos_.join(' · '), regimes.join('/'), areas_.join(' · ')].filter(Boolean).join(' · ') }
+    }).sort((a, b) => a.nome.localeCompare(b.nome))
+  }, [pessoasSel, cargos, noSel, rotuloNo, campoFonte])
+
   const preench = useMemo(() => {
     const c = (f: keyof CC) => ccs.filter(x => (x[f] as string | null)?.trim()).length
     return { area: c('area_nome'), divisao: c('divisao_nome'), bu: c('bu_nome'), tot: ccs.length }
@@ -507,7 +532,20 @@ export default function OrganogramaPage() {
         </div>
         <button style={S.btn} onClick={() => setAbertos(new Set(todos.map(n => n.key)))}><Maximize2 size={14} /> Expandir tudo</button>
         <button style={S.btn} onClick={() => setAbertos(new Set())}><Minimize2 size={14} /> Recolher</button>
-        <button style={{ ...S.btn, marginLeft: 'auto', ...(modo === 'atribuir' ? { borderColor: 'var(--violet)', color: 'var(--violet)' } : {}) }}
+        <div style={{ ...S.fld, marginLeft: 'auto' }}>
+          <span style={S.lbl}>Listar</span>
+          <div style={{ display: 'flex', border: '1px solid var(--border-strong)', borderRadius: 8, overflow: 'hidden' }}>
+            {(['pessoas', 'postos'] as const).map(k => (
+              <button key={k} onClick={() => setListar(k)}
+                style={{ padding: '7px 12px', fontSize: 12.5, border: 'none', cursor: 'pointer', fontWeight: 600,
+                         background: listar === k ? 'rgba(139,92,246,0.18)' : 'transparent',
+                         color: listar === k ? 'var(--violet)' : 'var(--text-mid)' }}>
+                {k === 'pessoas' ? 'Pessoas' : 'Postos'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button style={{ ...S.btn, ...(modo === 'atribuir' ? { borderColor: 'var(--violet)', color: 'var(--violet)' } : {}) }}
                 onClick={() => setModo(m => m === 'ver' ? 'atribuir' : 'ver')}
                 title="Dizer em que área funcional cada posto está. O caminho rápido é filtrar por centro de custo e atribuir o lote.">
           <Pencil size={14} /> {modo === 'atribuir' ? 'Voltar ao organograma' : 'Atribuir área'}
@@ -568,12 +606,30 @@ export default function OrganogramaPage() {
                   <X size={15} style={{ cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 }} onClick={() => setSel(null)} />
                 </div>
                 <div style={{ fontSize: 11.5, color: 'var(--muted)', margin: '3px 0 10px' }}>
-                  {noSel.tPessoas} pessoa{noSel.tPessoas === 1 ? '' : 's'} · {noSel.tPostos} posto(s)
+                  <b style={{ color: 'var(--text-mid)' }}>{listar === 'pessoas' ? noSel.tPessoas : noSel.tPostos}</b>
+                  {' '}{listar === 'pessoas' ? `pessoa${noSel.tPessoas === 1 ? '' : 's'} listada${noSel.tPessoas === 1 ? '' : 's'}` : `posto${noSel.tPostos === 1 ? '' : 's'} listado${noSel.tPostos === 1 ? '' : 's'}`}
+                  {' · '}{listar === 'pessoas' ? `${noSel.tPostos} posto(s)` : `${noSel.tPessoas} pessoa(s)`}
                   {Math.abs(noSel.tFte - noSel.tPostos) > 0.01 && <> · {nf(noSel.tFte)} FTE</>}
                   {noSel.filhos.length > 0 && <> · {noSel.filhos.length} abaixo</>}
                 </div>
                 <div style={{ maxHeight: 460, overflowY: 'auto' }}>
-                  {pessoasSel.map(p => (
+                  {listar === 'pessoas' ? agrupado.map(g => (
+                    <div key={g.chave} style={S.pess}>
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ color: 'var(--text)', fontWeight: 600, display: 'block', overflow: 'hidden',
+                                       textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {g.nome}
+                          {g.postos.length > 1 && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: 'var(--violet)',
+                                background: 'rgba(139,92,246,0.14)', border: '1px solid rgba(139,92,246,0.35)',
+                                borderRadius: 5, padding: '0 4px' }}
+                                title={g.postos.map(x => x.codigo).join(' · ')}>{g.postos.length} postos</span>}
+                        </span>
+                        <span style={{ color: 'var(--muted)', fontSize: 11, display: 'block', overflow: 'hidden',
+                                       textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.detalhe}</span>
+                      </span>
+                      <span style={{ color: 'var(--text-mid)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{nf(g.fte)}</span>
+                    </div>
+                  )) : pessoasSel.map(p => (
                     <div key={p.id} style={S.pess}>
                       <span style={{ minWidth: 0 }}>
                         <span style={{ color: 'var(--text)', fontWeight: 600, display: 'block', overflow: 'hidden',
