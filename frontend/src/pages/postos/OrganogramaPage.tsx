@@ -162,6 +162,12 @@ function Atribuir({ postos, ccs, areas, caminho, cargos, onFim }: {
   const [ccFiltro, setCcFiltro] = useState('')
   const [soSem, setSoSem] = useState(true)
   const [lote, setLote] = useState('')
+  // Rascunho: o lote PREENCHE, não grava. Antes "Aplicar aos N" escrevia no
+  // banco na hora, e quem errasse o filtro descobria depois — numa tela cujo
+  // propósito é classificar 324 postos, a chance de errar o recorte é alta e o
+  // desfazer não existia. Agora o lote é uma sugestão em massa, a linha é a
+  // correção fina, e gravar é um ato separado.
+  const [rascunho, setRascunho] = useState<Record<string, string | null>>({})
   const [busca, setBusca] = useState('')
   const [erro, setErro] = useState('')
   const [gravando, setGravando] = useState(false)
@@ -175,19 +181,35 @@ function Atribuir({ postos, ccs, areas, caminho, cargos, onFim }: {
     (!busca.trim() || `${p.nome || ''} ${p.codigo} ${p.matricula || ''}`.toLowerCase().includes(busca.trim().toLowerCase()))
   ), [postos, ccFiltro, soSem, busca])
 
-  // Grava e CONFERE o retorno: update barrado por RLS não dá erro — filtra as
-  // linhas, afeta zero e volta sucesso. Sem esta conferência a tela mentiria.
-  const gravar = async (ids: string[], areaId: string | null) => {
-    if (!ids.length) return
+  // Grava as pendências agrupadas por área: uma chamada por área, não uma por
+  // posto. E CONFERE o retorno, porque update barrado por RLS não dá erro —
+  // filtra as linhas, afeta zero e volta sucesso.
+  const aplicar = async () => {
+    if (!pendentes.length) return
     setErro(''); setGravando(true)
-    const { data, error } = await supabase.from('posto').update({ area_func_id: areaId }).in('id', ids).select('id')
-    setGravando(false)
-    if (error) { setErro(error.message); return }
-    if (!data || data.length < ids.length) {
-      setErro(`Gravou ${data?.length ?? 0} de ${ids.length}. As demais estão fora do seu escopo de edição.`)
+    const porArea: Record<string, string[]> = {}
+    for (const [id, v] of pendentes) (porArea[v || '__nulo'] ||= []).push(id)
+    let gravou = 0
+    for (const [area, ids] of Object.entries(porArea)) {
+      const { data, error } = await supabase.from('posto')
+        .update({ area_func_id: area === '__nulo' ? null : area }).in('id', ids).select('id')
+      if (error) { setErro(error.message); setGravando(false); return }
+      gravou += data?.length ?? 0
     }
+    setGravando(false)
+    if (gravou < pendentes.length) {
+      setErro(`Gravou ${gravou} de ${pendentes.length}. As demais estão fora do seu escopo de edição.`)
+    }
+    setRascunho({})
     onFim()
   }
+
+  const alterada = (p: Posto) => p.id in rascunho && (rascunho[p.id] || null) !== (p.area_func_id || null)
+  const valorDe = (p: Posto) => (p.id in rascunho ? rascunho[p.id] : p.area_func_id) || ''
+  const pendentes = useMemo(
+    () => Object.entries(rascunho).filter(([id, v]) =>
+      (v || null) !== (postos.find(p => p.id === id)?.area_func_id || null)),
+    [rascunho, postos])
 
   const semArea = postos.filter(p => !p.area_func_id).length
   return (
@@ -220,23 +242,41 @@ function Atribuir({ postos, ccs, areas, caminho, cargos, onFim }: {
 
       <div style={{ ...S.bar, background: 'var(--bg-soft)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', margin: '0 0 14px' }}>
         <div style={S.fld}>
-          <span style={S.lbl}>Atribuir em lote</span>
+          <span style={S.lbl}>Preencher em lote</span>
           <select style={{ ...S.sel, minWidth: 340 }} value={lote} onChange={e => setLote(e.target.value)}>
             <option value="">escolha a área…</option>
             {opcoes.map(a => <option key={a.id} value={a.id}>{caminho[a.id]}</option>)}
           </select>
         </div>
-        <button style={{ ...S.btn, borderColor: 'var(--violet)', color: 'var(--violet)',
-                         opacity: lote && lista.length && !gravando ? 1 : 0.4,
-                         cursor: lote && lista.length && !gravando ? 'pointer' : 'not-allowed' }}
-                disabled={!lote || !lista.length || gravando}
-                onClick={() => {
-                  if (!window.confirm(`Atribuir "${caminho[lote]}" a ${lista.length} posto(s) filtrado(s)?`)) return
-                  gravar(lista.map(p => p.id), lote)
-                }}>
-          {gravando ? 'Gravando…' : `Aplicar aos ${lista.length} filtrados`}
+        <button style={{ ...S.btn, opacity: lote && lista.length ? 1 : 0.4,
+                         cursor: lote && lista.length ? 'pointer' : 'not-allowed' }}
+                disabled={!lote || !lista.length}
+                title="Preenche a coluna dos filtrados. Nada é gravado ainda — confira, ajuste o que precisar, e grave no fim."
+                onClick={() => setRascunho(r => {
+                  const n = { ...r }
+                  for (const p of lista) n[p.id] = lote
+                  return n
+                })}>
+          Preencher os {lista.length} filtrados
         </button>
       </div>
+
+      {pendentes.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '0 0 14px',
+                      padding: '11px 14px', borderRadius: 10,
+                      background: 'rgba(139,92,246,0.10)', border: '1px solid var(--violet)' }}>
+          <b style={{ fontSize: 13, color: 'var(--text)' }}>
+            {pendentes.length} alteração{pendentes.length > 1 ? 'ões' : ''} pendente{pendentes.length > 1 ? 's' : ''}
+          </b>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>nada foi gravado ainda</span>
+          <div style={{ flex: 1 }} />
+          <button style={S.btn} onClick={() => setRascunho({})} disabled={gravando}>Descartar</button>
+          <button style={{ ...S.btn, borderColor: 'var(--violet)', color: 'var(--violet)', fontWeight: 600 }}
+                  onClick={aplicar} disabled={gravando}>
+            {gravando ? 'Gravando…' : `Gravar ${pendentes.length}`}
+          </button>
+        </div>
+      )}
 
       <div style={{ ...S.canvas, overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
@@ -253,8 +293,11 @@ function Atribuir({ postos, ccs, areas, caminho, cargos, onFim }: {
                 <td style={{ padding: '5px 8px', color: 'var(--text-mid)' }}>{cargos[p.cargo_id || ''] || '—'}</td>
                 <td style={{ padding: '5px 8px', color: 'var(--text-mid)' }}>{ccNome[p.cc_id || ''] || '—'}</td>
                 <td style={{ padding: '5px 8px' }}>
-                  <select style={{ ...S.sel, padding: '4px 6px', fontSize: 12, minWidth: 260 }}
-                          value={p.area_func_id || ''} onChange={e => gravar([p.id], e.target.value || null)}>
+                  <select style={{ ...S.sel, padding: '4px 6px', fontSize: 12, minWidth: 260,
+                                   borderColor: alterada(p) ? 'var(--violet)' : 'var(--border-strong)',
+                                   background: alterada(p) ? 'rgba(139,92,246,0.10)' : 'var(--panel)' }}
+                          value={valorDe(p)}
+                          onChange={e => setRascunho(r => ({ ...r, [p.id]: e.target.value || null }))}>
                     <option value="">—</option>
                     {opcoes.map(a => <option key={a.id} value={a.id}>{caminho[a.id]}</option>)}
                   </select>
