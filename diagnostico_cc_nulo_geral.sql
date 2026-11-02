@@ -15,6 +15,10 @@
 --
 -- Por isso o corte por EMPRESA e por ORIGEM: é o que separa um do outro.
 --
+-- `fat_saldo` fica FORA: não tem cc_id. O balancete é por conta, empresa,
+-- filial, ano e mês — então o Balanço não é recortável por centro de custo,
+-- só por empresa/filial. Presumi o contrário e a consulta quebrou.
+--
 -- Só leitura. Uma consulta só.
 -- ============================================================
 with orc as (
@@ -28,17 +32,12 @@ real as (
     from fat_realizado f join empresa e on e.id = f.empresa_id
    where f.cc_id is null group by 1,2,3,4
 ),
-sal as (
-  select 'fat_saldo', coalesce(f.origem, '—'), e.codigo, f.ano, count(*), round(sum(f.saldo), 2)
-    from fat_saldo f join empresa e on e.id = f.empresa_id
-   where f.cc_id is null group by 1,2,3,4
-),
 fol as (
   select 'fat_folha', f.tipo, e.codigo, f.ano, count(*), round(sum(f.valor), 2)
     from fat_folha f join empresa e on e.id = f.empresa_id
    where f.cc_id is null group by 1,2,3,4
 ),
-tudo as (select * from orc union all select * from real union all select * from sal union all select * from fol)
+tudo as (select * from orc union all select * from real union all select * from fol)
 select '1 · total por tabela'                        as secao,
        t.tabela                                       as a,
        ''                                             as b,

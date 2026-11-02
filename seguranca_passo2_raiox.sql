@@ -69,15 +69,31 @@ select '2 · o que cada política filtra',
   join pg_class c on c.oid = p.polrelid
  where c.relname in (select tabela from alvo)
 union all
--- Quantas linhas o escopo precisaria filtrar, e se há NULO — a armadilha nº 3:
--- `cc_id = ANY(permitidos)` NEGA nulo, e sumiria orçado legítimo sem aviso.
-select '3 · tamanho e nulos (armadilha do NULL)',
+-- ⚠ NEM TODO FATO TEM cc_id. `fat_saldo` não tem: o balancete é por conta,
+-- empresa, filial, ano e mês — o CLAUDE.md já dizia, e eu presumi o contrário.
+-- Consequência de desenho: o **Balanço não pode ser recortado por centro de
+-- custo**, só por empresa/filial. Para o caso da Diretoria isso é aceitável
+-- (balanço é patrimonial, não custo por CC), mas tem de ser dito.
+--
+-- Esta seção pergunta ao CATÁLOGO quem tem a coluna, em vez de eu listar de
+-- memória — foi exatamente assim que este arquivo quebrou na primeira tentativa.
+select '3a · quais tabelas têm cc_id',
+       c.table_name, c.column_name,
+       case when c.is_nullable = 'YES' then 'anulável' else 'NOT NULL' end,
+       '', ''
+  from information_schema.columns c
+ where c.table_schema = 'public'
+   and c.column_name in ('cc_id', 'empresa_id', 'filial_id')
+   and c.table_name in (select tabela from alvo)
+union all
+-- Contagem só nas que eu CONFERI que têm a coluna. Se a seção 3a mostrar outra
+-- tabela com cc_id anulável, ela precisa entrar aqui.
+select '3b · linhas e nulos (armadilha do NULL)',
        t.tabela, '', t.linhas::text, t.cc_nulo::text || ' com cc_id NULO',
        case when t.cc_nulo > 0 then '⚠ a policy precisa tratar NULL explicitamente' else '' end
   from (
     select 'fat_orcado' as tabela, count(*) as linhas, count(*) filter (where cc_id is null) as cc_nulo from fat_orcado
     union all select 'fat_realizado', count(*), count(*) filter (where cc_id is null) from fat_realizado
-    union all select 'fat_saldo', count(*), count(*) filter (where cc_id is null) from fat_saldo
     union all select 'fat_folha', count(*), count(*) filter (where cc_id is null) from fat_folha
     union all select 'posto', count(*), count(*) filter (where cc_id is null) from posto
   ) t
