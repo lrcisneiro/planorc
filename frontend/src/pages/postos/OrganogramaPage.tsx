@@ -105,7 +105,11 @@ function Caixa({ n, max, aberto, temFilhos, onToggle, onSel, sel }: {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '7px 0 5px', paddingLeft: 20 }}>
         <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{n.tPessoas}</span>
         <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-          pessoa{n.tPessoas === 1 ? '' : 's'} · {nf(n.tFte)} FTE
+          pessoa{n.tPessoas === 1 ? '' : 's'} · {n.tPostos} posto{n.tPostos === 1 ? '' : 's'}
+          {/* FTE só quando diz algo: nesta base todo posto vale 1, então FTE é
+              idêntico a postos — e "43 pessoas · 53 FTE" parecia defeito quando
+              era só gente com dois postos. */}
+          {Math.abs(n.tFte - n.tPostos) > 0.01 && <> · {nf(n.tFte)} FTE</>}
           {temFilhos && n.pessoas > 0 && <> · <b style={{ color: 'var(--text-mid)' }}>{n.pessoas}</b> aqui</>}
         </span>
       </div>
@@ -410,6 +414,11 @@ export default function OrganogramaPage() {
       pessoas: new Set(filtrados.map(chave)).size,
       postos: filtrados.length,
       fte: filtrados.reduce((s, p) => s + (Number(p.fte) || 0), 0),
+      multi: (() => {
+        const c: Record<string, number> = {}
+        for (const p of filtrados) c[chave(p)] = (c[chave(p)] || 0) + 1
+        return Object.values(c).filter(v => v > 1).length
+      })(),
       nos: raizes.length,
     }
     return { raizes, max, total }
@@ -515,8 +524,14 @@ export default function OrganogramaPage() {
           <div style={S.kpiH}>matrículas distintas</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Postos</div><div style={S.kpiV}>{total.postos}</div>
           <div style={S.kpiH}>{total.postos - total.pessoas} a mais que pessoas</div></div>
-        <div style={S.kpi}><div style={S.kpiL}>FTE</div><div style={S.kpiV}>{nf(total.fte)}</div>
-          <div style={S.kpiH}>inclui ½ períodos</div></div>
+        {/* Mostra FTE onde ele informa (algum posto com ½ período) e, onde não,
+            responde a pergunta que o número de postos levanta: por que há mais
+            posto que gente. */}
+        {Math.abs(total.fte - total.postos) > 0.01
+          ? <div style={S.kpi}><div style={S.kpiL}>FTE</div><div style={S.kpiV}>{nf(total.fte)}</div>
+              <div style={S.kpiH}>inclui ½ períodos</div></div>
+          : <div style={S.kpi}><div style={S.kpiL}>Em 2+ postos</div><div style={S.kpiV}>{total.multi}</div>
+              <div style={S.kpiH}>pessoas com mais de um posto</div></div>}
         <div style={S.kpi}><div style={S.kpiL}>Nós no 1º nível</div><div style={S.kpiV}>{total.nos}</div>
           <div style={S.kpiH}>{FONTES.find(f => f.k === fonte)?.label}</div></div>
       </div>
@@ -551,7 +566,8 @@ export default function OrganogramaPage() {
                   <X size={15} style={{ cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 }} onClick={() => setSel(null)} />
                 </div>
                 <div style={{ fontSize: 11.5, color: 'var(--muted)', margin: '3px 0 10px' }}>
-                  {noSel.tPessoas} pessoa{noSel.tPessoas === 1 ? '' : 's'} · {noSel.tPostos} posto(s) · {nf(noSel.tFte)} FTE
+                  {noSel.tPessoas} pessoa{noSel.tPessoas === 1 ? '' : 's'} · {noSel.tPostos} posto(s)
+                  {Math.abs(noSel.tFte - noSel.tPostos) > 0.01 && <> · {nf(noSel.tFte)} FTE</>}
                   {noSel.filhos.length > 0 && <> · {noSel.filhos.length} abaixo</>}
                 </div>
                 <div style={{ maxHeight: 460, overflowY: 'auto' }}>
