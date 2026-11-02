@@ -4,7 +4,9 @@
 -- Sem filtro por tenant: no SQL Editor current_tenant_id() é NULL.
 SELECT
   ut.role                                   AS papel,
-  split_part(u.email, '@', 1)               AS quem,
+  u.email,  -- COMPLETO: encurtar para antes do '@' já me fez confundir três
+            -- contas de teste (gmail/totvs/icloud) com três linhas de uma pessoa
+
   f.capacidade,
   CASE WHEN f.permitido THEN 'LIBERADO (override)' ELSE 'NEGADO (override)' END AS override,
   -- quantas outras pessoas do MESMO papel não têm override nesta capacidade,

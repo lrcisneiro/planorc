@@ -28,16 +28,15 @@ const RANK: Record<Papel, number> = { admin: 3, member: 2, viewer: 1 }
 /** Papel efetivo de quem está logado = **o mais privilegiado** das linhas de
  *  `user_tenant`.
  *
- *  Por que não `linhas[0].role`: nada garante que exista uma linha só. O banco
- *  não tinha unique por (tenant, pessoa) e os testes de perfil deixaram a mesma
- *  conta como admin, member E viewer. Sem ordem explícita, qual linha vem é
- *  decidido pelo plano de execução — a pessoa abria como admin numa sessão e
- *  como viewer na outra. Pior: o banco resolve por EXISTS (`eh_admin()`), então
- *  dizia admin sempre, e os dois discordavam sobre quem a pessoa é.
+ *  Por que não `linhas[0].role`: hoje cada pessoa tem uma linha, mas nada no
+ *  banco garantia isso — faltava o unique por (tenant, pessoa), que a `v3_140`
+ *  criou. Sem ele, trocar papel por INSERT em vez de UPDATE deixaria duas
+ *  linhas, e aí qual vale seria escolha do plano de execução: a pessoa abriria
+ *  como admin numa sessão e viewer na outra, enquanto o banco responde pelo
+ *  mais privilegiado (`eh_admin()` é EXISTS). Discordância sem erro nenhum.
  *
- *  `v3_140` cria o unique e apaga as duplicatas; isto aqui é a outra metade —
- *  com unique ou sem, a resposta é sempre a mesma. Escolher o mais privilegiado
- *  é o que o banco já praticava, então o frontend passa a concordar com ele.
+ *  Escolher o mais privilegiado é o que o banco já pratica, então o frontend
+ *  concorda com ele por construção, e não só porque o unique está lá.
  *
  *  Sem nenhuma linha devolve `''` — ausência não é viewer: quem chama decide,
  *  e todos decidem pelo menor acesso. */
