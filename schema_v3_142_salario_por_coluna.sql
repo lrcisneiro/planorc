@@ -10,6 +10,12 @@
 -- todas as pessoas, então privilégio de coluna não distingue quem é quem. A
 -- distinção precisa estar em função, lida em tempo de consulta.
 --
+-- ⚠ TRÊS PASSOS, e a ordem é o ponto (de novo): esta migration só ADICIONA —
+-- cria a função e a view, sem tirar nada. Depois vem o DEPLOY, que faz as telas
+-- lerem a view. Só então a `v3_143` tira o SELECT de `posto`. Fazer o REVOKE
+-- antes do deploy derruba Quadro e Memória, que hoje leem `select('*')` da
+-- tabela; fazer o deploy antes da view derruba as sete telas de Postos.
+--
 -- COMO FICA, em duas peças que se sustentam:
 --   1. `GRANT SELECT` passa a ser POR COLUNA em `posto`, sem as três sensíveis
 --      (`salario_base`, `reajuste_pct`, `reajuste_valor`). Pedir uma delas
@@ -36,7 +42,7 @@
 -- deliberada e a única do tipo: para ser decisão de segurança ela tem de ser
 -- tomada no banco, e o catálogo não existe aqui. Se mudar lá, mudar aqui.
 --
--- Termina em SELECT. Prova por personificação em `prova_posto_salario.sql`.
+-- Termina em SELECT. Prova (depois da v3_143) em `prova_posto_salario.sql`.
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION pode_ver_folha() RETURNS boolean
@@ -71,25 +77,15 @@ SELECT p.id, p.tenant_id, p.codigo, p.cargo_id, p.empresa_id, p.filial_id, p.cc_
    AND ((SELECT escopo_cc()) IS NULL
         OR (p.cc_id IS NOT NULL AND p.cc_id = ANY((SELECT escopo_cc())::uuid[])));
 
--- Privilégio de coluna: tira o SELECT de tabela e devolve sem as três.
-REVOKE SELECT ON posto FROM authenticated;
-GRANT SELECT (
-  id, tenant_id, codigo, cargo_id, empresa_id, filial_id, cc_id, sindicato_id,
-  funcionario_id, ini_ano, ini_mes, fim_ano, fim_mes, fte, obs, ativo, regime,
-  nome, matricula, recurso_cod, recebe_hora, reajuste_mes,
-  afast_ini_ano, afast_ini_mes, afast_fim_ano, afast_fim_mes, afast_motivo, admissao
-) ON posto TO authenticated;
--- INSERT/UPDATE/DELETE seguem como estavam: escrever salário continua podendo,
--- sob as políticas de escrita. Gravar não é ler.
 GRANT SELECT ON posto_v TO authenticated;
 
-SELECT 'colunas sem SELECT em posto (esperado: as 3)' AS secao,
-       string_agg(c.column_name, ', ' ORDER BY c.column_name) AS resultado
-  FROM information_schema.columns c
- WHERE c.table_schema = 'public' AND c.table_name = 'posto'
-   AND NOT EXISTS (SELECT 1 FROM information_schema.column_privileges g
-                    WHERE g.table_name = 'posto' AND g.column_name = c.column_name
-                      AND g.grantee = 'authenticated' AND g.privilege_type = 'SELECT')
+-- NÃO revoga nada aqui: o REVOKE vive na v3_143, para rodar DEPOIS do deploy.
+-- Esta migration é puramente aditiva — o frontend em produção, que ainda lê
+-- `posto` direto, continua funcionando.
+SELECT 'view posto_v' AS secao,
+       CASE WHEN EXISTS (SELECT 1 FROM pg_views WHERE viewname='posto_v')
+            THEN 'criada — pode fazer o deploy' ELSE '⛔ não criada' END AS resultado
 UNION ALL
-SELECT 'view posto_v', CASE WHEN EXISTS (SELECT 1 FROM pg_views WHERE viewname='posto_v')
-                           THEN 'criada' ELSE '⛔ não criada' END;
+SELECT 'mascara o salário?',
+       CASE WHEN pg_get_viewdef('posto_v'::regclass) LIKE '%pode_ver_folha%'
+            THEN 'sim' ELSE '⛔ não' END;
