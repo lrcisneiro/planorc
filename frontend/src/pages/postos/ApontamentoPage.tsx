@@ -95,7 +95,7 @@ export default function ApontamentoPage() {
       supabase.from('empresa').select('id,codigo').eq('ativo', true),
       supabase.from('filial').select('id,codigo'),
       supabase.from('centro_custo').select('id,codigo').eq('ativo', true),
-      pageAll(() => supabase.from('posto').select('id,codigo,matricula,recurso_cod,filial_id,regime,ativo')),
+      pageAll(() => supabase.from('posto_v').select('id,codigo,matricula,recurso_cod,filial_id,regime,ativo')),
       pageAll(() => supabase.from('fat_apontamento').select('ano,mes,lote,horas,valor,funcao,recurso_cod')),
       supabase.from('apontamento_funcao').select('id,funcao,recebe_hora').order('funcao'),
     ])

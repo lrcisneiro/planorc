@@ -224,6 +224,36 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > pessoa só, e desenhar uma migration para apagar duplicata que não existia. O domínio era a
 > única coisa que distinguia, e foi o que o encurtamento cortou.
 
+> **Coluna, não só linha — salário (v3_142).** RLS limita LINHA; quem alcançava um posto lia
+> `salario_base` pela API, qualquer que fosse a tela (as telas já se comportavam: 5 das 7 leituras
+> pediam colunas explícitas, nenhuma pedia salário — o furo era a API). Fechado em duas peças:
+> `GRANT SELECT` em `posto` passou a ser **por coluna**, sem `salario_base`/`reajuste_pct`/
+> `reajuste_valor` (pedir direto agora **dá erro**, não devolve nulo em silêncio), e a view
+> **`posto_v`** devolve as três mascaradas por `pode_ver_folha()`. **Leitura vai na view, escrita
+> na tabela** — 9 × `from('posto_v').select` contra 7 × `from('posto').update|insert|upsert|
+> delete`. Gravar não é ler, então escrever salário continua podendo.
+>
+> ⚠ A view roda como **dono** (sem `security_invoker`) por necessidade: com ele herdaria o
+> privilégio de coluna do chamador e mascararia para todo mundo, admin incluído. Rodando como
+> dono o RLS de `posto` não se aplica, então **o recorte de linha vai explícito no `WHERE` da
+> view**, com as mesmas funções da política (`escopo_empresa/filial/cc`). Repete-se a forma do
+> predicado, não a regra — ela continua só em `escopo_dim()`. Ao mexer no escopo, conferir os dois.
+> A view lista colunas uma a uma: coluna nova em `posto` não aparece nela e a tela quebra à vista,
+> o que é melhor que vazar calada.
+>
+> ⚠ **Única repetição deliberada do catálogo:** o `padrao` de `posto.salario` (admin ✓, member ✓,
+> viewer ✗) está também em `pode_ver_folha()`, em SQL. Decisão de segurança tem de ser tomada no
+> banco, e o catálogo do frontend não existe lá. Mudar num lugar = mudar no outro.
+>
+> ⚠ **Aresta conhecida:** quem for *negado* e abrir Quadro/Memória vê salário e custo como zero,
+> não como "sem permissão" — o servidor mascara, a tela não sabe. Só acontece com negação
+> explícita (o padrão de member vê), mas o conserto é gatear a coluna com `can('posto.salario')`.
+
+> **Cadastros de fundação são admin (v3_141).** `tenant`, `dimensao`, `dimensao_config`,
+> `grupo_empresarial` aceitavam escrita de `member` — folga da v3_135. Escrever em `dimensao` é
+> criar dimensão de **dados**, isto é, definir por onde o escopo recorta: é mexer no controle de
+> acesso. Leitura não mudou.
+
 > **Convenção — incluir uma funcionalidade nova no controle de acesso:** (1) adicionar uma entrada em `CAPACIDADES` (chave + label + categoria + `padrao` por papel); (2) gatear o elemento na tela com `can('chave')`. A seção "Funções e menus" em Configurações itera o catálogo, então a nova capacidade aparece sozinha com os controles Herdar/Liberar/Negar; `user_acesso_funcao` guarda por chave de texto, sem migration. Enquanto não catalogada, `can()` devolve `true` (não esconde nada por engano). Dimensão de **dados** nova é outro caminho: cadastro de `dimensao`.
 
 ## Legado em transição

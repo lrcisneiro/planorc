@@ -93,7 +93,7 @@ export default function PostosMemoriaPage() {
       setVersoes(vs.data || []); setVerbas((vb.data || []) as VerbaRegra[])
       setSindMesBase(Object.fromEntries((si.data || []).map((s: any) => [s.id, s.mes_database || 1])))
       if (vs.data?.length) setVersaoSel(prev => vs.data.some((x: any) => x.id === prev) ? prev : vs.data[0].id)
-      const pd = await pageAll(() => supabase.from('posto').select('*, cargo(nome), empresa(codigo), filial(codigo), centro_custo(codigo,descricao)').order('codigo'))
+      const pd = await pageAll(() => supabase.from('posto_v').select('*, cargo(nome), empresa(codigo), filial(codigo), centro_custo(codigo,descricao)').order('codigo'))
       setPostos((pd || []) as Posto[])
       const pv = await pageAll(() => supabase.from('posto_verba').select('posto_id,verba_id,valor').eq('ativo', true))
       const m: Record<string, Record<string, number>> = {}

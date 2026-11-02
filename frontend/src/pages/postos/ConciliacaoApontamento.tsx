@@ -223,7 +223,7 @@ export function ConciliacaoApontamento({ params: p }: { params: ApontParams }) {
       setLoading(true); setErro(null)
       try {
         const [postos, ccs, filiais, empresas, funcoes] = await Promise.all([
-          pageAll(() => supabase.from('posto').select('id,matricula,filial_id,regime,nome,recebe_hora')),
+          pageAll(() => supabase.from('posto_v').select('id,matricula,filial_id,regime,nome,recebe_hora')),
           supabase.from('centro_custo').select('id,codigo,descricao'),
           supabase.from('filial').select('id,codigo,empresa_id'),
           supabase.from('empresa').select('id,codigo,item_contabil,plano_id'),

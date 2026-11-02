@@ -80,6 +80,14 @@ export const CAPACIDADES: Capacidade[] = [
   // sem poder gravar no orçado nem recarregar base. Antes tudo isto estava sob
   // `orcar`, então dar o quadro a alguém dava junto o Aplicar e os importadores
   // — e o Aplicar SUBSTITUI todo o orçado de origem POSTO da versão.
+  // Ver o VALOR da folha é separado de ver o posto. RLS limita linha, não
+  // coluna: quem alcançava um posto lia o salário dele pela API, qualquer que
+  // fosse a tela. A v3_142 fecha isso por privilégio de coluna + a view
+  // `posto_v`, e esta chave é quem decide lá — `pode_ver_folha()` no banco lê
+  // o override por esta mesma chave. O `padrao` abaixo está REPETIDO em SQL
+  // (única repetição do catálogo, e deliberada: decisão de segurança tem de
+  // ser tomada no banco, e o catálogo não existe lá). Mudar aqui = mudar lá.
+  { key: 'posto.salario', label: 'Ver salário e reajuste dos postos', categoria: 'Funções', padrao: { admin: true, member: true, viewer: false } },
   { escrita: true, key: 'posto.aplicar',       label: 'Aplicar o quadro de postos no orçado',   categoria: 'Funções', padrao: { admin: true, member: false, viewer: false } },
 
   // ── Importações ──

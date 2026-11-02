@@ -241,7 +241,7 @@ export default function PostosGradePage() {
     // rateios) e passam de 1000 fácil — sem isto a grade cortaria overrides/rateios de
     // parte dos postos e calcularia o custo errado, sem avisar.
     let data: any[]
-    try { data = await pageAll(() => supabase.from('posto').select('*, cargo(nome), empresa(codigo), filial(codigo), centro_custo(codigo,descricao), sindicato(codigo)').order('codigo')) }
+    try { data = await pageAll(() => supabase.from('posto_v').select('*, cargo(nome), empresa(codigo), filial(codigo), centro_custo(codigo,descricao), sindicato(codigo)').order('codigo')) }
     catch (e: any) { setErro(e?.message || String(e)); return }
     setPostos((data || []) as Posto[])
     const pv = await pageAll(() => supabase.from('posto_verba').select('posto_id,verba_id,valor').eq('ativo', true))
@@ -383,7 +383,7 @@ export default function PostosGradePage() {
       const codigos = payload.map(p => p.codigo)
       const idByCod = new Map<string, string>()
       for (let i = 0; i < codigos.length; i += 150) {
-        const { data } = await supabase.from('posto').select('id,codigo').in('codigo', codigos.slice(i, i + 150))
+        const { data } = await supabase.from('posto_v').select('id,codigo').in('codigo', codigos.slice(i, i + 150))
         for (const x of data || []) idByCod.set(x.codigo, x.id)
       }
 

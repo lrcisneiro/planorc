@@ -110,7 +110,7 @@ export function ConciliacaoQuadro({ params: p }: { params: QuadroParams }) {
       // o código do posto não está no orçado: busca só os que vão aparecer
       const ids = lista.map(x => x.id)
       for (let i = 0; i < ids.length; i += 300) {
-        const { data } = await supabase.from('posto').select('id,codigo').in('id', ids.slice(i, i + 300))
+        const { data } = await supabase.from('posto_v').select('id,codigo').in('id', ids.slice(i, i + 300))
         ;(data || []).forEach((r: any) => { const t = lista.find(x => x.id === r.id); if (t) t.codigo = r.codigo })
       }
       if (!vivo) return

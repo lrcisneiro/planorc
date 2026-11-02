@@ -129,7 +129,7 @@ export function ConciliacaoFolha({ params: p }: { params: ConcilParams }) {
         const pids = [...new Set([...orcRows.map((r: any) => r.posto_id), ...realRows.map((r: any) => r.posto_id)].filter(Boolean))] as string[]
         const postoById: Record<string, any> = {}
         for (let i = 0; i < pids.length; i += 300) {
-          const { data } = await supabase.from('posto').select('id,codigo,nome,matricula,empresa_id,filial_id,cc_id,empresa(codigo),filial(codigo),cargo(nome),centro_custo(codigo,descricao)').in('id', pids.slice(i, i + 300))
+          const { data } = await supabase.from('posto_v').select('id,codigo,nome,matricula,empresa_id,filial_id,cc_id,empresa(codigo),filial(codigo),cargo(nome),centro_custo(codigo,descricao)').in('id', pids.slice(i, i + 300))
           for (const x of data || []) postoById[x.id] = x
         }
         // rateio dos postos — carregado SEMPRE: além do modo rateado, a divergência e o

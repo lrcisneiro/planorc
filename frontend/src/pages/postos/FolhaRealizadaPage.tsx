@@ -136,7 +136,7 @@ export default function FolhaRealizadaPage() {
       supabase.from('moeda').select('slot,codigo').eq('ativo', true).order('slot').then(r => setMoedas(r.data || []))
       // dims do POSTO (cadastro) — para o cabeçalho aglutinado usar a empresa/CC do
       // posto, não a da 1ª linha da folha (que pode ser de outra empresa/CC no detalhe).
-      const pd = await pageAll(() => supabase.from('posto').select('id,codigo,nome,empresa_id,filial_id,cc_id'))
+      const pd = await pageAll(() => supabase.from('posto_v').select('id,codigo,nome,empresa_id,filial_id,cc_id'))
       setPostoDim(new Map(pd.map((p: any) => [p.id, { codigo: p.codigo, nome: p.nome, empresa_id: p.empresa_id, filial_id: p.filial_id, cc_id: p.cc_id }])))
     })()
     loadComps()
@@ -229,7 +229,7 @@ export default function FolhaRealizadaPage() {
       // paginado: plano de contas e lista de postos passam de 1000 fácil — sem isto o
       // import deixaria de casar posto/conta em parte das linhas, sem avisar.
       // posto com campos p/ validar posto_codigo (existência, vigência, coerência) e origem do rateio
-      const pd = await pageAll(() => supabase.from('posto').select('id,codigo,empresa_id,filial_id,cc_id,ini_ano,ini_mes,fim_ano,fim_mes'))
+      const pd = await pageAll(() => supabase.from('posto_v').select('id,codigo,empresa_id,filial_id,cc_id,ini_ano,ini_mes,fim_ano,fim_mes'))
       const postoByCod = new Map(pd.map((p: any) => [String(p.codigo).trim(), p]))
       // regras de rateio p/ EXPANDIR linhas `rateio=S` no import (materializa o rateado)
       const [pr, rr, rd] = await Promise.all([
