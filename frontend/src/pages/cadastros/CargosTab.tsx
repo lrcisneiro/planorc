@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { supabase } from '../../lib/supabase'
+import { supabase, TENANT_ID } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
 import { ChevronDown, ChevronRight, GripVertical, Plus, Trash2, CornerDownLeft, Users } from 'lucide-react'
 
@@ -119,7 +119,12 @@ export function CargosTab() {
     setErro('')
     const nome = window.prompt(pai_id ? `Novo cargo abaixo de "${byId[pai_id].nome}":` : 'Novo cargo (na raiz):')
     if (!nome?.trim()) return
-    const { error } = await supabase.from('cargo').insert({ nome: nome.trim().toUpperCase(), pai_id, ativo: true })
+    // `tenant_id` explícito: `cargo` não tem o gatilho de auto-tenant que outras
+    // tabelas têm, e a política de INSERT exige `tenant_id = current_tenant_id()`.
+    // Sem ele o erro é "new row violates row-level security policy", que soa
+    // como falta de permissão quando na verdade é campo faltando.
+    const { error } = await supabase.from('cargo')
+      .insert({ tenant_id: TENANT_ID, nome: nome.trim().toUpperCase(), pai_id, ativo: true })
     if (error) { setErro(error.message); return }
     if (pai_id) setAbertos(s => new Set(s).add(pai_id))
     carregar()
