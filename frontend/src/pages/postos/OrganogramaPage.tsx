@@ -310,11 +310,15 @@ export default function OrganogramaPage() {
   // Mesma definição da grade, para os dois números nunca discordarem.
   const chave = (p: Posto) => (p.matricula || '').trim() || `__posto_${p.id}`
 
+  // Por qual coluna o nó agrupa. Vive aqui, e não dentro do useMemo, porque o
+  // painel lateral precisa da MESMA resposta — ele testava `cc_id` fixo, e na
+  // visão funcional nenhum posto casava: a lista vinha vazia sem dizer por quê.
+  const campoFonte: 'cc_id' | 'area_func_id' = fonte === 'areaf' ? 'area_func_id' : 'cc_id'
+
   const { raizes, max, total } = useMemo(() => {
     // Agrupa pela dimensão da fonte. `__sem` junta quem não tem nada ali.
-    const campo: 'cc_id' | 'area_func_id' = fonte === 'areaf' ? 'area_func_id' : 'cc_id'
     const porItem: Record<string, Posto[]> = {}
-    for (const p of filtrados) (porItem[(p as any)[campo] || '__sem'] ||= []).push(p)
+    for (const p of filtrados) (porItem[(p as any)[campoFonte] || '__sem'] ||= []).push(p)
 
     const conta = (ps: Posto[]) => ({
       pessoas: new Set(ps.map(chave)).size,
@@ -409,7 +413,7 @@ export default function OrganogramaPage() {
       nos: raizes.length,
     }
     return { raizes, max, total }
-  }, [filtrados, ccs, areas, fonte])
+  }, [filtrados, ccs, areas, fonte, campoFonte])
 
   // Começa com o primeiro nível aberto: a tela abre mostrando a estrutura, não
   // uma lista de caixas fechadas que a pessoa tem de descobrir que clica.
@@ -436,14 +440,23 @@ export default function OrganogramaPage() {
     return Object.fromEntries(areas.map(a => [a.id, nome(a.id)]))
   }, [areas])
 
+  // Rótulo curto do nó de cada pessoa. Clicar numa diretoria traz a subárvore
+  // inteira — 43 nomes sem dizer de onde não ajudam ninguém.
+  const rotuloNo = useMemo(() => {
+    const m: Record<string, string> = {}
+    for (const a of areas) m[a.id] = `${a.codigo} · ${a.nome}`
+    for (const c of ccs) m[c.id] = `${c.codigo} · ${c.descricao || ''}`
+    return m
+  }, [areas, ccs])
+
   const noSel = sel ? todos.find(n => n.key === sel) : null
   const pessoasSel = useMemo(() => {
     if (!noSel) return []
     const ids = new Set(noSel.ccIds)
     return filtrados
-      .filter(p => ids.has(p.cc_id || '__sem'))
+      .filter(p => ids.has((p as any)[campoFonte] || '__sem'))
       .sort((a, b) => (a.nome || a.codigo).localeCompare(b.nome || b.codigo))
-  }, [noSel, filtrados])
+  }, [noSel, filtrados, campoFonte])
 
   const preench = useMemo(() => {
     const c = (f: keyof CC) => ccs.filter(x => (x[f] as string | null)?.trim()).length
@@ -549,9 +562,16 @@ export default function OrganogramaPage() {
                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {p.nome || <i style={{ color: 'var(--muted)', fontWeight: 400 }}>vaga planejada</i>}
                         </span>
-                        <span style={{ color: 'var(--muted)', fontSize: 11 }}>
+                        <span style={{ color: 'var(--muted)', fontSize: 11, display: 'block', overflow: 'hidden',
+                                       textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {cargos[p.cargo_id || ''] || '—'}{p.regime ? ' · ' + p.regime.replace('BR-', '') : ''}
                         </span>
+                        {noSel.filhos.length > 0 && (
+                          <span style={{ color: 'var(--violet)', fontSize: 10.5, display: 'block', overflow: 'hidden',
+                                         textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {rotuloNo[(p as any)[campoFonte] || ''] || '—'}
+                          </span>
+                        )}
                       </span>
                       <span style={{ color: 'var(--text-mid)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{nf(Number(p.fte) || 0)}</span>
                     </div>
