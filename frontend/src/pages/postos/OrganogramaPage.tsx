@@ -237,7 +237,9 @@ function Atribuir({ postos, ccs, areas, caminho, cargos, onFim }: {
           <input style={{ ...S.sel, minWidth: 180 }} placeholder="nome, matrícula…" value={busca} onChange={e => setBusca(e.target.value)} />
         </div>
         <button style={{ ...S.btn, ...(soSem ? { borderColor: 'var(--violet)', color: 'var(--violet)' } : {}) }}
-                onClick={() => setSoSem(v => !v)}>{soSem ? 'Só sem área' : 'Todos'}</button>
+                onClick={() => setSoSem(v => !v)}
+                title="Para TIRAR a área de alguém, desligue isto — quem já tem área não aparece na lista de pendentes.">
+          {soSem ? 'Só sem área' : 'Todos'}</button>
       </div>
 
       <div style={{ ...S.bar, background: 'var(--bg-soft)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', margin: '0 0 14px' }}>
@@ -245,6 +247,10 @@ function Atribuir({ postos, ccs, areas, caminho, cargos, onFim }: {
           <span style={S.lbl}>Preencher em lote</span>
           <select style={{ ...S.sel, minWidth: 340 }} value={lote} onChange={e => setLote(e.target.value)}>
             <option value="">escolha a área…</option>
+            {/* Desatribuir em lote: classificar errado um CC inteiro é tão
+                fácil quanto classificar certo, e desfazer um a um em 30 postos
+                não é desfazer. */}
+            <option value="__nulo">— tirar a área —</option>
             {opcoes.map(a => <option key={a.id} value={a.id}>{caminho[a.id]}</option>)}
           </select>
         </div>
@@ -254,7 +260,7 @@ function Atribuir({ postos, ccs, areas, caminho, cargos, onFim }: {
                 title="Preenche a coluna dos filtrados. Nada é gravado ainda — confira, ajuste o que precisar, e grave no fim."
                 onClick={() => setRascunho(r => {
                   const n = { ...r }
-                  for (const p of lista) n[p.id] = lote
+                  for (const p of lista) n[p.id] = lote === '__nulo' ? null : lote
                   return n
                 })}>
           Preencher os {lista.length} filtrados
