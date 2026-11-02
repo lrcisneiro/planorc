@@ -5,7 +5,11 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PlanOrc</title>
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <!-- SRI: se o CDN servir outro conteúdo, o navegador recusa em vez de executar.
+         O hash é deste arquivo nesta versão — ao trocar a versão, recalcular. -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"
+            integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT"
+            crossorigin="anonymous"></script>
   </head>
   <body>
     <div id="root"></div>

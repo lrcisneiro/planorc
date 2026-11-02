@@ -1,0 +1,58 @@
+# ============================================================
+# Cabeçalhos de segurança — Cloudflare Pages
+# Fecha INF-01 (cabeçalhos ausentes) e INF-02 (clickjacking) do documento
+# de Requisitos de Segurança da Aplicação.
+#
+# ⚠ DUAS CSPs de propósito, e a divisão importa:
+#
+#   · A CSP que VIGORA traz só as diretivas de risco ZERO — nenhuma delas pode
+#     quebrar a aplicação, porque o Planorc não é enquadrado, não envia
+#     formulário para fora, não usa <object> e não reescreve a <base>.
+#
+#   · A CSP em Report-Only traz as diretivas que PODEM quebrar: script, style e
+#     connect. Em modo relatório ela não bloqueia nada e só registra violação no
+#     console do navegador. Está assim porque entrar no ar bloqueando script,
+#     na véspera de abrir para usuários, troca um risco por outro — e um app
+#     quebrado na frente de quem está vendo pela primeira vez custa caro.
+#
+# COMO PROMOVER (o passo que falta): navegue o app inteiro uma vez com o
+# console aberto — Dashboards, Orçar, Postos, exportar PNG/PDF, importar xlsx.
+# Sem violação, renomeie `Content-Security-Policy-Report-Only` para
+# `Content-Security-Policy` e junte as diretivas num cabeçalho só.
+# ============================================================
+
+/*
+  # --- risco zero: já vigora ---
+  # Clickjacking (INF-02). frame-ancestors é o substituto moderno do
+  # X-Frame-Options, que fica junto só por navegador antigo.
+  Content-Security-Policy: frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
+  X-Frame-Options: DENY
+
+  # Força HTTPS por 2 anos, incluindo subdomínios. `preload` fica de fora:
+  # entrar na lista é fácil e sair leva meses.
+  Strict-Transport-Security: max-age=63072000; includeSubDomains
+
+  # Impede o navegador de adivinhar tipo de conteúdo (MIME sniffing).
+  X-Content-Type-Options: nosniff
+
+  # Não vaza o caminho interno no Referer ao sair do site.
+  Referrer-Policy: strict-origin-when-cross-origin
+
+  # Desliga APIs que o Planorc não usa. Se um dia usar câmera ou geolocalização,
+  # é aqui que se libera.
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()
+
+  # Isola o contexto de navegação — janela aberta por este site não alcança a
+  # que a abriu, e vice-versa.
+  Cross-Origin-Opener-Policy: same-origin
+
+  # --- em observação: não bloqueia, só reporta ---
+  # script: o sheetjs vem de CDN (xlsx, no index.html) e o html-to-image/jspdf
+  #         por import dinâmico do esm.sh (lib/exportarDash.ts).
+  #         SEM 'unsafe-inline': conferido no dist, o build não emite nenhum
+  #         script inline (grep "<script>" em dist/index.html devolve zero).
+  #         É a diretiva que mais vale numa CSP — se um dia voltar a quebrar,
+  #         conferir o dist antes de afrouxar.
+  # style:  @nivo e Tailwind injetam <style> em runtime.
+  # connect: API e realtime do Supabase, mais o fetch dos módulos do esm.sh.
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' https://cdn.sheetjs.com https://esm.sh; style-src 'self' 'unsafe-inline'; connect-src 'self' https://okzzrmafldabhwlsgizg.supabase.co wss://okzzrmafldabhwlsgizg.supabase.co https://esm.sh https://cdn.sheetjs.com; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; frame-src 'none'
