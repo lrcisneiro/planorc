@@ -26,6 +26,11 @@
 --
 -- Nada muda nas POLÍTICAS. Só o conteúdo das duas funções de escopo.
 -- O relatório do fim diz quem ficou sem acesso. Sempre devolve linha.
+--
+-- ⚠ Ele NÃO filtra por tenant de propósito: no SQL Editor o
+-- `current_tenant_id()` é NULL, porque não há `auth.uid()`. Com o filtro, o
+-- relatório voltava VAZIO e parecia "ninguém bloqueado" — o pior resultado
+-- possível. Está na memória do projeto e eu caí nele mesmo assim.
 -- ============================================================
 
 -- `'{}'::uuid[]` (array vazio) é o que significa "nada": a comparação
@@ -108,6 +113,5 @@ SELECT left(ut.user_id::text, 8) || '…'                            AS usuario,
        END                                                          AS acao
   FROM user_tenant ut
   CROSS JOIN (VALUES ('empresa'), ('filial'), ('centro_custo')) AS d(dimensao)
- WHERE ut.tenant_id = current_tenant_id()
  GROUP BY ut.user_id, ut.role
  ORDER BY 3 DESC, 2;
