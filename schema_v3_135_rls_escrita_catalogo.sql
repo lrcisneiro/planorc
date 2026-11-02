@@ -27,13 +27,24 @@
 -- Rodar inteiro. O relatório do fim sempre devolve linha.
 -- ============================================================
 
+-- ⚠ CORREÇÃO: a primeira versão deste arquivo assumia que toda tabela filtra
+-- por `tenant_id` e quebrou em `rateio_destino`, que não tem a coluna — ela é
+-- filha de `rateio_regra` e a política original filtrava pelo PAI.
+--
+-- Adivinhar o filtro era o erro. A forma certa é PRESERVAR a expressão que já
+-- existe (`pg_get_expr` da política atual) e apenas somar `pode_escrever()` nas
+-- de escrita. Assim a leitura não muda em nada — seja qual for o critério — e a
+-- escrita ganha a trava, sem eu precisar conhecer o modelo de cada tabela.
 DO $mig$
 DECLARE
-  r record;
-  n int := 0;
+  r      record;
+  expr   text;
+  n      int := 0;
+  lista  text := '';
 BEGIN
   FOR r IN
-    SELECT c.relname AS tabela, p.polname
+    SELECT c.relname AS tabela, p.polname,
+           coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') AS usando
       FROM pg_class c
       JOIN pg_policy p ON p.polrelid = c.oid
      WHERE c.relnamespace = 'public'::regnamespace
@@ -44,18 +55,24 @@ BEGIN
                              'user_tenant','user_acesso_regra','user_acesso_funcao',
                              'dashboard_card')               -- à parte
   LOOP
+    expr := r.usando;
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', r.polname, r.tabela);
-    EXECUTE format('CREATE POLICY %I ON %I FOR SELECT USING (tenant_id = (SELECT current_tenant_id()))',
-                   r.tabela || '_sel', r.tabela);
-    EXECUTE format('CREATE POLICY %I ON %I FOR INSERT WITH CHECK (tenant_id = (SELECT current_tenant_id()) AND (SELECT pode_escrever()))',
-                   r.tabela || '_ins', r.tabela);
-    EXECUTE format('CREATE POLICY %I ON %I FOR UPDATE USING (tenant_id = (SELECT current_tenant_id()) AND (SELECT pode_escrever())) WITH CHECK (tenant_id = (SELECT current_tenant_id()) AND (SELECT pode_escrever()))',
-                   r.tabela || '_upd', r.tabela);
-    EXECUTE format('CREATE POLICY %I ON %I FOR DELETE USING (tenant_id = (SELECT current_tenant_id()) AND (SELECT pode_escrever()))',
-                   r.tabela || '_del', r.tabela);
+
+    -- leitura: EXATAMENTE a expressão que já valia
+    EXECUTE format('CREATE POLICY %I ON %I FOR SELECT USING (%s)',
+                   r.tabela || '_sel', r.tabela, expr);
+    -- escrita: a mesma expressão E o papel
+    EXECUTE format('CREATE POLICY %I ON %I FOR INSERT WITH CHECK ((%s) AND (SELECT pode_escrever()))',
+                   r.tabela || '_ins', r.tabela, expr);
+    EXECUTE format('CREATE POLICY %I ON %I FOR UPDATE USING ((%s) AND (SELECT pode_escrever())) WITH CHECK ((%s) AND (SELECT pode_escrever()))',
+                   r.tabela || '_upd', r.tabela, expr, expr);
+    EXECUTE format('CREATE POLICY %I ON %I FOR DELETE USING ((%s) AND (SELECT pode_escrever()))',
+                   r.tabela || '_del', r.tabela, expr);
+
     n := n + 1;
+    lista := lista || r.tabela || ', ';
   END LOOP;
-  RAISE NOTICE 'tabelas convertidas: %', n;
+  RAISE NOTICE '% tabela(s) convertida(s): %', n, lista;
 END $mig$;
 
 -- ---------- dashboard_card: o viewer salva O PRÓPRIO card ----------
