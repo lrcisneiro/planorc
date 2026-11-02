@@ -348,6 +348,9 @@ function Shell({ session }: { session: Session }) {
             <Route path="/saldos"          element={<SaldoDadosPage />} />
             <Route path="/amarracao"       element={<AmarracaoPage />} />
             <Route path="/cadastros"       element={<CadastrosPage />} />
+            {/* `/cadastros/:aba` dá link direto e faz o Voltar do navegador
+                funcionar entre cadastros — antes a aba só existia em memória. */}
+            <Route path="/cadastros/:aba"  element={<CadastrosPage />} />
             <Route path="/config"          element={<ConfiguracoesPage />} />
           </Routes>
         </div>

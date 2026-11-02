@@ -13,6 +13,8 @@ import { Plus, Trash2, Check, X, Upload, AlertCircle, Download, FileDown, Pencil
 import { CargosTab } from './CargosTab'
 import { AreasFuncionaisTab } from './AreasFuncionaisTab'
 import { ImportarFuncionarios } from './ImportarFuncionarios'
+import { useParams, useNavigate } from 'react-router-dom'
+import { useLocalPref } from '../../lib/uiPrefs'
 
 type Aba = 'empresas' | 'filiais' | 'cc' | 'planos' | 'contas' | 'estrutura' | 'areasf' | 'cargos' | 'funcionarios' | 'verbas' | 'versoes' | 'lotes' | 'moedas' | 'cambio' | 'taxaorcada' | 'metas'
 
@@ -22,7 +24,18 @@ const S = {
   header:   { marginBottom: 20 } as CSSProperties,
   title:    { fontSize: 22, fontWeight: 600, color: 'var(--text)', margin: 0 } as CSSProperties,
   subtitle: { fontSize: 13, color: 'var(--muted)', margin: '4px 0 0' } as CSSProperties,
-  tabs:     { display: 'flex', gap: 2, marginBottom: 20, borderBottom: '1px solid var(--border)' } as CSSProperties,
+  wrap:     { display: 'grid', gridTemplateColumns: 'minmax(0, 210px) minmax(0, 1fr)', gap: 22, alignItems: 'start' } as CSSProperties,
+  rail:     { position: 'sticky', top: 12, display: 'flex', flexDirection: 'column', gap: 2 } as CSSProperties,
+  railG:    { fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--muted)', margin: '14px 0 4px 10px' } as CSSProperties,
+  railI:    (active: boolean): CSSProperties => ({
+    display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+    padding: '7px 10px', fontSize: 13, fontWeight: active ? 600 : 500, cursor: 'pointer',
+    border: '1px solid ' + (active ? 'var(--violet)' : 'transparent'), borderRadius: 8,
+    background: active ? 'rgba(139,92,246,0.14)' : 'none',
+    color: active ? 'var(--violet)' : 'var(--text-mid)', transition: 'background 0.12s',
+  }),
+  railN:    { marginLeft: 'auto', fontSize: 11, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' } as CSSProperties,
+  railSel:  { display: 'none' } as CSSProperties,
   tab:      (active: boolean): CSSProperties => ({
     padding: '8px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer', border: 'none',
     background: 'none', color: active ? 'var(--violet)' : 'var(--muted)',
@@ -729,6 +742,12 @@ function ContasTab() {
   }
   useEffect(() => { load() }, [planoId]) // eslint-disable-line
   const filtered = filtraBusca(data, busca, c => `${c.codigo} ${c.descricao} ${c.tipo || ''} ${c.natureza || ''} ${codeById[c.pai_id] || ''}`)
+  // Corte de renderização: o plano da Bolívia tem 1.304 contas, e desenhar
+  // tudo de uma vez trava a aba sem que ninguém leia a milésima linha. Quem
+  // procura uma conta busca; quem navega não passa das primeiras. O rodapé diz
+  // que há mais, porque um corte silencioso é pior que a lentidão.
+  const TETO = 300
+  const visiveisCt = filtered.slice(0, TETO)
 
   const save = async (v: Record<string, string>, id?: string) => {
     if (!v.codigo || !v.descricao) { setErro('Código e descrição são obrigatórios'); return }
@@ -826,7 +845,10 @@ function ContasTab() {
         <tbody>
           {adding && <AddRow cols={CT_COLS} onSave={save} onCancel={() => setAdding(false)} />}
           {filtered.length === 0 && !adding && <tr><td colSpan={6} style={S.empty}>{busca ? 'Nenhum resultado para a busca.' : <>Nenhuma conta cadastrada.<br /><small>Use "Importar Excel" (TOTVS CT1_CONTA ou modelo).</small></>}</td></tr>}
-          {filtered.map(c => {
+          {filtered.length > TETO && <tr><td colSpan={6} style={{ ...S.empty, color: 'var(--muted)' }}>
+            Mostrando {TETO} de {filtered.length} contas — use a busca para encontrar o que procura.
+          </td></tr>}
+          {visiveisCt.map(c => {
             const isSint = c.tipo === 'SINTETICA'
             return editId === c.id ? (
               <AddRow key={c.id} cols={CT_COLS} initial={{ codigo: c.codigo, descricao: c.descricao, tipo: c.tipo || 'ANALITICA', natureza: c.natureza || '', pai_id: c.pai_id || '' }} onSave={v => save(v, c.id)} onCancel={() => setEditId(null)} />
@@ -1843,25 +1865,44 @@ function LotesTab() {
   )
 }
 
-const ABAS: { id: Aba; label: string }[] = [
-  { id: 'empresas',     label: 'Empresas' },
-  { id: 'filiais',      label: 'Filiais' },
-  { id: 'cc',           label: 'Centro de Custo' },
-  { id: 'planos',       label: 'Planos de Contas' },
-  { id: 'contas',       label: 'Conta Contábil' },
-  { id: 'estrutura',    label: 'Estrutura Orçamentária' },
-  { id: 'areasf',       label: 'Áreas funcionais' },
-  { id: 'cargos',       label: 'Cargos' },
-  { id: 'funcionarios', label: 'Funcionários' },
-  { id: 'verbas',       label: 'Verbas' },
-  { id: 'versoes',      label: 'Versões/Cenários' },
-  { id: 'lotes',        label: 'Lotes Ignorados' },
-  { id: 'moedas',       label: 'Moedas' },
-  { id: 'cambio',       label: 'Câmbio' },
-  { id: 'taxaorcada',   label: 'Taxa orçada' },
-  { id: 'metas',        label: 'Metas de indicadores' },
+// Dezesseis cadastros numa barra horizontal viravam rolagem — e rolagem
+// esconde. A pesquisa de padrão é consistente: acima de 7-8, troca-se para
+// navegação vertical, e agrupar reduz o primeiro nível a algo escaneável.
+// Seis grupos de no máximo quatro itens, que é a faixa recomendada.
+//
+// `tabela` serve à contagem ao lado do nome: dá contexto antes de entrar
+// ("Áreas funcionais 37" responde sem clique) e vira diagnóstico de graça.
+const GRUPOS: { titulo: string; itens: { id: Aba; label: string; tabela?: string }[] }[] = [
+  { titulo: 'Organização', itens: [
+    { id: 'empresas',     label: 'Empresas',           tabela: 'empresa' },
+    { id: 'filiais',      label: 'Filiais',            tabela: 'filial' },
+    { id: 'cc',           label: 'Centro de custo',    tabela: 'centro_custo' },
+    { id: 'areasf',       label: 'Áreas funcionais',   tabela: 'area_funcional' },
+  ] },
+  { titulo: 'Plano de contas', itens: [
+    { id: 'planos',       label: 'Planos de contas',   tabela: 'plano_contas' },
+    { id: 'contas',       label: 'Conta contábil',     tabela: 'conta_contabil' },
+    { id: 'estrutura',    label: 'Estrutura orçamentária', tabela: 'conta_orcamentaria' },
+  ] },
+  { titulo: 'Pessoas e folha', itens: [
+    { id: 'cargos',       label: 'Cargos',             tabela: 'cargo' },
+    { id: 'funcionarios', label: 'Funcionários',       tabela: 'funcionario' },
+    { id: 'verbas',       label: 'Verbas',             tabela: 'verba_folha' },
+  ] },
+  { titulo: 'Orçamento', itens: [
+    { id: 'versoes',      label: 'Versões / cenários', tabela: 'versao_orcamento' },
+    { id: 'metas',        label: 'Metas de indicadores' },
+  ] },
+  { titulo: 'Moeda', itens: [
+    { id: 'moedas',       label: 'Moedas',             tabela: 'moeda' },
+    { id: 'cambio',       label: 'Câmbio' },
+    { id: 'taxaorcada',   label: 'Taxa orçada' },
+  ] },
+  { titulo: 'Operação', itens: [
+    { id: 'lotes',        label: 'Lotes ignorados',    tabela: 'lote_ignorado' },
+  ] },
 ]
-
+const TODAS = GRUPOS.flatMap(g => g.itens)
 // ─── MoedaTab (slots de moeda: M1=base) ─────────────────────
 function MoedaTab() {
   const [data, setData] = useState<any[]>([])
@@ -2213,21 +2254,72 @@ function MetasTab() {
 }
 
 export default function CadastrosPage() {
-  const [aba, setAba] = useState<Aba>('empresas')
+  const { aba: abaUrl } = useParams()
+  const navigate = useNavigate()
   const { can } = useCapacidades()
-  const abas = ABAS.filter(a => a.id !== 'metas' || can('indicador.meta'))
+  // Última aba lembrada: a pessoa saía de Cargos e voltava em Empresas, toda
+  // vez. A URL manda sobre ela, para o link direto continuar valendo.
+  const [ultima, setUltima] = useLocalPref<Aba>('planorc_cadastros_aba', 'empresas')
+  const visiveis = TODAS.filter(a => a.id !== 'metas' || can('indicador.meta'))
+  const aba: Aba = (visiveis.some(v => v.id === abaUrl) ? abaUrl as Aba
+                 : visiveis.some(v => v.id === ultima) ? ultima : 'empresas')
+  useEffect(() => { if (aba !== ultima) setUltima(aba) }, [aba])
+  const ir = (id: Aba) => navigate(`/cadastros/${id}`)
+
+  // Contagem por cadastro: `head` + `count` não traz linha nenhuma, então são
+  // 13 chamadas baratas. Falha silenciosa de propósito — contagem é enfeite
+  // útil, e derrubar a tela por causa dela seria desproporcional.
+  const [n, setN] = useState<Record<string, number>>({})
+  useEffect(() => {
+    const alvos = [...new Set(TODAS.map(a => a.tabela).filter(Boolean))] as string[]
+    Promise.all(alvos.map(async t => {
+      const { count } = await supabase.from(t).select('id', { count: 'exact', head: true })
+      return [t, count ?? 0] as const
+    })).then(rs => setN(Object.fromEntries(rs))).catch(() => {})
+  }, [])
+
+  const atual = visiveis.find(v => v.id === aba)
 
   return (
     <div style={S.page}>
       <div style={S.header}>
         <h1 style={S.title}>Cadastros</h1>
-        <p style={S.subtitle}>Empresas · Filiais · Centro de Custo · Conta Contábil · Cargos · Funcionários · Verbas</p>
+        <p style={S.subtitle}>
+          {atual?.label}{atual?.tabela && n[atual.tabela] != null && ` · ${n[atual.tabela]} registro(s)`}
+        </p>
       </div>
-      <div style={S.tabs}>
-        {abas.map(a => (
-          <button key={a.id} style={S.tab(aba === a.id)} onClick={() => setAba(a.id)}>{a.label}</button>
-        ))}
-      </div>
+      <div style={S.wrap} className="cad-wrap">
+        <nav style={S.rail}>
+          {/* Em tela estreita o trilho vira um seletor: duas colunas de 210px
+              não cabem, e rolagem horizontal era justamente o que se queria
+              tirar. */}
+          <select className="rail-sel" value={aba}
+                  style={{ display: 'none', padding: '8px 10px', fontSize: 13, borderRadius: 8,
+                           border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text)' }} onChange={e => ir(e.target.value as Aba)}>
+            {GRUPOS.map(g => (
+              <optgroup key={g.titulo} label={g.titulo}>
+                {g.itens.filter(i => visiveis.some(v => v.id === i.id)).map(i =>
+                  <option key={i.id} value={i.id}>{i.label}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          {GRUPOS.map(g => {
+            const itens = g.itens.filter(i => visiveis.some(v => v.id === i.id))
+            if (!itens.length) return null
+            return (
+              <div key={g.titulo} className="rail-grupo">
+                <div style={S.railG}>{g.titulo}</div>
+                {itens.map(i => (
+                  <button key={i.id} style={S.railI(aba === i.id)} onClick={() => ir(i.id)}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i.label}</span>
+                    {i.tabela && n[i.tabela] != null && <span style={S.railN}>{n[i.tabela]}</span>}
+                  </button>
+                ))}
+              </div>
+            )
+          })}
+        </nav>
+        <div style={{ minWidth: 0 }}>
       {aba === 'empresas'     && <EmpresasTab />}
       {aba === 'filiais'      && <FiliaisTab />}
       {aba === 'cc'           && <CentroCustoTab />}
@@ -2244,6 +2336,8 @@ export default function CadastrosPage() {
       {aba === 'cambio'       && <CambioTab />}
       {aba === 'taxaorcada'   && <TaxaOrcadaTab />}
       {aba === 'metas'        && can('indicador.meta') && <MetasTab />}
+        </div>
+      </div>
     </div>
   )
 }

@@ -37,7 +37,7 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 | `/realizado` | `RealizadoDadosPage` | dados de realizado (importado do ERP) |
 | `/saldos` | `SaldoDadosPage` | saldos/balancete |
 | `/amarracao` | `AmarracaoPage` | amarração conta contábil → linha de relatório |
-| `/cadastros` | `CadastrosPage` | cadastros |
+| `/cadastros` · `/cadastros/:aba` | `CadastrosPage` | cadastros (16, em trilho vertical agrupado) |
 | `/config` | `ConfiguracoesPage` | configurações (usuários, acesso a dados e capacidades) |
 | (login) | `LoginPage` | autenticação |
 
@@ -91,6 +91,20 @@ Todas as tabelas têm `tenant_id` e RLS. Base SQL em `schema_v2.sql`; evoluçõe
 > **Índice do agregado (v3_123):** a agregação do orçado dependia de `idx_fat_orcado_agg_cov` — chave `(tenant, versao, empresa, ano, mes, linha)` + `INCLUDE (valor, val_m2..m5, filial, cc, expressao)` — para virar **Index Only Scan**. Sem ele o planner pega o `uq_fat_orcado` (83 MB), o **único outro índice com `linha_id`**, cuja chave tem `filial`/`cc` no meio justo onde a consulta não filtra: o scan vira milhares de descidas na árvore (194 mil buffers para 53 mil linhas, 770 ms contra 16 ms). Ao mexer no predicado dessas RPCs, conferir se o índice ainda cobre todas as colunas — e rodar `VACUUM (ANALYZE) fat_orcado` depois de carga grande, senão o index-only ainda vai ao heap.
 >
 > **Ao medir, o `EXPLAIN` engana duas vezes:** o trabalho do nó é o **intervalo** do `actual time` (`fim − início`), não o total — um diagnóstico que monta parâmetros com `array_agg(DISTINCT …)` cria InitPlans que varrem a tabela e inflam o total; e `ANY((SELECT array_agg(...)))` sem cast `::uuid[]`/`::int[]` é lido como subconsulta e nem roda.
+
+> **Cadastros: trilho vertical, não abas (nov/2026).** Eram 16 abas horizontais com rolagem — e
+> rolagem esconde. A orientação de padrão é consistente: acima de 7-8, vai para navegação
+> vertical; agrupar reduz o primeiro nível a algo escaneável. Ficaram **6 grupos de no máximo 4**
+> (Organização · Plano de contas · Pessoas e folha · Orçamento · Moeda · Operação), com a
+> **contagem de registros** ao lado de cada nome — dá contexto antes de entrar e vira diagnóstico
+> de graça (`count: 'exact', head: true`, 13 chamadas sem trazer linha; falha em silêncio, porque
+> derrubar a tela por causa de um enfeite seria desproporcional).
+> A aba virou **rota** (`/cadastros/:aba`) e é **lembrada** (`useLocalPref`): antes vivia só em
+> memória, então sair de Cargos e voltar caía em Empresas, e não havia link direto. A URL manda
+> sobre a memória. Abaixo de 860px o trilho vira um `<select>` agrupado.
+> ⚠ **Conta contábil tem teto de render (300).** O plano da Bolívia tem 1.304 contas; desenhar
+> tudo trava a aba e ninguém lê a milésima linha. O rodapé diz quantas ficaram de fora — corte
+> silencioso é pior que lentidão.
 
 ## Permissões (F2)
 
