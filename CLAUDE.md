@@ -343,6 +343,12 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   tabela e conceder coluna a coluna. Consequência: **`select('*')` em `funcionario` passa a
   falhar**, e isso é recurso — quebra visível em vez de CPF vazando calado para quem pedisse tudo.
 
+  ⚠ **`funcionario.matricula` é vestigial** (v3_151): tinha `NOT NULL` **e** `UNIQUE (tenant,
+  matricula)`, isto é, a tabela acreditava que matrícula identifica pessoa. São **513 pessoas para
+  238 matrículas** — preencher faria 275 colidirem. Quem identifica é o CPF; a matrícula é vínculo
+  pessoa × empresa e vive em `posto`. O `NOT NULL` caiu; o `UNIQUE` fica (nulos são distintos
+  entre si) para o cadastro manual. **Nada novo deve escrever nessa coluna.**
+
   **Importação como padrão, não como caso (nov/2026).** O alvo é receber de **mais de um ERP**, e
   nome de coluna é a primeira coisa que muda entre eles. Três partes separadas:
   `lerPlanilha` (`lib/planilha.ts`, ao lado do `downloadSheet` — ler e escrever planilha moram
