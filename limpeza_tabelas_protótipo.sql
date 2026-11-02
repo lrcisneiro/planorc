@@ -21,6 +21,20 @@
 -- erro é a informação que você quer, não um obstáculo. CASCADE derrubaria o
 -- dependente junto, em silêncio.
 --
+-- ⚠ `visao_plano` FICOU DE FORA. A tentativa de derrubá-la acusou:
+--     constraint plano_orcamentario_visao_id_fkey depends on table visao_plano
+-- `plano_orcamentario` é a tabela do modelo ANTIGO que o CLAUDE.md marca como
+-- legado ainda referenciado (~10 pontos no frontend, via `fat_lancamento`).
+-- Então `visao_plano` não é resíduo solto: é parte da cadeia legada, e sai
+-- junto com ela quando a migração do legado acontecer. Derrubar agora com
+-- CASCADE levaria a FK de uma tabela que ainda está em uso.
+--
+-- Isto é o "sem CASCADE" fazendo o trabalho dele: o erro revelou uma dependência
+-- que eu não tinha mapeado, em vez de apagá-la em silêncio.
+--
+-- ⚠ E o editor roda tudo numa transação: aquele erro DESFEZ os seis drops
+-- anteriores. Nada foi derrubado — rode de novo com a lista corrigida.
+--
 -- Guarde o resultado da parte 1 antes de rodar a 2, caso queira o conteúdo.
 -- ============================================================
 
@@ -38,11 +52,12 @@ UNION ALL SELECT 'visao_plano',         to_jsonb(p.*) FROM visao_plano p;
 -- DROP TABLE IF EXISTS map_conta_linha;
 -- DROP TABLE IF EXISTS dim_value;              -- aponta p/ dim_definition
 -- DROP TABLE IF EXISTS dim_definition;
--- DROP TABLE IF EXISTS visao_plano;
+-- `visao_plano` NÃO entra: `plano_orcamentario` tem FK para ela.
+-- -- DROP TABLE IF EXISTS visao_plano;
 
 -- ---------- 3 · conferir que sumiram ----------
 -- SELECT c.relname FROM pg_class c
 --  WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r'
---    AND c.relname IN ('dim_definition','dim_value','visao_plano','fat_lancamento_verba',
+--    AND c.relname IN ('dim_definition','dim_value','fat_lancamento_verba',
 --                      'map_conta_linha','map_rubrica_verba','verba_orcamentaria');
 -- Vazio aqui É o resultado esperado — e só aqui, porque a pergunta é "sobrou?".
