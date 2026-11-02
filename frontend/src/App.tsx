@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useParams } from 'react-router-dom'
-import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, Link2, Wallet, LogOut, Menu, X, SlidersHorizontal, Users, Layers, ShieldCheck, ListChecks, Sun, Moon, ListTree, Grid3x3, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, BookOpen, Table2, Receipt, Link2, Wallet, LogOut, Menu, X, SlidersHorizontal, Users, ShieldCheck, Sun, Moon, ListTree, Grid3x3, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { setTheme, getTheme } from './lib/theme'
 import { useCapacidades } from './hooks/useCapacidades'
@@ -40,8 +40,10 @@ import LoginPage from './pages/login/LoginPage'
 import NovaSenhaPage from './pages/login/NovaSenhaPage'
 
 // Menu agrupado por modo de interação (igual ao protótipo planorc-v2-menu-mesclado).
-// `soon: true` = item proposto (aparece, mas ainda não navega).
-type NavItem = { label: string; icon: LucideIcon; to?: string; soon?: boolean; cap?: string }
+// Menu só com o que navega. Itens "em breve" ocupavam espaço permanente para
+// prometer função futura — e promessa no menu é ruído em toda sessão de quem
+// usa. O roadmap vive no CLAUDE.md, que é onde se decide o que vem depois.
+type NavItem = { label: string; icon: LucideIcon; to: string; cap?: string }
 function RedirOrcar() {
   const { id } = useParams()
   return <Navigate to={id ? `/orcar-grade/${id}` : '/orcar-grade'} replace />
@@ -56,14 +58,11 @@ const NAV_GROUPS: NavGroup[] = [
     { to: '/estruturas',  label: 'Estruturas de relatórios', icon: ListTree, cap: 'menu.estruturas' },
     { to: '/formularios', label: 'Formulário de drivers', icon: SlidersHorizontal, cap: 'menu.formularios' },
     { to: '/postos', label: 'Posto de trabalho', icon: Users, cap: 'menu.postos' },
-    { label: 'Versões & cenários',     icon: Layers,            soon: true },
-    { label: 'Governança & aprovação', icon: ShieldCheck,       soon: true },
   ] },
   { area: 'Dados · ERP', mode: 'realizado', dot: '#22d3ee', items: [
     { to: '/realizado', label: 'Realizado',   icon: Receipt, cap: 'menu.realizado' },
     { to: '/saldos',    label: 'Saldos (BP)', icon: Wallet,  cap: 'menu.saldos' },
     { to: '/amarracao', label: 'Amarração',   icon: Link2,   cap: 'menu.amarracao' },
-    { label: 'Lotes / Conciliação', icon: ListChecks, soon: true },
   ] },
   { area: 'Relatórios', mode: 'leitura', dot: '#34d399', items: [
     { to: '/dashboards', label: 'Dashboards', icon: LayoutDashboard, cap: 'menu.dashboards' },
@@ -104,18 +103,6 @@ const S = {
   },
   linkActive: { background: 'rgba(139,92,246,0.16)', color: '#ffffff', boxShadow: 'inset 0 0 0 1px rgba(139,92,246,0.45)' },
   linkLabel: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const },
-  linkSoon: {
-    display: 'flex', alignItems: 'center', gap: 9,
-    padding: '8px 11px', fontSize: 13, color: 'var(--faint)',
-    borderRadius: 10, margin: '1px 8px', cursor: 'default',
-    userSelect: 'none' as const,
-  },
-  soonBadge: {
-    marginLeft: 'auto', flex: '0 0 auto', fontSize: 8, fontWeight: 700, letterSpacing: 0.5,
-    textTransform: 'uppercase' as const, color: '#9a7bff',
-    background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.25)',
-    borderRadius: 999, padding: '2px 6px',
-  },
   footer: { borderTop: '1px solid var(--border)', padding: 12, fontSize: 12, color: 'var(--muted)' },
   sair: {
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%',
@@ -254,7 +241,7 @@ function Shell({ session }: { session: Session }) {
         `}</style>
         <nav style={S.nav}>
           {NAV_GROUPS.map(g => {
-            const itens = g.items.filter(it => it.soon || !it.cap || can(it.cap))
+            const itens = g.items.filter(it => !it.cap || can(it.cap))
             if (!itens.length) return null
             return (
             <div key={g.area} style={S.group}>
@@ -264,14 +251,6 @@ function Shell({ session }: { session: Session }) {
               </div>
               {itens.map((item) => {
                 const Icon = item.icon
-                if (item.soon || !item.to) {
-                  return (
-                    <div key={item.label} style={{ ...S.linkSoon, ...(recol ? { justifyContent: 'center', padding: '9px 0' } : {}) }} title={item.label}>
-                      <Icon size={16} style={{ opacity: 0.5, flex: '0 0 auto' }} />
-                      {!recol && <><span style={S.linkLabel}>{item.label}</span><span style={S.soonBadge}>em breve</span></>}
-                    </div>
-                  )
-                }
                 return (
                   <NavLink
                     key={item.to}
