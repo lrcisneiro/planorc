@@ -17,6 +17,7 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 // nesta instalação, a CAPACIDADE diz se esta pessoa pode usá-la.
 const PASSOS: { to: string; label: string; flag?: 'usa_apontamento'; cap: string }[] = [
   { to: '/postos',             label: 'Postos',             cap: 'menu.postos.quadro' },
+  { to: '/postos/organograma', label: 'Organograma',        cap: 'menu.postos.organograma' },
   { to: '/postos/memoria',     label: 'Memória de cálculo', cap: 'menu.postos.memoria' },
   { to: '/postos/folha',       label: 'Folha realizada',    cap: 'menu.postos.folha' },
   { to: '/postos/apontamento', label: 'Apontamento',        cap: 'menu.postos.apontamento', flag: 'usa_apontamento' },

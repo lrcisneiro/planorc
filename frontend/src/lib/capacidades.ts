@@ -142,6 +142,7 @@ export const CAPACIDADES: Capacidade[] = [
   // regras de rateio — que valem para o grupo inteiro, não para a área dele.
   // Passo sem capacidade some da navegação e a numeração se refaz sem buraco.
   { key: 'menu.postos.quadro',      label: '· Postos (quadro)',        categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
+  { key: 'menu.postos.organograma', label: '· Organograma',            categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
   { key: 'menu.postos.memoria',     label: '· Memória de cálculo',     categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
   { key: 'menu.postos.folha',       label: '· Folha realizada',        categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
   { key: 'menu.postos.apontamento', label: '· Apontamento',            categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },

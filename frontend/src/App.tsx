@@ -17,6 +17,7 @@ import FormularioEditorPage from './pages/formularios/FormularioEditorPage'
 import PostosRegrasPage from './pages/postos/PostosRegrasPage'
 import PostosGradePage from './pages/postos/PostosGradePage'
 import PostosMemoriaPage from './pages/postos/PostosMemoriaPage'
+import OrganogramaPage from './pages/postos/OrganogramaPage'
 import PostosRateioPage from './pages/postos/PostosRateioPage'
 import FolhaRealizadaPage from './pages/postos/FolhaRealizadaPage'
 import ApontamentoPage from './pages/postos/ApontamentoPage'
@@ -334,6 +335,7 @@ function Shell({ session }: { session: Session }) {
             <Route path="/formularios/:id" element={<Exige cap="menu.formularios"><FormularioEditorPage mode="preencher" /></Exige>} />
             <Route path="/formularios/:id/estrutura" element={<Exige cap="formulario.estrutura"><FormularioEditorPage mode="estrutura" /></Exige>} />
             <Route path="/postos"          element={<Exige cap="menu.postos.quadro"><PostosGradePage /></Exige>} />
+            <Route path="/postos/organograma" element={<Exige cap="menu.postos.organograma"><OrganogramaPage /></Exige>} />
             <Route path="/postos/memoria"  element={<Exige cap="menu.postos.memoria"><PostosMemoriaPage /></Exige>} />
             <Route path="/postos/rateio"   element={<Exige cap="menu.postos.rateio"><PostosRateioPage /></Exige>} />
             <Route path="/postos/folha"    element={<Exige cap="menu.postos.folha"><FolhaRealizadaPage /></Exige>} />
