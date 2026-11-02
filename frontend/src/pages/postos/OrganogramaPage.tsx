@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, Fragment } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
 import { PostosPills } from './PostosPills'
@@ -81,6 +81,7 @@ const S: Record<string, CSSProperties> = {
   sideT: { fontSize: 13, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   pess:  { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: 12.5 },
   vazio: { fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 },
+  divisor: { fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--violet)', padding: '10px 0 4px', borderBottom: '1px solid var(--border)' },
   dica:  { fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 },
   aviso: { fontSize: 12.5, color: 'var(--orange)', background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.4)', borderRadius: 8, padding: '9px 12px', margin: '0 0 12px' },
 }
@@ -552,9 +553,11 @@ export default function OrganogramaPage() {
   const pessoasSel = useMemo(() => {
     if (!noSel) return []
     const ids = new Set(noSel.ccIds)
+    const aqui = (p: Posto) => ((p as any)[campoFonte] || '__sem') === noSel.key
     return filtrados
       .filter(p => ids.has((p as any)[campoFonte] || '__sem'))
-      .sort((a, b) => (a.nome || a.codigo).localeCompare(b.nome || b.codigo))
+      // Os do próprio nó primeiro: é o que responde "quem são os 2 daqui".
+      .sort((a, b) => Number(aqui(b)) - Number(aqui(a)) || (a.nome || a.codigo).localeCompare(b.nome || b.codigo))
   }, [noSel, filtrados, campoFonte])
 
   // Uma linha por pessoa, com os postos dela somados. O cargo e o regime vêm
@@ -573,8 +576,12 @@ export default function OrganogramaPage() {
       const areas_ = noSel && noSel.filhos.length > 0
         ? [...new Set(e.postos.map(x => rotuloNo[(x as any)[campoFonte] || ''] || '').filter(Boolean))]
         : []
-      return { ...e, detalhe: [cargos_.join(' · '), regimes.join('/'), areas_.join(' · ')].filter(Boolean).join(' · ') }
-    }).sort((a, b) => a.nome.localeCompare(b.nome))
+      // "aqui" = tem ao menos um posto DIRETAMENTE no nó clicado. Quem tem
+      // postos aqui e abaixo conta como daqui: é a resposta à pergunta "quem
+      // são os 2 desta caixa".
+      const aqui = !!noSel && e.postos.some(x => ((x as any)[campoFonte] || '__sem') === noSel.key)
+      return { ...e, aqui, detalhe: [cargos_.join(' · '), regimes.join('/'), areas_.join(' · ')].filter(Boolean).join(' · ') }
+    }).sort((a, b) => Number(b.aqui) - Number(a.aqui) || a.nome.localeCompare(b.nome))
   }, [pessoasSel, cargos, noSel, rotuloNo, campoFonte])
 
   const cargosOrdenados = useMemo(() => {
@@ -583,6 +590,10 @@ export default function OrganogramaPage() {
     return Object.entries(cargos).map(([id, nome]) => ({ id, nome, n: n[id] || 0 }))
       .filter(c => c.n > 0).sort((a, b) => b.n - a.n || a.nome.localeCompare(b.nome))
   }, [postos, cargos, comDemitidos])
+
+  // Dividir a lista só faz sentido quando o nó TEM filhos e TEM gente própria —
+  // caso contrário o cabeçalho seria ruído.
+  const dividir = !!noSel && noSel.filhos.length > 0 && noSel.pessoas > 0
 
   const preench = useMemo(() => {
     const c = (f: keyof CC) => ccs.filter(x => (x[f] as string | null)?.trim()).length
@@ -737,8 +748,14 @@ export default function OrganogramaPage() {
                   {noSel.filhos.length > 0 && <> · {noSel.filhos.length} abaixo</>}
                 </div>
                 <div style={{ maxHeight: 460, overflowY: 'auto' }}>
-                  {listar === 'pessoas' ? agrupado.map(g => (
-                    <div key={g.chave} style={S.pess}>
+                  {listar === 'pessoas' ? agrupado.map((g, i) => (
+                    <Fragment key={g.chave}>
+                    {dividir && (i === 0 || agrupado[i - 1].aqui !== g.aqui) && (
+                      <div style={S.divisor}>{g.aqui
+                        ? `Nesta área — ${agrupado.filter(x => x.aqui).length}`
+                        : `Nas áreas abaixo — ${agrupado.filter(x => !x.aqui).length}`}</div>
+                    )}
+                    <div style={S.pess}>
                       <span style={{ minWidth: 0 }}>
                         <span style={{ color: 'var(--text)', fontWeight: 600, display: 'block', overflow: 'hidden',
                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -753,8 +770,15 @@ export default function OrganogramaPage() {
                       </span>
                       <span style={{ color: 'var(--text-mid)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{nf(g.fte)}</span>
                     </div>
-                  )) : pessoasSel.map(p => (
-                    <div key={p.id} style={S.pess}>
+                    </Fragment>
+                  )) : pessoasSel.map((p, i) => (
+                    <Fragment key={p.id}>
+                    {dividir && (() => {
+                      const aq = (x: Posto) => ((x as any)[campoFonte] || '__sem') === noSel!.key
+                      return (i === 0 || aq(pessoasSel[i - 1]) !== aq(p)) && (
+                        <div style={S.divisor}>{aq(p) ? 'Nesta área' : 'Nas áreas abaixo'}</div>)
+                    })()}
+                    <div style={S.pess}>
                       <span style={{ minWidth: 0 }}>
                         <span style={{ color: 'var(--text)', fontWeight: 600, display: 'block', overflow: 'hidden',
                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -773,6 +797,7 @@ export default function OrganogramaPage() {
                       </span>
                       <span style={{ color: 'var(--text-mid)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{nf(Number(p.fte) || 0)}</span>
                     </div>
+                    </Fragment>
                   ))}
                 </div>
               </>
