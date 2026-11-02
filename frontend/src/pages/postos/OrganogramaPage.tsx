@@ -5,6 +5,7 @@ import { PostosPills } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { pageAll } from '../../lib/pageAll'
 import { pessoaChave } from '../../lib/pessoaChave'
+import { useLocalPref } from '../../lib/uiPrefs'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro, ModalPanel, Checklist } from '../dashboard/DashFiltros'
 import { ChevronDown, ChevronRight, Users, X, Maximize2, Minimize2, Pencil, Briefcase } from 'lucide-react'
 
@@ -278,27 +279,31 @@ export default function OrganogramaPage() {
   const [empresas, setEmpresas] = useState<any[]>([])
   const [filiais, setFiliais] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [fonte, setFonte] = useState<Fonte>('areaf')
-  const [empresaSel, setEmpresaSel] = useState<string[]>([])
-  const [filialSel, setFilialSel] = useState<string[]>([])
-  const [ccSel, setCcSel] = useState<string[]>([])
-  const [areaSel, setAreaSel] = useState<string[]>([])
-  const [divisaoSel, setDivisaoSel] = useState<string[]>([])
-  const [buSel, setBuSel] = useState<string[]>([])
+  const [fonte, setFonte] = useLocalPref<Fonte>('planorc_organograma_fonte', 'areaf')
+  const [empresaSel, setEmpresaSel] = useLocalPref<string[]>('planorc_organograma_empresa', [])
+  const [filialSel, setFilialSel] = useLocalPref<string[]>('planorc_organograma_filial', [])
+  const [ccSel, setCcSel] = useLocalPref<string[]>('planorc_organograma_cc', [])
+  const [areaSel, setAreaSel] = useLocalPref<string[]>('planorc_organograma_area', [])
+  const [divisaoSel, setDivisaoSel] = useLocalPref<string[]>('planorc_organograma_divisao', [])
+  const [buSel, setBuSel] = useLocalPref<string[]>('planorc_organograma_bu', [])
   // Cargo tem DOIS modos porque as duas perguntas são legítimas e a segunda é a
   // frequente: "só este cargo" e "o quadro sem estes". Com 106 cargos, forçar a
   // segunda pela primeira significaria marcar 104 caixas.
-  const [cargoSel, setCargoSel] = useState<string[]>([])
-  const [cargoModo, setCargoModo] = useState<'incluir' | 'ocultar'>('ocultar')
+  const [cargoSel, setCargoSel] = useLocalPref<string[]>('planorc_organograma_cargos', [])
+  const [cargoModo, setCargoModo] = useLocalPref<'incluir' | 'ocultar'>('planorc_organograma_cargomodo', 'ocultar')
   const [cargoAberto, setCargoAberto] = useState(false)
-  const [comDemitidos, setComDemitidos] = useState(false)
+  const [comDemitidos, setComDemitidos] = useLocalPref('planorc_organograma_demitidos', false)
   const [abertos, setAbertos] = useState<Set<string>>(new Set())
   const [sel, setSel] = useState<string | null>(null)
   const [modo, setModo] = useState<'ver' | 'atribuir'>('ver')
+  // Tudo que é filtro vai em `useLocalPref`: quem monta um recorte e sai da
+  // tela espera achá-lo de volta. Antes era `useState` puro, então voltar
+  // zerava — e remontar filtro a cada visita é o tipo de atrito que faz a
+  // pessoa parar de usar o filtro.
   // Listar por pessoa ou por posto. Sem isto o painel dizia "6 pessoas" e
   // mostrava 11 linhas com nomes repetidos — o cabeçalho contava gente e a
   // lista contava vínculo, e quem lê conclui que um dos dois está errado.
-  const [listar, setListar] = useState<'pessoas' | 'postos'>('pessoas')
+  const [listar, setListar] = useLocalPref<'pessoas' | 'postos'>('planorc_organograma_listar', 'pessoas')
   const [erro, setErro] = useState('')
 
   // try/finally não é zelo: sem ele, UMA consulta que falha deixa `loading` em
@@ -631,7 +636,7 @@ export default function OrganogramaPage() {
 
       <div style={S.kpis}>
         <div style={S.kpi}><div style={S.kpiL}>Pessoas</div><div style={S.kpiV}>{total.pessoas}</div>
-          <div style={S.kpiH}>nomes distintos (matrícula é por empresa)</div></div>
+          <div style={S.kpiH}>por CPF quando há; senão, nome</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Postos</div><div style={S.kpiV}>{total.postos}</div>
           <div style={S.kpiH}>{total.postos - total.pessoas} a mais que pessoas</div></div>
         {/* Mostra FTE onde ele informa (algum posto com ½ período) e, onde não,
