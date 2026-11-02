@@ -249,6 +249,17 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > não como "sem permissão" — o servidor mascara, a tela não sabe. Só acontece com negação
 > explícita (o padrão de member vê), mas o conserto é gatear a coluna com `can('posto.salario')`.
 
+> ⚠ **As regras de rateio ficam com escopo só de TENANT, de propósito** (`posto_rateio`,
+> `rateio_regra`, `rateio_destino`). É o que faz o **"onde caiu"** da conciliação funcionar: a aba
+> Orçado × Folha monta o quadro de `fat_folha` (CC de **origem** do posto) + a cascata de rateio
+> calculada no cliente, então o destino vem da **regra**, não de uma linha de fato sentada no CC
+> da outra área. Quem alcança o posto vê o custo sair e vê para onde foi, mesmo em CC alheio —
+> que é justamente o que se precisa mostrar ("o custo do meu posto caiu na área X").
+> Recortar essas três por **destino** quebraria a função. Se um dia for preciso esconder regra
+> alheia, recortar pela **origem**: lê a regra quem alcança o posto de origem.
+> (Medido: Andrea, com 80 CCs, lê as 117 regras e os 25 destinos. O que encolhe é só a coluna
+> *Orçado · DRE*, que lê `fat_orcado` no destino — e para isso a tela já tem `pctEscopo()`.)
+
 > **Cadastros de fundação são admin (v3_141).** `tenant`, `dimensao`, `dimensao_config`,
 > `grupo_empresarial` aceitavam escrita de `member` — folga da v3_135. Escrever em `dimensao` é
 > criar dimensão de **dados**, isto é, definir por onde o escopo recorta: é mexer no controle de
