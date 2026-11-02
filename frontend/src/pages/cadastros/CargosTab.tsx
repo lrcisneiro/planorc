@@ -27,7 +27,7 @@ import { ChevronDown, ChevronRight, GripVertical, Plus, Trash2, CornerDownLeft, 
 // linha, então ninguém precisa descobrir pela mensagem de erro.
 // ============================================================
 
-type Cargo = { id: string; codigo: string | null; nome: string; pai_id: string | null; nivel: number | null; ativo: boolean | null }
+type Cargo = { id: string; codigo: string | null; nome: string; pai_id: string | null; nivel: number | null; ativo: boolean | null; origem: string | null }
 type No = Cargo & { filhos: No[]; usos: number; usosArvore: number }
 
 const S: Record<string, CSSProperties> = {
@@ -41,6 +41,8 @@ const S: Record<string, CSSProperties> = {
   niv:   { width: 54, fontSize: 12, textAlign: 'center', background: 'var(--bg-soft)', color: 'var(--text-mid)', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 4px' },
   uso:   { fontSize: 11.5, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', display: 'inline-flex', alignItems: 'center', gap: 3 },
   ico:   { cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 },
+  tag:   { fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--orange)', background: 'rgba(251,146,60,0.14)', border: '1px solid rgba(251,146,60,0.35)', borderRadius: 5, padding: '1px 5px', flexShrink: 0 },
+  secT:  { fontSize: 12, fontWeight: 700, color: 'var(--text-mid)', textTransform: 'uppercase', letterSpacing: 0.5, margin: '22px 0 8px', display: 'flex', alignItems: 'center', gap: 8 },
   aviso: { fontSize: 12.5, color: 'var(--orange)', background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.4)', borderRadius: 8, padding: '9px 12px', margin: '0 0 12px' },
 }
 
@@ -55,7 +57,7 @@ export function CargosTab() {
 
   const carregar = async () => {
     const [cd, pd] = await Promise.all([
-      pageAll(() => supabase.from('cargo').select('id,codigo,nome,pai_id,nivel,ativo').order('nome')),
+      pageAll(() => supabase.from('cargo').select('id,codigo,nome,pai_id,nivel,ativo,origem').order('nome')),
       pageAll(() => supabase.from('posto_v').select('cargo_id')),
     ])
     setCargos(cd as Cargo[])
@@ -65,7 +67,7 @@ export function CargosTab() {
   }
   useEffect(() => { carregar() }, [])
 
-  const { raizes, byId } = useMemo(() => {
+  const { raizes, entrada, byId } = useMemo(() => {
     const byId: Record<string, No> = {}
     for (const c of cargos) byId[c.id] = { ...c, filhos: [], usos: usos[c.id] || 0, usosArvore: 0 }
     const raizes: No[] = []
@@ -83,7 +85,10 @@ export function CargosTab() {
     }
     raizes.forEach(somar)
     raizes.sort((a, b) => (a.nivel ?? 99) - (b.nivel ?? 99) || a.nome.localeCompare(b.nome))
-    return { raizes, byId }
+    // Raiz do PLANO é estrutura; raiz vinda da FOLHA é só cargo ainda não
+    // classificado — misturar as duas é o que convidava a hierarquizar o que
+    // está sendo reestruturado.
+    return { raizes: raizes.filter(r => r.origem !== 'ERP'), entrada: raizes.filter(r => r.origem === 'ERP'), byId }
   }, [cargos, usos])
 
   // Quem está abaixo de `id`: soltar dentro da própria subárvore é o que cria
@@ -132,7 +137,7 @@ export function CargosTab() {
     let cod = slugCargo(nm)
     for (let i = 2; usados.has(cod); i++) cod = `${slugCargo(nm).slice(0, 25)}_${i}`
     const { error } = await supabase.from('cargo')
-      .insert({ tenant_id: TENANT_ID, codigo: cod, nome: nm, pai_id, ativo: true })
+      .insert({ tenant_id: TENANT_ID, codigo: cod, nome: nm, pai_id, ativo: true, origem: 'PLANO' })
     if (error) { setErro(error.message); return }
     if (pai_id) setAbertos(s => new Set(s).add(pai_id))
     carregar()
@@ -170,6 +175,7 @@ export function CargosTab() {
               </span>
             : <span style={{ width: 14, flexShrink: 0 }} />}
           <span style={S.cod}>{n.codigo || '—'}</span>
+          {n.origem === 'ERP' && <span style={S.tag} title="Veio da folha. Pendurado num cargo do plano, isto também é o de-para.">folha</span>}
           <input style={S.nome} defaultValue={n.nome}
                  onFocus={e => { e.target.style.borderColor = 'var(--border-strong)'; e.target.style.background = 'var(--bg-soft)' }}
                  onBlur={e => {
@@ -195,7 +201,9 @@ export function CargosTab() {
     )
   }
 
-  const semNivel = cargos.filter(c => c.nivel == null).length
+  const nPlano = cargos.filter(c => c.origem !== 'ERP').length
+  const nErp = cargos.filter(c => c.origem === 'ERP').length
+  const semNivel = cargos.filter(c => c.origem !== 'ERP' && c.nivel == null).length
 
   return (
     <div>
@@ -213,7 +221,7 @@ export function CargosTab() {
         <button style={S.btn} onClick={() => setAbertos(new Set(cargos.map(c => c.id)))}>Expandir tudo</button>
         <button style={S.btn} onClick={() => setAbertos(new Set())}>Recolher</button>
         <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>
-          {cargos.length} cargo(s){semNivel > 0 && ` · ${semNivel} sem nível`}
+          {nPlano} no plano{semNivel > 0 && ` (${semNivel} sem nível)`} · {nErp} da folha
         </span>
       </div>
 
@@ -227,9 +235,29 @@ export function CargosTab() {
         Solte aqui para tirar de qualquer pai (voltar à raiz)
       </div>
 
-      {loading ? <div style={S.dica}>Carregando…</div>
-        : raizes.length === 0 ? <div style={S.dica}>Nenhum cargo cadastrado. Eles costumam nascer da importação de postos do RH.</div>
-        : raizes.map(r => <Linha key={r.id} n={r} nivel={0} />)}
+      {loading ? <div style={S.dica}>Carregando…</div> : (
+        <>
+          <div style={S.secT}>Estrutura · plano de cargos</div>
+          {raizes.length === 0
+            ? <div style={S.dica}>
+                Ainda não há cargo do plano. Comece pelo topo — <b style={{ color: 'var(--text)' }}>Novo cargo na raiz</b> —
+                e vá descendo. Os cargos da folha ficam na lista abaixo até serem pendurados aqui.
+              </div>
+            : raizes.map(r => <Linha key={r.id} n={r} nivel={0} />)}
+
+          {entrada.length > 0 && (
+            <>
+              <div style={S.secT}>
+                Vindos da folha · ainda não classificados
+                <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--muted)', fontSize: 11.5 }}>
+                  {entrada.length} — arraste para dentro de um cargo do plano; isso também é o de-para
+                </span>
+              </div>
+              {entrada.map(r => <Linha key={r.id} n={r} nivel={0} />)}
+            </>
+          )}
+        </>
+      )}
     </div>
   )
 }
