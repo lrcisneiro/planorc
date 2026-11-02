@@ -11,6 +11,7 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 declare const XLSX: any
 import { Plus, Trash2, Check, X, Upload, AlertCircle, Download, FileDown, Pencil, Copy, CopyPlus, Link2 } from 'lucide-react'
 import { CargosTab } from './CargosTab'
+import { ImportarFuncionarios } from './ImportarFuncionarios'
 
 type Aba = 'empresas' | 'filiais' | 'cc' | 'planos' | 'contas' | 'estrutura' | 'cargos' | 'funcionarios' | 'verbas' | 'versoes' | 'lotes' | 'moedas' | 'cambio' | 'taxaorcada' | 'metas'
 
@@ -948,6 +949,15 @@ function FuncionariosTab() {
         onAdd={() => { setAdding(true); setErro(null); setInfo(null) }}
         busca={busca} onBusca={setBusca} total={data.length} mostrando={filtered.length}
       />
+      {/* Importador próprio, separado do "Importar Excel" genérico: este casa a
+          pessoa com os postos por (filial, matrícula) e traz o CPF, que é o que
+          faz o headcount contar gente em vez de matrícula. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '10px 0 0', flexWrap: 'wrap' }}>
+        <ImportarFuncionarios onFim={load} />
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+          Traz o CPF e liga cada pessoa aos postos dela. Mostra a prévia antes de gravar.
+        </span>
+      </div>
       {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
       {info && <div style={S.info}>{info}</div>}
       <table style={S.table}>

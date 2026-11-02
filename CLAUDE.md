@@ -325,6 +325,27 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   **Apontamento × Folha** (3ª aba, v3_112/113/114 — set/2026): confere em **HORAS**, não em reais (o extrato traz o custo/hora congelado e a folha usa o valor-hora do cadastro, `RetValHr` — duas taxas para a mesma hora). `fat_apontamento` é alimentada pela pill `Apontamento` (`/postos/apontamento`), que lê o *Extrato de Horas Apontadas* .xlsx **direto, sem conversor Python** (a competência sai do nome do arquivo). Cada linha guarda **duas competências** (a do apontamento e a `comp_folha` correspondente, com a defasagem PJ +1 / CLT +2 já resolvida) e **duas filiais** (a do posto, que é a da chave, e a do projeto em `filial_apont_id`). Quem entra na conferência sai da **função** do extrato (`apontamento_funcao`, descoberta na importação), com `posto.recebe_hora` como exceção por pessoa — precedência `posto → função → confere`. O bloco **CLT não concilia**: mostra a *proporção* de horas por empresa · filial · CC, que é o rateio que hoje é feito à mão após a integração contábil. Correções medidas (o que NÃO funciona e por quê) em `docs/DESIGN_conciliacao_apontamento.md`, seção final.
   **Afastamento** (v3_117 — out/2026): janela no posto (`afast_ini_*`/`afast_fim_*`, fim nulo = sem previsão de retorno). O motor **zera a base** no mês afastado e a cascata inteira cai sozinha (INSS, FGTS, 13º, férias são % sobre ela); sobram os `VALOR_FIXO`, e aí a regra é verba a verba — `verba_folha.mantem_afastado`. O import do RH deriva de `RA_SITFOLH` (código de **uma letra**: `A`=afastado, `F`=férias **fica fora**, `D`=demitido) e grava o retorno em aberto, que é o pior caso, de propósito. Escopo estreito: maternidade (efeito de caixa) e absenteísmo (premissa %) **não** entram. Ver `docs/DESIGN_posto_trabalho.md` § Afastamento.
   **Rescisão / demissão futura** (v3_118 — out/2026): a *data* sempre foi a vigência fim (`fim_ano`/`fim_mes`); o que entrou é o **custo do evento** no mês da saída. Três `tipo_calculo` novos (`RESC_AVISO` aviso prévio 30d+3d/ano teto 90; `RESC_PROP` proporcional aos meses do ano — 13º fator 1, férias 1,3333; `RESC_SALDO_FGTS` multa 40% estimada por salário × tempo de casa, 3,2%), todos valendo **zero** fora do mês do fim — por isso o FGTS sobre as rescisórias é um `PCT_VERBA` comum. Recorte por **regime** (só `BR-CLT`). No mês da saída o motor roda a cascata **duas vezes** para que o "custo/mês" fique com o recorrente e a rescisão saia em `rescisaoAno`/categoria `Rescisão`. `posto.admissao` é coluna própria (a vigência é editável). ⚠ **dupla contagem** se o catálogo já provisionar rescisão mensalmente — a migration avisa. Ver `docs/DESIGN_posto_trabalho.md` § Rescisão.
+  **Identidade da pessoa = CPF (v3_149).** `funcionario.cpf` (único por tenant, **`SELECT`
+  revogado** — é chave, não informação de tela) + `posto.funcionario_id`, que existia e nunca fora
+  preenchido. Casamento em **duas passadas**, no banco, via `importar_funcionarios(jsonb, simular)`:
+  1ª por **(filial, matrícula)** — a matrícula **sozinha não identifica**, a `900008` pertence a 7
+  CPFs; `filial.codigo` = código da empresa + da filial com zero à esquerda ("20"+"01"=`2001`);
+  2ª por **nome**, só nos que sobraram (série `8000xx` é pró-labore e não existe no export do RH),
+  e **só para nome que aponta a um único CPF** — errar identidade é pior que deixar em branco.
+  Resultado medido: 561 de 570 postos casam por chave, 6 por nome, 1 sem (não está na relação).
+  **`p_simular`** dá a prévia: importação sem prévia é importação que se descobre pelo estrago.
+  ⚠ **Nenhum CPF em arquivo**: a carga vai da planilha ao banco pelo navegador. Gerar um `.sql`
+  com os 513 CPFs os poria no histórico do git — era o caminho que eu ia tomar e foi barrado.
+
+  **Importação como padrão, não como caso (nov/2026).** O alvo é receber de **mais de um ERP**, e
+  nome de coluna é a primeira coisa que muda entre eles. Três partes separadas:
+  `lerPlanilha` (`lib/planilha.ts`, ao lado do `downloadSheet` — ler e escrever planilha moram
+  juntos) **não sabe do conteúdo**; **`lib/importPerfil.ts`** declara por campo os *nomes aceitos*
+  (tolerante a acento/caixa/espaço, intolerante ao resto: adivinhar coluna é como se importa a
+  errada); e o **casamento vai no banco**, atômico. Trocar de ERP = acrescentar um perfil, não
+  editar tela. Convenção da instalação (concatenar empresa+filial) mora **no perfil**, perto das
+  colunas, para o banco seguir genérico — mesma razão de `planorc_pj_frag()`.
+
   ⚠ **Headcount não é matrícula distinta** (`lib/pessoaChave.ts`, nov/2026). `matricula` é por
   **empresa**: quem tem pró-labore em mais de uma empresa do grupo ganha uma em cada, e contar
   matrícula transformava 2 diretores em "7 pessoas" no CC 411. O identificador certo seria
