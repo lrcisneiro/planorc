@@ -38,15 +38,21 @@ BEGIN
 
     -- `(SELECT f())` nos DOIS lados: no teste de nulidade e na comparação.
     -- Deixar um só envelopado ainda chamaria a função por linha no outro.
-    p_emp := 'AND ((SELECT escopo_empresa()) IS NULL OR (empresa_id IS NOT NULL AND empresa_id = ANY((SELECT escopo_empresa()))))';
-    p_fil := 'AND ((SELECT escopo_filial())  IS NULL OR (filial_id  IS NOT NULL AND filial_id  = ANY((SELECT escopo_filial()))))';
+    --
+    -- ⚠ O `::uuid[]` não é decoração. Sem ele, `ANY((SELECT f()))` é lido como
+    -- a forma de SUBCONSULTA do ANY — que espera um conjunto de uuid — e a
+    -- função devolve UM valor do tipo uuid[]. O erro é
+    -- `operator does not exist: uuid = uuid[]`, e está documentado no
+    -- CLAUDE.md desde a otimização do v3_123. Caí nele de novo.
+    p_emp := 'AND ((SELECT escopo_empresa()) IS NULL OR (empresa_id IS NOT NULL AND empresa_id = ANY((SELECT escopo_empresa())::uuid[])))';
+    p_fil := 'AND ((SELECT escopo_filial())  IS NULL OR (filial_id  IS NOT NULL AND filial_id  = ANY((SELECT escopo_filial())::uuid[])))';
     p_cc  := CASE WHEN tem_cc THEN
-             'AND ((SELECT escopo_cc())      IS NULL OR (cc_id      IS NOT NULL AND cc_id      = ANY((SELECT escopo_cc()))))'
+             'AND ((SELECT escopo_cc())      IS NULL OR (cc_id      IS NOT NULL AND cc_id      = ANY((SELECT escopo_cc())::uuid[])))'
              ELSE '' END;
-    e_emp := 'AND ((SELECT edit_empresa()) IS NULL OR (empresa_id IS NOT NULL AND empresa_id = ANY((SELECT edit_empresa()))))';
-    e_fil := 'AND ((SELECT edit_filial())  IS NULL OR (filial_id  IS NOT NULL AND filial_id  = ANY((SELECT edit_filial()))))';
+    e_emp := 'AND ((SELECT edit_empresa()) IS NULL OR (empresa_id IS NOT NULL AND empresa_id = ANY((SELECT edit_empresa())::uuid[])))';
+    e_fil := 'AND ((SELECT edit_filial())  IS NULL OR (filial_id  IS NOT NULL AND filial_id  = ANY((SELECT edit_filial())::uuid[])))';
     e_cc  := CASE WHEN tem_cc THEN
-             'AND ((SELECT edit_cc())      IS NULL OR (cc_id      IS NOT NULL AND cc_id      = ANY((SELECT edit_cc()))))'
+             'AND ((SELECT edit_cc())      IS NULL OR (cc_id      IS NOT NULL AND cc_id      = ANY((SELECT edit_cc())::uuid[])))'
              ELSE '' END;
 
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', t || '_sel', t);
