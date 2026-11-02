@@ -16,6 +16,7 @@ import { cascataRateio } from '../../lib/rateioFolha'
 import { usePostoCtx } from '../../lib/postoCtx'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
+import { slugCargo as slug } from '../../lib/slugCargo'
 import { resolvePosto, camposAlterados, overlayVazio, CAMPOS_CENARIO } from '../../lib/postoVersao'
 import type { PostoVersao, CampoCenario } from '../../lib/postoVersao'
 import { taxaOrcada, materializa } from '../../lib/cambio'
@@ -48,7 +49,6 @@ function parseXlsxRows(file: File): Promise<Row[]> {
     r.onload = e => { try { const wb = XLSX.read(e.target?.result, { type: 'binary' }); res(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }) as Row[]) } catch (err) { rej(err) } }
     r.readAsBinaryString(file) })
 }
-const slug = (n: string) => n.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 28) || 'CARGO'
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const inpNum = (v: any) => String(v ?? '').replace('.', ',')   // p/ inputs: vírgula decimal, sem separador de milhar
 const inp2 = (v: any) => Number(v ?? 0).toFixed(2).replace('.', ',')   // 2 casas, vírgula (ex.: 6000 -> "6000,00")

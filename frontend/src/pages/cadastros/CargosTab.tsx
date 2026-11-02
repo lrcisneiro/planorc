@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
+import { slugCargo } from '../../lib/slugCargo'
 import { ChevronDown, ChevronRight, GripVertical, Plus, Trash2, CornerDownLeft, Users } from 'lucide-react'
 
 // ============================================================
@@ -123,8 +124,15 @@ export function CargosTab() {
     // tabelas têm, e a política de INSERT exige `tenant_id = current_tenant_id()`.
     // Sem ele o erro é "new row violates row-level security policy", que soa
     // como falta de permissão quando na verdade é campo faltando.
+    // `codigo` é NOT NULL e tem unique por tenant. A regra de geração é a MESMA
+    // da importação (`slugCargo`); o sufixo entra só quando o código já existe,
+    // o que acontece com nomes que diferem apenas em acento ou pontuação.
+    const nm = nome.trim().toUpperCase()
+    const usados = new Set(cargos.map(c => (c.codigo || '').toUpperCase()))
+    let cod = slugCargo(nm)
+    for (let i = 2; usados.has(cod); i++) cod = `${slugCargo(nm).slice(0, 25)}_${i}`
     const { error } = await supabase.from('cargo')
-      .insert({ tenant_id: TENANT_ID, nome: nome.trim().toUpperCase(), pai_id, ativo: true })
+      .insert({ tenant_id: TENANT_ID, codigo: cod, nome: nm, pai_id, ativo: true })
     if (error) { setErro(error.message); return }
     if (pai_id) setAbertos(s => new Set(s).add(pai_id))
     carregar()
