@@ -257,9 +257,19 @@ export default function CenarioDiffModal(props: any) {
     }
   }, [linhas, empById, ccById]) // eslint-disable-line
 
-  const total = linhas.reduce((s, l) => s + l.delta, 0)
-  const sobe = linhas.filter(l => l.delta > 0).reduce((s, l) => s + l.delta, 0)
-  const desce = linhas.filter(l => l.delta < 0).reduce((s, l) => s + l.delta, 0)
+  // ⚠ OS TOTAIS SEGUEM O VEREDITO. Recusada não entra no orçado — aquele posto
+  // vai com o cadastro —, então ela contribui ZERO. Somá-la faria o cartão
+  // anunciar um efeito que não vai acontecer, logo acima do botão que fecha o
+  // cenário. Sem veredito nenhum, tudo conta: é a proposta inteira, que era o
+  // comportamento anterior e continua certo enquanto ninguém decidiu.
+  const valem = linhas.filter(l => l.aprovado !== false)
+  const total = valem.reduce((s, l) => s + l.delta, 0)
+  const sobe = valem.filter(l => l.delta > 0).reduce((s, l) => s + l.delta, 0)
+  const desce = valem.filter(l => l.delta < 0).reduce((s, l) => s + l.delta, 0)
+  // O proposto continua à vista quando difere: quem aprova precisa saber o
+  // tamanho do que foi pedido, não só o do que passou.
+  const totalProposto = linhas.reduce((s, l) => s + l.delta, 0)
+  const nRecusadas = linhas.length - valem.length
 
   const nomeArq = `cenario_${(versaoLabel || 'versao').replace(/\W+/g, '_')}_para_aprovacao`
 
@@ -282,14 +292,17 @@ export default function CenarioDiffModal(props: any) {
     setMenu(false)
     const aoa: any[][] = [[
       'Posto', 'Ocupante', 'Empresa', 'CC', 'Cargo (cenário)', 'Tipo', 'O que muda',
-      'Custo ano — cadastro', 'Custo ano — cenário', 'Δ', 'Justificativa',
+      'Custo ano — cadastro', 'Custo ano — cenário', 'Δ', 'Veredito', 'Motivo da recusa', 'Justificativa',
     ]]
     for (const t of TIPOS) for (const l of linhas.filter(x => x.tipo === t.k)) {
       aoa.push([l.codigo, l.nome, l.emp, l.cc, l.cargo, t.nome,
         l.campos.map((c: string) => `${rotulo[c] || c}: ${valor(c, (l.mestre as any)[c])} → ${valor(c, (l.ef as any)[c])}`).join(' · '),
-        l.custoM, l.custoE, l.delta, l.nota])
+        l.custoM, l.custoE, l.delta,
+        l.aprovado === true ? 'aprovada' : l.aprovado === false ? 'recusada' : 'pendente',
+        l.aprovNota, l.nota])
     }
-    aoa.push([], ['TOTAL', '', '', '', '', '', '', '', '', total, ''])
+    aoa.push([], ['TOTAL (o que entra no orçado)', '', '', '', '', '', '', '', '', total, ''])
+    if (nRecusadas) aoa.push(['TOTAL proposto (inclui recusadas)', '', '', '', '', '', '', '', '', totalProposto, ''])
     aoa.push([], ['Escopo alcançado'], ['Empresas', escopo.emp.join(', ')],
              ['Filiais', escopo.fil.join(', ')], ['Centros de custo', escopo.texto])
     downloadSheet(`${nomeArq}.xlsx`, aoa, 'Decisões')
@@ -345,14 +358,18 @@ export default function CenarioDiffModal(props: any) {
           ) : (<>
             <div style={S.kpis}>
               <div style={S.kpi}><div style={S.kl}>Postos decididos</div>
-                <div style={S.kv}>{linhas.length}</div></div>
+                <div style={S.kv}>{linhas.length}</div>
+                {nRecusadas > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                  {valem.length} entra(m) · {nRecusadas} recusada(s)</div>}</div>
               <div style={S.kpi}><div style={S.kl}>Encarece</div>
                 <div style={{ ...S.kv, color: 'var(--red)' }}>{sobe ? `+${mil(sobe)}` : '—'}</div></div>
               <div style={S.kpi}><div style={S.kl}>Economiza</div>
                 <div style={{ ...S.kv, color: 'var(--green)' }}>{desce ? mil(desce) : '—'}</div></div>
               <div style={S.kpi}><div style={S.kl}>Efeito no ano</div>
                 <div style={{ ...S.kv, color: total > 0 ? 'var(--red)' : total < 0 ? 'var(--green)' : undefined }}>
-                  {total > 0 ? '+' : ''}{mil(total)}</div></div>
+                  {total > 0 ? '+' : ''}{mil(total)}</div>
+                {nRecusadas > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                  proposto: {totalProposto > 0 ? '+' : ''}{mil(totalProposto)}</div>}</div>
             </div>
 
             {escopo.ccs.length > 0 && (
@@ -368,7 +385,7 @@ export default function CenarioDiffModal(props: any) {
             {TIPOS.map(t => {
               const ls = linhas.filter(l => l.tipo === t.k)
               if (!ls.length) return null
-              const sub = ls.reduce((s, l) => s + l.delta, 0)
+              const sub = ls.filter(l => l.aprovado !== false).reduce((s, l) => s + l.delta, 0)
               const Icone = t.icone
               return (
                 <div key={t.k}>
