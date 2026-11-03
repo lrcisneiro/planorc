@@ -164,6 +164,11 @@ export default function PostosGradePage() {
   const [buSel, setBuSel] = usePostoCtx('buSel', [])
   const [modo, setModo] = useState<'upsert' | 'substituir'>('upsert')
   const [agruparPor, setAgruparPor] = useLocalPref<'cc' | 'cargo'>('planorc_postos_grade_agrupar', 'cc')
+  // Ordenação DENTRO do grupo — o agrupamento continua mandando. `null` volta à
+  // ordem natural (código do posto), que é a terceira parada do ciclo: sem ela,
+  // quem ordena por salário não tem como desfazer.
+  const [ordem, setOrdem] = useLocalPref<{ col: string | null; dir: 'asc' | 'desc' }>(
+    'planorc_postos_grade_ordem', { col: null, dir: 'asc' })
   const [regimeSel, setRegimeSel] = useState('')
   const [busca, setBusca] = useState('')
   // CENÁRIO (v3_120). O quadro mestre é a realidade; a sobreposição por versão
@@ -176,7 +181,6 @@ export default function PostosGradePage() {
   // Quatro estados em vez de "demitido sim/não": o toggle antigo deixava
   // afastado e em férias contando como ativo no headcount, no FTE e no custo.
   const [sits, setSits] = useLocalPref<Situacao[]>('planorc_postos_situacoes', ['ativo'])
-  const [editHora, setEditHora] = useState<string | null>(null)   // posto com o seletor de hora aberto
   const [erro, setErro] = useState<string | null>(null)
   const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[]; afastados: number; cargoAmbiguo: number } | null>(null)
   const [importando, setImportando] = useState(false)
@@ -660,8 +664,8 @@ export default function PostosGradePage() {
     setPostos(ps => ps.filter(p => p.id !== id))
   }
   // novo posto / vaga ou edição (código, ocupante, cargo, local, regime, salário, vigência)
-  const novoPosto = (pre?: { cc_id?: string; cargo_id?: string }) => setForm({ codigo: '', codigoAuto: true, nome: '', matricula: '', cargo_id: pre?.cargo_id || '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: pre?.cc_id || '', sindicato_id: '', regime: 'BR-CLT', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', reajuste_mes: '', reajuste_pct: '', reajuste_valor: '', admissao: '', afast_ini_ano: '', afast_ini_mes: '', afast_fim_ano: '', afast_fim_mes: '', afast_motivo: '', rateios: [] })
-  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, codigoAuto: false, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', salario_base: p.salario_base != null ? String(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', reajuste_mes: p.reajuste_mes ? String(p.reajuste_mes) : '', reajuste_pct: p.reajuste_pct != null ? String(p.reajuste_pct) : '', reajuste_valor: p.reajuste_valor != null ? String(p.reajuste_valor) : '', afast_ini_ano: p.afast_ini_ano ? String(p.afast_ini_ano) : '', afast_ini_mes: p.afast_ini_mes ? String(p.afast_ini_mes) : '', afast_fim_ano: p.afast_fim_ano ? String(p.afast_fim_ano) : '', afast_fim_mes: p.afast_fim_mes ? String(p.afast_fim_mes) : '', afast_motivo: p.afast_motivo || '', admissao: p.admissao || '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
+  const novoPosto = (pre?: { cc_id?: string; cargo_id?: string }) => setForm({ codigo: '', codigoAuto: true, nome: '', matricula: '', cargo_id: pre?.cargo_id || '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: pre?.cc_id || '', sindicato_id: '', regime: 'BR-CLT', recebe_hora: '', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', reajuste_mes: '', reajuste_pct: '', reajuste_valor: '', admissao: '', afast_ini_ano: '', afast_ini_mes: '', afast_fim_ano: '', afast_fim_mes: '', afast_motivo: '', rateios: [] })
+  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, codigoAuto: false, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', recebe_hora: p.recebe_hora == null ? '' : (p.recebe_hora ? 'sim' : 'nao'), salario_base: p.salario_base != null ? String(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', reajuste_mes: p.reajuste_mes ? String(p.reajuste_mes) : '', reajuste_pct: p.reajuste_pct != null ? String(p.reajuste_pct) : '', reajuste_valor: p.reajuste_valor != null ? String(p.reajuste_valor) : '', afast_ini_ano: p.afast_ini_ano ? String(p.afast_ini_ano) : '', afast_ini_mes: p.afast_ini_mes ? String(p.afast_ini_mes) : '', afast_fim_ano: p.afast_fim_ano ? String(p.afast_fim_ano) : '', afast_fim_mes: p.afast_fim_mes ? String(p.afast_fim_mes) : '', afast_motivo: p.afast_motivo || '', admissao: p.admissao || '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
   const salvarPosto = async () => {
     if (!form) return
     if (!form.empresa_id) { setErro('Informe a empresa.'); return }
@@ -676,6 +680,10 @@ export default function PostosGradePage() {
       cargo_id: form.cargo_id || null, empresa_id: form.empresa_id, filial_id: form.filial_id || null, cc_id: form.cc_id || null,
       sindicato_id: form.sindicato_id || sindByCod[sindCodPorEmp(empCod)] || null,
       regime: form.regime || null, salario_base: parseNum(form.salario_base) || 0, fte: parseNum(form.fte) || 1,
+      // Três estados, e o vazio NÃO é falso: vazio = segue a função do
+      // apontamento, que é o padrão da esmagadora maioria. Gravar `false` aí
+      // viraria exceção explícita "só aponta" em todo mundo.
+      recebe_hora: form.recebe_hora === '' ? null : form.recebe_hora === 'sim',
       ini_ano: form.ini_ano ? parseInt(form.ini_ano, 10) : null, ini_mes: form.ini_mes ? parseInt(form.ini_mes, 10) : null,
       fim_ano: form.fim_ano ? parseInt(form.fim_ano, 10) : null, fim_mes: form.fim_mes ? parseInt(form.fim_mes, 10) : null,
       // o CHECK da v3_116 exige mês quando há pct OU valor, e os dois são
@@ -798,6 +806,55 @@ export default function PostosGradePage() {
   }
 
   // agrupa por centro de custo OU cargo (seletor)
+  // Colunas de dinheiro começam em DECRESCENTE: quem clica em salário quer ver
+  // o maior, não o menor. Texto começa em crescente, que é como se lê lista.
+  const NUM = new Set(['salario', 'fte', 'custoMes', 'custoAno', 'vigencia', 'rateio'])
+  // ⚠ Cada coluna ordena pelo MESMO valor que a célula mostra. Ordenar por um
+  // campo e exibir outro faz a ordem parecer aleatória — e quem vê não tem como
+  // descobrir por quê.
+  const valorDe = (p: Posto, col: string): string | number => {
+    switch (col) {
+      case 'posto':    return p.codigo || ''
+      case 'empfil':   return `${p.empresa?.codigo || ''}·${p.filial?.codigo || ''}·${p.centro_custo?.codigo || ''}`
+      case 'cargo':    return (p as any).cargo?.nome || ''
+      case 'ocupante': return p.nome || ''   // vaga (sem nome) vai para uma ponta, junta
+      case 'modelo':   return REGIMES_LABEL[p.regime || ''] || p.regime || ''
+      case 'salario':  return Number(p.salario_base) || 0
+      case 'fte':      return Number(p.fte) || 1
+      case 'vigencia': {
+        // Replica `vig()` em número — ela só é definida mais abaixo, e chamá-la
+        // daqui estouraria em TDZ. Ordena pelo mês de início e desempata pelo fim.
+        const ini = (p.ini_ano == null || p.ini_ano < anoCalc) ? 1 : (p.ini_ano === anoCalc ? (p.ini_mes || 1) : 13)
+        const fim = (p.fim_ano == null || p.fim_ano > anoCalc) ? 12 : (p.fim_ano === anoCalc ? (p.fim_mes || 12) : 0)
+        return ini * 100 + fim
+      }
+      case 'rateio':   return (postoRateios[p.id] || []).length
+      case 'custoMes': return custoMesP(p)
+      case 'custoAno': return custoAnoP(p)
+      default:         return ''
+    }
+  }
+  const clicarCol = (col: string) => setOrdem(o =>
+    o.col !== col ? { col, dir: NUM.has(col) ? 'desc' : 'asc' }
+    : o.dir === (NUM.has(col) ? 'desc' : 'asc') ? { col, dir: NUM.has(col) ? 'asc' : 'desc' }
+    : { col: null, dir: 'asc' })
+
+  const Th = ({ col, children, dir: align }: { col?: string; children?: any; dir?: 'right' }) => {
+    // Sem salário visível, ordenar por dinheiro é ordenar por zeros — a coluna
+    // deixa de ser clicável em vez de responder com uma ordem que não é ordem.
+    const ativo = col && ordem.col === col
+    const podeClicar = !!col && !(semFolha && NUM.has(col) && col !== 'fte')
+    return (
+      <th style={{ ...S.th, ...(align === 'right' ? { textAlign: 'right' } : {}),
+                   ...(podeClicar ? { cursor: 'pointer', userSelect: 'none' } : {}),
+                   ...(ativo ? { color: 'var(--violet)' } : {}) }}
+          onClick={podeClicar ? () => clicarCol(col!) : undefined}
+          title={podeClicar ? 'Ordenar dentro de cada grupo' : undefined}>
+        {children}{ativo && <span style={{ marginLeft: 4 }}>{ordem.dir === 'asc' ? '▲' : '▼'}</span>}
+      </th>
+    )
+  }
+
   const grupos = useMemo(() => {
     const porCc = agruparPor === 'cc'
     const custo = (ps: Posto[]) => ps.reduce((s, p) => s + custoAnoP(p), 0)
@@ -811,9 +868,23 @@ export default function PostosGradePage() {
       })
       m.get(k)!.postos.push(p)
     }
-    return [...m.values()].map(g => ({ ...g, custoAno: custo(g.postos) }))
-      .sort((a, b) => (a.cod || a.desc || 'zzz').localeCompare(b.cod || b.desc || 'zzz'))
-  }, [filtrados, agruparPor, custos]) // eslint-disable-line
+    // A ordem dos GRUPOS não muda — ordenar o conteúdo não é reordenar a
+    // estrutura. Só os postos de dentro de cada um se movem.
+    const sinal = ordem.dir === 'asc' ? 1 : -1
+    const ordenados = [...m.values()].map(g => ({
+      ...g,
+      custoAno: custo(g.postos),
+      postos: ordem.col
+        ? [...g.postos].sort((a, b) => {
+            const x = valorDe(a, ordem.col!), y = valorDe(b, ordem.col!)
+            return sinal * (typeof x === 'number' && typeof y === 'number'
+              ? x - y
+              : String(x).localeCompare(String(y), 'pt-BR'))
+          })
+        : g.postos,
+    }))
+    return ordenados.sort((a, b) => (a.cod || a.desc || 'zzz').localeCompare(b.cod || b.desc || 'zzz'))
+  }, [filtrados, agruparPor, custos, ordem]) // eslint-disable-line
   const toggle = (k: string) => setFechados(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
   const gruposKeys = useMemo(() => grupos.map(g => 'a:' + g.key), [grupos])
   const algumAberto = gruposKeys.some(k => !fechados.has(k))
@@ -896,7 +967,14 @@ export default function PostosGradePage() {
         <td style={{ ...S.td, fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)' }}
           title={`${p.empresa?.codigo || '?'} · ${p.filial?.codigo || '?'} · ${p.centro_custo?.codigo || '?'} ${p.centro_custo?.descricao || ''}`}>
           {p.empresa?.codigo || '—'}·{p.filial?.codigo || '—'}·{p.centro_custo?.codigo || '—'}</td>
-        <td style={S.td}>{p.cargo?.nome || '—'}</td>
+        {/* Cargo é a coluna que mais alarga a tabela — com o menu recolhido, nomes
+            como COORDENADOR ADMINISTRATIVO DE GENTE empurravam o salário para
+            fora da tela e obrigavam a rolar na horizontal. Trunca com reticência
+            e o nome inteiro fica no title. A ORDENAÇÃO usa o valor completo, não
+            o truncado: ordenar pelo que foi cortado mudaria a ordem conforme a
+            largura da janela. */}
+        <td style={{ ...S.td, maxWidth: 210, overflow: 'hidden', textOverflow: 'ellipsis' }}
+            title={p.cargo?.nome || undefined}>{p.cargo?.nome || '—'}</td>
         <td style={S.td}>{p.nome
           ? <span style={T.ocup}>{nomeCurto(p.nome)}</span>
           : <span style={T.vaga}>VAGA{p.ini_mes ? ` · ${MESES[p.ini_mes - 1]}/${String(p.ini_ano || '').slice(2)}` : ''}</span>}
@@ -904,40 +982,7 @@ export default function PostosGradePage() {
             title={`Afastado ${fa.txt}${fa.aberto ? ' (sem previsão de retorno)' : ''}${p.afast_motivo ? ` — ${p.afast_motivo}` : ''}. Nesses meses o orçamento não leva salário, INSS, FGTS nem provisões; só os benefícios marcados como devidos no afastamento.`}>
             AFASTADO {fa.txt}</span>}</td>
         <td style={S.td}>{p.regime ? <span style={tagRegime(p.regime)}>{REGIMES_LABEL[p.regime] || p.regime}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
-        <td style={S.td}>{p.sindicato?.codigo ? <span style={T.sind}>{p.sindicato.codigo}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
-        {/* Recebe por hora: só aparece onde há apontamento, e só é EXCEÇÃO.
-            O normal é a função decidir (Apontamento → Funções); esta coluna
-            existe para quem foge do padrão da própria função. Herdado em
-            itálico, exceção em destaque — mesma convenção das premissas
-            globais do formulário. */}
-        {flags.usa_apontamento && <td style={S.td}>{!p.recurso_cod
-          ? <span style={{ color: 'var(--faint)' }} title="Este posto não aponta horas (sem código de recurso)">—</span>
-          : (editavel && editHora === p.id)
-            ? <select autoFocus style={{ ...S.inp, width: 116 }}
-                value={p.recebe_hora == null ? '' : (p.recebe_hora ? 'sim' : 'nao')}
-                title="Vazio = segue a função do apontamento. Use só para quem foge do padrão da função."
-                onBlur={() => setEditHora(null)}
-                onChange={e => { salvar(p.id, { recebe_hora: e.target.value === '' ? null : e.target.value === 'sim' }); setEditHora(null) }}>
-                <option value="">segue a função</option>
-                <option value="sim">recebe por hora</option>
-                <option value="nao">só aponta</option>
-              </select>
-            : p.recebe_hora == null
-              // O padrão é "segue a função", e ele é a maioria esmagadora das
-              // linhas: um combo em cada uma domina a coluna com a informação
-              // menos relevante da tela. Em repouso vira um traço discreto, como
-              // quem não aponta; o seletor abre no clique.
-              ? <span onClick={() => editavel && setEditHora(p.id)}
-                  title="Segue a função do apontamento. Clique para definir uma exceção para esta pessoa."
-                  style={{ color: 'var(--faint)', cursor: editavel ? 'pointer' : 'default' }}>·</span>
-              : <span onClick={() => editavel && setEditHora(p.id)}
-                  title={`Exceção: ${p.recebe_hora ? 'recebe por hora' : 'só aponta'} (clique para mudar)`}
-                  style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99, cursor: editavel ? 'pointer' : 'default',
-                    color: p.recebe_hora ? 'var(--green)' : 'var(--orange)',
-                    background: p.recebe_hora ? 'rgba(52,211,153,0.12)' : 'rgba(251,191,36,0.12)',
-                    border: '1px solid ' + (p.recebe_hora ? 'rgba(52,211,153,0.30)' : 'rgba(251,191,36,0.30)') }}>
-                  {p.recebe_hora ? 'por hora' : 'só aponta'}</span>}
-        </td>}
+
         <td style={{ ...S.td, textAlign: 'right', ...cel('salario_base') }} title={titCen('salario_base', x => money(Number(x)))}>
           {editavel
             ? <input style={{ ...S.inp, ...cel('salario_base') }} defaultValue={inp2(p.salario_base)}
@@ -1165,11 +1210,10 @@ export default function PostosGradePage() {
         <div style={{ overflowX: 'auto' }}>
           <table style={S.table}>
             <thead><tr>
-              <th style={S.th}>Posto</th><th style={S.th}>Empr·Fil·CC</th><th style={S.th}>Cargo</th><th style={S.th}>Ocupante</th><th style={S.th}>Modelo</th><th style={S.th}>Sind.</th>
-              {flags.usa_apontamento && <th style={S.th} title="Exceção sobre a função do apontamento. O normal é decidir pela função, em Apontamento → Funções.">Recebe por hora</th>}
-              <th style={{ ...S.th, textAlign: 'right' }}>Salário</th><th style={{ ...S.th, textAlign: 'right' }}>FTE</th>
-              <th style={S.th}>Vigência</th><th style={S.th}>Rateio</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>Custo/mês¹</th><th style={{ ...S.th, textAlign: 'right' }}>Custo ano</th><th style={S.th} />
+              <Th col="posto">Posto</Th><Th col="empfil">Empr·Fil·CC</Th><Th col="cargo">Cargo</Th><Th col="ocupante">Ocupante</Th><Th col="modelo">Modelo</Th>
+              <Th col="salario" dir="right">Salário</Th><Th col="fte" dir="right">FTE</Th>
+              <Th col="vigencia">Vigência</Th><Th col="rateio">Rateio</Th>
+              <Th col="custoMes" dir="right">Custo/mês¹</Th><Th col="custoAno" dir="right">Custo ano</Th><th style={S.th} />
             </tr></thead>
             <tbody>
               {grupos.map(g => {
@@ -1420,6 +1464,19 @@ export default function PostosGradePage() {
               <div><span style={S.flbl}>Cargo</span><select style={S.finp} value={form.cargo_id} onChange={e => setForm((f: any) => ({ ...f, cargo_id: e.target.value }))}><option value="">—</option>{cargos.map((c: any) => <option key={c.id} value={c.id}>{c.nome}{c.sub_cod ? ` · ${c.sub_cod}` : ''}</option>)}</select></div>
               <div><span style={S.flbl}>Regime</span><select style={S.finp} value={form.regime} onChange={e => setForm((f: any) => ({ ...f, regime: e.target.value }))}><option value="">—</option>{REGIMES.map(r => <option key={r} value={r}>{REGIMES_LABEL[r] || r}</option>)}</select></div>
               <div><span style={S.flbl}>Sindicato <span style={{ color: 'var(--muted)' }}>(vazio = pela empresa)</span></span><select style={S.finp} value={form.sindicato_id} onChange={e => setForm((f: any) => ({ ...f, sindicato_id: e.target.value }))}><option value="">— automático —</option>{sindicatos.map((s: any) => <option key={s.id} value={s.id}>{s.codigo}</option>)}</select></div>
+              {/* Saiu da grade (nov/2026): é exceção rara — a decisão normal é
+                  por FUNÇÃO, em Apontamento → Funções — e ocupava uma coluna
+                  inteira com um traço em quase toda linha. */}
+              {flags.usa_apontamento && (
+                <div><span style={S.flbl}>Recebe por hora <span style={{ color: 'var(--muted)' }}>(vazio = segue a função)</span></span>
+                  <select style={S.finp} value={form.recebe_hora}
+                    onChange={e => setForm((f: any) => ({ ...f, recebe_hora: e.target.value }))}>
+                    <option value="">— segue a função —</option>
+                    <option value="sim">recebe por hora</option>
+                    <option value="nao">só aponta</option>
+                  </select>
+                </div>
+              )}
               <div><span style={S.flbl}>Salário base</span><input style={S.finp} value={form.salario_base} placeholder="0,00" onChange={e => setForm((f: any) => ({ ...f, salario_base: e.target.value }))} /></div>
               <div><span style={S.flbl}>FTE</span><input style={S.finp} value={form.fte} placeholder="1" onChange={e => setForm((f: any) => ({ ...f, fte: e.target.value }))} /></div>
               <div><span style={S.flbl}>Vigência início</span>

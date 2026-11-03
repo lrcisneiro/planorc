@@ -467,13 +467,28 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
                   <div key={dim.key} style={{ marginBottom: 16 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 10, flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{dim.label}</span>
-                      <button type="button" onClick={() => setSelecionados(dim.key, [])}
-                        style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, cursor: 'pointer', padding: 0 }}>
-                        Desmarcar todos (= tudo)</button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        {/* ⚠ "Marcar todos" e "Desmarcar todos" dão o mesmo acesso HOJE e
+                            divergem AMANHÃ: lista vazia segue o cadastro (empresa criada
+                            depois entra sozinha); lista cheia congela os de agora. Os dois
+                            botões existem porque as duas intenções existem. */}
+                        <button type="button"
+                          title="Fixa exatamente os itens de hoje. Item criado depois NÃO entra — para acompanhar o cadastro, use Desmarcar todos."
+                          onClick={() => setSelecionados(dim.key, dim.opcoes.map(o => o.id))}
+                          style={{ background: 'none', border: 'none', color: 'var(--violet)', fontSize: 12, cursor: 'pointer', padding: 0 }}>
+                          Marcar todos</button>
+                        <button type="button"
+                          title="Sem marca = sem restrição nesta dimensão, inclusive para itens criados depois."
+                          onClick={() => setSelecionados(dim.key, [])}
+                          style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, cursor: 'pointer', padding: 0 }}>
+                          Desmarcar todos (= tudo)</button>
+                      </div>
                     </div>
                     <div style={{ fontSize: 12, color: dim.selecionados.length === 0 ? 'var(--orange)' : 'var(--text-mid)', marginBottom: 6 }}>
                       {dim.selecionados.length === 0
-                        ? 'Toda a empresa nesta dimensão.'
+                        ? 'Toda a empresa nesta dimensão — e acompanha o cadastro: item novo entra sozinho.'
+                        : dim.selecionados.length === dim.opcoes.length
+                        ? `Os ${dim.opcoes.length} de hoje, fixos — item criado depois ficará de fora.`
                         : `${dim.selecionados.length} de ${dim.opcoes.length} permitidos`}
                     </div>
                     <div style={{ maxHeight: 140, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 0' }}>

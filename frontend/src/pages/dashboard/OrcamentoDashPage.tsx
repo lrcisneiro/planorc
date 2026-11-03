@@ -1167,29 +1167,50 @@ function Aviso({ tom, children }: { tom: 'alerta' | 'info'; children: any }) {
 /** Seletor de linhas da seção, em ordem de ÁRVORE (ver emArvore). */
 function SelLinhas({ cfg, setCfg, linhas, limiar }: { cfg: SecCfg; setCfg: (c: SecCfg) => void; linhas: LinhaRel[]; limiar?: boolean }) {
   const [aberto, setAberto] = useState(false)
+  // ⚠ RASCUNHO enquanto aberto. Antes cada clique chamava `setCfg`, e cada
+  // chamada recalculava a ponte inteira: marcar seis componentes custava seis
+  // recálculos, cinco deles de estados intermediários que ninguém pediu — e o
+  // gráfico pulava a cada um. Pior nos campos de limiar, que recalculavam a
+  // cada TECLA (digitar "15" passava por "1").
+  // O rascunho também protege de uma coisa mais sutil: estado intermediário de
+  // ponte é quase sempre INCOERENTE — tirar o subtotal antes de pôr as filhas
+  // dispara o alerta de resíduo no meio do caminho, assustando sem motivo.
+  const [rascunho, setRascunho] = useState<SecCfg | null>(null)
+  const c = rascunho ?? cfg
+  const mudar = (novo: SecCfg) => setRascunho(novo)
+
+  const abrir = () => { setRascunho(cfg); setAberto(true) }
+  const aplicar = () => {
+    setAberto(false)
+    if (rascunho && JSON.stringify(rascunho) !== JSON.stringify(cfg)) setCfg(rascunho)
+    setRascunho(null)
+  }
+  const pendente = !!rascunho && JSON.stringify(rascunho) !== JSON.stringify(cfg)
+
   const ok = useMemo(() => new Set(linhasConciliaveis(linhas).map((l: any) => l.id)), [linhas])
   const arv = useMemo(() => emArvore(linhas as any).filter((l: any) => ok.has(l.id)), [linhas, ok])
   return (
     <div style={{ position: 'relative' }} data-noexport>
-      <button onClick={() => setAberto(v => !v)}
+      <button onClick={() => aberto ? aplicar() : abrir()}
         style={{ padding: '5px 10px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg-soft)', color: 'var(--text-mid)', cursor: 'pointer' }}>
-        {cfg.sel.length} linha(s){limiar ? ` · ≥${cfg.pct}% e ≥${cfg.minPctTotal}% do total` : ''} ▾
+        {c.sel.length} linha(s){limiar ? ` · ≥${c.pct}% e ≥${c.minPctTotal}% do total` : ''} ▾
       </button>
       {aberto && (
         <>
-          <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setAberto(false)} />
+          {/* Clicar fora é o gesto natural de "terminei" — e aplica. */}
+          <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={aplicar} />
           <div style={{ position: 'absolute', top: 32, right: 0, zIndex: 41, width: 360, background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 10, padding: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.4)' }}>
             {limiar && (
               <div style={{ display: 'flex', gap: 10, marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid var(--border)' }}>
                 <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }}>variação ≥
-                  <input type="number" value={cfg.pct} onChange={e => setCfg({ ...cfg, pct: Number(e.target.value) })}
+                  <input type="number" value={c.pct} onChange={e => mudar({ ...c, pct: Number(e.target.value) })}
                     style={{ width: '100%', marginTop: 3, padding: '4px 6px', border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--bg)', color: 'var(--text)' }} /> %
                 </label>
                 {/* Auto-escalar: limiar fixo em R$ está errado em alguma seção
                     por definição — receita e despesa de viagem não cabem no
                     mesmo número. */}
                 <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }}>e ≥ % do total
-                  <input type="number" step="0.1" value={cfg.minPctTotal} onChange={e => setCfg({ ...cfg, minPctTotal: Number(e.target.value) })}
+                  <input type="number" step="0.1" value={c.minPctTotal} onChange={e => mudar({ ...c, minPctTotal: Number(e.target.value) })}
                     style={{ width: '100%', marginTop: 3, padding: '4px 6px', border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--bg)', color: 'var(--text)' }} />
                 </label>
               </div>
@@ -1197,11 +1218,30 @@ function SelLinhas({ cfg, setCfg, linhas, limiar }: { cfg: SecCfg; setCfg: (c: S
             <div style={{ maxHeight: 260, overflowY: 'auto' }}>
               {arv.map((l: any) => (
                 <label key={l.id} style={{ display: 'flex', gap: 7, alignItems: 'flex-start', padding: '3px 4px', fontSize: 12.5, cursor: 'pointer', color: 'var(--text)' }}>
-                  <input type="checkbox" checked={cfg.sel.includes(l.id)} style={{ marginTop: 2, flexShrink: 0 }}
-                    onChange={() => setCfg({ ...cfg, sel: cfg.sel.includes(l.id) ? cfg.sel.filter(x => x !== l.id) : [...cfg.sel, l.id] })} />
+                  <input type="checkbox" checked={c.sel.includes(l.id)} style={{ marginTop: 2, flexShrink: 0 }}
+                    onChange={() => mudar({ ...c, sel: c.sel.includes(l.id) ? c.sel.filter(x => x !== l.id) : [...c.sel, l.id] })} />
                   <span style={{ paddingLeft: l.prof * 13, fontWeight: l.prof === 0 ? 600 : 400 }}>{l.descricao}</span>
                 </label>
               ))}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+              <span style={{ fontSize: 11.5, color: pendente ? 'var(--violet)' : 'var(--muted)' }}>
+                {c.sel.length} selecionada(s){pendente ? ' · ainda não aplicado' : ''}
+              </span>
+              <div style={{ flex: 1 }} />
+              {pendente && (
+                <button onClick={() => { setRascunho(cfg) }}
+                  style={{ padding: '5px 10px', fontSize: 11.5, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'transparent', color: 'var(--muted)', cursor: 'pointer' }}>
+                  Descartar
+                </button>
+              )}
+              <button onClick={aplicar}
+                style={{ padding: '5px 12px', fontSize: 11.5, fontWeight: 600, borderRadius: 7, cursor: 'pointer',
+                         border: '1px solid ' + (pendente ? 'var(--violet)' : 'var(--border-strong)'),
+                         background: pendente ? 'rgba(139,92,246,0.14)' : 'transparent',
+                         color: pendente ? 'var(--violet)' : 'var(--text-mid)' }}>
+                {pendente ? 'Aplicar' : 'Fechar'}
+              </button>
             </div>
           </div>
         </>
