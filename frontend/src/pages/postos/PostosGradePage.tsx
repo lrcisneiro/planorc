@@ -10,7 +10,7 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
 import { calcularPosto, regimeAplica, paisAplica, verbasDoRegime, CATEGORIAS } from '../../lib/motorFolha'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
-import { GitCompare, Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil, Undo2 } from 'lucide-react'
+import { ClipboardCheck, Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil, Undo2 } from 'lucide-react'
 import { RateioModal } from './RateioModal'
 import { cascataRateio } from '../../lib/rateioFolha'
 import { usePostoCtx } from '../../lib/postoCtx'
@@ -1177,10 +1177,13 @@ export default function PostosGradePage() {
             Ao lado do Aplicar parecia etapa de aplicação, e não é: é leitura. */}
         {modoCenario && alterados.size > 0 && (
           <div style={S.fld}><span style={S.lbl}>&nbsp;</span>
+            {/* Nasceu "Comparar com o cadastro", quando só comparava. Virou o
+                lugar onde se aprova, recusa, justifica e reenvia — o nome tinha
+                de acompanhar, senão esconde a função principal da tela. */}
             <button onClick={() => setVerDiff(true)}
-              title="Comparar o cadastro (ERP) com as decisões deste cenário, posto a posto, com o custo dos dois lados"
+              title="Revisar e aprovar as decisões deste cenário, posto a posto, comparadas com o cadastro do ERP"
               style={{ ...S.sel, cursor: 'pointer', width: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <GitCompare size={13} /> Comparar com o cadastro
+              <ClipboardCheck size={13} /> Aprovação do cenário
             </button>
           </div>
         )}
