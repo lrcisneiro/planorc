@@ -548,11 +548,20 @@ export default function CenarioDiffModal(props: any) {
                   {/* ⚠ A versão anterior dizia só "quem propôs precisa corrigir",
                       e o aprovador lia que estava bloqueado esperando alguém.
                       Ele pode resolver as duas: aprovar a pendente e mudar de
-                      ideia na recusada — foi ele que recusou. */}
+                      ideia na recusada — foi ele que recusou.
+                      ⚠ E diz QUAIS, não só quantas: com o contador no rodapé e a
+                      linha fora da tela, "1 recusada" vira caça ao tesouro, e quem
+                      rolou até aqui acha que já decidiu tudo. */}
                   {(vereditos?.pend > 0 || vereditos?.repr > 0) && (
                     <div style={{ fontSize: 12, color: 'var(--orange)', marginBottom: 10, lineHeight: 1.65 }}>
-                      Falta decidir linha a linha: <b>{vereditos.pend} pendente(s)</b>
-                      {vereditos.repr > 0 && <> e <b>{vereditos.repr} recusada(s)</b></>}.
+                      Falta decidir: {[
+                        ...linhas.filter((x: any) => x.aprovado === null).map((x: any) => ({ n: x.nome, s: 'pendente' })),
+                        ...linhas.filter((x: any) => x.aprovado === false).map((x: any) => ({ n: x.nome, s: 'recusada' })),
+                      ].map((x, i, a) => (
+                        <span key={i}>
+                          <b>{x.n}</b> <span style={{ color: 'var(--muted)' }}>({x.s})</span>{i < a.length - 1 ? ' · ' : ''}
+                        </span>
+                      ))}
                       <div style={{ color: 'var(--muted)', marginTop: 3 }}>
                         Use o <b style={{ color: 'var(--green)' }}>✓</b> na coluna Veredito
                         {vereditos.repr > 0
