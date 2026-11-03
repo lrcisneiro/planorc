@@ -7,6 +7,7 @@ import { T } from '../../lib/theme'
 import { Share2, Plus, Pencil, Trash2, ChevronRight, Copy } from 'lucide-react'
 import { papelMaisAlto } from '../../lib/capacidades'
 import { CompartilharCard, gravarAlvo, type Alvo } from '../dashboard/CompartilharCard'
+import { useCapacidades } from '../../hooks/useCapacidades'
 
 async function fetchAll(build: () => any): Promise<any[]> {
   const out: any[] = []; const size = 1000; let from = 0
@@ -90,6 +91,11 @@ export default function RelatorioPage({ linkBase = '/relatorios', titulo = 'Rela
   const [presets, setPresets] = useState<Preset[]>([])
   const [uid, setUid] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
+  // Criar, duplicar, renomear e excluir RELATÓRIO é mexer na estrutura — mesma
+  // capacidade que governa a árvore de linhas. A lista não tinha gate nenhum:
+  // qualquer um que alcançasse a tela editava o cabeçalho da DRE do grupo.
+  const cap = useCapacidades()
+  const podeEstrutura = cap.can('estrutura')
   // Preset herda o escopo do relatório que abre: quem não vê o Balanço na
   // lista não deve ver um atalho para ele logo abaixo dela.
   const loadPresets = () => {
@@ -233,7 +239,7 @@ export default function RelatorioPage({ linkBase = '/relatorios', titulo = 'Rela
           <h1 style={S.title}>{titulo}</h1>
           <p style={S.sub}>{subtitulo}</p>
         </div>
-        <button style={S.btnAdd} onClick={openCreate}><Plus size={15} /> Novo relatório</button>
+        {podeEstrutura && <button style={S.btnAdd} onClick={openCreate}><Plus size={15} /> Novo relatório</button>}
       </div>
 
       {erro && (
@@ -268,10 +274,12 @@ export default function RelatorioPage({ linkBase = '/relatorios', titulo = 'Rela
               <div style={S.footer}>
                 <span style={{ fontSize: 12, color: T.muted }}>{r._nlinhas} linha{r._nlinhas !== 1 ? 's' : ''}</span>
                 <div style={S.actions}>
-                  <button style={S.btnIcon} title="Duplicar (copia linhas e amarrações de conta)" disabled={dupId === r.id}
-                    onClick={e => duplicar(r, e)}>{dupId === r.id ? <span style={{ fontSize: 11 }}>…</span> : <Copy size={14} />}</button>
-                  <button style={S.btnIcon} title="Editar" onClick={e => openEdit(r, e)}><Pencil size={14} /></button>
-                  <button style={S.btnIcon} title="Excluir" onClick={e => del(r.id, e)}><Trash2 size={14} /></button>
+                  {podeEstrutura && <>
+                    <button style={S.btnIcon} title="Duplicar (copia linhas e amarrações de conta)" disabled={dupId === r.id}
+                      onClick={e => duplicar(r, e)}>{dupId === r.id ? <span style={{ fontSize: 11 }}>…</span> : <Copy size={14} />}</button>
+                    <button style={S.btnIcon} title="Editar" onClick={e => openEdit(r, e)}><Pencil size={14} /></button>
+                    <button style={S.btnIcon} title="Excluir" onClick={e => del(r.id, e)}><Trash2 size={14} /></button>
+                  </>}
                   <button style={{ ...S.btnIcon, color: T.violet }} title="Abrir"><ChevronRight size={16} /></button>
                 </div>
               </div>
