@@ -8,10 +8,17 @@
 // regra de cenário se espalhe por dentro dela.
 
 // Campos que o cenário pode decidir. Tudo que não está aqui é FATO e mora só no
-// mestre: nome, matrícula, admissão, cargo, regime, sindicato, empresa/filial/CC,
+// mestre: nome, matrícula, admissão, regime, sindicato, empresa/filial/CC,
 // recurso_cod, benefícios, rateio.
+//
+// ⚠ `cargo_id` entrou na v3_164, depois de ter ficado de fora por ser "fato".
+// O que mudou foi o fluxo: promover é reajuste MAIS cargo, e com a edição do
+// cadastro fechada ao gerente de área a metade do cargo ficaria sem lugar —
+// reabrindo a porta que a separação de privilégios fechou.
+// ⚠ Quem exibe o cargo de um posto resolvido tem de usar `cargo_id`, NUNCA o
+// embed `cargo(nome)` da consulta: o embed vem do mestre e não vê a decisão.
 export const CAMPOS_CENARIO = [
-  'salario_base', 'fte',
+  'salario_base', 'fte', 'cargo_id',
   'ini_ano', 'ini_mes', 'fim_ano', 'fim_mes',
   'reajuste_mes', 'reajuste_pct', 'reajuste_valor',
   'afast_ini_ano', 'afast_ini_mes', 'afast_fim_ano', 'afast_fim_mes',

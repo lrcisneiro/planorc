@@ -230,7 +230,7 @@ export default function PostosGradePage() {
       supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
       pageAll(() => supabase.from('cargo').select('id,codigo,nome,sub_cod').order('nome')).then(data => ({ data })),
-      carregarVersoes('id,codigo,bloqueada').then(data => ({ data })),
+      carregarVersoes('id,codigo,bloqueada,aprovado_em,aprovado_por,aprovacao_nota').then(data => ({ data })),
       supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,mantem_afastado,regime,pais,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
       supabase.from('sindicato').select('id,codigo,mes_database'),
       supabase.from('rateio_regra').select('id,nome,dimensao').eq('ativo', true).order('nome'),
@@ -289,6 +289,15 @@ export default function PostosGradePage() {
   useEffect(() => { loadOverlays(versaoSel) }, [versaoSel])   // eslint-disable-line
 
   const editavel = modoCenario ? podeCenario : podeCadastro
+  const vAtual: any = versoes.find((v: any) => v.id === versaoSel)
+  const aprovadoEm: string | null = vAtual?.aprovado_em ?? null
+  const podeAprovar = cap.can('cenario.aprovar')
+  // ⚠ Pelo ID, nunca pelo embed `p.cargo`: o embed vem do MESTRE e não enxerga
+  // a promoção decidida no cenário (v3_164). Três pontos liam o embed —
+  // a célula, o agrupamento e a ordenação — e os três mostrariam o cargo
+  // antigo numa promoção, sem nada na tela denunciando.
+  const nomeCargo = (id: string | null | undefined) =>
+    (id && cargos.find((c: any) => c.id === id)?.nome) || ''
   const mestreById = useMemo(() => new Map(postos.map(p => [p.id, p])), [postos])
   // O quadro EFETIVO do cenário. Fora do modo cenário é o mestre, pela mesma
   // referência — nada muda para quem só cuida do cadastro.
@@ -495,6 +504,19 @@ export default function PostosGradePage() {
   // ── Aplicar no orçado (step 5): grava fat_orcado (origem POSTO) do quadro ativo da versão ──
   const [aplicando, setAplicando] = useState(false)
   const [aplicarInfo, setAplicarInfo] = useState<{ linhas: number; postos: number; contas: number; ano: number; fundidas: number; semTaxa: number; semConta: string[]; natEstranha: string[] } | null>(null)
+  // A tela só chama; quem confere a autoridade é o banco (`pode_aprovar_cenario`).
+  // Conferir o retorno importa: RPC barrada levanta erro, mas versão fora do
+  // tenant simplesmente não atualiza linha nenhuma e voltaria "sucesso".
+  const decidirAprovacao = async (aprovar: boolean, nota: string) => {
+    if (!versaoSel) return
+    const { data, error } = aprovar
+      ? await supabase.rpc('aprovar_cenario', { p_versao: versaoSel, p_nota: nota || null })
+      : await supabase.rpc('reprovar_cenario', { p_versao: versaoSel, p_nota: nota || null })
+    if (error) throw new Error(error.message)
+    if (aprovar && !(data as any[])?.length) throw new Error('Nada foi aprovado — a versão não foi encontrada no seu tenant.')
+    await loadLookups()
+  }
+
   const aplicarNoOrcado = async () => {
     setErro(null); setAplicarInfo(null)
     if (!versaoSel) { setErro('Selecione a versão do orçamento.'); return }
@@ -505,6 +527,13 @@ export default function PostosGradePage() {
     const vSel = versoes.find(v => v.id === versaoSel)
     if (vSel?.bloqueada) {
       setErro(`A versão ${vSel.codigo} está BLOQUEADA (aprovada) — o Aplicar apagaria e regravaria o orçado de folha dela a partir do quadro de postos de hoje. Desbloqueie em Cadastros → Versões se for mesmo para refazer, ou escolha outra versão.`)
+      return
+    }
+    // ⚠ Cenário com decisão só vira dinheiro depois de aprovado. Fora do modo
+    // cenário (ou sem nenhuma decisão) o Aplicar é o de sempre: não há o que
+    // aprovar quando o quadro é o próprio cadastro.
+    if (modoCenario && alterados.size > 0 && !vSel?.aprovado_em) {
+      setErro(`O cenário ${vSel?.codigo} decide ${alterados.size} posto(s) e ainda NÃO foi aprovado. Abra "Comparar com o cadastro" para revisar e aprovar antes de aplicar no orçado.`)
       return
     }
     if (!temMotor) { setErro('Sem verbas cadastradas — cadastre a Estrutura antes de aplicar.'); return }
@@ -824,7 +853,7 @@ export default function PostosGradePage() {
     switch (col) {
       case 'posto':    return p.codigo || ''
       case 'empfil':   return `${p.empresa?.codigo || ''}·${p.filial?.codigo || ''}·${p.centro_custo?.codigo || ''}`
-      case 'cargo':    return (p as any).cargo?.nome || ''
+      case 'cargo':    return nomeCargo(p.cargo_id)
       case 'ocupante': return p.nome || ''   // vaga (sem nome) vai para uma ponta, junta
       case 'modelo':   return REGIMES_LABEL[p.regime || ''] || p.regime || ''
       case 'salario':  return Number(p.salario_base) || 0
@@ -871,7 +900,7 @@ export default function PostosGradePage() {
       const k = (porCc ? p.cc_id : p.cargo_id) || '__sem'
       if (!m.has(k)) m.set(k, {
         key: k, cod: porCc ? (p.centro_custo?.codigo || '') : '',
-        desc: (porCc ? p.centro_custo?.descricao : p.cargo?.nome) || (porCc ? 'Sem centro de custo' : 'Sem cargo'),
+        desc: (porCc ? p.centro_custo?.descricao : nomeCargo(p.cargo_id)) || (porCc ? 'Sem centro de custo' : 'Sem cargo'),
         postos: [],
       })
       m.get(k)!.postos.push(p)
@@ -981,8 +1010,9 @@ export default function PostosGradePage() {
             e o nome inteiro fica no title. A ORDENAÇÃO usa o valor completo, não
             o truncado: ordenar pelo que foi cortado mudaria a ordem conforme a
             largura da janela. */}
-        <td style={{ ...S.td, maxWidth: 210, overflow: 'hidden', textOverflow: 'ellipsis' }}
-            title={p.cargo?.nome || undefined}>{p.cargo?.nome || '—'}</td>
+        <td style={{ ...S.td, maxWidth: 210, overflow: 'hidden', textOverflow: 'ellipsis', ...cel('cargo_id' as CampoCenario) }}
+            title={titCen('cargo_id' as CampoCenario, (x: any) => nomeCargo(x) || '—') || nomeCargo(p.cargo_id) || undefined}>
+          {nomeCargo(p.cargo_id) || '—'}</td>
         <td style={S.td}>{p.nome
           ? <span style={T.ocup}>{nomeCurto(p.nome)}</span>
           : <span style={T.vaga}>VAGA{p.ini_mes ? ` · ${MESES[p.ini_mes - 1]}/${String(p.ini_ano || '').slice(2)}` : ''}</span>}
@@ -1170,6 +1200,19 @@ export default function PostosGradePage() {
             ? <>Este cenário decide <b>{alterados.size} posto(s)</b>.</>
             : <>Nenhuma decisão ainda: tudo herdado do cadastro.</>}</span>
           <span style={{ flex: 1 }} />
+          {/* O selo fica na faixa e não só no modal: quem abre a tela precisa
+              saber se o que está vendo já passou por alguém. */}
+          {alterados.size > 0 && (
+            aprovadoEm
+              ? <span title={vAtual?.aprovacao_nota || undefined}
+                  style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 99,
+                    color: 'var(--green)', background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.35)' }}>
+                  ✓ aprovado {new Date(aprovadoEm).toLocaleDateString('pt-BR')}</span>
+              : <span title="O Aplicar no orçado fica bloqueado até alguém aprovar."
+                  style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 99,
+                    color: 'var(--orange)', background: 'rgba(251,146,60,0.12)', border: '1px solid rgba(251,146,60,0.35)' }}>
+                  aguardando aprovação</span>
+          )}
           <span style={{ color: 'var(--muted)' }}>O EBITDA do cenário sai no relatório, comparando as versões. Aqui é só a folha.</span>
         </div>
       )}
@@ -1362,6 +1405,8 @@ export default function PostosGradePage() {
           dissidio={dissidio} sindMesBase={sindMesBase} anoCalc={anoCalc}
           postoVerbas={postoVerbas} empPais={empPais} empById={empById} ccById={ccById}
           filById={new Map((filiais as any[]).map(f => [f.id, f]))}
+          aprovadoEm={aprovadoEm} aprovacaoNota={vAtual?.aprovacao_nota || ''}
+          podeAprovar={podeAprovar} onDecidir={decidirAprovacao}
           cargoNome={(id: string) => cargos.find((c: any) => c.id === id)?.nome || ''}
           versaoLabel={versoes.find((v: any) => v.id === versaoSel)?.codigo || ''}
           onClose={() => setVerDiff(false)} />
@@ -1434,6 +1479,36 @@ export default function PostosGradePage() {
                     {decidido('fte') && <button style={{ ...S.del, padding: '0 6px' }} title="Voltar a herdar" onClick={() => herda(['fte'])}><Undo2 size={14} /></button>}
                   </div>
                   <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 3 }}>cadastro: {m.fte ?? 1}</div>
+                </div>
+                {/* Promoção: cargo + salário na mesma decisão. A referência do
+                    cargo é SUGERIDA, nunca aplicada — preencher calado decidiria
+                    pelo gerente, e o salário de referência é piso de faixa, não
+                    a proposta dele. */}
+                <div><span style={{ ...S.flbl, ...lbl('cargo_id' as CampoCenario) }}>Cargo (promoção)</span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <select style={{ ...S.finp, flex: 1 }} value={efet.cargo_id ?? ''}
+                      onChange={e => set({ cargo_id: e.target.value || null })}>
+                      <option value="">—</option>
+                      {cargos.map((c: any) => <option key={c.id} value={c.id}>{c.nome}{c.sub_cod ? ` · ${c.sub_cod}` : ''}</option>)}
+                    </select>
+                    {decidido('cargo_id') && <button style={{ ...S.del, padding: '0 6px' }} title="Voltar a herdar" onClick={() => herda(['cargo_id' as CampoCenario])}><Undo2 size={14} /></button>}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 3 }}>
+                    cadastro: {cargos.find((c: any) => c.id === m.cargo_id)?.nome || '—'}
+                    {(() => {
+                      const ref = cargos.find((c: any) => c.id === efet.cargo_id)?.salario_ref
+                      if (!decidido('cargo_id') || !ref || Number(ref) === Number(efet.salario_base)) return null
+                      return (
+                        <> · referência do cargo <b>{money(Number(ref))}</b>{' '}
+                          <button onClick={() => set({ salario_base: Number(ref) })}
+                            title="Usar o salário de referência do cargo novo. Você pode digitar outro valor."
+                            style={{ background: 'none', border: 'none', color: 'var(--violet)', cursor: 'pointer', padding: 0, fontSize: 10.5 }}>
+                            usar
+                          </button>
+                        </>
+                      )
+                    })()}
+                  </div>
                 </div>
                 {parMes('ini_mes', 'ini_ano', 'Entrada (adiar/antecipar)')}
                 {parMes('fim_mes', 'fim_ano', 'Saída (demissão simulada)')}

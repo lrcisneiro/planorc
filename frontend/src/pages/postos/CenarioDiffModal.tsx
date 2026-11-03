@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { X, Download, Scissors, TrendingUp, CalendarRange, Gauge, Pause } from 'lucide-react'
+import { X, Download, Scissors, TrendingUp, CalendarRange, Gauge, Pause, Check, RotateCcw } from 'lucide-react'
 import { calcularPosto } from '../../lib/motorFolha'
 import { resolvePosto, camposAlterados, type PostoVersao, type CampoCenario } from '../../lib/postoVersao'
 import { downloadSheet } from '../../lib/planilha'
@@ -76,7 +76,18 @@ const S: Record<string, CSSProperties> = {
 
 export default function CenarioDiffModal(props: any) {
   const { postos, overlays, verbas, dissidio, sindMesBase, anoCalc, postoVerbas,
-          empPais, empById, ccById, cargoNome, versaoLabel, onClose } = props
+          empPais, empById, ccById, cargoNome, versaoLabel, onClose,
+          aprovadoEm, aprovacaoNota, podeAprovar, onDecidir } = props
+  const [nota, setNota] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erroAprov, setErroAprov] = useState('')
+
+  const decidir = async (aprovar: boolean) => {
+    setErroAprov(''); setSalvando(true)
+    try { await onDecidir(aprovar, nota); setNota('') }
+    catch (e: any) { setErroAprov(e?.message || 'Não foi possível concluir.') }
+    finally { setSalvando(false) }
+  }
   // O PDF captura ESTE nó. O cabeçalho e os botões ficam fora dele: o título
   // vai no cabeçalho do próprio PDF, e botão impresso em papel é ruído.
   const corpoRef = useRef<HTMLDivElement>(null)
@@ -323,10 +334,60 @@ export default function CenarioDiffModal(props: any) {
               )
             })}
 
-            <p style={{ marginTop: 24, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.7 }}>
-              Esta tela é <b>só leitura</b> — aprovar ainda não existe. O cenário também não
-              altera cargo, centro de custo, empresa, benefícios nem rateio: esses são <b>fato</b> e
-              moram no cadastro, que vem do ERP.
+            {/* A aprovação fecha o ciclo aqui, onde se vê o que se aprova —
+                não num botão solto na barra, longe dos números. */}
+            <div style={{ marginTop: 26, paddingTop: 18, borderTop: '1px solid var(--border)' }} data-noexport>
+              {erroAprov && <div style={{ fontSize: 12.5, color: 'var(--red)', background: 'rgba(248,113,113,0.10)',
+                border: '1px solid rgba(248,113,113,0.4)', borderRadius: 8, padding: '9px 12px', marginBottom: 12 }}>{erroAprov}</div>}
+
+              {aprovadoEm ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+                  padding: '12px 14px', borderRadius: 10, border: '1px solid rgba(52,211,153,0.35)', background: 'rgba(52,211,153,0.10)' }}>
+                  <Check size={16} style={{ color: 'var(--green)' }} />
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    <b style={{ color: 'var(--green)', fontSize: 13 }}>Cenário aprovado</b>
+                    <div style={{ fontSize: 12, color: 'var(--text-mid)' }}>
+                      em {new Date(aprovadoEm).toLocaleString('pt-BR')} · o Aplicar no orçado está liberado
+                    </div>
+                    {aprovacaoNota && <div style={{ fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic', marginTop: 3 }}>“{aprovacaoNota}”</div>}
+                  </div>
+                  {podeAprovar && (
+                    <button style={S.btn} disabled={salvando} onClick={() => decidir(false)}>
+                      <RotateCcw size={13} /> Revogar
+                    </button>
+                  )}
+                </div>
+              ) : podeAprovar ? (
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>Aprovar este cenário</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.65, marginBottom: 10, maxWidth: '76ch' }}>
+                    A aprovação libera o <b>Aplicar no orçado</b> desta versão. ⚠ Ela cai sozinha se
+                    qualquer decisão do cenário for alterada depois — o carimbo nunca fica valendo
+                    para um conteúdo que mudou.
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <input value={nota} onChange={e => setNota(e.target.value)}
+                      placeholder="observação da aprovação (opcional)"
+                      style={{ flex: 1, minWidth: 240, padding: '8px 11px', fontSize: 12.5, background: 'var(--bg-soft)',
+                               color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 8 }} />
+                    <button disabled={salvando} onClick={() => decidir(true)}
+                      style={{ ...S.btn, borderColor: 'var(--green)', color: 'var(--green)', fontWeight: 600 }}>
+                      <Check size={14} /> {salvando ? 'Aprovando…' : `Aprovar ${linhas.length} decisão(ões)`}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 12.5, color: 'var(--orange)' }}>
+                  <b>Aguardando aprovação.</b> Você pode revisar e exportar, mas não aprovar —
+                  o <b>Aplicar no orçado</b> fica bloqueado até alguém com essa permissão carimbar.
+                </div>
+              )}
+            </div>
+
+            <p style={{ marginTop: 18, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.7 }}>
+              O cenário decide salário, cargo, jornada, vigência e afastamento. Centro de custo,
+              empresa, filial, regime, benefícios e rateio continuam sendo <b>fato</b> e moram no
+              cadastro, que vem do ERP.
             </p>
           </>)}
         </div>

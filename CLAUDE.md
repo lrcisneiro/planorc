@@ -253,6 +253,29 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 
 > **Apagar o orçado de uma versão (v3_127).** A ação mais destrutiva do produto vive no menu *Importar Baseline* da tela de Orçar, atrás da capacidade `orcado.apagar` (só admin por padrão). Três proteções, e a ordem importa: `orcado_resumo_versao` mostra o que vai sumir (linhas, origens, valor, escopos) **antes** de qualquer confirmação; quem confirma digita o **código da versão**; e `apagar_orcado_versao` **confere a confirmação no servidor** e recusa versão `bloqueada`. Não é senha de propósito — senha prova identidade, e o risco aqui não é um estranho clicando, é a pessoa certa apagando a versão errada. Apaga `fat_orcado` da versão/ano (todas as origens) e os carimbos de `formulario_aplicacao`; **não** apaga `formulario_valor` — quem recomeça as cargas quer reaplicar os formulários, não redigitá-los.
 
+> **Aprovação do cenário de postos (v3_165, nov/2026).** O gerente decide, o controller aprova, e
+> só então o `Aplicar no orçado` libera. Aprovação é da **versão**, não do posto: o cenário é a
+> unidade de negociação, e aprovar linha a linha passaria ao aprovador a responsabilidade de quem
+> propôs. Colunas em `versao_orcamento` (`aprovado_em`/`_por`/`aprovacao_nota`) + RPCs
+> `aprovar_cenario`/`reprovar_cenario`.
+>
+> ⚠ **Qualquer alteração nas decisões DERRUBA o carimbo, por GATILHO em `posto_versao`.** Regra de
+> tela não serviria: a tela não é a única coisa que escreve ali. Sem isso, aprova-se e altera-se
+> depois, e o carimbo fica mentindo — defeito que ninguém descobre até precisar. O gatilho só
+> escreve quando havia carimbo, então um lote de 50 decisões vira uma escrita, e anota o motivo
+> na própria nota.
+>
+> ⚠ **`pode_aprovar_cenario()` é a SEGUNDA repetição deliberada do catálogo em SQL** (a primeira
+> é `pode_ver_folha()`). Autoridade tem de valer no banco: sem ela um `member` aprova o próprio
+> cenário pela API e o controle vira teatro. Custo aceito e declarado — mudar o padrão em
+> `lib/capacidades.ts` exige mudar o SQL junto.
+>
+> ⚠ **Aprovação desatualizada NÃO é detectada, de propósito.** `posto` não tem carimbo de
+> atualização, e mesmo com um: a importação mensal do RH toca os 570 postos e marcaria toda
+> aprovação como velha, inclusive de quem o cenário não decide. Alarme que toca sempre ninguém lê.
+> `aprovado_em` fica à vista e quem lê julga. `bloqueada` segue sendo outra coisa: aprovar
+> **libera** o Aplicar, bloquear **congela** a versão depois.
+
 > **Cadastro × cenário: dois privilégios, não um (nov/2026).** `posto.cadastro.editar` (só admin)
 > e `posto.cenario.decidir` (admin+member) separam mexer no **mestre** de decidir na **versão**.
 > ⚠ **O argumento mais forte não é governança:** o cadastro vem do ERP e a próxima importação do
