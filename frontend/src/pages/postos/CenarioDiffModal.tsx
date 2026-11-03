@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { X, Download, Scissors, TrendingUp, CalendarRange, Gauge, Pause, Check, RotateCcw } from 'lucide-react'
+import { X, Download, Scissors, TrendingUp, CalendarRange, Gauge, Pause, Check, RotateCcw, Undo2 } from 'lucide-react'
 import { calcularPosto } from '../../lib/motorFolha'
 import { resolvePosto, camposAlterados, type PostoVersao, type CampoCenario } from '../../lib/postoVersao'
 import { downloadSheet } from '../../lib/planilha'
@@ -77,7 +77,8 @@ const S: Record<string, CSSProperties> = {
 export default function CenarioDiffModal(props: any) {
   const { postos, overlays, verbas, dissidio, sindMesBase, anoCalc, postoVerbas,
           empPais, empById, ccById, cargoNome, versaoLabel, onClose,
-          aprovadoEm, aprovacaoNota, podeAprovar, onDecidir, onVeredito, vereditos } = props
+          aprovadoEm, aprovacaoNota, podeAprovar, onDecidir, onVeredito, vereditos,
+          podeDecidir, onAbandonar } = props
   const [nota, setNota] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erroAprov, setErroAprov] = useState('')
@@ -134,6 +135,17 @@ export default function CenarioDiffModal(props: any) {
   }
   const abrirRecusa = (l: any) => setRecusando({ id: l.ovId, texto: l.aprovNota || '' })
 
+  // A recusa tem duas saídas: corrigir (na grade) ou abandonar (aqui). Sem a
+  // segunda à mão, quem propôs tem de sair do comparativo, achar o posto na
+  // grade e desfazer campo a campo — e o motivo da recusa fica para trás.
+  const abandonar = async (l: any) => {
+    if (!window.confirm(`Abandonar a decisão de ${l.nome}?\n\nO posto volta a herdar tudo do cadastro: ${l.campos.length} campo(s) decidido(s) são descartados${l.aprovNota ? ', junto com a recusa' : ''}.`)) return
+    setErroAprov(''); setSalvando(true)
+    try { await onAbandonar(l.id) }
+    catch (e: any) { setErroAprov(e?.message || 'Não foi possível abandonar a decisão.') }
+    finally { setSalvando(false) }
+  }
+
   const bt = (ativo: boolean, cor: string): CSSProperties => ({
     padding: '3px 8px', fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: podeAprovar ? 'pointer' : 'default',
     border: '1px solid ' + (ativo ? cor : 'var(--border)'),
@@ -142,11 +154,27 @@ export default function CenarioDiffModal(props: any) {
   })
 
   const veredito = (l: any) => {
-    if (!podeAprovar) return l.aprovado === true
+    const selo = l.aprovado === true
       ? <span style={{ color: 'var(--green)', fontSize: 11, fontWeight: 700 }}>✓ aprovada</span>
       : l.aprovado === false
       ? <span style={{ color: 'var(--red)', fontSize: 11, fontWeight: 700 }}>✗ recusada</span>
       : <span style={{ color: 'var(--muted)', fontSize: 11 }}>pendente</span>
+    // Aprovada já virou acordo: abandonar aqui desfaria o que foi carimbado
+    // sem passar por quem carimbou.
+    const podeAbandonar = podeDecidir && l.aprovado !== true
+    if (!podeAprovar) return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+        {selo}
+        {podeAbandonar && (
+          <button disabled={salvando} onClick={() => abandonar(l)} data-noexport
+            title="Descartar esta decisão: o posto volta a herdar tudo do cadastro"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none',
+                     color: 'var(--muted)', cursor: 'pointer', padding: 0, fontSize: 10.5, textDecoration: 'underline' }}>
+            <Undo2 size={11} /> voltar ao cadastro
+          </button>
+        )}
+      </div>
+    )
     return (
       <div style={{ display: 'inline-flex', gap: 4 }}>
         <button disabled={salvando} style={bt(l.aprovado === true, 'var(--green)')}

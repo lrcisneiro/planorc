@@ -508,6 +508,18 @@ export default function PostosGradePage() {
   // Conferir o retorno importa: RPC barrada levanta erro, mas versão fora do
   // tenant simplesmente não atualiza linha nenhuma e voltaria "sucesso".
   // Veredito por posto: a conversa. O carimbo do cenário (abaixo) é a trava.
+  // Abandonar a decisão: o posto volta a herdar tudo do cadastro. É a segunda
+  // saída de uma recusa — a primeira é corrigir. Apaga a sobreposição inteira,
+  // e o gatilho derruba o carimbo do cenário junto, como deve.
+  const abandonarDecisao = async (postoId: string) => {
+    const ov: any = overlays.get(postoId)
+    if (ov?.id) {
+      const { error } = await supabase.from('posto_versao').delete().eq('id', ov.id)
+      if (error) throw new Error(error.message)
+    }
+    await loadOverlays(versaoSel)
+  }
+
   const decidirPosto = async (ovId: string, aprovado: boolean | null, nota: string | null) => {
     const { error } = await supabase.rpc('decidir_posto_cenario', { p_id: ovId, p_aprovado: aprovado, p_nota: nota })
     if (error) throw new Error(error.message)
@@ -1433,6 +1445,7 @@ export default function PostosGradePage() {
           aprovadoEm={aprovadoEm} aprovacaoNota={vAtual?.aprovacao_nota || ''}
           podeAprovar={podeAprovar} onDecidir={decidirAprovacao}
           onVeredito={decidirPosto} vereditos={vereditos}
+          podeDecidir={podeCenario} onAbandonar={abandonarDecisao}
           cargoNome={(id: string) => cargos.find((c: any) => c.id === id)?.nome || ''}
           versaoLabel={versoes.find((v: any) => v.id === versaoSel)?.codigo || ''}
           onClose={() => setVerDiff(false)} />
