@@ -144,7 +144,12 @@ export default function PostosGradePage() {
   const flags = useTenantFlags()
   // a coluna "recebe por hora" só existe onde se aponta hora em projeto
   const nCols = flags.usa_apontamento ? 14 : 13
-  const editavel = cap.can('orcar')
+  // Editar depende de QUAL lado se está olhando. O cadastro vem do ERP e é
+  // regravado pela próxima importação do RH, então mexer nele é privilégio
+  // separado; decidir no cenário é o trabalho normal de quem planeja a área.
+  // ⚠ `orcar` continua sendo o piso: sem ele não se edita nada dos dois lados.
+  const podeCadastro = cap.can('orcar') && cap.can('posto.cadastro.editar')
+  const podeCenario  = cap.can('orcar') && cap.can('posto.cenario.decidir')
   // Separadas de `editavel` de propósito: mexer no quadro da sua área é uma
   // coisa; gravar no orçado do grupo e recarregar a base do RH são outras duas.
   // O Aplicar SUBSTITUI todo o orçado de origem POSTO da versão — não é edição,
@@ -283,6 +288,7 @@ export default function PostosGradePage() {
   }
   useEffect(() => { loadOverlays(versaoSel) }, [versaoSel])   // eslint-disable-line
 
+  const editavel = modoCenario ? podeCenario : podeCadastro
   const mestreById = useMemo(() => new Map(postos.map(p => [p.id, p])), [postos])
   // O quadro EFETIVO do cenário. Fora do modo cenário é o mestre, pela mesma
   // referência — nada muda para quem só cuida do cadastro.
@@ -1053,7 +1059,7 @@ export default function PostosGradePage() {
             correção de salário virar decisão de cenário sem ninguém notar. */}
         <div style={S.fld}><span style={S.lbl}>Editando</span>
           <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}>
-            {([[false, 'Cadastro', 'O quadro real, válido em todas as versões'],
+            {([[false, 'Cadastro', podeCadastro ? 'O quadro real, válido em todas as versões' : 'Só leitura: o cadastro vem do ERP. Decida no cenário.'],
                [true, 'Cenário', 'Decisões desta versão (demitir, adiar, promover) — o cadastro não muda']] as const).map(([v, lbl, tit]) => (
               <button key={String(v)} title={tit} onClick={() => { setModoCenario(v); if (!v) setSoAlteradas(false) }}
                 style={{ padding: '7px 11px', fontSize: 12.5, fontWeight: modoCenario === v ? 700 : 500, cursor: 'pointer', border: 'none',
@@ -1119,7 +1125,7 @@ export default function PostosGradePage() {
           <SeletorSituacao sel={sits} setSel={setSits} universo={postosEf} compacto />
         </div>
         <div style={{ flex: 1 }} />
-        {editavel && <button style={{ ...S.btn, opacity: modoCenario ? 0.45 : 1, cursor: modoCenario ? 'not-allowed' : 'pointer' }}
+        {podeCadastro && <button style={{ ...S.btn, opacity: modoCenario ? 0.45 : 1, cursor: modoCenario ? 'not-allowed' : 'pointer' }}
           title={modoCenario ? 'Posto novo entra no CADASTRO, não no cenário — vaga que existe só numa versão ainda não é suportada (P3). Troque para Cadastro.' : undefined}
           onClick={() => { if (modoCenario) { setErro('Posto novo entra no cadastro, não no cenário. Troque para "Cadastro" — vaga que existe só numa versão ainda não é suportada.'); return } novoPosto() }}><Plus size={14} /> Posto / vaga</button>}
         {podeAplicar && <button style={S.btnPri} disabled={aplicando || !versaoSel || !temMotor} onClick={aplicarNoOrcado}
@@ -1145,6 +1151,17 @@ export default function PostosGradePage() {
       {erro && <div style={S.erro}><AlertCircle size={14} /> {erro}</div>}
       {/* No modo cenário a tela inteira passa a falar de hipótese, e isso precisa
           ficar óbvio: a edição aqui NÃO muda o cadastro. */}
+      {/* Grade travada sem explicação parece DEFEITO. Quem não pode editar o
+          cadastro precisa saber que é permissão, por que existe (o dado é do
+          ERP e a importação regrava), e para onde ir. */}
+      {!modoCenario && !podeCadastro && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '0 0 12px', padding: '9px 12px', borderRadius: 8,
+          border: '1px solid rgba(251,146,60,0.4)', background: 'rgba(251,146,60,0.10)', fontSize: 12.5, color: 'var(--text-mid)' }}>
+          <b style={{ color: 'var(--orange)' }}>Cadastro em leitura</b>
+          <span>este quadro vem do <b>ERP</b> e é regravado pela próxima importação do RH — editar aqui seria trabalho perdido.
+            {podeCenario ? <> Suas decisões de corte e reajuste vão em <b>Cenário</b>.</> : null}</span>
+        </div>
+      )}
       {modoCenario && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '0 0 12px', padding: '9px 12px', borderRadius: 8,
           border: '1px solid var(--violet)55', background: 'rgba(139,92,246,0.10)', fontSize: 12.5, color: 'var(--text-mid)' }}>

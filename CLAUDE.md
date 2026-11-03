@@ -253,6 +253,24 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 
 > **Apagar o orçado de uma versão (v3_127).** A ação mais destrutiva do produto vive no menu *Importar Baseline* da tela de Orçar, atrás da capacidade `orcado.apagar` (só admin por padrão). Três proteções, e a ordem importa: `orcado_resumo_versao` mostra o que vai sumir (linhas, origens, valor, escopos) **antes** de qualquer confirmação; quem confirma digita o **código da versão**; e `apagar_orcado_versao` **confere a confirmação no servidor** e recusa versão `bloqueada`. Não é senha de propósito — senha prova identidade, e o risco aqui não é um estranho clicando, é a pessoa certa apagando a versão errada. Apaga `fat_orcado` da versão/ano (todas as origens) e os carimbos de `formulario_aplicacao`; **não** apaga `formulario_valor` — quem recomeça as cargas quer reaplicar os formulários, não redigitá-los.
 
+> **Cadastro × cenário: dois privilégios, não um (nov/2026).** `posto.cadastro.editar` (só admin)
+> e `posto.cenario.decidir` (admin+member) separam mexer no **mestre** de decidir na **versão**.
+> ⚠ **O argumento mais forte não é governança:** o cadastro vem do ERP e a próxima importação do
+> RH **sobrescreve** o que foi editado à mão — o upsert regrava `salario_base` do arquivo. Quem
+> mexe no mestre sem saber disso faz um trabalho que evapora sem aviso. O cenário é o lugar certo:
+> isolado por versão, comparável com o cadastro e sujeito a aprovação.
+> `editavel` passou a depender do **modo** (`modoCenario ? podeCenario : podeCadastro`), com
+> `orcar` como piso dos dois. O toggle **não some** para quem não pode editar o cadastro — ver o
+> mestre é legítimo; uma faixa laranja explica que é leitura e por quê, porque grade travada sem
+> explicação parece defeito. `+ Posto / vaga` segue `posto.cadastro.editar`: posto novo nasce no
+> mestre. `cenario.aprovar` está no catálogo e ainda não tem uso — a aprovação é a fase 4.
+>
+> **O comparativo cadastro × cenário** (`CenarioDiffModal`) mostra, por posto, o que muda e o
+> custo **dos dois lados pelo motor** — nunca `salário × 12`: corte em maio carrega aviso prévio,
+> 13º, férias proporcionais e multa de FGTS. Agrupa por **tipo de decisão**, não por CC. O
+> **escopo sai do dado, não do filtro** (filtro é vista e daria outro PDF amanhã) e diz o que foi
+> **tocado**, não o que poderia ter sido. `posto_versao.nota` é a justificativa e aparece na linha.
+
 > **Posto de trabalho — granularidade (out/2026).** Tudo ali morava sob `orcar`, então dar o
 > quadro a um diretor de área dava junto o **Aplicar** (que *substitui* todo o `fat_orcado` de
 > origem `POSTO` da versão) e os importadores. Quebrado em quatro funções — `posto.aplicar`,

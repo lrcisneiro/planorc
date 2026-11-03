@@ -102,6 +102,15 @@ export const CAPACIDADES: Capacidade[] = [
   // ser tomada no banco, e o catálogo não existe lá). Mudar aqui = mudar lá.
   { key: 'posto.salario', label: 'Ver salário e reajuste dos postos', categoria: 'Funções', padrao: { admin: true, member: true, viewer: false } },
   { escrita: true, key: 'posto.aplicar',       label: 'Aplicar o quadro de postos no orçado',   categoria: 'Funções', padrao: { admin: true, member: false, viewer: false } },
+  // ⚠ Editar o CADASTRO é diferente de decidir no CENÁRIO, e a separação não é
+  // só governança: o cadastro vem do ERP, e a próxima importação do RH
+  // SOBRESCREVE o que foi editado à mão (o upsert regrava `salario_base` do
+  // arquivo). Quem mexe no mestre sem saber disso faz um trabalho que evapora.
+  // O cenário é o lugar certo para decisão de planejamento — fica isolado por
+  // versão, é comparável com o cadastro e passa por aprovação.
+  { escrita: true, key: 'posto.cadastro.editar', label: 'Editar o cadastro de postos (dado do ERP)', categoria: 'Funções', padrao: { admin: true, member: false, viewer: false } },
+  { escrita: true, key: 'posto.cenario.decidir', label: 'Decidir no cenário (cortes, reajustes)',     categoria: 'Funções', padrao: { admin: true, member: true,  viewer: false } },
+  { escrita: true, key: 'cenario.aprovar',       label: 'Aprovar cenário de postos',                  categoria: 'Funções', padrao: { admin: true, member: false, viewer: false } },
 
   // ── Importações ──
   // TODA carga de arquivo do app tem chave própria, inclusive as que ficam
