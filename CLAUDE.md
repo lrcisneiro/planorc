@@ -253,7 +253,14 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 
 > **Apagar o orçado de uma versão (v3_127).** A ação mais destrutiva do produto vive no menu *Importar Baseline* da tela de Orçar, atrás da capacidade `orcado.apagar` (só admin por padrão). Três proteções, e a ordem importa: `orcado_resumo_versao` mostra o que vai sumir (linhas, origens, valor, escopos) **antes** de qualquer confirmação; quem confirma digita o **código da versão**; e `apagar_orcado_versao` **confere a confirmação no servidor** e recusa versão `bloqueada`. Não é senha de propósito — senha prova identidade, e o risco aqui não é um estranho clicando, é a pessoa certa apagando a versão errada. Apaga `fat_orcado` da versão/ano (todas as origens) e os carimbos de `formulario_aplicacao`; **não** apaga `formulario_valor` — quem recomeça as cargas quer reaplicar os formulários, não redigitá-los.
 
-> **Reabrir decisão recusada (v3_167).** A resposta a uma recusa costuma ser **texto, não número**
+> **Reabrir decisão recusada (v3_167/168).** Responder e reenviar são o **mesmo ato**: o editor da
+> justificativa abre na própria linha, pré-preenchido, e o reenvio grava os dois juntos. Separá-los
+> obrigava a sair do comparativo — onde está a recusa que se quer responder.
+> **Dois lados, dois campos:** `nota` é de quem PROPÕE, `aprov_nota` de quem APROVA. É o que faz a
+> linha contar a conversa inteira. ⚠ A v3_168 **derruba** a assinatura de 1 argumento antes de
+> criar a de 2: duas conviventes tornariam a RPC ambígua no PostgREST, e o erro só apareceria no
+> clique.
+> **Reabrir decisão recusada (v3_167, detalhe).** A resposta a uma recusa costuma ser **texto, não número**
 > — "justifique" se responde com justificativa, nenhum campo de decisão muda, o gatilho da v3_166
 > não dispara, e o veredito ficaria recusado para sempre. `reabrir_decisao` devolve o posto a
 > **pendente**, e só isso: a justificativa segue no campo `nota` do cenário, que já existia.

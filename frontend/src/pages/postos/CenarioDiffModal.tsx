@@ -86,6 +86,9 @@ export default function CenarioDiffModal(props: any) {
   // uma caixa do sistema sobre uma tela escura tira a pessoa do contexto
   // justamente quando ela precisa olhar o número que está recusando.
   const [recusando, setRecusando] = useState<{ id: string; texto: string } | null>(null)
+  // Responder e reenviar são o MESMO ato. Editor na linha, pelo mesmo motivo da
+  // recusa: a resposta se escreve olhando para o que foi objetado.
+  const [respondendo, setRespondendo] = useState<{ id: string; texto: string } | null>(null)
 
   const decidir = async (aprovar: boolean) => {
     setErroAprov(''); setSalvando(true)
@@ -138,9 +141,9 @@ export default function CenarioDiffModal(props: any) {
   // A recusa tem duas saídas: corrigir (na grade) ou abandonar (aqui). Sem a
   // segunda à mão, quem propôs tem de sair do comparativo, achar o posto na
   // grade e desfazer campo a campo — e o motivo da recusa fica para trás.
-  const reabrir = async (l: any) => {
+  const reabrir = async (l: any, texto: string) => {
     setErroAprov(''); setSalvando(true)
-    try { await onReabrir(l.ovId) }
+    try { await onReabrir(l.ovId, texto.trim() || null); setRespondendo(null) }
     catch (e: any) { setErroAprov(e?.message || 'Não foi possível reabrir.') }
     finally { setSalvando(false) }
   }
@@ -176,7 +179,7 @@ export default function CenarioDiffModal(props: any) {
             aí nada dispara o gatilho. Sem este botão, a decisão ficaria recusada
             para sempre mesmo depois de respondida. */}
         {podeDecidir && l.aprovado === false && (
-          <button disabled={salvando} onClick={() => reabrir(l)} data-noexport
+          <button disabled={salvando} onClick={() => setRespondendo({ id: l.ovId, texto: l.nota || '' })} data-noexport
             title="Devolver para análise: o aprovador vê de novo, com a sua justificativa no cenário"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none',
                      color: 'var(--violet)', cursor: 'pointer', padding: 0, fontSize: 10.5, textDecoration: 'underline' }}>
@@ -422,6 +425,38 @@ export default function CenarioDiffModal(props: any) {
                                 {podeAprovar && <button onClick={() => abrirRecusa(l)} data-noexport
                                   style={{ marginLeft: 7, background: 'none', border: 'none', color: 'var(--red)',
                                            textDecoration: 'underline', cursor: 'pointer', padding: 0, fontSize: 11 }}>editar</button>}
+                              </div>
+                            )}
+                            {respondendo?.id === l.ovId && (
+                              <div data-noexport style={{ marginTop: 6, background: 'rgba(139,92,246,0.08)',
+                                border: '1px solid var(--violet)55', borderRadius: 8, padding: 9 }}>
+                                <div style={{ fontSize: 11, color: 'var(--violet)', fontWeight: 700, marginBottom: 5 }}>
+                                  Sua justificativa — vai para quem recusou
+                                </div>
+                                <textarea autoFocus rows={2} value={respondendo!.texto}
+                                  onChange={e => setRespondendo({ id: l.ovId, texto: e.target.value })}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Escape') setRespondendo(null)
+                                    if (e.key === 'Enter' && !e.shiftKey && respondendo!.texto.trim()) {
+                                      e.preventDefault(); reabrir(l, respondendo!.texto)
+                                    }
+                                  }}
+                                  placeholder="ex.: assumiu a equipe de contratos em março; faixa do cargo novo começa em 21.500"
+                                  style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, padding: '6px 8px', resize: 'vertical',
+                                           background: 'var(--bg-soft)', color: 'var(--text)',
+                                           border: '1px solid var(--border-strong)', borderRadius: 7, fontFamily: 'inherit' }} />
+                                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                                  <button disabled={salvando || !respondendo!.texto.trim()}
+                                    onClick={() => reabrir(l, respondendo!.texto)}
+                                    title={respondendo!.texto.trim() ? undefined : 'Reenviar sem responder devolve à fila sem dizer o que mudou no argumento.'}
+                                    style={{ ...S.btn, padding: '4px 10px', fontSize: 11.5, borderColor: 'var(--violet)', color: 'var(--violet)',
+                                             opacity: respondendo!.texto.trim() ? 1 : 0.45,
+                                             cursor: respondendo!.texto.trim() ? 'pointer' : 'not-allowed' }}>
+                                    Responder e reenviar
+                                  </button>
+                                  <button onClick={() => setRespondendo(null)}
+                                    style={{ ...S.btn, padding: '4px 10px', fontSize: 11.5 }}>Cancelar</button>
+                                </div>
                               </div>
                             )}
                             {recusando?.id === l.ovId && (

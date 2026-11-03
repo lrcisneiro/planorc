@@ -522,8 +522,8 @@ export default function PostosGradePage() {
 
   // Reabrir devolve à fila do aprovador sem aprovar nada — por isso a guarda no
   // banco é `pode_escrever()`, não `pode_aprovar_cenario()`.
-  const reabrirDecisao = async (ovId: string) => {
-    const { error } = await supabase.rpc('reabrir_decisao', { p_id: ovId })
+  const reabrirDecisao = async (ovId: string, nota: string | null) => {
+    const { error } = await supabase.rpc('reabrir_decisao', { p_id: ovId, p_nota: nota })
     if (error) throw new Error(error.message)
     await loadOverlays(versaoSel)
   }
