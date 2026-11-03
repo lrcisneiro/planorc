@@ -10,7 +10,7 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
 import { calcularPosto, regimeAplica, paisAplica, verbasDoRegime, CATEGORIAS } from '../../lib/motorFolha'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
-import { Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil, Undo2 } from 'lucide-react'
+import { GitCompare, Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil, Undo2 } from 'lucide-react'
 import { RateioModal } from './RateioModal'
 import { cascataRateio } from '../../lib/rateioFolha'
 import { usePostoCtx } from '../../lib/postoCtx'
@@ -20,6 +20,7 @@ import { slugCargo as slug } from '../../lib/slugCargo'
 import { pessoaChave } from '../../lib/pessoaChave'
 import { situacaoPosto, SeletorSituacao, type Situacao } from '../../lib/situacaoPosto'
 import { resolvePosto, camposAlterados, overlayVazio, CAMPOS_CENARIO } from '../../lib/postoVersao'
+import CenarioDiffModal from './CenarioDiffModal'
 import type { PostoVersao, CampoCenario } from '../../lib/postoVersao'
 import { taxaOrcada, materializa } from '../../lib/cambio'
 
@@ -176,6 +177,7 @@ export default function PostosGradePage() {
   // salário errado viraria "decisão do cenário" sem ninguém perceber.
   const [modoCenario, setModoCenario] = useState(false)
   const [overlays, setOverlays] = useState<Map<string, PostoVersao>>(new Map())
+  const [verDiff, setVerDiff] = useState(false)   // comparativo cadastro × cenário, para aprovação
   const [soAlteradas, setSoAlteradas] = useState(false)
   const [cenForm, setCenForm] = useState<{ posto: Posto; ov: PostoVersao | null } | null>(null)
   // Quatro estados em vez de "demitido sim/não": o toggle antigo deixava
@@ -1069,6 +1071,18 @@ export default function PostosGradePage() {
             {soAlteradas ? '✓ ' : ''}só as alteradas ({alterados.size})
           </button>
         </div>}
+        {/* Junto do filtro de decisões, não do Aplicar: os dois falam do que o
+            cenário decide — um recorta na grade, o outro abre o comparativo.
+            Ao lado do Aplicar parecia etapa de aplicação, e não é: é leitura. */}
+        {modoCenario && alterados.size > 0 && (
+          <div style={S.fld}><span style={S.lbl}>&nbsp;</span>
+            <button onClick={() => setVerDiff(true)}
+              title="Comparar o cadastro (ERP) com as decisões deste cenário, posto a posto, com o custo dos dois lados"
+              style={{ ...S.sel, cursor: 'pointer', width: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <GitCompare size={13} /> Comparar com o cadastro
+            </button>
+          </div>
+        )}
         <div style={S.fld}><span style={S.lbl}>Buscar</span>
           <div style={{ position: 'relative' }}>
             <Search size={14} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--muted)' }} />
@@ -1325,6 +1339,16 @@ export default function PostosGradePage() {
           Modal PRÓPRIO, não o do cadastro: aqui só entram campos de DECISÃO, e
           cada um mostra o que herda. O do cadastro gera código, sincroniza
           rateio e grava fatos — nada disso faz sentido num cenário. */}
+      {verDiff && (
+        <CenarioDiffModal
+          postos={postos} overlays={overlays} verbas={verbas}
+          dissidio={dissidio} sindMesBase={sindMesBase} anoCalc={anoCalc}
+          postoVerbas={postoVerbas} empPais={empPais} empById={empById} ccById={ccById}
+          filById={new Map((filiais as any[]).map(f => [f.id, f]))}
+          cargoNome={(id: string) => cargos.find((c: any) => c.id === id)?.nome || ''}
+          versaoLabel={versoes.find((v: any) => v.id === versaoSel)?.codigo || ''}
+          onClose={() => setVerDiff(false)} />
+      )}
       {cenForm && (() => {
         const m: any = cenForm.posto, ov: any = cenForm.ov || {}
         const limpos = new Set<string>(ov.limpos || [])
