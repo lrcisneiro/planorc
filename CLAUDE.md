@@ -389,6 +389,13 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > ⚠ A **dimensão de dados não serve** para isto: `user_acesso_regra.valor_ids` é `uuid[]`, e
 > natureza é um enum de três valores, não uma tabela.
 
+> ⚠ **`ON CONFLICT` não sabe de `origem`** (v3_157). O upsert do plano de cargos usa `codigo`,
+> derivado do NOME — e três cargos do plano têm nome idêntico a cargos vindos da folha. O INSERT
+> caiu em cima deles e os atualizou, deixando-os com `origem = 'ERP'` e nível preenchido. **Upsert
+> por chave derivada de nome atravessa a fronteira entre conjuntos que o modelo trata como
+> separados, e em silêncio** — conflito resolvido não é erro. Ao carregar catálogo que convive com
+> outro, conferir depois quem mudou de lado.
+
 > **Convenção — incluir uma funcionalidade nova no controle de acesso:** (1) adicionar uma entrada em `CAPACIDADES` (chave + label + categoria + `padrao` por papel); (2) gatear o elemento na tela com `can('chave')`. A seção "Funções e menus" em Configurações itera o catálogo, então a nova capacidade aparece sozinha com os controles Herdar/Liberar/Negar; `user_acesso_funcao` guarda por chave de texto, sem migration. Enquanto não catalogada, `can()` devolve `true` (não esconde nada por engano). Dimensão de **dados** nova é outro caminho: cadastro de `dimensao`.
 
 ## Legado em transição
