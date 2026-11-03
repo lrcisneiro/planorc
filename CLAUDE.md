@@ -270,6 +270,15 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > **Duas saídas de uma recusa, as duas na linha do comparativo:** *reenviar para análise* e
 > *voltar ao cadastro* (abandona a decisão, some em decisão já aprovada — aquilo virou acordo).
 
+> ⚠ **O carimbo certifica o conjunto de VEREDITOS, não só as decisões (v3_170).** A v3_166 fez o
+> gatilho ignorar mudanças de veredito — resolveu o auto-derrubamento e abriu outro furo, visível
+> só **depois** do fechamento: trocar um ✓ por ✗ mudava o que seria aplicado e o carimbo continuava
+> afirmando que aquele conjunto fora revisado. Hoje **qualquer** alteração em `posto_versao` o
+> derruba. Não recria o problema da v3_166 porque o gatilho **só escreve quando já existe carimbo**
+> — durante a revisão não há, então os cliques de veredito não custam nada.
+> **Fechar é carimbo, não cadeado:** não congela, não aplica, só libera o `Aplicar`. Quem congela
+> é `bloqueada`, manual e à parte. A tela diz isso no selo de aprovado.
+
 > ⚠ **Recusada NÃO trava o fechamento (v3_169) — corrige a v3_166.** Recusar **é decidir**: decidir
 > que o posto fica como está no cadastro. O que trava é o **pendente**, que significa "ninguém
 > olhou". Exigir unanimidade bloqueava o aprovador à espera de ação de terceiro, e perder o

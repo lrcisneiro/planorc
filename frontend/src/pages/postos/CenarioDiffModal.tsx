@@ -541,7 +541,15 @@ export default function CenarioDiffModal(props: any) {
                   <div style={{ flex: 1, minWidth: 220 }}>
                     <b style={{ color: 'var(--green)', fontSize: 13 }}>Cenário aprovado</b>
                     <div style={{ fontSize: 12, color: 'var(--text-mid)' }}>
-                      em {new Date(aprovadoEm).toLocaleString('pt-BR')} · o Aplicar no orçado está liberado
+                      em {new Date(aprovadoEm).toLocaleString('pt-BR')} · o <b>Aplicar no orçado</b> está liberado
+                    </div>
+                    {/* Fechar é carimbo, não cadeado — e quem lê "aprovado" tende a
+                        achar que acabou. Dizer o que ainda dá para fazer evita o
+                        chamado "como reabro?". */}
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.6 }}>
+                      Não congela nada: qualquer alteração numa decisão ou num veredito derruba este
+                      carimbo sozinho, e a discussão reabre. Para congelar de vez, bloqueie a versão
+                      em Cadastros → Versões.
                     </div>
                     {aprovacaoNota && <div style={{ fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic', marginTop: 3 }}>“{aprovacaoNota}”</div>}
                   </div>
