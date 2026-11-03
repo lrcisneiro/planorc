@@ -545,10 +545,20 @@ export default function CenarioDiffModal(props: any) {
                   {/* ⚠ O carimbo exige unanimidade — é o que impede aprovar um
                       cenário que contém decisão recusada. O banco recusa também;
                       aqui o botão já diz por quê, em vez de deixar o erro falar. */}
+                  {/* ⚠ A versão anterior dizia só "quem propôs precisa corrigir",
+                      e o aprovador lia que estava bloqueado esperando alguém.
+                      Ele pode resolver as duas: aprovar a pendente e mudar de
+                      ideia na recusada — foi ele que recusou. */}
                   {(vereditos?.pend > 0 || vereditos?.repr > 0) && (
-                    <div style={{ fontSize: 12, color: 'var(--orange)', marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, color: 'var(--orange)', marginBottom: 10, lineHeight: 1.65 }}>
                       Falta decidir linha a linha: <b>{vereditos.pend} pendente(s)</b>
-                      {vereditos.repr > 0 && <> e <b>{vereditos.repr} recusada(s)</b> — quem propôs precisa corrigir ou abandonar</>}.
+                      {vereditos.repr > 0 && <> e <b>{vereditos.repr} recusada(s)</b></>}.
+                      <div style={{ color: 'var(--muted)', marginTop: 3 }}>
+                        Use o <b style={{ color: 'var(--green)' }}>✓</b> na coluna Veredito
+                        {vereditos.repr > 0
+                          ? <> — inclusive numa recusada, se mudou de ideia. Ou aguarde quem propôs corrigir, justificar ou abandonar.</>
+                          : <>.</>}
+                      </div>
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
