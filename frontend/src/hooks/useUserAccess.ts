@@ -11,6 +11,10 @@ type RuleMap = Record<string, Rule>  // dimensao → Rule
 export type UserAccess = {
   ver: RuleMap
   orcar: RuleMap
+  /** Escopo do assunto PESSOAS (v3_162): postos, folha e apontamento. Separado
+   *  porque quem cuida de gente da empresa inteira pode orçar só o próprio
+   *  centro de custo — o escopo é por ASSUNTO, não só por pessoa. */
+  pessoas: RuleMap
   /** Dimensões enforçadas pelo banco em que este usuário NÃO tem regra — logo
    *  não vê nada nelas. Vazio para admin. A tela usa isto para explicar, em vez
    *  de mostrar painéis zerados. */
@@ -28,6 +32,12 @@ export type UserAccess = {
   canEdit: (dimensao: string, id: string) => boolean
   filterList: <T extends { id: string }>(dimensao: string, list: T[]) => T[]
   filterEdit: <T extends { id: string }>(dimensao: string, list: T[]) => T[]
+  /** Telas de posto/folha/apontamento. Espelha `escopo_dim_pessoas()`. */
+  canSeePessoas: (dimensao: string, id: string) => boolean
+  filterPessoas: <T extends { id: string }>(dimensao: string, list: T[]) => T[]
+  /** Escrever posto/folha. Espelha `edit_dim_pessoas()`. */
+  canEditPessoas: (dimensao: string, id: string) => boolean
+  filterEditPessoas: <T extends { id: string }>(dimensao: string, list: T[]) => T[]
 }
 
 
@@ -51,6 +61,7 @@ function pass(rule: Rule | undefined, id: string, dimensao: string): boolean {
 export function useUserAccess(): UserAccess {
   const [ver, setVer] = useState<RuleMap>({})
   const [orcar, setOrcar] = useState<RuleMap>({})
+  const [pessoas, setPessoas] = useState<RuleMap>({})
   const [isAdmin, setIsAdmin] = useState(false)
   const [papel, setPapel] = useState('')
   const [loading, setLoading] = useState(true)
@@ -60,13 +71,14 @@ export function useUserAccess(): UserAccess {
       supabase.from('user_acesso_regra').select('dimensao,valor_ids,escopo,negados'),
       supabase.from('user_tenant').select('role'),
     ]).then(([{ data: ruleData }, { data: tenantData }]) => {
-      const v: RuleMap = {}, o: RuleMap = {}
+      const v: RuleMap = {}, o: RuleMap = {}, g: RuleMap = {}
       for (const r of (ruleData as any[]) || []) {
         const rule: Rule = { allow: r.valor_ids || [], deny: r.negados || [] }
         if (r.escopo === 'ORCAR') o[r.dimensao] = rule
+        else if (r.escopo === 'PESSOAS') g[r.dimensao] = rule
         else v[r.dimensao] = rule   // escopo padrão = VER
       }
-      setVer(v); setOrcar(o)
+      setVer(v); setOrcar(o); setPessoas(g)
       const pap = papelMaisAlto(tenantData)
       setPapel(pap); setIsAdmin(pap === 'admin')
       setLoading(false)
@@ -79,12 +91,28 @@ export function useUserAccess(): UserAccess {
   // ORÇAR = editar. Sem regra ORCAR para a dimensão → herda o escopo de VER.
   const canEdit = (dimensao: string, id: string): boolean => isAdmin || pass(orcar[dimensao] ?? ver[dimensao], id, dimensao)
 
+  // PESSOAS = postos/folha/apontamento. Sem regra PESSOAS → herda o VER.
+  // ⚠ A herança NÃO é conveniência: sem ela, o dia do deploy tiraria os postos
+  // de todo mundo, porque ausência de regra nega. Mesmo critério do banco
+  // (`escopo_dim_pessoas` cai em `escopo_dim`) — divergir aqui faria a tela
+  // mostrar uma coisa e a consulta devolver outra.
+  const canSeePessoas = (dimensao: string, id: string): boolean =>
+    isAdmin || pass(pessoas[dimensao] ?? ver[dimensao], id, dimensao)
+  // Escrever gente usa a MESMA regra PESSOAS (quem gere gente, gere onde gere);
+  // sem ela, o caminho de hoje. O papel continua barrando antes, no banco.
+  const canEditPessoas = (dimensao: string, id: string): boolean =>
+    isAdmin || pass(pessoas[dimensao] ?? orcar[dimensao] ?? ver[dimensao], id, dimensao)
+
   const filterList = <T extends { id: string }>(dimensao: string, list: T[]): T[] => list.filter(i => canSee(dimensao, i.id))
   const filterEdit = <T extends { id: string }>(dimensao: string, list: T[]): T[] => list.filter(i => canEdit(dimensao, i.id))
+  const filterPessoas = <T extends { id: string }>(dimensao: string, list: T[]): T[] => list.filter(i => canSeePessoas(dimensao, i.id))
+  const filterEditPessoas = <T extends { id: string }>(dimensao: string, list: T[]): T[] => list.filter(i => canEditPessoas(dimensao, i.id))
 
   const rules: Record<string, string[]> = Object.fromEntries(Object.entries(ver).map(([d, r]) => [d, r.allow]))
-  const semCadastro = isAdmin ? [] : DIMS_NO_BANCO.filter(d => !ver[d])
+  // Herdar o VER conta como cadastro: quem tem VER enxerga postos.
+  const semCadastro = isAdmin ? [] : DIMS_NO_BANCO.filter(d => !ver[d] && !pessoas[d])
 
-  return { ver, orcar, rules, isAdmin, loading, canSee, canEdit, filterList, filterEdit, semCadastro,
+  return { ver, orcar, pessoas, rules, isAdmin, loading, canSee, canEdit, canSeePessoas, canEditPessoas,
+           filterList, filterEdit, filterPessoas, filterEditPessoas, semCadastro,
            papel, podeEscrever: papel === 'admin' || papel === 'member' }
 }

@@ -190,11 +190,15 @@ export default function ConciliacaoFolhaPage() {
   const params = useMemo<ConcilParams | null>(() => {
     if (!versaoSel || !compSel) return null
     const [a, m] = compSel.split('-').map(Number)
-    // escopo do usuário como PISO: cruza a seleção com o que o usuário pode VER (canSee).
-    // Seleção vazia → cai no escopo permitido (não em "tudo"). Admin → null (sem filtro).
-    const empEsc = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSee)
-    const filialFilter = escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSee)
-    const ccFilter = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee)
+    // escopo do usuário como PISO: cruza a seleção com o que ele pode ver.
+    // Seleção vazia → cai no escopo permitido (não em "tudo"). Admin → null.
+    // ⚠ Aqui é PESSOAS (v3_162): esta aba monta o quadro de `fat_folha`. A
+    // coluna *Orçado · DRE* continua no VER, calculada logo acima com
+    // `ccPermitidos` — e é POR ISSO que ela pode cobrir menos CCs que a folha.
+    // Quem cuida de gente da empresa inteira orça só o próprio centro.
+    const empEsc = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSeePessoas)
+    const filialFilter = escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSeePessoas)
+    const ccFilter = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSeePessoas)
     return {
       titulo: linhasSel.length ? `${linhasSel.length} linha(s) do relatório` : 'Todas as contas',
       versaoId: versaoSel, versaoLabel: versoes.find(v => v.id === versaoSel)?.codigo || '',
@@ -210,6 +214,11 @@ export default function ConciliacaoFolhaPage() {
   const paramsContabil = useMemo<ContabilParams | null>(() => {
     if (!compSel) return null
     const [a, m] = compSel.split('-').map(Number)
+    // ⚠ ESTA aba fica no VER, de propósito. Ela compara folha contra o RAZÃO, e
+    // o razão é recortado por VER. Alargar só o lado da folha faria o contábil
+    // vir vazio e TUDO aparecer como divergência — um número errado é pior que
+    // um número ausente. Quem precisa conciliar contra o razão precisa de VER
+    // largo; quem só cuida de gente usa as outras duas abas.
     return {
       ano: a, mes: m, versaoId: versaoSel, relatorioId: relSel, ref,
       empresaSel: escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSee) ?? [],
@@ -224,11 +233,13 @@ export default function ConciliacaoFolhaPage() {
   const paramsApont = useMemo<ApontParams | null>(() => {
     if (!compSel) return null
     const [a, m] = compSel.split('-').map(Number)
+    // Folha × apontamento: as duas tabelas estão no escopo PESSOAS, então os
+    // dois lados andam juntos e a comparação continua honesta.
     return {
       ano: a, mes: m,
-      empresaSel: escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSee) ?? [],
-      filialFilter: escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSee),
-      ccFilter: escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee),
+      empresaSel: escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSeePessoas) ?? [],
+      filialFilter: escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSeePessoas),
+      ccFilter: escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSeePessoas),
     }
   }, [compSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, filiais, empresas, ccs, acesso.loading]) // eslint-disable-line
 
@@ -279,7 +290,7 @@ export default function ConciliacaoFolhaPage() {
           <LinhasPicker linhas={ofertadas} sel={linhasSel} setSel={setLinhasSel} />
         </div></>}
         <div style={S.fld}><span style={S.lbl}>Filtros</span>
-          <FiltrosButton empresas={acesso.filterList('empresa', empresas)} filiais={acesso.filterList('filial', filiais)} ccs={acesso.filterList('centro_custo', ccs as any) as any}
+          <FiltrosButton empresas={acesso.filterPessoas('empresa', empresas)} filiais={acesso.filterPessoas('filial', filiais)} ccs={acesso.filterPessoas('centro_custo', ccs as any) as any}
             empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel}
             areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         </div>

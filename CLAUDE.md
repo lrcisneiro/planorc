@@ -197,6 +197,51 @@ Todas as tabelas têm `tenant_id` e RLS. Base SQL em `schema_v2.sql`; evoluçõe
 > limitação estrutural, não pendência. Dimensões configuráveis (`dimensao`/`dims jsonb`) idem.
 
 
+> ⚠⚠ **Em política de RLS, pergunte se NULO é lacuna ou SIGNIFICADO — por tabela** (v3_163).
+> O predicado `col IS NOT NULL AND col = ANY(escopo)` existe para que linha sem dimensão não
+> escape do recorte: certo para empresa, filial e CC, onde nulo é cadastro faltando. Em
+> `fat_folha.versao_id` nulo **é o significado** — `tipo='REALIZADO'` é o que a folha pagou, e o
+> pago não pertence a versão de orçamento. Medido: REALIZADO 22.698 linhas, **todas** sem versão;
+> ORCADO 42.827, **todas** com. Resultado: desde a v3_137, **todo não-admin com regra de versão
+> via a tela Folha realizada vazia**, e a conciliação junto. Hoje nulo passa no recorte de versão
+> (só nessa tabela; em `fat_orcado` a exigência fica, porque lá orçado sem versão seria defeito).
+> Valia para `INSERT` também: importar folha realizada era **recusado** para quem tivesse recorte
+> de versão.
+> **Ficou meses invisível porque só morde quem não é admin, e quem desenvolve é admin.** Achado
+> no primeiro uso real de um usuário de teste sem privilégio — que é para isso que ele serve.
+
+> **Escopo por ASSUNTO: `PESSOAS` (v3_162, nov/2026).** O escopo era por *pessoa*; faltava por
+> *assunto*. Uma gestora de RH orça o próprio centro de custo e responde pelas pessoas da empresa
+> inteira — indizível com um recorte só. Terceiro valor em `user_acesso_regra.escopo`, alcançando
+> `posto`, `posto_v`, `fat_folha` e `fat_apontamento`; `fat_orcado`/`fat_realizado`/`fat_saldo`
+> ficam no `VER`/`ORCAR`, que é a separação inteira.
+>
+> ⚠ **A regra de convivência é o ponto.** Pela v3_132 ausência de regra NEGA — se `PESSOAS`
+> seguisse isso, todo usuário perderia os postos no deploy. Então **sem regra `PESSOAS`, cai no
+> `VER`** (leitura) e no `ORCAR→VER` (escrita), copiando o que `escopo_dim_edit` já fazia.
+> `canSeePessoas`/`canEditPessoas` no hook repetem o critério — divergir faria a tela mostrar uma
+> coisa e a consulta devolver outra.
+>
+> ⚠ **O interruptor em Configurações não é enfeite.** A tela grava TODAS as dimensões a cada
+> salvamento; sem o *"Escopo próprio para Pessoas"*, salvar o cadastro de qualquer um criaria uma
+> regra `PESSOAS` de lista vazia — que significa **vê a empresa inteira**. Desligar **apaga** as
+> linhas, porque herdar exige que a linha não exista.
+>
+> ⚠ **A aba *Contábil × Folha* fica no `VER`, de propósito.** Ela compara folha contra o razão, e
+> o razão é `VER`. Alargar só o lado da folha traria o contábil vazio e **tudo apareceria como
+> divergência** — pior que não mostrar. *Orçado × Folha* e *Apontamento × Folha* vão em `PESSOAS`.
+>
+> **Salário mascarado chega NULO, e `Number(null) || 0` é ZERO.** A grade dizia "R$ 0" para quem
+> não pode ver — num papel de conferência, número errado é pior que número ausente. Hoje mostra
+> *sem permissão*, gateado por `can('posto.salario')`. A aresta estava anotada aqui e levou meses
+> para ser consertada, porque só dói quando alguém confere.
+>
+> **Posto saiu de Orçamentação para o grupo `Pessoas`** — gente não é método de orçar. `Aplicar o
+> quadro no orçado` **não** vem junto: é `posto.aplicar`, chave própria e só admin por padrão.
+> A coordenadora de RH é **`viewer`**: a estrutura é mantida no **ERP** e o Planorc confere, então
+> ela vê a empresa toda (regra `PESSOAS` vazia) e grava nada, porque `pode_escrever()` a barra
+> antes. Ver salário exige liberar `posto.salario` — padrão de viewer é negado.
+
 Três camadas independentes. A **1ª (dados) é enforçada no banco** desde `v3_129..137`; as outras
 duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta entrega:
 
@@ -352,25 +397,76 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > criar dimensão de **dados**, isto é, definir por onde o escopo recorta: é mexer no controle de
 > acesso. Leitura não mudou.
 
-> **Cargos — árvore de carreira (v3_144, Cadastros → Cargos).** `cargo` não tinha tela: nascia do
-> import do RH (upsert por código) e só era lido em dropdown. Ganhou `pai_id` + `nivel` e uma aba
-> com **arrastar e soltar** (HTML5 nativo, mesmo padrão dos cards do dashboard — sem biblioteca).
-> `nivel` é **senioridade comparável entre ramos**, separado da profundidade de propósito: um
-> "Analista III" de TI e um do Comercial são o mesmo nível em subárvores diferentes, e é o nível —
-> não a profundidade — que torna a futura hierarquia de PESSOAS *conferível* em vez de só
-> desenhável.
+> **Cargos — lista única em Cadastros → Cargos** (v3_144 criou a árvore; nov/2026 a desfez).
+> ⚠ **Deixou de ser árvore.** A hierarquia nasceu quando não existia estrutura funcional: amarrar
+> cargo a cargo era o único jeito de dar contexto. Com `area_funcional` (v3_146), a árvore de
+> cargos virou um **segundo lugar para dizer a mesma coisa**. O que sobra de carreira é `nivel`,
+> comparável entre ramos e sem depender de alguém montar árvore. `cargo.pai_id` fica vestigial.
+> ⚠ **Havia DUAS telas sobre `cargo`** — esta e uma lista em *Postos → Estrutura*, com código e
+> salário de referência. Criei a segunda sem procurar a primeira. Ficou a de Cadastros (cargo é
+> organização); a de Estrutura, que é sobre folha, perdeu a aba e cedeu os campos.
+> **Código editável**, porque é o elo com o ERP.
 >
-> ⚠ **Ciclo é o único defeito grave:** arrastar o pai para baixo do próprio filho faz a árvore
-> virar laço, a tela recursa até travar e consulta recursiva nunca termina. Travado nos **dois
-> lados** — a tela recusa no drop (`descendentes()`, e pinta o alvo de vermelho) e a `v3_144` põe
-> gatilho no banco, porque a API é outro caminho. Gatilho e não `CHECK`: a verificação sobe a
-> árvore, e `CHECK` não enxerga outras linhas. `ON DELETE SET NULL` promove os filhos à raiz em vez
-> de apagar a subárvore.
+> ⚠⚠ **A área/subárea do cargo é conceito DESTE tenant, não do produto** (decisão do dono da
+> estrutura, nov/2026). Genericamente, **cargo tem um código e pronto** — o fato de cada step ser
+> na prática outro cargo é particularidade desta instalação do plano. Por isso **não há cadastro
+> de área/subárea** e não deve haver: `cargo_familia` fica como tabela semeada, editável por SQL
+> se precisar. Ao generalizar para outros segmentos, este é o ponto a rever — não assumir que
+> todo tenant decompõe código de cargo em área·subárea·sequencial.
 >
-> Por que **não** virou pill em Postos: cargo é catálogo, e catálogo mora em Cadastros, ao lado de
-> Funcionários e Verbas. A hierarquia de **pessoas** (quando `posto.gestor_posto_id` existir) é o
-> contrário — vai como *modo* na própria tela do Organograma, porque a árvore que se olha é a que
-> se conserta; tela separada vira duas renderizações que divergem.
+> **Cargo é por (SUBÁREA, nome) — v3_161.** `AUXILIAR ADMINISTRATIVO` era UM cargo com 24 códigos
+> de SEIS subáreas, e misturar áreas num cargo é não-conforme. O código do ERP lê-se **A·S·NNN**
+> (`12073` = área 1, subárea 2, sequencial 073), então ele já carregava o eixo que faltava: 178 →
+> **224 cargos**, `cargo.area_cod`/`sub_cod` derivados do step, nomes editáveis em `cargo_familia`
+> (7 áreas + 30 subáreas; os de **44** e **47** são chute meu). `cargo.codigo` deixou de ser o slug
+> do nome e virou o **código real do step 1** — nada o referencia além da tela, e um identificador
+> que não concilia com nada não valia preservar.
+> **`UNIQUE (cargo_id, step)` voltou**: a v3_158 teve de abandoná-la porque um cargo tinha seis
+> step 1. Que a restrição natural volte a caber é o sinal de que o grão está certo — o banco já
+> dizia isso e eu afrouxei a restrição em vez de ouvir.
+>
+> ⚠ **Área funcional NÃO serve de eixo do cargo** — medido, não suposto: o bloco 42 hospeda gente
+> em SERVIÇOS DE IMPLANTAÇÃO (84), SUPORTE TÉCNICO (5) e FÁBRICA DE SOFTWARE (1). Área funcional é
+> **onde a pessoa trabalha**, subárea é **a que família o cargo pertence**.
+>
+> ⚠⚠ **NOME DEIXOU DE IDENTIFICAR CARGO.** São quatro `ESPECIALISTA DE DESENVOLVIMENTO DE SOFTWARE
+> I`. Todo `Map` por nome fica com o **último** e atribui subárea ao acaso, **sem erro** — mesma
+> classe do `ON CONFLICT` da v3_157. Corrigido no importador do Quadro: só nomes **únicos** entram
+> no mapa; nome ambíguo preserva o cargo que o posto já tem e, não havendo, fica **sem cargo** e é
+> contado no resumo da importação. Todo seletor de cargo mostra a subárea ao lado. **Ao escrever
+> código novo que resolva cargo por nome, não resolve — precisa do código do ERP.**
+> Dos 59 postos em cargo multi-subárea, 32 foram repontados pelo mapa empírico (área funcional →
+> subárea, tirado dos cargos de subárea única) e **27 ficaram onde estavam**, nomeados no SELECT da
+> migration: quase todos de DESENVOLVIMENTO DE SOFTWARE, que existe em 42, 43, 44 e 71. Some quando
+> `posto.cargo_step_id` vier do ERP.
+
+> **STEP é filho do cargo (v3_158/160)** — `cargo_step` (cargo, step, código) e
+> `posto.cargo_step_id` para a amarração por pessoa, que virá do ERP. A v3_156 descartou o STEP
+> como "faixa salarial, não cargo": certo sobre o que ele É, **errado sobre o que ele SERVE** — o
+> código completo é o identificador do ERP, e sem ele não há conciliação. Foi por isso que os
+> códigos de `cargo` saíram do nome: não havia código de cargo para adotar.
+>
+> ⚠ **O código é (ÁREA, CARGO, STEP)** — descoberto por `duplicate key`, porque eu o havia lido
+> como (cargo, step) e criado `UNIQUE (cargo_id, step)`. `AUXILIAR ADMINISTRATIVO` tem **seis**
+> step 1, um por área (12 adm/fin · 13 contábil · 14 gente · 45 · 46 · 47); 26 dos 190 cargos se
+> repetem assim. O prefixo de dois dígitos não é enfeite do número, é a terceira dimensão. A
+> chave natural é o `codigo` inteiro; `grupo` é coluna **gerada** dele e ainda não liga a
+> `area_funcional`.
+>
+> ⚠ **Carga por nome entre duas abas da MESMA planilha não casa** — 128 dos 923 ficaram de fora
+> na primeira tentativa, por gênero (`ADMINISTRATIVA`×`ADMINISTRATIVO`), preposição (`ANALISTA
+> FACILITIES`×`ANALISTA DE FACILITIES`), plural, espaço comido e typo. A v3_160 resolve com
+> **tabela de alias explícita, em dois baldes** — `GRAFIA` (18 nomes, sem concorrente) e `APROX`
+> (3, julgamento declarado e reversível pelos 12 códigos). Ficam 879 de 923. **Os 44 restantes
+> são ausência real** (`ANALISTA FINANCEIRO I/II/III`, `ESPECIALISTA DE QUALIDADE I/II/III`…) e
+> **não viram cargo inventado**: ou o plano os aposentou, ou esqueceu de listá-los — quem
+> responde é o RH, junto com 17 códigos que a planilha repete em dois cargos (o rabo do bloco 43
+> foi numerado com prefixo 44). **Código ambíguo não entra**: `ON CONFLICT DO NOTHING` faria o
+> primeiro vencer em silêncio, que é a armadilha da v3_157 de novo.
+>
+> ⚠ O catálogo tem **223 cargos para 190 nomes de step** — duplicata interna herdada da planilha
+> (`CONTAS A **A** RECEBER` × `A RECEBER`; `COORDENADOR` × `COORDENADORA ... E RMO`). Não fundida
+> de propósito: cargo com gente apontada só o dono da estrutura funde, e Cadastros → Cargos edita.
 
 > **Orçar por NATUREZA (nov/2026).** ⚠ Na grade, quem manda é **`orderedVis`** — a lista
 > RENDERIZADA — e `active.r` indexa **ela**. Todo ponto que resolve a célula ativa (digitar,
@@ -494,6 +590,29 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   **Cadastros → Áreas funcionais** edita a árvore do organograma (as 37 da `v3_146`, que até então
   só se mexia por SQL — fiz o motor e a atribuição e esqueci a manutenção). Escrita é **admin**.
 
+  **Hierarquia de gestor — a quarta fonte** (`funcionario.gestor_id`, v3_155 + carga de 03/nov).
+  ⚠ **A manutenção veio depois do motor, de novo** — `gestor_id` ficou um mês só com a carga SQL,
+  lido num único ponto do frontend e sem nenhuma tela de atribuição; quem tentou corrigir um líder
+  mexeu em *área funcional*, que é a que tem o modo Atribuir. Mesmo esquecimento das áreas
+  funcionais (motor + atribuição, sem manutenção). Hoje é o **segundo modo do Organograma**
+  (`Atribuir gestor`, ao lado de `Atribuir área`) — ali a árvore já está desenhada, então a
+  alteração se vê na hora, que é justamente o que faltou para perceber que nada fora gravado.
+  Três diferenças do modo de área, e nenhuma é detalhe: grava em **`funcionario`** (gestor é da
+  pessoa — uma linha por pessoa, com a coluna *Postos* para a linha única não parecer posto
+  faltando); o lote útil é **remanejar um time** (filtro por *gestor atual*), não por CC; e o
+  **ciclo é barrado antes de gravar** — o trigger `funcionario_sem_ciclo` continua sendo a rede,
+  mas a gravação vai em lotes por gestor e deixar o banco recusar o terceiro depois de os dois
+  primeiros passarem é meio salvamento.
+  O Organograma ganhou "Gestor (quem reporta a quem)" **sem reescrever nada**: o montador de
+  árvore já era genérico e a fonte já era um seletor — era exatamente para isto. 298 de 299 com
+  líder; o topo é um só. Entram na árvore apenas quem **tem posto ou lidera alguém**: `funcionario`
+  guarda 513 pessoas, incluindo demitidas, e desenhar quem não está no quadro poluiria.
+  ⚠ Veio de planilha do RH, por **e-mail** — e a origem traz a mesma pessoa com e-mail diferente
+  quando é *líder* e quando é *pessoa* (`rodrigo.brito@` × `oliveira.rodrigo@`; `jp.marinho@` ×
+  `joaopaulo.mariinho@gmail`). O conserto resolveu o **apontamento**, nunca o e-mail da pessoa:
+  corrigir o cadastro a partir de um erro da origem propaga o erro e apaga o rastro que o RH
+  precisa receber de volta.
+
   **Três estruturas, três perguntas** (nov/2026) — e confundi-las é o erro fácil:
   `centro_custo` = **onde o dinheiro cai** (nível 2 é Base × Novos, nível 3 é produto — recorte
   comercial, 84 nós); `cargo` = **o que a pessoa é** (carreira, `pai_id`+`nivel`, em reestruturação);
@@ -566,6 +685,18 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   depois. Ali a exceção é inofensiva — ou é recurso: em `prova_auditoria.sql` o rollback apaga a
   regra de teste e os registros de auditoria juntos. A diferença nunca é a exceção, é **o que mais
   está na transação com ela**. Corolário: ao ver erro no editor, presuma que **nada** foi aplicado.
+- **Prova que ESCREVE é um `DO` só, terminando em `RAISE`.** O oposto da regra das migrations, e
+  pela mesma razão: ali a exceção desfaz o que se quer manter, aqui ela desfaz o que se quer
+  descartar. Um `DO` é **um comando** — a exceção aborta o bloco inteiro e a regra de teste some,
+  inclusive quando a prova falha no meio (um `ROLLBACK` no fim do arquivo não roda se o script
+  abortar antes). E a mensagem da exceção é **o único canal que o SQL Editor mostra com certeza**:
+  `RAISE NOTICE` ele engole, e `SELECT` de tabela temporária criada em comando anterior falha com
+  *relation does not exist* — ele **não garante sessão única entre comandos**. Por isso a prova
+  sempre "dá erro", e a mensagem começa com `✅ PASSOU` ou `⛔ FALHOU`. Junte todas as falhas numa
+  mensagem só: parar na primeira faz descobrir três defeitos em três rodadas.
+  ⚠ Asserção de prova afirma o **mínimo** necessário. `prova_escopo_pessoas.sql` exigiu que uma
+  dimensão de escopo abrisse tudo e levou 568 de 570 — o sistema estava certo, a asserção errada,
+  e meia hora foi gasta investigando o código que funcionava.
 - **Verificação mede efeito, não intenção.** `SELECT` sobre `pg_policy` confirma que a política
   existe; não confirma que ela filtra. Conferência de acesso **personifica e conta**:
   `set_config('request.jwt.claims', …)` + `SET LOCAL ROLE authenticated` — sem trocar de papel, o

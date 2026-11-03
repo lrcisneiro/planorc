@@ -176,8 +176,8 @@ export default function FolhaRealizadaPage() {
   }
 
   const filtrados = useMemo(() => {
-    const empF = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSee)
-    const ccF = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee)
+    const empF = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSeePessoas)
+    const ccF = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSeePessoas)
     const sEmp = empF ? new Set(empF) : null, sCc = ccF ? new Set(ccF) : null
     const q = busca.trim().toLowerCase()
     return rows.filter(r => (!sEmp || sEmp.has(r.empresa_id)) && (!sCc || (r.cc_id != null && sCc.has(r.cc_id)))
@@ -441,7 +441,7 @@ export default function FolhaRealizadaPage() {
           )}
         </div>
         <div style={S.fld}><span style={S.lbl}>Filtros</span>
-          <FiltrosButton empresas={acesso.filterList('empresa', empresas)} filiais={acesso.filterList('filial', filiais)} ccs={acesso.filterList('centro_custo', ccs as any) as any}
+          <FiltrosButton empresas={acesso.filterPessoas('empresa', empresas)} filiais={acesso.filterPessoas('filial', filiais)} ccs={acesso.filterPessoas('centro_custo', ccs as any) as any}
             empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel}
             areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         </div>

@@ -48,6 +48,12 @@ const S = {
 // ── Modal de configuração de acesso ──────────────────────
 function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void }) {
   const [dims, setDims] = useState<DimConfig[]>([])
+  // Escopo PESSOAS (v3_162): postos, folha e apontamento. Interruptor explícito
+  // porque AUSÊNCIA de regra = herda o VER, e a tela grava TODAS as dimensões a
+  // cada salvamento — sem isto, salvar o cadastro de qualquer pessoa criaria
+  // uma regra PESSOAS de lista vazia, que significa "vê a empresa inteira".
+  // O interruptor é o que separa "não decidi" de "decidi que vê tudo".
+  const [pessoasProprio, setPessoasProprio] = useState(false)
   const [ccRows, setCcRows] = useState<any[]>([])   // CCs com área/divisão/BU p/ os atalhos
   const [funcOv, setFuncOv] = useState<Record<string, boolean>>({})  // override de capacidade (só os explícitos)
   const [loading, setLoading] = useState(true)
@@ -76,12 +82,18 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
       supabase.from('versao_orcamento').select('id,codigo,ano,bloqueada').order('ano', { ascending: false }).order('codigo'),
       supabase.from('relatorio').select('id,codigo,nome').order('nome'),
       supabase.from('dimensao').select('id,codigo,label,tabela_ref').eq('ativo', true).order('ordem'),
-      supabase.from('user_acesso_regra').select('dimensao,valor_ids').eq('user_id', user.user_id),
+      supabase.from('user_acesso_regra').select('dimensao,valor_ids,escopo').eq('user_id', user.user_id),
       supabase.from('user_acesso_funcao').select('capacidade,permitido').eq('user_id', user.user_id),
     ])
 
     const regraMap: Record<string, string[]> = {}
-    for (const r of regrasExist || []) regraMap[r.dimensao] = r.valor_ids || []
+    const regraPes: Record<string, string[]> = {}
+    for (const r of (regrasExist as any[]) || []) {
+      if (r.escopo === 'PESSOAS') regraPes[r.dimensao] = r.valor_ids || []
+      else if (r.escopo !== 'ORCAR') regraMap[r.dimensao] = r.valor_ids || []
+    }
+    const temPessoas = Object.keys(regraPes).length > 0
+    setPessoasProprio(temPessoas)
     const fov: Record<string, boolean> = {}
     for (const r of (funcExist as any[]) || []) fov[r.capacidade] = r.permitido
     setFuncOv(fov)
@@ -147,6 +159,14 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
       dimConfigs.push({ key: dim.codigo, label: dim.label, opcoes, selecionados: regraMap[dim.codigo] || [] })
     }))
 
+    // As de PESSOAS entram sempre na lista (para o estado existir), e o
+    // interruptor decide se são mostradas e gravadas. Chave composta
+    // `pessoas:<dim>` porque a mesma dimensão aparece duas vezes.
+    for (const k of ['empresa', 'filial', 'centro_custo']) {
+      const base = dimConfigs.find(d => d.key === k)!
+      dimConfigs.push({ key: `pessoas:${k}`, label: base.label, opcoes: base.opcoes,
+                        selecionados: regraPes[k] || [] })
+    }
     setDims(dimConfigs)
     setCcRows(ccsData || [])
     setLoading(false)
@@ -201,16 +221,29 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
 
   const salvar = async () => {
     setSaving(true); setErro('')
-    const records = dims.map(d => ({
+    const records = dims.filter(d => !d.key.startsWith('pessoas:')).map(d => ({
       user_id: user.user_id,
       dimensao: d.key,
-      escopo: 'VER',          // F2: por ora a tela grava o escopo de consulta
+      escopo: 'VER',          // a tela grava o escopo de consulta
       valor_ids: d.selecionados,
     }))
+    if (pessoasProprio) {
+      for (const d of dims.filter(d => d.key.startsWith('pessoas:')))
+        records.push({ user_id: user.user_id, dimensao: d.key.slice(8),
+                       escopo: 'PESSOAS', valor_ids: d.selecionados })
+    }
     const { error } = await supabase.from('user_acesso_regra').upsert(records, {
       onConflict: 'tenant_id,user_id,dimensao,escopo',
     })
     if (error) { setSaving(false); setErro(error.message); return }
+
+    // Desligado = VOLTA A HERDAR o VER, e herdar exige que a linha não exista.
+    // Deixar a linha com lista vazia significaria "vê tudo" — o oposto.
+    if (!pessoasProprio) {
+      const { error: ep } = await supabase.from('user_acesso_regra')
+        .delete().eq('user_id', user.user_id).eq('escopo', 'PESSOAS')
+      if (ep) { setSaving(false); setErro(ep.message); return }
+    }
 
     // Override de capacidade: regrava só os explícitos (ausência = herda o papel)
     await supabase.from('user_acesso_funcao').delete().eq('user_id', user.user_id)
@@ -304,7 +337,7 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
               </div>
             ))}
           </div>
-          {dims.map(dim => (
+          {dims.filter(d => !d.key.startsWith('pessoas:')).map(dim => (
             <div key={dim.key} style={{ marginBottom: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 10, flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{dim.label}</span>
@@ -400,6 +433,63 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
               </div>
             </div>
           ))}
+
+          {/* ── Escopo de PESSOAS (v3_162) ──────────────────────────────
+              Separado das dimensões acima porque responde outra pergunta:
+              aquelas dizem o recorte no ORÇAMENTO, esta no quadro de gente.
+              Uma gestora de RH orça o próprio centro de custo e responde pelas
+              pessoas da empresa inteira — não havia como dizer isso. */}
+          <div style={{ marginTop: 26, paddingTop: 18, borderTop: '1px solid var(--border)' }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={pessoasProprio} style={{ marginTop: 3 }}
+                     onChange={e => setPessoasProprio(e.target.checked)} />
+              <span>
+                <b style={{ fontSize: 13, color: 'var(--text)' }}>Escopo próprio para Pessoas</b>
+                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginTop: 3, maxWidth: 620 }}>
+                  Postos, folha e apontamento passam a ter recorte independente do orçamento.
+                  Desligado, <b>herdam</b> o escopo de consulta acima — que é o comportamento de
+                  sempre. Use para quem cuida de gente além da própria área.
+                </div>
+              </span>
+            </label>
+
+            {pessoasProprio && (
+              <div style={{ marginTop: 16, paddingLeft: 26 }}>
+                <div style={{ fontSize: 12, color: 'var(--orange)', background: 'rgba(251,146,60,0.10)',
+                              border: '1px solid rgba(251,146,60,0.35)', borderRadius: 8,
+                              padding: '9px 12px', marginBottom: 16, lineHeight: 1.6, maxWidth: 620 }}>
+                  Deixar uma dimensão <b>sem nenhuma marca</b> aqui significa <b>a empresa inteira</b> —
+                  e inclui ver os <b>salários</b> de todos os postos alcançados. Para restringir, marque
+                  os permitidos. Gravar e <b>escrever</b> são coisas distintas: quem é <i>viewer</i>
+                  {' '}continua só consultando, porque o papel barra antes no banco.
+                </div>
+                {dims.filter(d => d.key.startsWith('pessoas:')).map(dim => (
+                  <div key={dim.key} style={{ marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 10, flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{dim.label}</span>
+                      <button type="button" onClick={() => setSelecionados(dim.key, [])}
+                        style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, cursor: 'pointer', padding: 0 }}>
+                        Desmarcar todos (= tudo)</button>
+                    </div>
+                    <div style={{ fontSize: 12, color: dim.selecionados.length === 0 ? 'var(--orange)' : 'var(--text-mid)', marginBottom: 6 }}>
+                      {dim.selecionados.length === 0
+                        ? 'Toda a empresa nesta dimensão.'
+                        : `${dim.selecionados.length} de ${dim.opcoes.length} permitidos`}
+                    </div>
+                    <div style={{ maxHeight: 140, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 0' }}>
+                      {dim.opcoes.map(opt => (
+                        <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', fontSize: 12.5, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={dim.selecionados.includes(opt.id)}
+                                 onChange={() => toggleItem(dim.key, opt.id)} />
+                          <span style={{ color: dim.selecionados.includes(opt.id) ? 'var(--text)' : 'var(--muted)' }}>{opt.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           </>
         )}
 

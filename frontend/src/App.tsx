@@ -61,6 +61,14 @@ const NAV_GROUPS: NavGroup[] = [
     { to: '/orcar-grade', label: 'Orçar (grade)',            icon: Grid3x3,  cap: 'menu.orcar.grade' },
     { to: '/estruturas',  label: 'Estruturas de relatórios', icon: ListTree, cap: 'menu.estruturas' },
     { to: '/formularios', label: 'Formulário de drivers', icon: SlidersHorizontal, cap: 'menu.formularios' },
+  ] },
+  // Posto de trabalho saiu de Orçamentação (nov/2026). Gente não é um método de
+  // orçar: quem cuida das pessoas da empresa toda pode não orçar nada, e quem
+  // orça pode não mexer em posto. O escopo PESSOAS (v3_162) formaliza isso no
+  // dado; este grupo formaliza na navegação.
+  // ⚠ `Aplicar o quadro no orçado` NÃO vem junto — é `posto.aplicar`, chave
+  // própria, padrão só admin, e pertence a quem orça.
+  { area: 'Pessoas', mode: '', dot: '#f59e0b', items: [
     { to: '/postos', label: 'Posto de trabalho', icon: Users, cap: 'menu.postos' },
   ] },
   // "Saídas" e não "Relatórios": o grupo tem Dashboards e Relatórios dentro, e

@@ -8,7 +8,7 @@ import { pessoaChave } from '../../lib/pessoaChave'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { situacaoPosto, SeletorSituacao, corSit, tagSit, type Situacao } from '../../lib/situacaoPosto'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro, ModalPanel, Checklist } from '../dashboard/DashFiltros'
-import { ChevronDown, ChevronRight, X, Maximize2, Minimize2, Pencil, Briefcase } from 'lucide-react'
+import { ChevronDown, ChevronRight, X, Maximize2, Minimize2, Pencil, Briefcase, Users } from 'lucide-react'
 
 // ============================================================
 // Organograma do quadro — leitura.
@@ -45,6 +45,7 @@ type CC = {
   area_cod: string | null; divisao_cod: string | null; bu_cod: string | null
 }
 type Area = { id: string; codigo: string; nome: string; pai_id: string | null }
+type Pessoa = { id: string; nome: string; gestor_id: string | null }
 type No = {
   key: string; codigo: string; nome: string
   pessoas: number; postos: number; fte: number     // próprios
@@ -53,6 +54,7 @@ type No = {
 }
 
 const FONTES = [
+  { k: 'gestor',  label: 'Gestor (quem reporta a quem)' },
   { k: 'areaf',   label: 'Área funcional (organograma)' },
   { k: 'cc',      label: 'Árvore de centro de custo' },
   { k: 'area',    label: 'Área' },
@@ -324,11 +326,251 @@ function Atribuir({ postos, ccs, areas, caminho, cargos, onFim }: {
   )
 }
 
+// Atribuição de GESTOR. Mesmo gesto da área — rascunho, lote, gravar — e três
+// diferenças que não são detalhe:
+//
+// 1. É por PESSOA, não por posto. `gestor_id` mora em `funcionario` porque o
+//    Marco tem quatro postos e UM gestor; uma linha por posto faria quatro
+//    respostas para uma pergunta só. A coluna "Postos" existe para que a linha
+//    única não pareça posto faltando.
+// 2. O lote útil aqui é OUTRO. Em área se filtra por centro de custo; aqui o
+//    que se faz em massa é remanejar um TIME — "quem reportava à Fulana agora
+//    reporta ao Beltrano" — então o filtro principal é o gestor ATUAL.
+// 3. Ciclo é barrado ANTES de gravar. O trigger `funcionario_sem_ciclo`
+//    (v3_155) levanta exceção, mas a gravação vai em lotes por gestor: deixar
+//    o banco recusar o terceiro lote depois de os dois primeiros terem passado
+//    é meio salvamento. A checagem aqui olha o grafo inteiro com o rascunho
+//    aplicado; o trigger continua sendo a rede embaixo.
+function AtribuirGestor({ postos, pessoas, ccs, cargos, onFim }: {
+  postos: Posto[]; pessoas: Pessoa[]; ccs: CC[]
+  cargos: Record<string, string>; onFim: () => void
+}) {
+  const [gestorFiltro, setGestorFiltro] = useState('')
+  const [ccFiltro, setCcFiltro] = useState('')
+  const [soSem, setSoSem] = useState(true)
+  const [lote, setLote] = useState('')
+  const [rascunho, setRascunho] = useState<Record<string, string | null>>({})
+  const [busca, setBusca] = useState('')
+  const [erro, setErro] = useState('')
+  const [gravando, setGravando] = useState(false)
+
+  const ccNome = Object.fromEntries(ccs.map(c => [c.id, `${c.codigo} · ${c.descricao || ''}`]))
+
+  // Quem entra: pessoa com posto no recorte, ou que lidera alguém. `funcionario`
+  // guarda 513 incluindo demitidas — listar todas afogaria o quadro vivo.
+  const porPessoa = useMemo(() => {
+    const m: Record<string, Posto[]> = {}
+    for (const p of postos) if (p.funcionario_id) (m[p.funcionario_id] ||= []).push(p)
+    return m
+  }, [postos])
+  const lidera = useMemo(() => new Set(pessoas.map(q => q.gestor_id).filter(Boolean) as string[]), [pessoas])
+  const universo = useMemo(
+    () => pessoas.filter(q => porPessoa[q.id] || lidera.has(q.id)),
+    [pessoas, porPessoa, lidera])
+
+  const nomeDe = Object.fromEntries(pessoas.map(q => [q.id, q.nome]))
+  // Rótulo do líder com o cargo junto: há homônimo e há nome que não diz nada
+  // sozinho numa lista de 300.
+  const rotulo = (q: Pessoa) => {
+    const ps = porPessoa[q.id] || []
+    const c = cargos[ps[0]?.cargo_id || ''] || ''
+    return c ? `${q.nome} · ${c}` : q.nome
+  }
+  const opcoes = useMemo(() => [...universo].sort((a, b) => a.nome.localeCompare(b.nome)), [universo])
+
+  const gestorDe = (q: Pessoa) => (q.id in rascunho ? rascunho[q.id] : q.gestor_id) || ''
+  const alterada = (q: Pessoa) => q.id in rascunho && (rascunho[q.id] || null) !== (q.gestor_id || null)
+
+  const lista = useMemo(() => universo.filter(q =>
+    (!gestorFiltro || (q.gestor_id || '__sem') === gestorFiltro) &&
+    (!ccFiltro || (porPessoa[q.id] || []).some(p => (p.cc_id || '__sem') === ccFiltro)) &&
+    (!soSem || !q.gestor_id) &&
+    (!busca.trim() || q.nome.toLowerCase().includes(busca.trim().toLowerCase()))
+  ), [universo, gestorFiltro, ccFiltro, soSem, busca, porPessoa])
+
+  const pendentes = useMemo(
+    () => Object.entries(rascunho).filter(([id, v]) =>
+      (v || null) !== (pessoas.find(q => q.id === id)?.gestor_id || null)),
+    [rascunho, pessoas])
+
+  // Grafo com o rascunho aplicado. Devolve o nome de quem fecha o ciclo, ou ''.
+  const ciclo = useMemo(() => {
+    const pai: Record<string, string | null> = {}
+    for (const q of pessoas) pai[q.id] = (q.id in rascunho ? rascunho[q.id] : q.gestor_id) || null
+    for (const [id] of pendentes) {
+      let v = pai[id], n = 0
+      while (v && n++ < 600) { if (v === id) return nomeDe[id] || 'alguém'; v = pai[v] || null }
+    }
+    return ''
+  }, [pessoas, rascunho, pendentes])
+
+  const aplicar = async () => {
+    if (!pendentes.length || ciclo) return
+    setErro(''); setGravando(true)
+    const porGestor: Record<string, string[]> = {}
+    for (const [id, v] of pendentes) (porGestor[v || '__nulo'] ||= []).push(id)
+    let gravou = 0
+    for (const [g, ids] of Object.entries(porGestor)) {
+      const { data, error } = await supabase.from('funcionario')
+        .update({ gestor_id: g === '__nulo' ? null : g }).in('id', ids).select('id')
+      if (error) { setErro(error.message); setGravando(false); return }
+      gravou += data?.length ?? 0
+    }
+    setGravando(false)
+    // update barrado por RLS não dá erro: filtra as linhas, afeta zero e volta
+    // sucesso. Sem conferir o retorno, a tela diria "gravado" sem ter gravado.
+    if (gravou < pendentes.length)
+      setErro(`Gravou ${gravou} de ${pendentes.length}. As demais estão fora do seu escopo de edição.`)
+    setRascunho({})
+    onFim()
+  }
+
+  const semGestor = universo.filter(q => !q.gestor_id).length
+  const orfaos = postos.filter(p => !p.funcionario_id).length
+
+  return (
+    <div>
+      <div style={{ ...S.kpi, marginBottom: 14 }}>
+        <div style={S.kpiL}>Progresso</div>
+        <div style={{ ...S.kpiV, fontSize: 20 }}>{universo.length - semGestor} de {universo.length}</div>
+        <div style={S.kpiH}>pessoas com gestor · faltam {semGestor} (o topo da liderança é uma delas, e deve ficar sem)</div>
+      </div>
+
+      {erro && <div style={S.aviso}>{erro}</div>}
+      {orfaos > 0 && (
+        <div style={{ ...S.dica, marginBottom: 12 }}>
+          {orfaos} posto{orfaos > 1 ? 's' : ''} sem pessoa vinculada não aparece{orfaos > 1 ? 'm' : ''} aqui —
+          gestor é da pessoa, e esses postos não casaram com um CPF na importação.
+        </div>
+      )}
+
+      <div style={S.bar}>
+        <div style={S.fld}>
+          <span style={S.lbl}>Gestor atual</span>
+          <select style={{ ...S.sel, maxWidth: 300 }} value={gestorFiltro} onChange={e => setGestorFiltro(e.target.value)}>
+            <option value="">Todos</option>
+            <option value="__sem">— sem gestor —</option>
+            {opcoes.filter(q => universo.some(x => x.gestor_id === q.id)).map(q =>
+              <option key={q.id} value={q.id}>{q.nome} ({universo.filter(x => x.gestor_id === q.id).length})</option>)}
+          </select>
+        </div>
+        <div style={S.fld}>
+          <span style={S.lbl}>Centro de custo</span>
+          <select style={{ ...S.sel, maxWidth: 260 }} value={ccFiltro} onChange={e => setCcFiltro(e.target.value)}>
+            <option value="">Todos</option>
+            {ccs.filter(c => postos.some(p => p.cc_id === c.id)).map(c =>
+              <option key={c.id} value={c.id}>{ccNome[c.id]}</option>)}
+          </select>
+        </div>
+        <div style={S.fld}>
+          <span style={S.lbl}>Buscar</span>
+          <input style={{ ...S.sel, minWidth: 180 }} placeholder="nome…" value={busca} onChange={e => setBusca(e.target.value)} />
+        </div>
+        <button style={{ ...S.btn, ...(soSem ? { borderColor: 'var(--violet)', color: 'var(--violet)' } : {}) }}
+                onClick={() => setSoSem(v => !v)}
+                title="Para TROCAR o gestor de alguém, desligue isto — quem já tem gestor não aparece na lista de pendentes.">
+          {soSem ? 'Só sem gestor' : 'Todas'}</button>
+      </div>
+
+      <div style={{ ...S.bar, background: 'var(--bg-soft)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', margin: '0 0 14px' }}>
+        <div style={S.fld}>
+          <span style={S.lbl}>Preencher em lote</span>
+          <select style={{ ...S.sel, minWidth: 340 }} value={lote} onChange={e => setLote(e.target.value)}>
+            <option value="">escolha o gestor…</option>
+            <option value="__nulo">— tirar o gestor —</option>
+            {opcoes.map(q => <option key={q.id} value={q.id}>{rotulo(q)}</option>)}
+          </select>
+        </div>
+        <button style={{ ...S.btn, opacity: lote && lista.length ? 1 : 0.4,
+                         cursor: lote && lista.length ? 'pointer' : 'not-allowed' }}
+                disabled={!lote || !lista.length}
+                title="Filtre pelo gestor atual para remanejar um time inteiro. Nada é gravado ainda."
+                onClick={() => setRascunho(r => {
+                  const n = { ...r }
+                  // Ninguém é gestor de si: o trigger recusaria, mas recusar
+                  // aqui evita um lote que morre inteiro por uma linha.
+                  for (const q of lista) if (q.id !== lote) n[q.id] = lote === '__nulo' ? null : lote
+                  return n
+                })}>
+          Preencher as {lista.length} filtradas
+        </button>
+      </div>
+
+      {ciclo && (
+        <div style={{ ...S.aviso, marginBottom: 14 }}>
+          Ciclo na hierarquia: <b>{ciclo}</b> acabaria reportando a si mesma. Ajuste antes de gravar.
+        </div>
+      )}
+
+      {pendentes.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '0 0 14px',
+                      padding: '11px 14px', borderRadius: 10,
+                      background: 'rgba(139,92,246,0.10)', border: '1px solid var(--violet)' }}>
+          <b style={{ fontSize: 13, color: 'var(--text)' }}>
+            {pendentes.length} alteração{pendentes.length > 1 ? 'ões' : ''} pendente{pendentes.length > 1 ? 's' : ''}
+          </b>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>nada foi gravado ainda</span>
+          <div style={{ flex: 1 }} />
+          <button style={S.btn} onClick={() => setRascunho({})} disabled={gravando}>Descartar</button>
+          <button style={{ ...S.btn, borderColor: 'var(--violet)', color: 'var(--violet)', fontWeight: 600,
+                           opacity: ciclo ? 0.4 : 1, cursor: ciclo ? 'not-allowed' : 'pointer' }}
+                  onClick={aplicar} disabled={gravando || !!ciclo}>
+            {gravando ? 'Gravando…' : `Gravar ${pendentes.length}`}
+          </button>
+        </div>
+      )}
+
+      <div style={{ ...S.canvas, overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+          <thead><tr>
+            {['Pessoa', 'Cargo', 'Centro de custo', 'Postos', 'Gestor'].map(h =>
+              <th key={h} style={{ textAlign: h === 'Postos' ? 'right' : 'left', padding: '6px 8px', fontSize: 10.5,
+                                   color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5,
+                                   borderBottom: '1px solid var(--border)' }}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {lista.slice(0, 400).map(q => {
+              const ps = porPessoa[q.id] || []
+              const ccsDa = [...new Set(ps.map(p => ccNome[p.cc_id || ''] || '—'))]
+              return (
+                <tr key={q.id}>
+                  <td style={{ padding: '5px 8px', color: 'var(--text)' }}>{q.nome}</td>
+                  <td style={{ padding: '5px 8px', color: 'var(--text-mid)' }}>{cargos[ps[0]?.cargo_id || ''] || '—'}</td>
+                  <td style={{ padding: '5px 8px', color: 'var(--text-mid)' }}>
+                    {ccsDa[0] || '—'}{ccsDa.length > 1 && <span style={{ color: 'var(--muted)' }}> +{ccsDa.length - 1}</span>}
+                  </td>
+                  <td style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>
+                    {ps.length || '—'}
+                  </td>
+                  <td style={{ padding: '5px 8px' }}>
+                    <select style={{ ...S.sel, padding: '4px 6px', fontSize: 12, minWidth: 280,
+                                     borderColor: alterada(q) ? 'var(--violet)' : 'var(--border-strong)',
+                                     background: alterada(q) ? 'rgba(139,92,246,0.10)' : 'var(--panel)' }}
+                            value={gestorDe(q)}
+                            onChange={e => setRascunho(r => ({ ...r, [q.id]: e.target.value || null }))}>
+                      <option value="">—</option>
+                      {opcoes.filter(o => o.id !== q.id).map(o =>
+                        <option key={o.id} value={o.id}>{rotulo(o)}</option>)}
+                    </select>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        {lista.length > 400 && <div style={{ ...S.dica, marginTop: 10 }}>Mostrando 400 de {lista.length} — use os filtros para ver o resto.</div>}
+        {lista.length === 0 && <div style={S.vazio}>Nada no filtro atual.{soSem && ' Todas as pessoas deste recorte já têm gestor.'}</div>}
+      </div>
+    </div>
+  )
+}
+
 export default function OrganogramaPage() {
   const acesso = useUserAccess()
   const [postos, setPostos] = useState<Posto[]>([])
   const [ccs, setCcs] = useState<CC[]>([])
   const [areas, setAreas] = useState<Area[]>([])
+  const [pessoas, setPessoas] = useState<Pessoa[]>([])
   const [cargos, setCargos] = useState<Record<string, string>>({})
   const [empresas, setEmpresas] = useState<any[]>([])
   const [filiais, setFiliais] = useState<any[]>([])
@@ -349,7 +591,7 @@ export default function OrganogramaPage() {
   const [sits, setSits] = useLocalPref<Situacao[]>('planorc_organograma_situacoes', ['ativo'])
   const [abertos, setAbertos] = useState<Set<string>>(new Set())
   const [sel, setSel] = useState<string | null>(null)
-  const [modo, setModo] = useState<'ver' | 'atribuir'>('ver')
+  const [modo, setModo] = useState<'ver' | 'atribuir' | 'gestor'>('ver')
   // Tudo que é filtro vai em `useLocalPref`: quem monta um recorte e sai da
   // tela espera achá-lo de volta. Antes era `useState` puro, então voltar
   // zerava — e remontar filtro a cada visita é o tipo de atrito que faz a
@@ -366,17 +608,18 @@ export default function OrganogramaPage() {
   // quando `posto_v` ainda não tinha `area_func_id` (v3_147).
   const carregar = async () => {
     try {
-    const [pd, cd, gd, ed, fd, ad] = await Promise.all([
+    const [pd, cd, gd, ed, fd, ad, qd] = await Promise.all([
       pageAll(() => supabase.from('posto_v').select('id,codigo,nome,matricula,cargo_id,cc_id,empresa_id,filial_id,fte,ativo,regime,area_func_id,funcionario_id,afast_ini_ano,afast_ini_mes,afast_fim_ano,afast_fim_mes,afast_motivo,sit_folha')),
       pageAll(() => supabase.from('centro_custo').select('id,codigo,descricao,pai_id,area_nome,divisao_nome,bu_nome,area_cod,divisao_cod,bu_cod').eq('ativo', true).order('codigo')),
       pageAll(() => supabase.from('cargo').select('id,nome')),
       supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => r.data || []),
       supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => r.data || []),
       pageAll(() => supabase.from('area_funcional').select('id,codigo,nome,pai_id').eq('ativo', true).order('codigo')),
+      pageAll(() => supabase.from('funcionario').select('id,nome,gestor_id').order('nome')),
     ])
     setPostos(pd as Posto[]); setCcs(cd as CC[])
     setCargos(Object.fromEntries((gd as any[]).map(c => [c.id, c.nome])))
-    setEmpresas(ed as any[]); setFiliais(fd as any[]); setAreas(ad as Area[])
+    setEmpresas(ed as any[]); setFiliais(fd as any[]); setAreas(ad as Area[]); setPessoas(qd as Pessoa[])
     setErro('')
     } catch (e: any) {
       setErro(e?.message || String(e))
@@ -390,9 +633,9 @@ export default function OrganogramaPage() {
   // o escopo do usuário, mais um corte por cargo. `escopoFiltro` faz a
   // interseção: filtro de tela ∩ o que a pessoa pode ver.
   const filtrados = useMemo(() => {
-    const empF = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSee)
-    const filF = escopoFiltro((filialSel.length && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSee)
-    const ccF  = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee)
+    const empF = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSeePessoas)
+    const filF = escopoFiltro((filialSel.length && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSeePessoas)
+    const ccF  = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSeePessoas)
     return postos.filter(p =>
       sits.includes(situacaoPosto(p)) &&
       (!empF || (p.empresa_id && empF.includes(p.empresa_id))) &&
@@ -412,7 +655,8 @@ export default function OrganogramaPage() {
   // Por qual coluna o nó agrupa. Vive aqui, e não dentro do useMemo, porque o
   // painel lateral precisa da MESMA resposta — ele testava `cc_id` fixo, e na
   // visão funcional nenhum posto casava: a lista vinha vazia sem dizer por quê.
-  const campoFonte: 'cc_id' | 'area_func_id' = fonte === 'areaf' ? 'area_func_id' : 'cc_id'
+  const campoFonte: 'cc_id' | 'area_func_id' | 'funcionario_id' =
+    fonte === 'areaf' ? 'area_func_id' : fonte === 'gestor' ? 'funcionario_id' : 'cc_id'
 
   const { raizes, max, total } = useMemo(() => {
     // Agrupa pela dimensão da fonte. `__sem` junta quem não tem nada ali.
@@ -465,6 +709,16 @@ export default function OrganogramaPage() {
       raizes = montar(ccs.map(c => ({ id: c.id, codigo: c.codigo, nome: c.descricao || '', pai_id: c.pai_id })))
     } else if (fonte === 'areaf') {
       raizes = montar(areas.map(a => ({ id: a.id, codigo: a.codigo, nome: a.nome, pai_id: a.pai_id })))
+    } else if (fonte === 'gestor') {
+      // Hierarquia de PESSOAS. O montador é o mesmo das outras árvores — era
+      // para isto que a fonte virou seletor lá atrás. Só entram as que têm
+      // posto ou lideram alguém: a tabela guarda 513 pessoas (inclui
+      // demitidas), e desenhar quem não está no quadro poluiria a árvore.
+      const comPosto = new Set(filtrados.map(p => p.funcionario_id).filter(Boolean) as string[])
+      const lidera = new Set(pessoas.map(q => q.gestor_id).filter(Boolean) as string[])
+      raizes = montar(pessoas
+        .filter(q => comPosto.has(q.id) || lidera.has(q.id))
+        .map(q => ({ id: q.id, codigo: '', nome: q.nome, pai_id: q.gestor_id })))
     } else {
       // Agrupamento plano em dois níveis: grupo → CC. O campo vem de
       // centro_custo e pode estar vazio — o balde "sem classificação" é
@@ -499,7 +753,9 @@ export default function OrganogramaPage() {
     if (sem.length) {
       const t = conta(sem)
       raizes = [...raizes, { key: '__sem', codigo: '—',
-                             nome: fonte === 'areaf' ? 'Sem área funcional' : 'Sem centro de custo', ...t,
+                             nome: fonte === 'areaf' ? 'Sem área funcional'
+                                 : fonte === 'gestor' ? 'Sem pessoa identificada (vaga ou sem CPF)'
+                                 : 'Sem centro de custo', ...t,
                              tPessoas: t.pessoas, tPostos: t.postos, tFte: t.fte,
                              filhos: [], ccIds: ['__sem'], nivel: 0 }]
     }
@@ -517,7 +773,7 @@ export default function OrganogramaPage() {
       nos: raizes.length,
     }
     return { raizes, max, total }
-  }, [filtrados, ccs, areas, fonte, campoFonte])
+  }, [filtrados, ccs, areas, pessoas, fonte, campoFonte])
 
   // Começa com o primeiro nível aberto: a tela abre mostrando a estrutura, não
   // uma lista de caixas fechadas que a pessoa tem de descobrir que clica.
@@ -550,8 +806,9 @@ export default function OrganogramaPage() {
     const m: Record<string, string> = {}
     for (const a of areas) m[a.id] = `${a.codigo} · ${a.nome}`
     for (const c of ccs) m[c.id] = `${c.codigo} · ${c.descricao || ''}`
+    for (const q of pessoas) m[q.id] = q.nome
     return m
-  }, [areas, ccs])
+  }, [areas, ccs, pessoas])
 
   const noSel = sel ? todos.find(n => n.key === sel) : null
   const pessoasSel = useMemo(() => {
@@ -666,9 +923,14 @@ export default function OrganogramaPage() {
           </div>
         </div>
         <button style={{ ...S.btn, ...(modo === 'atribuir' ? { borderColor: 'var(--violet)', color: 'var(--violet)' } : {}) }}
-                onClick={() => setModo(m => m === 'ver' ? 'atribuir' : 'ver')}
+                onClick={() => setModo(m => m === 'atribuir' ? 'ver' : 'atribuir')}
                 title="Dizer em que área funcional cada posto está. O caminho rápido é filtrar por centro de custo e atribuir o lote.">
           <Pencil size={14} /> {modo === 'atribuir' ? 'Voltar ao organograma' : 'Atribuir área'}
+        </button>
+        <button style={{ ...S.btn, ...(modo === 'gestor' ? { borderColor: 'var(--violet)', color: 'var(--violet)' } : {}) }}
+                onClick={() => setModo(m => m === 'gestor' ? 'ver' : 'gestor')}
+                title="Dizer quem reporta a quem. É por PESSOA: quem tem vários postos tem um gestor só. Para remanejar um time, filtre pelo gestor atual.">
+          <Users size={14} /> {modo === 'gestor' ? 'Voltar ao organograma' : 'Atribuir gestor'}
         </button>
         <div style={S.fld}>
           <span style={S.lbl}>Situação</span>
@@ -720,6 +982,9 @@ export default function OrganogramaPage() {
       {loading ? <div style={S.vazio}>Carregando…</div> : modo === 'atribuir' ? (
         <Atribuir postos={filtrados} ccs={ccs} areas={areas} caminho={areaCaminho}
                   cargos={cargos} onFim={carregar} />
+      ) : modo === 'gestor' ? (
+        <AtribuirGestor postos={filtrados} pessoas={pessoas} ccs={ccs}
+                        cargos={cargos} onFim={carregar} />
       ) : (
         <div style={S.wrap}>
           <div style={S.canvas}>

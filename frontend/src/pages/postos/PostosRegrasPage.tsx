@@ -36,10 +36,12 @@ function downloadSheet(filename: string, aoa: any[][]) {
 }
 
 // ── Estrutura (admin) do Posto de Trabalho — catálogos que alimentam o motor:
-//    verbas/regras · cargos · sindicatos · premissas de dissídio (versão×sindicato).
+//    verbas/regras · sindicatos · premissas de dissídio (versão×sindicato).
+// Cargos saiu daqui (nov/2026): é cadastro de organização e vive em Cadastros →
+// Cargos. Esta tela é sobre FOLHA, e havia duas telas sobre a mesma tabela.
 //    Ref.: docs/DESIGN_posto_trabalho.md (P1, passo 2).
 
-type Aba = 'verbas' | 'cargos' | 'sindicatos' | 'dissidio' | 'fornecedores'
+type Aba = 'verbas' | 'sindicatos' | 'dissidio' | 'fornecedores'
 
 const TIPO_CALCULO: { value: string; label: string }[] = [
   { value: 'BASE',          label: 'Base (salário)' },
@@ -357,18 +359,6 @@ function VerbasTab({ editavel }: { editavel: boolean }) {
     ]} />
 }
 
-// ─── Cargos ──────────────────────────────────────────────────
-function CargosTab({ editavel }: { editavel: boolean }) {
-  return <CrudTable editavel={editavel} table="cargo" orderBy="codigo"
-    defaults={{ ativo: true }}
-    cols={[
-      { key: 'codigo',      label: 'Código',       kind: 'text', required: true, width: 130, mono: true },
-      { key: 'nome',        label: 'Nome',         kind: 'text', required: true },
-      { key: 'salario_ref', label: 'Salário ref.', kind: 'num',  width: 150 },
-      { key: 'ativo',       label: 'Ativo',        kind: 'check', width: 60 },
-    ]} />
-}
-
 // ─── Sindicatos ──────────────────────────────────────────────
 function SindicatosTab({ editavel }: { editavel: boolean }) {
   return <CrudTable editavel={editavel} table="sindicato" orderBy="codigo"
@@ -459,7 +449,6 @@ export default function PostosRegrasPage() {
 
   const TABS: { id: Aba; label: string }[] = [
     { id: 'verbas',     label: 'Verbas / regras' },
-    { id: 'cargos',     label: 'Cargos' },
     { id: 'sindicatos', label: 'Sindicatos' },
     { id: 'dissidio',   label: 'Dissídio' },
     { id: 'fornecedores', label: 'Fornecedores (PJ)' },
@@ -481,7 +470,6 @@ export default function PostosRegrasPage() {
       </div>
 
       {aba === 'verbas'     && <VerbasTab editavel={editavel} />}
-      {aba === 'cargos'     && <CargosTab editavel={editavel} />}
       {aba === 'sindicatos' && <SindicatosTab editavel={editavel} />}
       {aba === 'dissidio'   && <DissidioTab editavel={editavel} />}
       {aba === 'fornecedores' && <FornecedoresPJ editavel={editavel} />}
