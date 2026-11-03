@@ -197,6 +197,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // está e a capacidade diz o que pode fazer ali.
   const podeEstrutura = mode === 'estrutura' && capImp.can('estrutura')
   const soLeituraEstrutura = mode === 'estrutura' && !capImp.can('estrutura')
+  // Abrir a definição de uma linha (fórmula, amarração, natureza) é ESTRUTURA,
+  // mesmo em leitura — por isso `estrutura.ver` existe separada de `estrutura`.
+  // Em Consultar o duplo-clique abria o modal para qualquer um.
+  const podeVerLinha = capImp.can('estrutura.ver') || capImp.can('estrutura')
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const acesso = useUserAccess()   // F2: escopo VER/ORÇAR + negar
@@ -1904,7 +1908,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                       </button>
                       {l.cor_texto ? <span style={{ width: 8, height: 8, borderRadius: 2, background: l.cor_texto, flexShrink: 0 }} /> : <TipoIcon size={12} style={{ color: TIPO_INFO[l.tipo_linha].cor, flexShrink: 0, opacity: 0.7 }} />}
                       <span style={{ fontWeight: fw, color: clr, fontStyle: l.italico ? 'italic' : 'normal', textDecoration: off ? 'line-through' : 'none', fontSize: 13, paddingLeft: 2, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                        onDoubleClick={() => setLinhaModal(l)} title={(l.descricao || '') + (off ? ' — desativada (fora da soma)' : ' — duplo-clique p/ editar')}>
+                        onDoubleClick={() => podeVerLinha && setLinhaModal(l)}
+                        title={(l.descricao || '') + (off ? ' — desativada (fora da soma)' : '')
+                               + (podeVerLinha ? (capImp.can('estrutura') ? ' — duplo-clique p/ editar' : ' — duplo-clique p/ ver a definição') : '')}>
                         {l.descricao || <em style={{ color: 'var(--faint)' }}>sem nome</em>}
                       </span>
                       {!isSpac && contaLinks[l.id]?.length ? <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--green)', flexShrink: 0 }} title="contas amarradas">🔗{contaLinks[l.id].length}</span> : null}
@@ -2000,7 +2006,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             ) : !adding ? (
               <tr>
                 <td colSpan={columns.length + 1} style={{ padding: '8px 12px' }}>
-                  <button style={S.addRow} onClick={() => { setAdding({ paiId: null }); setNewDesc('') }}><Plus size={13} /> Adicionar linha</button>
+                  {/* Criar linha é mexer na árvore: só em Estrutura, e só com a
+                      capacidade. Aqui aparecia para qualquer um que abrisse o
+                      relatório em Consultar. */}
+                  {podeEstrutura && <button style={S.addRow} onClick={() => { setAdding({ paiId: null }); setNewDesc('') }}><Plus size={13} /> Adicionar linha</button>}
                 </td>
               </tr>
             ) : null}
