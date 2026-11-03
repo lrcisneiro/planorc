@@ -520,6 +520,14 @@ export default function PostosGradePage() {
     await loadOverlays(versaoSel)
   }
 
+  // Reabrir devolve à fila do aprovador sem aprovar nada — por isso a guarda no
+  // banco é `pode_escrever()`, não `pode_aprovar_cenario()`.
+  const reabrirDecisao = async (ovId: string) => {
+    const { error } = await supabase.rpc('reabrir_decisao', { p_id: ovId })
+    if (error) throw new Error(error.message)
+    await loadOverlays(versaoSel)
+  }
+
   const decidirPosto = async (ovId: string, aprovado: boolean | null, nota: string | null) => {
     const { error } = await supabase.rpc('decidir_posto_cenario', { p_id: ovId, p_aprovado: aprovado, p_nota: nota })
     if (error) throw new Error(error.message)
@@ -1445,7 +1453,7 @@ export default function PostosGradePage() {
           aprovadoEm={aprovadoEm} aprovacaoNota={vAtual?.aprovacao_nota || ''}
           podeAprovar={podeAprovar} onDecidir={decidirAprovacao}
           onVeredito={decidirPosto} vereditos={vereditos}
-          podeDecidir={podeCenario} onAbandonar={abandonarDecisao}
+          podeDecidir={podeCenario} onAbandonar={abandonarDecisao} onReabrir={reabrirDecisao}
           cargoNome={(id: string) => cargos.find((c: any) => c.id === id)?.nome || ''}
           versaoLabel={versoes.find((v: any) => v.id === versaoSel)?.codigo || ''}
           onClose={() => setVerDiff(false)} />

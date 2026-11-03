@@ -253,6 +253,16 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 
 > **Apagar o orçado de uma versão (v3_127).** A ação mais destrutiva do produto vive no menu *Importar Baseline* da tela de Orçar, atrás da capacidade `orcado.apagar` (só admin por padrão). Três proteções, e a ordem importa: `orcado_resumo_versao` mostra o que vai sumir (linhas, origens, valor, escopos) **antes** de qualquer confirmação; quem confirma digita o **código da versão**; e `apagar_orcado_versao` **confere a confirmação no servidor** e recusa versão `bloqueada`. Não é senha de propósito — senha prova identidade, e o risco aqui não é um estranho clicando, é a pessoa certa apagando a versão errada. Apaga `fat_orcado` da versão/ano (todas as origens) e os carimbos de `formulario_aplicacao`; **não** apaga `formulario_valor` — quem recomeça as cargas quer reaplicar os formulários, não redigitá-los.
 
+> **Reabrir decisão recusada (v3_167).** A resposta a uma recusa costuma ser **texto, não número**
+> — "justifique" se responde com justificativa, nenhum campo de decisão muda, o gatilho da v3_166
+> não dispara, e o veredito ficaria recusado para sempre. `reabrir_decisao` devolve o posto a
+> **pendente**, e só isso: a justificativa segue no campo `nota` do cenário, que já existia.
+> ⚠ **Mantém `aprov_nota`** — apagar a recusa ao reabrir faria o aprovador reler a decisão sem
+> lembrar o que ele mesmo objetou, que é justamente o que precisa conferir se foi respondido.
+> Quem reabre é quem **propõe**: a guarda é `pode_escrever()`, não `pode_aprovar_cenario()`.
+> **Duas saídas de uma recusa, as duas na linha do comparativo:** *reenviar para análise* e
+> *voltar ao cadastro* (abandona a decisão, some em decisão já aprovada — aquilo virou acordo).
+
 > **Veredito por posto, carimbo por cenário (v3_166).** O veredito por posto é a **conversa** — o
 > aprovador diz o que não passa e por quê, e o motivo aparece na linha, junto do que foi proposto.
 > O carimbo da versão continua sendo a **trava**. ⚠ `aprovar_cenario` exige **unanimidade**: sem

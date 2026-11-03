@@ -78,7 +78,7 @@ export default function CenarioDiffModal(props: any) {
   const { postos, overlays, verbas, dissidio, sindMesBase, anoCalc, postoVerbas,
           empPais, empById, ccById, cargoNome, versaoLabel, onClose,
           aprovadoEm, aprovacaoNota, podeAprovar, onDecidir, onVeredito, vereditos,
-          podeDecidir, onAbandonar } = props
+          podeDecidir, onAbandonar, onReabrir } = props
   const [nota, setNota] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erroAprov, setErroAprov] = useState('')
@@ -138,6 +138,13 @@ export default function CenarioDiffModal(props: any) {
   // A recusa tem duas saídas: corrigir (na grade) ou abandonar (aqui). Sem a
   // segunda à mão, quem propôs tem de sair do comparativo, achar o posto na
   // grade e desfazer campo a campo — e o motivo da recusa fica para trás.
+  const reabrir = async (l: any) => {
+    setErroAprov(''); setSalvando(true)
+    try { await onReabrir(l.ovId) }
+    catch (e: any) { setErroAprov(e?.message || 'Não foi possível reabrir.') }
+    finally { setSalvando(false) }
+  }
+
   const abandonar = async (l: any) => {
     if (!window.confirm(`Abandonar a decisão de ${l.nome}?\n\nO posto volta a herdar tudo do cadastro: ${l.campos.length} campo(s) decidido(s) são descartados${l.aprovNota ? ', junto com a recusa' : ''}.`)) return
     setErroAprov(''); setSalvando(true)
@@ -165,6 +172,17 @@ export default function CenarioDiffModal(props: any) {
     if (!podeAprovar) return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
         {selo}
+        {/* Responder a uma recusa costuma ser justificar, não mudar número — e
+            aí nada dispara o gatilho. Sem este botão, a decisão ficaria recusada
+            para sempre mesmo depois de respondida. */}
+        {podeDecidir && l.aprovado === false && (
+          <button disabled={salvando} onClick={() => reabrir(l)} data-noexport
+            title="Devolver para análise: o aprovador vê de novo, com a sua justificativa no cenário"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none',
+                     color: 'var(--violet)', cursor: 'pointer', padding: 0, fontSize: 10.5, textDecoration: 'underline' }}>
+            <RotateCcw size={11} /> reenviar para análise
+          </button>
+        )}
         {podeAbandonar && (
           <button disabled={salvando} onClick={() => abandonar(l)} data-noexport
             title="Descartar esta decisão: o posto volta a herdar tudo do cadastro"
@@ -391,6 +409,12 @@ export default function CenarioDiffModal(props: any) {
                             {l.nota && <div style={{ marginTop: 5, fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic' }}>“{l.nota}”</div>}
                             {/* A recusa aparece NA LINHA, junto do que foi proposto:
                                 é assim que quem propôs entende o que precisa mudar. */}
+                            {l.aprovado === null && l.aprovNota && (
+                              <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--muted)', background: 'var(--bg-soft)',
+                                            border: '1px dashed var(--border-strong)', borderRadius: 7, padding: '6px 9px', lineHeight: 1.55 }}>
+                                <b>Reenviada.</b> Recusa anterior: “{l.aprovNota}”
+                              </div>
+                            )}
                             {l.aprovado === false && l.aprovNota && recusando?.id !== l.ovId && (
                               <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--red)', background: 'rgba(248,113,113,0.10)',
                                             border: '1px solid rgba(248,113,113,0.3)', borderRadius: 7, padding: '6px 9px', lineHeight: 1.55 }}>
