@@ -483,16 +483,16 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   CC entram num nó próprio: omiti-los mostraria um quadro menor que o real.
   A aba e a pill só aparecem com `tenant.usa_apontamento` ligado em Configurações → Funcionalidades (`lib/tenantFlags.ts`): apontar hora em projeto é específico de quem opera por projeto.
 - **F6** — presets "Meus Relatórios" com `owner_id`. ⬜
-- **F8 — Nível de detalhe por usuário** — 🟡 *próximo (03/nov/2026)*. Quem só confere receitas e
-  despesas da área não precisa ver **apoio** e **indicadores**, nem em `/relatorios/:id` nem em
-  `/orcar/:id`. ⚠ **Reusar `tipo_linha` não resolve, e já está medido:** *Receita Líquida* é
-  `FORMULA` e é essencial, *LER Bruto* também é `FORMULA` e é apoio; `INDICADOR` tem *% EBITDA* ao
-  lado de *% Receita Serviços*. A distinção é **editorial**, não estrutural. Direção: coluna
-  editorial na linha (`nivel_detalhe ∈ essencial | analitico | apoio`, padrão `essencial`),
-  marcada em `/estrutura/:id`, + preferência no cadastro do usuário com padrão por papel.
-  ⚠⚠ **Filtro de EXIBIÇÃO, nunca de cálculo:** linha de apoio escondida segue alimentando
-  fórmulas — `totaisRelatorio` calcula tudo e a tela só não desenha. Subtrair do cálculo faria o
-  resultado depender de quem está olhando.
+- **F8 — Nível de detalhe por usuário — ❌ DESCARTADO (03/nov/2026), não reabrir sem motivo novo.**
+  A ideia era uma coluna editorial na linha (`essencial | analítico | apoio`) + preferência no
+  cadastro do usuário, para esconder apoio e indicadores de quem só confere a própria área.
+  **O produto já resolve:** o botão **Seções** no editor marca/desmarca as linhas de topo (com
+  *só esta* por linha), e a escolha **entra no preset**. Com o compartilhamento dirigido da
+  `v3_153`, monta-se o preset limpo e compartilha-se com quem precisa — a pessoa abre no recorte
+  certo, sem cadastro nenhum. Fazer F8 teria criado uma segunda forma de esconder linha, divergente
+  da primeira e com cadastro por pessoa para manter.
+  ⚠ Se voltar à mesa, o que muda a conta é **o usuário não ter um preset** e cair na visão cheia;
+  a resposta aí é preset padrão por pessoa, não tag na linha.
 - **F7 — Cenários** — planejado (out/2026), **não iniciado**: design em `docs/DESIGN_cenarios.md`. Área `/cenarios` (hub em árvore por ano + wizard de nova versão com semente: em branco / copiar versão completa / copiar + realizado até MM/AAAA / importar), ajustes por regra gravados como premissas, marcação de células ≠ origem, tela Comparar (até 4 cenários; resumo / detalhado / só diferenças) e ciclo de vida (promover/merge, arquivar). Schema: só colunas nullable em `versao_orcamento` (`origem_versao_id`, `papel`, `cor`, `inicio_projecao_ano/mes`, `premissas jsonb`) + RPCs `copiar_versao` (estende v3_007 p/ `formulario_valor`, `versao_taxa`, postos), `semear_realizado`, `aplicar_ajuste`. Cenário continua = `versao_orcamento`; nada muda em `fat_orcado`/`view_config`. Fases F7.1–F7.4 no doc. ⬜
 
 **Dívidas técnicas:** hardening de RLS/RPC no banco (F2 hoje é só frontend — segurança mais sensível); grão filial×empresa (`filial_id` nullable, dupla contagem, sem FK composta — empresa é agrupadora, não matriz); legado `fat_lancamento`/`plano_orcamentario` (~10 pontos); colunas vestigiais `tipo_linha`/`pai_id` em `conta_orcamentaria`; artefatos residuais (`frontend/frontend/`, `planorc-v2-*.html`). Pendências da F2: esconder opções fora de escopo nos dropdowns.
