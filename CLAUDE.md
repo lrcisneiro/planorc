@@ -41,6 +41,16 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 | `/config` | `ConfiguracoesPage` | configurações (usuários, acesso a dados e capacidades) |
 | (login) | `LoginPage` | autenticação |
 
+> **Preset do relatório guarda a INTENÇÃO de nível, não só as linhas recolhidas** (nov/2026).
+> `getFiltros` leva `nivel` (`1..n | 'tudo' | null`) **e** `collapsed` (ids). Ao aplicar, a
+> intenção vem primeiro: *"até o nível 2"* se re-aplica sobre a árvore de hoje, então sintética
+> criada depois do preset nasce recolhida como as outras. Salvar só os ids faria o "nível 2"
+> deixar de ser nível 2 na primeira linha nova. Recolher uma linha **à mão** zera a intenção —
+> dali em diante o conjunto exato é que manda, porque foi o que a pessoa escolheu.
+> ⚠ O preset chega **antes** da árvore, então o nível fica pendente num estado e um efeito o
+> aplica quando `tree` existir; sem isso `recolherAteNivel` rodaria sobre árvore vazia e o preset
+> abriria tudo expandido, calado.
+
 > **Split do editor (F1):** `RelatorioEditorPage` recebe a prop `mode ∈ consulta | orcar | estrutura`. É **um componente só** com três experiências — `consulta` (só leitura), `orcar` (edita só o orçado; realizado nunca é digitado, vem do ERP) e `estrutura` (edita a árvore/fórmulas, sem meses/visões/filtros). Não são três páginas separadas.
 
 Páginas **não roteadas** (legado, manter cautela antes de reusar): `orcamento/OrcamentoPage.tsx`, `templates/TemplatePage.tsx`, `templates/TemplateEditorPage.tsx`, `lancamentos/LancamentosPage.tsx`. (`/dre` → `DrePage` está roteada mas é legado.)

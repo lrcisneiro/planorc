@@ -266,6 +266,13 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const aplicarPeriodoDaVisao = (vid: string) =>
     aplicarPeriodoDeCenarios(views.find(x => x.id === vid)?.cenarios || [])
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  // O preset guarda a INTENÇÃO ("até o nível 2"), não só o conjunto de linhas
+  // recolhidas: linha sintética criada depois do preset viria expandida, e o
+  // "nível 2" salvo deixaria de ser nível 2. Quando a pessoa recolhe uma linha
+  // à mão, a intenção vira nula e aí o conjunto exato é que manda.
+  const [nivelSel, setNivelSel] = useState<number | 'tudo' | null>(null)
+  // Aplicar o nível exige a árvore montada; o preset chega antes dela.
+  const [nivelPend, setNivelPend] = useState<number | 'tudo' | null>(null)
   const [adding,    setAdding]    = useState<{ paiId: string | null } | null>(null)
   const [newDesc,   setNewDesc]   = useState('')
   const [loading,   setLoading]   = useState(true)
@@ -500,7 +507,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   }, [id]) // eslint-disable-line
 
   // Preset "Meus Relatórios" (dashboard_card, base '/relatorios/<id>'): captura/restaura os parâmetros do usuário.
-  const getFiltros = () => ({ empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, activeView, hideEmpty, hideOff, secOcultas })
+  const getFiltros = () => ({ empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, activeView, hideEmpty, hideOff, secOcultas, nivel: nivelSel, collapsed: [...collapsed] })
   const aplicarPreset = (f: any) => {
     if (!f) return
     if (Array.isArray(f.empresaSel)) setEmpresaSel(f.empresaSel)
@@ -515,6 +522,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     if (typeof f.hideEmpty === 'boolean') setHideEmpty(f.hideEmpty)
     if (typeof f.hideOff === 'boolean') setHideOff(f.hideOff)
     if (Array.isArray(f.secOcultas)) setSecOcultas(f.secOcultas)
+    // Intenção primeiro: "até o nível 2" se re-aplica sobre a árvore de hoje.
+    // Sem ela, o conjunto exato do dia em que o preset foi salvo.
+    if (typeof f.nivel === 'number' || f.nivel === 'tudo') { setNivelSel(f.nivel); setNivelPend(f.nivel) }
+    else if (Array.isArray(f.collapsed)) { setNivelSel(null); setCollapsed(new Set(f.collapsed)) }
   }
   const presetBase = id ? '/relatorios/' + id : ''
   const { cardId: presetCardId } = useCardPreset(presetBase, aplicarPreset)
@@ -914,7 +925,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
 
   // ── Árvore / colapso
   const temFilhos = (lid: string) => linhas.some(l => l.pai_id === lid)
-  const toggle = (lid: string) => setCollapsed(prev => { const n = new Set(prev); n.has(lid) ? n.delete(lid) : n.add(lid); return n })
+  // Mexer numa linha específica deixa de ser "um nível": o que vale a partir
+  // daqui é o conjunto exato, e é ele que o preset guarda.
+  const toggle = (lid: string) => { setNivelSel(null); setCollapsed(prev => { const n = new Set(prev); n.has(lid) ? n.delete(lid) : n.add(lid); return n }) }
   const tree = buildTree(linhas)
   // "Ocultar vazias": mantém linhas com valor em alguma coluna do período + seus ancestrais
   const keepIds = useMemo(() => {
@@ -956,11 +969,28 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const p = visivel.find(x => x.id === adding.paiId)
     return ((p?._depth ?? 0) + 1) * 18
   })()
-  const expandirTudo = () => setCollapsed(new Set())
-  const recolherAteNivel = (n: number) => {
+  // O preset chega antes da árvore; quando ela existir, o nível pendente se
+  // aplica uma vez. Sem isto, `recolherAteNivel` rodaria sobre `tree` vazia e
+  // o preset abriria tudo expandido, calado.
+  useEffect(() => {
+    if (nivelPend == null || !tree.length) return
+    if (nivelPend === 'tudo') setCollapsed(new Set())
+    else recolherAteNivel(nivelPend, false)
+    setNivelPend(null)
+  }, [nivelPend, tree.length]) // eslint-disable-line
+
+  // Destaque do nível ativo: o preset guarda a intenção, e esconder qual é
+  // deixaria a pessoa salvando algo que a tela não mostra.
+  const nvAtivo = (n: number | 'tudo') => nivelSel === n
+    ? { borderColor: 'var(--violet)', background: 'rgba(139,92,246,0.16)', color: 'var(--violet)' }
+    : {}
+
+  const expandirTudo = () => { setCollapsed(new Set()); setNivelSel('tudo') }
+  const recolherAteNivel = (n: number, intencao = true) => {
     const next = new Set<string>()
     for (const l of tree) if ((l._depth ?? 0) >= n - 1 && temFilhos(l.id)) next.add(l.id)
     setCollapsed(next)
+    if (intencao) setNivelSel(n)
   }
 
   // ── Fórmula: exibição por NOME da linha (interno = código)
@@ -1442,9 +1472,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             <span style={{ fontSize: 11, color: 'var(--muted)' }}>Nível:</span>
             {Array.from({ length: Math.min(maxNivel, 6) }, (_, i) => i + 1).map(n => (
               <button key={n} onClick={() => recolherAteNivel(n)} title={`Mostrar até o nível ${n}`}
-                style={{ width: 24, height: 24, fontSize: 12, fontWeight: 600, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)', borderRadius: 6, cursor: 'pointer' }}>{n}</button>
+                style={{ width: 24, height: 24, fontSize: 12, fontWeight: 600, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)', borderRadius: 6, cursor: 'pointer', ...nvAtivo(n) }}>{n}</button>
             ))}
-            <button onClick={expandirTudo} title="Expandir tudo" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '4px 8px', border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)', borderRadius: 6, cursor: 'pointer' }}><ChevronsUpDown size={12} /> Tudo</button>
+            <button onClick={expandirTudo} title="Expandir tudo" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '4px 8px', border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)', borderRadius: 6, cursor: 'pointer', ...nvAtivo('tudo') }}><ChevronsUpDown size={12} /> Tudo</button>
           </div>
           <button onClick={() => setSimShow(s => !s)} style={{ ...S.sel, color: simShow ? 'var(--violet)' : 'var(--text-mid)', borderColor: simShow ? 'var(--violet)' : 'var(--border-strong)' }}>{simShow ? '✓ Simulação' : 'Simular fórmulas'}</button>
         <div style={{ position: 'relative' }}>
@@ -1524,7 +1554,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                   <tr onClick={() => setSelId(l.id)} style={{ background: selId === l.id ? 'rgba(139,92,246,0.13)' : undefined, boxShadow: selId === l.id ? 'inset 2px 0 0 var(--violet)' : undefined }}>
                     <td style={{ ...etd, paddingLeft: 10 + depth * 18, cursor: 'pointer' }} onDoubleClick={() => setLinhaModal(l)} title="Clique para selecionar · duplo clique para editar">
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        <span onClick={() => hasKids(l.id) && setCollapsed(p => { const n = new Set(p); n.has(l.id) ? n.delete(l.id) : n.add(l.id); return n })}
+                        <span onClick={() => hasKids(l.id) && toggle(l.id)}
                           style={{ width: 14, cursor: hasKids(l.id) ? 'pointer' : 'default', color: 'var(--muted)', fontSize: 10 }}>{hasKids(l.id) ? (collapsed.has(l.id) ? '▸' : '▾') : ''}</span>
                         <span style={{ width: 7, height: 7, borderRadius: 2, background: ti.cor, flexShrink: 0 }} />
                         <span style={{ color: l.tipo_linha === 'SOMAR_FILHOS' ? 'var(--text)' : 'var(--text-mid)', fontWeight: l.tipo_linha === 'SOMAR_FILHOS' ? 700 : 500 }}>{l.descricao || <em style={{ color: 'var(--faint)' }}>sem nome</em>}</span>
@@ -1689,9 +1719,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             <span style={{ fontSize: 11, color: 'var(--muted)' }}>Níveis:</span>
             {Array.from({ length: Math.min(maxDepth + 1, 5) }, (_, i) => i + 1).map(n => (
               <button key={n} title={`Expandir até o nível ${n}`} onClick={() => recolherAteNivel(n)}
-                style={{ width: 24, height: 24, fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', color: 'var(--text-mid)', cursor: 'pointer' }}>{n}</button>
+                style={{ width: 24, height: 24, fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--panel)', color: 'var(--text-mid)', cursor: 'pointer', ...nvAtivo(n) }}>{n}</button>
             ))}
-            <button title="Expandir tudo" onClick={expandirTudo} style={{ ...mini, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)' }}><ChevronsUpDown size={13} /> Tudo</button>
+            <button title="Expandir tudo" onClick={expandirTudo} style={{ ...mini, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)', ...nvAtivo('tudo') }}><ChevronsUpDown size={13} /> Tudo</button>
             {sep}
             <button title="Ocultar linhas sem valor no período selecionado" onClick={() => setHideEmpty(v => !v)}
               style={{ ...mini, border: '1px solid ' + (hideEmpty ? 'var(--blue)' : 'var(--border-strong)'), background: hideEmpty ? 'rgba(59,130,246,0.16)' : 'var(--panel)', color: hideEmpty ? 'var(--blue)' : 'var(--text-mid)' }}>
