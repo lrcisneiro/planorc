@@ -81,6 +81,10 @@ export default function CenarioDiffModal(props: any) {
   const [nota, setNota] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erroAprov, setErroAprov] = useState('')
+  // Recusa escreve NA LINHA. `window.prompt` resolvia e destoava — e, pior,
+  // uma caixa do sistema sobre uma tela escura tira a pessoa do contexto
+  // justamente quando ela precisa olhar o número que está recusando.
+  const [recusando, setRecusando] = useState<{ id: string; texto: string } | null>(null)
 
   const decidir = async (aprovar: boolean) => {
     setErroAprov(''); setSalvando(true)
@@ -121,19 +125,14 @@ export default function CenarioDiffModal(props: any) {
 
   // ⚠ A recusa EXIGE motivo. Reprovar sem dizer o quê devolve o cenário e não
   // devolve a informação — o gerente fica adivinhando, e o ciclo não fecha.
-  const marcar = async (l: any, aprovado: boolean | null) => {
+  const marcar = async (l: any, aprovado: boolean | null, motivo: string | null = null) => {
     if (!l.ovId) return
-    let n: string | null = null
-    if (aprovado === false) {
-      n = window.prompt(`Por que esta decisão não passa?\n\n${l.nome} — ${l.campos.length} campo(s) alterado(s)\n\nO texto vai para quem propôs.`, l.aprovNota || '')
-      if (n === null) return
-      if (!n.trim()) { setErroAprov('Reprovar exige um motivo — é o que o responsável vai ler.'); return }
-    }
     setErroAprov(''); setSalvando(true)
-    try { await onVeredito(l.ovId, aprovado, n) }
+    try { await onVeredito(l.ovId, aprovado, motivo); setRecusando(null) }
     catch (e: any) { setErroAprov(e?.message || 'Não foi possível gravar o veredito.') }
     finally { setSalvando(false) }
   }
+  const abrirRecusa = (l: any) => setRecusando({ id: l.ovId, texto: l.aprovNota || '' })
 
   const bt = (ativo: boolean, cor: string): CSSProperties => ({
     padding: '3px 8px', fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: podeAprovar ? 'pointer' : 'default',
@@ -153,7 +152,8 @@ export default function CenarioDiffModal(props: any) {
         <button disabled={salvando} style={bt(l.aprovado === true, 'var(--green)')}
           title="Aprovar esta decisão" onClick={() => marcar(l, l.aprovado === true ? null : true)}>✓</button>
         <button disabled={salvando} style={bt(l.aprovado === false, 'var(--red)')}
-          title="Recusar, dizendo o motivo" onClick={() => marcar(l, l.aprovado === false ? null : false)}>✗</button>
+          title={l.aprovado === false ? 'Desfazer a recusa' : 'Recusar, dizendo o motivo'}
+          onClick={() => l.aprovado === false ? marcar(l, null, null) : abrirRecusa(l)}>✗</button>
       </div>
     )
   }
@@ -363,10 +363,48 @@ export default function CenarioDiffModal(props: any) {
                             {l.nota && <div style={{ marginTop: 5, fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic' }}>“{l.nota}”</div>}
                             {/* A recusa aparece NA LINHA, junto do que foi proposto:
                                 é assim que quem propôs entende o que precisa mudar. */}
-                            {l.aprovado === false && l.aprovNota && (
+                            {l.aprovado === false && l.aprovNota && recusando?.id !== l.ovId && (
                               <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--red)', background: 'rgba(248,113,113,0.10)',
                                             border: '1px solid rgba(248,113,113,0.3)', borderRadius: 7, padding: '6px 9px', lineHeight: 1.55 }}>
                                 <b>Recusada:</b> {l.aprovNota}
+                                {podeAprovar && <button onClick={() => abrirRecusa(l)} data-noexport
+                                  style={{ marginLeft: 7, background: 'none', border: 'none', color: 'var(--red)',
+                                           textDecoration: 'underline', cursor: 'pointer', padding: 0, fontSize: 11 }}>editar</button>}
+                              </div>
+                            )}
+                            {recusando?.id === l.ovId && (
+                              <div data-noexport style={{ marginTop: 6, background: 'rgba(248,113,113,0.08)',
+                                border: '1px solid rgba(248,113,113,0.35)', borderRadius: 8, padding: 9 }}>
+                                <div style={{ fontSize: 11, color: 'var(--red)', fontWeight: 700, marginBottom: 5 }}>
+                                  Por que não passa? Este texto vai para quem propôs.
+                                </div>
+                                <textarea autoFocus rows={2} value={recusando!.texto}
+                                  onChange={e => setRecusando({ id: l.ovId, texto: e.target.value })}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Escape') setRecusando(null)
+                                    // Enter confirma; Shift+Enter quebra linha. Motivo costuma
+                                    // ser uma frase, e obrigar a pegar o mouse trava o ritmo
+                                    // de quem está revisando quatorze decisões.
+                                    if (e.key === 'Enter' && !e.shiftKey && recusando!.texto.trim()) {
+                                      e.preventDefault(); marcar(l, false, recusando!.texto.trim())
+                                    }
+                                  }}
+                                  placeholder="ex.: reajuste acima da faixa do cargo — rever para 8%"
+                                  style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, padding: '6px 8px', resize: 'vertical',
+                                           background: 'var(--bg-soft)', color: 'var(--text)',
+                                           border: '1px solid var(--border-strong)', borderRadius: 7, fontFamily: 'inherit' }} />
+                                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                                  <button disabled={salvando || !recusando!.texto.trim()}
+                                    onClick={() => marcar(l, false, recusando!.texto.trim())}
+                                    title={recusando!.texto.trim() ? undefined : 'Recusar sem motivo devolve o cenário sem devolver a informação.'}
+                                    style={{ ...S.btn, padding: '4px 10px', fontSize: 11.5, borderColor: 'var(--red)', color: 'var(--red)',
+                                             opacity: recusando!.texto.trim() ? 1 : 0.45,
+                                             cursor: recusando!.texto.trim() ? 'pointer' : 'not-allowed' }}>
+                                    Recusar
+                                  </button>
+                                  <button onClick={() => setRecusando(null)}
+                                    style={{ ...S.btn, padding: '4px 10px', fontSize: 11.5 }}>Cancelar</button>
+                                </div>
                               </div>
                             )}
                           </td>
