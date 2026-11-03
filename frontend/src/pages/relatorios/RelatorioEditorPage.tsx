@@ -19,6 +19,7 @@ import type { CC as CCItem } from '../dashboard/DashFiltros'
 import { ConciliacaoFolhaModal } from '../postos/ConciliacaoFolhaModal'
 import type { ConcilParams } from '../postos/ConciliacaoFolha'
 import { nomeCurto } from '../../lib/nomePessoa'
+import { useLocalPref } from '../../lib/uiPrefs'
 import {
   ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Settings2, X,
   Sigma, FunctionSquare, Percent, Minus, Type, Download, Upload, Link2, ChevronsUpDown, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Pencil, Eye, EyeOff, Strikethrough, ListTree, History, RotateCcw, RefreshCw, Save, GitCompareArrows, ListFilter } from 'lucide-react'
@@ -273,6 +274,13 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const [nivelSel, setNivelSel] = useState<number | 'tudo' | null>(null)
   // Aplicar o nível exige a árvore montada; o preset chega antes dela.
   const [nivelPend, setNivelPend] = useState<number | 'tudo' | null>(null)
+  // A mesma escolha, lembrada POR RELATÓRIO. O preset só é aplicado quando se
+  // entra por `?card=`; entrando pelo relatório direto, sair e voltar perdia o
+  // nível — e marcar "nível 1" a cada visita é o atrito que faz desistir do
+  // controle. Preset, quando existe, tem precedência: é escolha explícita.
+  const [vista, setVista] = useLocalPref<{ nivel: number | 'tudo' | null; collapsed: string[] }>(
+    `planorc_rel_${id || 'x'}_vista`, { nivel: null, collapsed: [] })
+  const jaRestaurou = useRef(false)
   const [adding,    setAdding]    = useState<{ paiId: string | null } | null>(null)
   const [newDesc,   setNewDesc]   = useState('')
   const [loading,   setLoading]   = useState(true)
@@ -984,6 +992,22 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const nvAtivo = (n: number | 'tudo') => nivelSel === n
     ? { borderColor: 'var(--violet)', background: 'rgba(139,92,246,0.16)', color: 'var(--violet)' }
     : {}
+
+  // Guarda o que a pessoa escolheu. Só depois de restaurar, senão o estado
+  // inicial (vazio) sobrescreveria o que está salvo antes de ser lido.
+  useEffect(() => {
+    if (!jaRestaurou.current) return
+    setVista({ nivel: nivelSel, collapsed: nivelSel == null ? [...collapsed] : [] })
+  }, [nivelSel, collapsed]) // eslint-disable-line
+
+  // Restaura ao abrir, uma vez, e só quando NÃO se entrou por um preset.
+  useEffect(() => {
+    if (jaRestaurou.current || !tree.length) return
+    jaRestaurou.current = true
+    if (presetCardId) return
+    if (vista.nivel === 'tudo' || typeof vista.nivel === 'number') { setNivelSel(vista.nivel); setNivelPend(vista.nivel) }
+    else if (vista.collapsed?.length) setCollapsed(new Set(vista.collapsed))
+  }, [tree.length, presetCardId]) // eslint-disable-line
 
   const expandirTudo = () => { setCollapsed(new Set()); setNivelSel('tudo') }
   const recolherAteNivel = (n: number, intencao = true) => {

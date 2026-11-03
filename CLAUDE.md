@@ -41,6 +41,13 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 | `/config` | `ConfiguracoesPage` | configurações (usuários, acesso a dados e capacidades) |
 | (login) | `LoginPage` | autenticação |
 
+> **O nível é lembrado POR RELATÓRIO, não só no preset** (nov/2026). O preset só é aplicado ao
+> entrar por `?card=<id>`; entrando pelo relatório direto, sair e voltar perdia a escolha — e
+> remarcar "nível 1" a cada visita é o atrito que faz a pessoa desistir do controle.
+> `useLocalPref('planorc_rel_<id>_vista')` guarda nível e recolhidas por relatório, restaura uma
+> vez quando a árvore existe, e **só quando não se entrou por preset** — preset é escolha
+> explícita e tem precedência.
+>
 > **Preset do relatório guarda a INTENÇÃO de nível, não só as linhas recolhidas** (nov/2026).
 > `getFiltros` leva `nivel` (`1..n | 'tudo' | null`) **e** `collapsed` (ids). Ao aplicar, a
 > intenção vem primeiro: *"até o nível 2"* se re-aplica sobre a árvore de hoje, então sintética
