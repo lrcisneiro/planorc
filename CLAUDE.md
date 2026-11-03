@@ -372,7 +372,10 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > contrário — vai como *modo* na própria tela do Organograma, porque a árvore que se olha é a que
 > se conserta; tela separada vira duas renderizações que divergem.
 
-> **Orçar por NATUREZA (nov/2026).** Quem orça só despesa não vê as receitas na grade:
+> **Orçar por NATUREZA (nov/2026).** ⚠ Na grade, quem manda é **`orderedVis`** — a lista
+> RENDERIZADA — e `active.r` indexa **ela**. Todo ponto que resolve a célula ativa (digitar,
+> Delete, colar, navegar) usa `orderedVis`; com a lista filtrada e o índice da outra, digitar
+> gravaria **na linha errada**, em silêncio e no dado. `folhas` só alimenta o contador. Quem orça só despesa não vê as receitas na grade:
 > `orcar.receita` · `orcar.despesa` · `orcar.neutra` no catálogo (sem migration — `user_acesso_funcao`
 > guarda por chave de texto). Por natureza e **não por linha**: são 169 linhas numa DRE, e `natEff()`
 > na grade já devolve a natureza **herdada**, então esconder "Receitas" leva as filhas junto.

@@ -82,7 +82,7 @@ export default function OrcarGradePage() {
   const [lancModal, setLancModal] = useState<{ master: string; mes: number; linha: Linha } | null>(null)   // modal de lançamentos da célula composta
   const [hist, setHist] = useState<Record<string, string>>({})                  // master → histórico/comentário (nota por linha)
   const wrapRef = useRef<HTMLDivElement>(null)
-  const [active, setActive] = useState<{ r: number; c: number } | null>(null)   // célula ativa (linha em `ordered` × mês 0..11)
+  const [active, setActive] = useState<{ r: number; c: number } | null>(null)   // célula ativa (linha em `orderedVis` × mês 0..11)
   const [editing, setEditing] = useState(false)
   const [editVal, setEditVal] = useState('')
   const [saving, setSaving] = useState(false)
@@ -149,6 +149,23 @@ export default function OrcarGradePage() {
     for (const l of linhas) if (!seen.has(l.id)) { seen.add(l.id); out.push(l) }
     return out
   }, [linhas])
+
+  // Recorte por natureza: a grade é tela de digitação, e linha que a pessoa não
+  // preenche é ruído entre as que ela preenche. `natEff` devolve a natureza
+  // HERDADA, então esconder "Receitas" leva as filhas junto — ninguém marca
+  // linha a linha. Sintética NEUTRA fica: é total, e total de linha escondida
+  // continua sendo informação de quem orça o resto.
+  const natOk = (l: Linha) => {
+    const n = natEff(l.id)
+    return n === 'RECEITA' ? cap.can('orcar.receita')
+         : n === 'DESPESA' ? cap.can('orcar.despesa')
+         : cap.can('orcar.neutra')
+  }
+  // ⚠ `orderedVis` é a lista RENDERIZADA, e `active.r` indexa ELA. Todo lugar
+  // que resolve a célula ativa tem de usar esta, não `ordered` — com a lista
+  // filtrada e o índice da outra, digitar gravaria na linha errada, em
+  // silêncio e no dado.
+  const orderedVis = useMemo(() => ordered.filter(natOk), [ordered, cap]) // eslint-disable-line
 
   // Multimoeda: slots ativos (inclui base=1), taxas orçadas da versão, materialização e persistência.
   const slotsAtivos = useMemo(() => { const s = new Set(moedas.map(m => m.slot)); s.add(1); return [...s].sort((a, b) => a - b) }, [moedas])
@@ -365,7 +382,7 @@ export default function OrcarGradePage() {
   const ehComposta = (master: string, mes: number) => { const m = cellMeta[master]?.[mes]; return !!m && !m.inline }
   const startEdit = (init: string | null) => {
     if (!active || readOnly) return
-    const l = ordered[active.r]; if (!l || !editavel(l)) return
+    const l = orderedVis[active.r]; if (!l || !editavel(l)) return
     const master = l.linha_orc_id!; const mes = active.c + 1
     if (ehComposta(master, mes)) { setLancModal({ master, mes, linha: l }); return }   // vários lançamentos → abre o modal
     const c = cells[master]?.[mes]
@@ -374,27 +391,27 @@ export default function OrcarGradePage() {
   }
   const commitMove = async () => {
     if (!active) return
-    await salvar(ordered[active.r], active.c + 1)
+    await salvar(orderedVis[active.r], active.c + 1)
     setEditing(false)
-    setActive(a => a ? { r: Math.min(ordered.length - 1, a.r + 1), c: a.c } : a)
+    setActive(a => a ? { r: Math.min(orderedVis.length - 1, a.r + 1), c: a.c } : a)
     setTimeout(() => wrapRef.current?.focus(), 0)
   }
   const onGridKey = (e: React.KeyboardEvent) => {
     if (!active || editing) return
-    const mv = (dr: number, dc: number) => { e.preventDefault(); setActive(a => a ? { r: Math.min(ordered.length - 1, Math.max(0, a.r + dr)), c: Math.min(11, Math.max(0, a.c + dc)) } : a) }
+    const mv = (dr: number, dc: number) => { e.preventDefault(); setActive(a => a ? { r: Math.min(orderedVis.length - 1, Math.max(0, a.r + dr)), c: Math.min(11, Math.max(0, a.c + dc)) } : a) }
     if (e.key === 'ArrowUp') mv(-1, 0)
     else if (e.key === 'ArrowDown') mv(1, 0)
     else if (e.key === 'ArrowLeft') mv(0, -1)
     else if (e.key === 'ArrowRight') mv(0, 1)
     else if (e.key === 'Tab') mv(0, e.shiftKey ? -1 : 1)
     else if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); startEdit(null) }
-    else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); const l = ordered[active.r]; if (!readOnly && editavel(l)) { const m = l.linha_orc_id!; if (ehComposta(m, active.c + 1)) setLancModal({ master: m, mes: active.c + 1, linha: l }); else { setEditVal(''); setEditing(true) } } }
+    else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); const l = orderedVis[active.r]; if (!readOnly && editavel(l)) { const m = l.linha_orc_id!; if (ehComposta(m, active.c + 1)) setLancModal({ master: m, mes: active.c + 1, linha: l }); else { setEditVal(''); setEditing(true) } } }
     else if (e.key.length === 1 && /[0-9=.,\-+]/.test(e.key)) { e.preventDefault(); startEdit(e.key) }
   }
   // Preencher à direita: replica o valor/fórmula em edição da célula atual até dezembro (Ctrl+Enter ou botão →|)
   const fillRight = async () => {
     if (!active || readOnly) return
-    const l = ordered[active.r]; const master = l.linha_orc_id!; if (!editavel(l)) return
+    const l = orderedVis[active.r]; const master = l.linha_orc_id!; if (!editavel(l)) return
     const { valor, expressao } = parseCell(l, editVal)
     setSaving(true)
     const meses: number[] = []; for (let m = active.c + 1; m <= 12; m++) if (!ehComposta(master, m)) meses.push(m)   // pula compostas (edite pelo modal)
@@ -409,11 +426,11 @@ export default function OrcarGradePage() {
     if (!active || readOnly) return
     const rows = text.replace(/\r/g, '').replace(/\n$/, '').split('\n')
     const editRows: number[] = []
-    for (let r = active.r; r < ordered.length && editRows.length < rows.length; r++) if (editavel(ordered[r])) editRows.push(r)
+    for (let r = active.r; r < orderedVis.length && editRows.length < rows.length; r++) if (editavel(orderedVis[r])) editRows.push(r)
     const ups: { master: string; mes: number; valor: number | null; expressao: string | null }[] = []
     rows.forEach((row, ri2) => {
       const tr = editRows[ri2]; if (tr == null) return
-      const l = ordered[tr]; const master = l.linha_orc_id!
+      const l = orderedVis[tr]; const master = l.linha_orc_id!
       row.split('\t').forEach((txt, ci2) => {
         const mes = active.c + 1 + ci2; if (mes > 12 || txt.trim() === '' || ehComposta(master, mes)) return
         const { valor, expressao } = parseCell(l, txt)
@@ -459,16 +476,6 @@ export default function OrcarGradePage() {
       </p>
     </div>
 
-  // Recorte por natureza: a grade é tela de digitação, então linha que a
-  // pessoa não preenche é ruído entre as que ela preenche. `natEff` já devolve
-  // a natureza HERDADA, então esconder "Receitas" leva as filhas junto sem
-  // ninguém marcar linha a linha.
-  const natOk = (l: Linha) => {
-    const n = natEff(l.id)
-    return n === 'RECEITA' ? cap.can('orcar.receita')
-         : n === 'DESPESA' ? cap.can('orcar.despesa')
-         : cap.can('orcar.neutra')
-  }
   const folhasTodas = linhas.filter(editavel)
   const folhas = folhasTodas.filter(natOk)
   const ocultasPorNatureza = folhasTodas.length - folhas.length
@@ -582,7 +589,7 @@ export default function OrcarGradePage() {
               </tr>
             </thead>
             <tbody>
-              {ordered.map((l, ri) => {
+              {orderedVis.map((l, ri) => {
                 const ed = editavel(l); const f = facOf(l); const depth = depthOf(l)
                 const isAgg = l.tipo_linha === 'SOMAR_FILHOS' || l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR'
                 const espaco = l.tipo_linha === 'ESPACO'
