@@ -322,6 +322,27 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > retorno era conferido: a célula *sempre* parecia salva, e falha de rede ou violação de unique
 > sumiam no refresh. O RLS não criou isso, só o tornou frequente.
 
+> **Segundo fator (TOTP) — nov/2026.** `lib/mfa.ts` + `/seguranca` (inscrição, sem capacidade
+> gateando: é a conta da própria pessoa) + `MfaDesafio` entre a senha e o app.
+> **Quem decide se o desafio aparece é o AAL, não um papel:** `nextLevel === 'aal2' && currentLevel
+> === 'aal1'` só é verdade para quem TEM fator verificado e ainda não o provou. Por isso a adoção
+> pode ser voluntária sem ser frouxa — **não existe estado em que alguém inscreva o fator e siga
+> entrando só com a senha**, que seria a aparência da proteção sem a proteção.
+>
+> ⚠ **O Supabase NÃO tem códigos de recuperação.** Eu afirmei que teria e estava errado. A
+> recuperação real é **um segundo fator inscrito**; sem ele, perder o aparelho exige alguém com
+> acesso ao console para remover o fator. A tela diz isso **antes** de inscrever.
+>
+> ⚠ **É porta de INTERFACE, não de dado.** A verificação do AAL **falha aberta** de propósito: erro
+> de rede trancaria todo mundo fora, o que é pior que a janela sem desafio. O enforcement real
+> seria exigir `auth.jwt()->>'aal' = 'aal2'` nas políticas das tabelas sensíveis — enquanto isso
+> não existir, isto protege a navegação, e quem tiver o token ainda alcança a API em `aal1`.
+>
+> ⚠ Fator **não verificado** (quem abre o QR e fecha a aba) não protege nada e aparece na lista
+> como se protegesse — `limparPendentes()` os remove antes de cada nova inscrição.
+> ⚠ `unenroll` exige sessão em **aal2**: só quem acabou de provar o fator pode removê-lo. É o que
+> impede uma sessão roubada em aal1 de desativar a proteção.
+
 > **Padrão de `member` = diretor de área (nov/2026).** Nasce **fechado** em importação de
 > apontamento/formulário, metas de indicador, menus de Orçamento, Formulários, Realizado, Saldos,
 > Amarração, Cadastros e nos dashboards Comparativo anual / CAGR / Indicadores — libera-se por

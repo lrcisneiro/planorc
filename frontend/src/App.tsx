@@ -37,6 +37,9 @@ import AmarracaoPage from './pages/amarracao/AmarracaoPage'
 import SaldoDadosPage from './pages/saldos/SaldoDadosPage'
 import ConfiguracoesPage from './pages/configuracoes/ConfiguracoesPage'
 import LoginPage from './pages/login/LoginPage'
+import MfaDesafio from './pages/login/MfaDesafio'
+import SegurancaPage from './pages/conta/SegurancaPage'
+import { nivel } from './lib/mfa'
 import NovaSenhaPage from './pages/login/NovaSenhaPage'
 import { PASSOS as ERP_TELAS } from './pages/erp/ErpPills'
 
@@ -193,6 +196,29 @@ export default function App() {
     // o evento chega depois do primeiro render; o hash da URL já está aqui
     () => /type=recovery/.test(window.location.hash + window.location.search))
 
+  // Segundo fator. Quem decide é o AAL, não um papel: `precisaDesafio` é
+  // verdadeiro só para quem TEM fator verificado e ainda não respondeu. Logo a
+  // adoção é voluntária sem ser frouxa — não existe inscrever e continuar
+  // entrando só com a senha.
+  //
+  // ⚠ FALHA ABERTA, de propósito e com limite conhecido: se a consulta do AAL
+  // não responder (rede, servidor), deixa passar em vez de trancar. Trancar
+  // todo mundo fora por erro transitório é pior que o risco de uma janela sem
+  // o desafio — e esta tela é porta de INTERFACE, não de dado. O enforcement
+  // real seria exigir `auth.jwt()->>'aal' = 'aal2'` nas políticas das tabelas
+  // sensíveis; enquanto isso não existir, isto protege a navegação, não a API.
+  const [mfa, setMfa] = useState<'checando' | 'ok' | 'pendente'>('ok')
+
+  useEffect(() => {
+    if (!session) { setMfa('ok'); return }
+    let vivo = true
+    setMfa('checando')
+    nivel()
+      .then(n => { if (vivo) setMfa(n.precisaDesafio ? 'pendente' : 'ok') })
+      .catch(() => { if (vivo) setMfa('ok') })
+    return () => { vivo = false }
+  }, [session])
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setCarregando(false) })
     const { data: sub } = supabase.auth.onAuthStateChange((e, s) => {
@@ -212,6 +238,10 @@ export default function App() {
   if (session && (recuperando || primeiroAcesso))
     return <NovaSenhaPage email={session.user?.email} primeiroAcesso={primeiroAcesso} />
   if (!session) return <LoginPage />
+  // Depois da senha e antes do app. `checando` segura o render por um instante
+  // para a tela não piscar o app e então saltar para o desafio.
+  if (mfa === 'checando') return <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#868e96', fontFamily: 'system-ui' }}>Verificando…</div>
+  if (mfa === 'pendente') return <MfaDesafio email={session.user?.email} />
 
   return <BrowserRouter><Shell session={session} /></BrowserRouter>
 }
@@ -288,6 +318,10 @@ function Shell({ session }: { session: Session }) {
           <button style={{ ...S.sair, ...(recol ? { padding: '8px 0' } : {}) }} onClick={trocarTema} title={`Tema ${tema === 'dark' ? 'claro' : 'escuro'}`}>
             {tema === 'dark' ? <Sun size={14} /> : <Moon size={14} />}{!recol && ` Tema ${tema === 'dark' ? 'claro' : 'escuro'}`}
           </button>
+          <NavLink to="/seguranca" title="Segurança da minha conta"
+                   style={{ ...S.sair, ...(recol ? { padding: '8px 0' } : {}), textDecoration: 'none', marginBottom: 6 }}>
+            <ShieldCheck size={14} />{!recol && ' Minha conta'}
+          </NavLink>
           <button style={{ ...S.sair, ...(recol ? { padding: '8px 0' } : {}) }} onClick={() => supabase.auth.signOut()} title="Sair"><LogOut size={14} />{!recol && ' Sair'}</button>
         </div>
       </aside>
@@ -307,6 +341,8 @@ function Shell({ session }: { session: Session }) {
                 quem abre o endereço já logado e fora do fluxo — sem ela, tela
                 em branco. */}
             <Route path="/nova-senha" element={<Navigate to="/dashboards" replace />} />
+            {/* Sem <Exige>: é a própria conta da pessoa. */}
+            <Route path="/seguranca" element={<SegurancaPage />} />
             <Route path="/dashboards"      element={<DashboardsHubPage />} />
             <Route path="/dashboards/orcamento" element={<Exige cap="dash.orcamento"><OrcamentoDashPage /></Exige>} />
             <Route path="/dashboards/anual"     element={<Exige cap="dash.anual"><ComparativoAnualPage /></Exige>} />
