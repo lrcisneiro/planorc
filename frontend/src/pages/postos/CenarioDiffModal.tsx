@@ -536,7 +536,7 @@ export default function CenarioDiffModal(props: any) {
                 </div>
               ) : podeAprovar ? (
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>Aprovar este cenário</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>Fechar este cenário</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.65, marginBottom: 10, maxWidth: '76ch' }}>
                     A aprovação libera o <b>Aplicar no orçado</b> desta versão. ⚠ Ela cai sozinha se
                     qualquer decisão do cenário for alterada depois — o carimbo nunca fica valendo
@@ -552,22 +552,25 @@ export default function CenarioDiffModal(props: any) {
                       ⚠ E diz QUAIS, não só quantas: com o contador no rodapé e a
                       linha fora da tela, "1 recusada" vira caça ao tesouro, e quem
                       rolou até aqui acha que já decidiu tudo. */}
-                  {(vereditos?.pend > 0 || vereditos?.repr > 0) && (
+                  {vereditos?.pend > 0 && (
                     <div style={{ fontSize: 12, color: 'var(--orange)', marginBottom: 10, lineHeight: 1.65 }}>
-                      Falta decidir: {[
-                        ...linhas.filter((x: any) => x.aprovado === null).map((x: any) => ({ n: x.nome, s: 'pendente' })),
-                        ...linhas.filter((x: any) => x.aprovado === false).map((x: any) => ({ n: x.nome, s: 'recusada' })),
-                      ].map((x, i, a) => (
-                        <span key={i}>
-                          <b>{x.n}</b> <span style={{ color: 'var(--muted)' }}>({x.s})</span>{i < a.length - 1 ? ' · ' : ''}
-                        </span>
+                      Sem veredito: {linhas.filter((x: any) => x.aprovado === null).map((x: any, i: number, a: any[]) => (
+                        <span key={x.id}><b>{x.nome}</b>{i < a.length - 1 ? ' · ' : ''}</span>
                       ))}
                       <div style={{ color: 'var(--muted)', marginTop: 3 }}>
-                        Use o <b style={{ color: 'var(--green)' }}>✓</b> na coluna Veredito
-                        {vereditos.repr > 0
-                          ? <> — inclusive numa recusada, se mudou de ideia. Ou aguarde quem propôs corrigir, justificar ou abandonar.</>
-                          : <>.</>}
+                        Decida cada uma com <b style={{ color: 'var(--green)' }}>✓</b> ou
+                        {' '}<b style={{ color: 'var(--red)' }}>✗</b> na coluna Veredito. Recusar também é decidir —
+                        o cenário fecha, e o posto recusado entra no orçado com o valor do <b>cadastro</b>.
                       </div>
+                    </div>
+                  )}
+                  {vereditos?.pend === 0 && vereditos?.repr > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--text-mid)', background: 'var(--bg-soft)',
+                                  border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px',
+                                  marginBottom: 10, lineHeight: 1.65 }}>
+                      <b style={{ color: 'var(--red)' }}>{vereditos.repr} recusada(s)</b> — ao aprovar, esses postos
+                      entram no orçado com o valor do <b>cadastro</b>, não com o do cenário. A proposta fica
+                      registrada com o motivo da recusa.
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -587,7 +590,7 @@ export default function CenarioDiffModal(props: any) {
                       style={{ ...S.btn, borderColor: vereditos?.ok ? 'var(--green)' : 'var(--border)',
                                color: vereditos?.ok ? 'var(--green)' : 'var(--muted)', fontWeight: 600,
                                opacity: vereditos?.ok ? 1 : 0.5, cursor: vereditos?.ok ? 'pointer' : 'not-allowed' }}>
-                      <Check size={14} /> {salvando ? 'Aprovando…' : `Aprovar cenário (${linhas.length})`}
+                      <Check size={14} /> {salvando ? 'Aprovando…' : `Fechar cenário (${linhas.filter((x: any) => x.aprovado === true).length} de ${linhas.length})`}
                     </button>
                   </div>
                 </div>

@@ -270,6 +270,17 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > **Duas saídas de uma recusa, as duas na linha do comparativo:** *reenviar para análise* e
 > *voltar ao cadastro* (abandona a decisão, some em decisão já aprovada — aquilo virou acordo).
 
+> ⚠ **Recusada NÃO trava o fechamento (v3_169) — corrige a v3_166.** Recusar **é decidir**: decidir
+> que o posto fica como está no cadastro. O que trava é o **pendente**, que significa "ninguém
+> olhou". Exigir unanimidade bloqueava o aprovador à espera de ação de terceiro, e perder o
+> registro (abandonando a decisão) apagaria a prova de que a área pediu e foi recusada.
+> **Consequência que o frontend HONRA:** o `Aplicar` resolve a sobreposição **só onde
+> `aprovado = true`** — posto recusado entra com o valor do cadastro. Usar o quadro resolvido ali
+> gravaria o número do cenário ignorando a recusa, com o carimbo dizendo que foi revisado.
+> ⚠ **Divergência deliberada e declarada em três lugares:** a grade mostra a **proposta** (é onde
+> se trabalha) e marca `RECUSADA` na linha; o comparativo mostra o veredito; a confirmação do
+> Aplicar diz quantas ficam de fora. Mudar um desses sem os outros reabre o furo.
+
 > **Veredito por posto, carimbo por cenário (v3_166).** O veredito por posto é a **conversa** — o
 > aprovador diz o que não passa e por quê, e o motivo aparece na linha, junto do que foi proposto.
 > O carimbo da versão continua sendo a **trava**. ⚠ `aprovar_cenario` exige **unanimidade**: sem

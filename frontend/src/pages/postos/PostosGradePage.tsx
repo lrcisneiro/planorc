@@ -543,7 +543,9 @@ export default function PostosGradePage() {
       if (ov.aprovado === true) continue
       if (ov.aprovado === false) repr++; else pend++
     }
-    return { pend, repr, ok: pend === 0 && repr === 0 && alterados.size > 0 }
+    // ⚠ Recusada NÃO trava: recusar é decidir — decidir que o posto fica como
+    // está no cadastro. O que trava é o PENDENTE, que quer dizer "ninguém olhou".
+    return { pend, repr, ok: pend === 0 && alterados.size > 0 }
   }, [alterados, overlays])
 
   const decidirAprovacao = async (aprovar: boolean, nota: string) => {
@@ -581,13 +583,27 @@ export default function PostosGradePage() {
     // IGNORA os filtros de tela de propósito: o Aplicar SUBSTITUI todo o orçado
     // POSTO da versão, então gravar só o que está filtrado apagaria o resto.
     // Um filtro esquecido viraria perda de orçamento.
-    const ativos = postosEf.filter(p => p.ativo !== false)
+    // ⚠ O APLICAR RESOLVE SÓ O APROVADO. Uma decisão recusada não entra: aquele
+    // posto vai com o valor do CADASTRO. Usar `postosEf` aqui gravaria o número
+    // do cenário ignorando a recusa — e o pior é que o carimbo diria que foi
+    // revisado. A tela continua mostrando a proposta; o aviso abaixo declara a
+    // diferença no momento em que ela passa a valer dinheiro.
+    const aplicaveis = modoCenario
+      ? postos.map(p => {
+          const ov: any = overlays.get(p.id)
+          return ov?.aprovado === true ? resolvePosto(p, ov) : p
+        })
+      : postosEf
+    const recusadasFora = modoCenario
+      ? [...alterados.keys()].filter(id => (overlays.get(id) as any)?.aprovado === false).length
+      : 0
+    const ativos = aplicaveis.filter(p => p.ativo !== false)
     // "ativos" aqui é "não demitidos": férias e afastamento seguem custando —
     // para o afastado o motor zera a base e mantém as verbas marcadas com
     // `mantem_afastado`. Dizer só "ativos" escondia esses 16.
     const fora = ativos.filter(p => situacaoPosto(p as any) !== 'ativo').length
     const versaoCod = versoes.find(v => v.id === versaoSel)?.codigo || String(anoCalc)
-    if (!confirm(`Aplicar ${ativos.length} postos no orçado da versão ${versaoCod} (ano ${anoCalc})?\n\nEntram todos os não demitidos${fora ? `, incluindo ${fora} em férias ou afastados — quem está afastado ou de férias continua custando` : ''}. Os filtros da tela NÃO afetam o que é gravado.\n\nIsto SUBSTITUI todo o orçado de origem POSTO desta versão. Lançamentos manuais e de formulário não são afetados.\n\nDespesa é gravada com sinal NEGATIVO, como o orçado manual e o realizado.`)) return
+    if (!confirm(`Aplicar ${ativos.length} postos no orçado da versão ${versaoCod} (ano ${anoCalc})?\n\nEntram todos os não demitidos${fora ? `, incluindo ${fora} em férias ou afastados — quem está afastado ou de férias continua custando` : ''}.${recusadasFora ? `\n\n⚠ ${recusadasFora} decisão(ões) RECUSADA(S) não entram: esses postos vão com o valor do CADASTRO, não com o do cenário.` : ''} Os filtros da tela NÃO afetam o que é gravado.\n\nIsto SUBSTITUI todo o orçado de origem POSTO desta versão. Lançamentos manuais e de formulário não são afetados.\n\nDespesa é gravada com sinal NEGATIVO, como o orçado manual e o realizado.`)) return
     setAplicando(true)
     try {
       const round2 = (n: number) => Math.round(n * 100) / 100
@@ -1033,7 +1049,17 @@ export default function PostosGradePage() {
       mud(c) ? `Decisão deste cenário. No cadastro: ${(mestre as any)?.[c] == null ? '—' : fmt((mestre as any)[c])}` : undefined
     return (
       <tr key={p.id} style={p.ativo === false ? { opacity: 0.55 } : undefined}>
+        {/* A grade mostra a PROPOSTA; o Aplicar grava só o aprovado. A divergência
+            é deliberada (aqui se trabalha, lá se compromete), mas precisa ser
+            visível: sem a marca, a linha exibiria um número que não vai virar
+            orçamento e nada diria isso. */}
         <td style={{ ...S.td, fontFamily: 'monospace', color: 'var(--muted)' }}>{p.codigo}
+          {modoCenario && (overlays.get(p.id) as any)?.aprovado === false && (
+            <span title="Decisão recusada — este posto entra no orçado com o valor do CADASTRO, não com o que está na tela."
+              style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 5,
+                color: 'var(--red)', border: '1px solid rgba(248,113,113,0.45)', background: 'rgba(248,113,113,0.12)' }}>
+              RECUSADA</span>
+          )}
           {p.ativo === false && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 5,
             color: mud('ativo') ? 'var(--violet)' : 'var(--red)',
             border: '1px solid ' + (mud('ativo') ? 'var(--violet)55' : 'var(--red)55'),
