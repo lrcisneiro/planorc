@@ -52,6 +52,19 @@ export function papelMaisAlto(linhas: { role?: string | null }[] | null | undefi
 export const CAPACIDADES: Capacidade[] = [
   // ── Funções (capacidades de ação) ──
   { escrita: true, key: 'orcar',     label: 'Orçar (editar valores do orçado)', categoria: 'Funções', padrao: { admin: true,  member: true,  viewer: false } },
+  // Por NATUREZA, e não por linha: são 169 linhas numa DRE, e a natureza já
+  // está na linha e já é herdada pelos filhos (`natEff` na grade) — marcar uma
+  // a uma viraria cadastro a refazer toda vez que a estrutura mudasse.
+  // Quem só orça despesa não vê as receitas na grade: ali se digita, e linha
+  // que a pessoa não preenche é só ruído entre as que ela preenche.
+  // ⚠ É CONVENIÊNCIA DE TELA, não controle: o banco restringe o orçado por
+  // empresa, filial e CC — não por linha. Para virar controle seria preciso um
+  // predicado em `fat_orcado` juntando `relatorio_linha.natureza`.
+  { key: 'orcar.receita', label: '· Orçar linhas de RECEITA',  categoria: 'Funções', padrao: { admin: true, member: true, viewer: false } },
+  { key: 'orcar.despesa', label: '· Orçar linhas de DESPESA',  categoria: 'Funções', padrao: { admin: true, member: true, viewer: false } },
+  // Linha sem natureza própria nem herdada. Separada porque esconder por
+  // omissão de cadastro faria sumir linha que ninguém decidiu esconder.
+  { key: 'orcar.neutra',  label: '· Orçar linhas NEUTRAS',     categoria: 'Funções', padrao: { admin: true, member: true, viewer: false } },
   // Ver a estrutura e MEXER nela são coisas diferentes. A árvore, as fórmulas
   // e a amarração explicam de onde vem cada número da DRE — é material de
   // consulta legítimo para quem analisa. Mudar ali muda o resultado de todo

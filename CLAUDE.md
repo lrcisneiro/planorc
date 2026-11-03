@@ -372,6 +372,20 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > contrário — vai como *modo* na própria tela do Organograma, porque a árvore que se olha é a que
 > se conserta; tela separada vira duas renderizações que divergem.
 
+> **Orçar por NATUREZA (nov/2026).** Quem orça só despesa não vê as receitas na grade:
+> `orcar.receita` · `orcar.despesa` · `orcar.neutra` no catálogo (sem migration — `user_acesso_funcao`
+> guarda por chave de texto). Por natureza e **não por linha**: são 169 linhas numa DRE, e `natEff()`
+> na grade já devolve a natureza **herdada**, então esconder "Receitas" leva as filhas junto.
+> **Neutra tem chave própria** porque esconder por omissão de cadastro faria sumir linha que
+> ninguém decidiu esconder. A grade diz quantas linhas ficaram ocultas — sem isso ela parece
+> incompleta e quem confere o total procura defeito.
+> ⚠ **É conveniência de tela, não controle:** o banco restringe o orçado por empresa, filial e CC,
+> **não por linha**. Para virar controle seria um predicado em `fat_orcado` juntando
+> `relatorio_linha.natureza`, com prova por personificação — trabalho separado.
+>
+> ⚠ A **dimensão de dados não serve** para isto: `user_acesso_regra.valor_ids` é `uuid[]`, e
+> natureza é um enum de três valores, não uma tabela.
+
 > **Convenção — incluir uma funcionalidade nova no controle de acesso:** (1) adicionar uma entrada em `CAPACIDADES` (chave + label + categoria + `padrao` por papel); (2) gatear o elemento na tela com `can('chave')`. A seção "Funções e menus" em Configurações itera o catálogo, então a nova capacidade aparece sozinha com os controles Herdar/Liberar/Negar; `user_acesso_funcao` guarda por chave de texto, sem migration. Enquanto não catalogada, `can()` devolve `true` (não esconde nada por engano). Dimensão de **dados** nova é outro caminho: cadastro de `dimensao`.
 
 ## Legado em transição

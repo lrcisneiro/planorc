@@ -459,7 +459,19 @@ export default function OrcarGradePage() {
       </p>
     </div>
 
-  const folhas = linhas.filter(editavel)
+  // Recorte por natureza: a grade é tela de digitação, então linha que a
+  // pessoa não preenche é ruído entre as que ela preenche. `natEff` já devolve
+  // a natureza HERDADA, então esconder "Receitas" leva as filhas junto sem
+  // ninguém marcar linha a linha.
+  const natOk = (l: Linha) => {
+    const n = natEff(l.id)
+    return n === 'RECEITA' ? cap.can('orcar.receita')
+         : n === 'DESPESA' ? cap.can('orcar.despesa')
+         : cap.can('orcar.neutra')
+  }
+  const folhasTodas = linhas.filter(editavel)
+  const folhas = folhasTodas.filter(natOk)
+  const ocultasPorNatureza = folhasTodas.length - folhas.length
   const preenchidas = folhas.reduce((s, l) => s + Object.values(cells[l.linha_orc_id!] || {}).filter(c => c.valor !== 0 || c.expressao).length, 0)
   const totalCelulas = folhas.length * 12
 
@@ -498,7 +510,16 @@ export default function OrcarGradePage() {
             title="Moeda de exibição e de origem ao digitar (converte pela taxa orçada da versão)">
             {moedas.map(m => <option key={m.slot} value={m.slot}>{m.simbolo ? `${m.simbolo} ` : ''}{m.codigo}</option>)}
           </select></div>}
-        {pronto && <div style={{ alignSelf: 'flex-end', fontSize: 12, color: 'var(--muted)' }}>{preenchidas} de {totalCelulas} células preenchidas</div>}
+        {pronto && <div style={{ alignSelf: 'flex-end', fontSize: 12, color: 'var(--muted)' }}>
+          {preenchidas} de {totalCelulas} células preenchidas
+          {/* Dizer que há linha escondida, e por quê. Sem isto a grade parece
+              incompleta e quem confere o total vai procurar defeito. */}
+          {ocultasPorNatureza > 0 && (
+            <span title="Natureza que você não orça — Configurações → Usuários → acesso">
+              {' · '}{ocultasPorNatureza} linha(s) ocultas pelo seu acesso
+            </span>
+          )}
+        </div>}
         {temMenu && <div style={{ marginLeft: 'auto', alignSelf: 'flex-end', position: 'relative' }}>
           <button
             style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6, cursor: versaoId && !bloqueada ? 'pointer' : 'not-allowed', opacity: versaoId && !bloqueada ? 1 : 0.5 }}
