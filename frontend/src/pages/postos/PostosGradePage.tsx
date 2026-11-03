@@ -507,6 +507,25 @@ export default function PostosGradePage() {
   // A tela só chama; quem confere a autoridade é o banco (`pode_aprovar_cenario`).
   // Conferir o retorno importa: RPC barrada levanta erro, mas versão fora do
   // tenant simplesmente não atualiza linha nenhuma e voltaria "sucesso".
+  // Veredito por posto: a conversa. O carimbo do cenário (abaixo) é a trava.
+  const decidirPosto = async (ovId: string, aprovado: boolean | null, nota: string | null) => {
+    const { error } = await supabase.rpc('decidir_posto_cenario', { p_id: ovId, p_aprovado: aprovado, p_nota: nota })
+    if (error) throw new Error(error.message)
+    await loadOverlays(versaoSel)
+  }
+  // Pendentes e reprovados entre as decisões que REALMENTE mudam algo —
+  // sobreposição gravada igual ao mestre não é decisão e não deve travar nada.
+  const vereditos = useMemo(() => {
+    let pend = 0, repr = 0
+    for (const [id] of alterados) {
+      const ov: any = overlays.get(id)
+      if (!ov) continue
+      if (ov.aprovado === true) continue
+      if (ov.aprovado === false) repr++; else pend++
+    }
+    return { pend, repr, ok: pend === 0 && repr === 0 && alterados.size > 0 }
+  }, [alterados, overlays])
+
   const decidirAprovacao = async (aprovar: boolean, nota: string) => {
     if (!versaoSel) return
     const { data, error } = aprovar
@@ -1202,6 +1221,12 @@ export default function PostosGradePage() {
           <span style={{ flex: 1 }} />
           {/* O selo fica na faixa e não só no modal: quem abre a tela precisa
               saber se o que está vendo já passou por alguém. */}
+          {vereditos.repr > 0 && (
+            <span title="Decisões recusadas pelo aprovador — abra o comparativo para ver o motivo de cada uma."
+              style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 99,
+                color: 'var(--red)', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.35)' }}>
+              ✗ {vereditos.repr} reprovada(s)</span>
+          )}
           {alterados.size > 0 && (
             aprovadoEm
               ? <span title={vAtual?.aprovacao_nota || undefined}
@@ -1407,6 +1432,7 @@ export default function PostosGradePage() {
           filById={new Map((filiais as any[]).map(f => [f.id, f]))}
           aprovadoEm={aprovadoEm} aprovacaoNota={vAtual?.aprovacao_nota || ''}
           podeAprovar={podeAprovar} onDecidir={decidirAprovacao}
+          onVeredito={decidirPosto} vereditos={vereditos}
           cargoNome={(id: string) => cargos.find((c: any) => c.id === id)?.nome || ''}
           versaoLabel={versoes.find((v: any) => v.id === versaoSel)?.codigo || ''}
           onClose={() => setVerDiff(false)} />

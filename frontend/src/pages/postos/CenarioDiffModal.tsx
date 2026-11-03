@@ -77,7 +77,7 @@ const S: Record<string, CSSProperties> = {
 export default function CenarioDiffModal(props: any) {
   const { postos, overlays, verbas, dissidio, sindMesBase, anoCalc, postoVerbas,
           empPais, empById, ccById, cargoNome, versaoLabel, onClose,
-          aprovadoEm, aprovacaoNota, podeAprovar, onDecidir } = props
+          aprovadoEm, aprovacaoNota, podeAprovar, onDecidir, onVeredito, vereditos } = props
   const [nota, setNota] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erroAprov, setErroAprov] = useState('')
@@ -119,6 +119,45 @@ export default function CenarioDiffModal(props: any) {
     afast_ini_ano: 'Afast. de (ano)', afast_fim_ano: 'Afast. até (ano)',
   }
 
+  // ⚠ A recusa EXIGE motivo. Reprovar sem dizer o quê devolve o cenário e não
+  // devolve a informação — o gerente fica adivinhando, e o ciclo não fecha.
+  const marcar = async (l: any, aprovado: boolean | null) => {
+    if (!l.ovId) return
+    let n: string | null = null
+    if (aprovado === false) {
+      n = window.prompt(`Por que esta decisão não passa?\n\n${l.nome} — ${l.campos.length} campo(s) alterado(s)\n\nO texto vai para quem propôs.`, l.aprovNota || '')
+      if (n === null) return
+      if (!n.trim()) { setErroAprov('Reprovar exige um motivo — é o que o responsável vai ler.'); return }
+    }
+    setErroAprov(''); setSalvando(true)
+    try { await onVeredito(l.ovId, aprovado, n) }
+    catch (e: any) { setErroAprov(e?.message || 'Não foi possível gravar o veredito.') }
+    finally { setSalvando(false) }
+  }
+
+  const bt = (ativo: boolean, cor: string): CSSProperties => ({
+    padding: '3px 8px', fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: podeAprovar ? 'pointer' : 'default',
+    border: '1px solid ' + (ativo ? cor : 'var(--border)'),
+    background: ativo ? cor.replace(')', ', 0.14)').replace('var(--', 'rgba(') : 'transparent',
+    color: ativo ? cor : 'var(--muted)', opacity: podeAprovar ? 1 : 0.55,
+  })
+
+  const veredito = (l: any) => {
+    if (!podeAprovar) return l.aprovado === true
+      ? <span style={{ color: 'var(--green)', fontSize: 11, fontWeight: 700 }}>✓ aprovada</span>
+      : l.aprovado === false
+      ? <span style={{ color: 'var(--red)', fontSize: 11, fontWeight: 700 }}>✗ recusada</span>
+      : <span style={{ color: 'var(--muted)', fontSize: 11 }}>pendente</span>
+    return (
+      <div style={{ display: 'inline-flex', gap: 4 }}>
+        <button disabled={salvando} style={bt(l.aprovado === true, 'var(--green)')}
+          title="Aprovar esta decisão" onClick={() => marcar(l, l.aprovado === true ? null : true)}>✓</button>
+        <button disabled={salvando} style={bt(l.aprovado === false, 'var(--red)')}
+          title="Recusar, dizendo o motivo" onClick={() => marcar(l, l.aprovado === false ? null : false)}>✗</button>
+      </div>
+    )
+  }
+
   const linhas = useMemo(() => {
     const out: any[] = []
     for (const m of postos as any[]) {
@@ -138,6 +177,7 @@ export default function CenarioDiffModal(props: any) {
         campos, tipo: tipoDe(campos), mestre: m, ef,
         custoM: cm, custoE: ce, delta: ce - cm,
         nota: ov?.nota || '',
+        ovId: ov?.id, aprovado: (ov as any)?.aprovado ?? null, aprovNota: (ov as any)?.aprov_nota || '',
       })
     }
     return out.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
@@ -298,6 +338,7 @@ export default function CenarioDiffModal(props: any) {
                       <th style={{ ...S.th, textAlign: 'right' }}>Cadastro</th>
                       <th style={{ ...S.th, textAlign: 'right' }}>Cenário</th>
                       <th style={{ ...S.th, textAlign: 'right' }}>Δ ano</th>
+                      <th style={{ ...S.th, textAlign: 'center' }} data-noexport>Veredito</th>
                     </tr></thead>
                     <tbody>
                       {ls.map(l => (
@@ -320,12 +361,23 @@ export default function CenarioDiffModal(props: any) {
                             {/* A justificativa já existe no cenário (`posto_versao.nota`)
                                 e é o que torna a aprovação uma conversa e não um palpite. */}
                             {l.nota && <div style={{ marginTop: 5, fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic' }}>“{l.nota}”</div>}
+                            {/* A recusa aparece NA LINHA, junto do que foi proposto:
+                                é assim que quem propôs entende o que precisa mudar. */}
+                            {l.aprovado === false && l.aprovNota && (
+                              <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--red)', background: 'rgba(248,113,113,0.10)',
+                                            border: '1px solid rgba(248,113,113,0.3)', borderRadius: 7, padding: '6px 9px', lineHeight: 1.55 }}>
+                                <b>Recusada:</b> {l.aprovNota}
+                              </div>
+                            )}
                           </td>
                           <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(l.custoM)}</td>
                           <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text)' }}>{money(l.custoE)}</td>
                           <td style={{ ...S.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700,
                                        color: l.delta > 0 ? 'var(--red)' : l.delta < 0 ? 'var(--green)' : 'var(--muted)' }}>
                             {l.delta > 0 ? '+' : ''}{money(l.delta)}</td>
+                          <td style={{ ...S.td, textAlign: 'center', whiteSpace: 'nowrap' }} data-noexport>
+                            {veredito(l)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -365,14 +417,33 @@ export default function CenarioDiffModal(props: any) {
                     qualquer decisão do cenário for alterada depois — o carimbo nunca fica valendo
                     para um conteúdo que mudou.
                   </div>
+                  {/* ⚠ O carimbo exige unanimidade — é o que impede aprovar um
+                      cenário que contém decisão recusada. O banco recusa também;
+                      aqui o botão já diz por quê, em vez de deixar o erro falar. */}
+                  {(vereditos?.pend > 0 || vereditos?.repr > 0) && (
+                    <div style={{ fontSize: 12, color: 'var(--orange)', marginBottom: 10 }}>
+                      Falta decidir linha a linha: <b>{vereditos.pend} pendente(s)</b>
+                      {vereditos.repr > 0 && <> e <b>{vereditos.repr} recusada(s)</b> — quem propôs precisa corrigir ou abandonar</>}.
+                    </div>
+                  )}
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <input value={nota} onChange={e => setNota(e.target.value)}
-                      placeholder="observação da aprovação (opcional)"
+                      placeholder="observação (opcional na aprovação, recomendada ao devolver)"
                       style={{ flex: 1, minWidth: 240, padding: '8px 11px', fontSize: 12.5, background: 'var(--bg-soft)',
                                color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 8 }} />
-                    <button disabled={salvando} onClick={() => decidir(true)}
-                      style={{ ...S.btn, borderColor: 'var(--green)', color: 'var(--green)', fontWeight: 600 }}>
-                      <Check size={14} /> {salvando ? 'Aprovando…' : `Aprovar ${linhas.length} decisão(ões)`}
+                    {/* Devolver o cenário inteiro, com recado — era o que faltava
+                        para o ciclo fechar: antes só dava para aprovar. */}
+                    <button disabled={salvando} onClick={() => decidir(false)}
+                      style={{ ...S.btn, borderColor: 'var(--orange)', color: 'var(--orange)' }}
+                      title="Registra a observação na versão sem aprovar. Use para devolver com um recado geral; o motivo de cada recusa vai na linha.">
+                      <RotateCcw size={13} /> Devolver com observação
+                    </button>
+                    <button disabled={salvando || !vereditos?.ok} onClick={() => decidir(true)}
+                      title={vereditos?.ok ? undefined : 'Aprove todas as linhas antes de carimbar o cenário.'}
+                      style={{ ...S.btn, borderColor: vereditos?.ok ? 'var(--green)' : 'var(--border)',
+                               color: vereditos?.ok ? 'var(--green)' : 'var(--muted)', fontWeight: 600,
+                               opacity: vereditos?.ok ? 1 : 0.5, cursor: vereditos?.ok ? 'pointer' : 'not-allowed' }}>
+                      <Check size={14} /> {salvando ? 'Aprovando…' : `Aprovar cenário (${linhas.length})`}
                     </button>
                   </div>
                 </div>

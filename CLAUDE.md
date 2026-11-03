@@ -253,6 +253,22 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 
 > **Apagar o orçado de uma versão (v3_127).** A ação mais destrutiva do produto vive no menu *Importar Baseline* da tela de Orçar, atrás da capacidade `orcado.apagar` (só admin por padrão). Três proteções, e a ordem importa: `orcado_resumo_versao` mostra o que vai sumir (linhas, origens, valor, escopos) **antes** de qualquer confirmação; quem confirma digita o **código da versão**; e `apagar_orcado_versao` **confere a confirmação no servidor** e recusa versão `bloqueada`. Não é senha de propósito — senha prova identidade, e o risco aqui não é um estranho clicando, é a pessoa certa apagando a versão errada. Apaga `fat_orcado` da versão/ano (todas as origens) e os carimbos de `formulario_aplicacao`; **não** apaga `formulario_valor` — quem recomeça as cargas quer reaplicar os formulários, não redigitá-los.
 
+> **Veredito por posto, carimbo por cenário (v3_166).** O veredito por posto é a **conversa** — o
+> aprovador diz o que não passa e por quê, e o motivo aparece na linha, junto do que foi proposto.
+> O carimbo da versão continua sendo a **trava**. ⚠ `aprovar_cenario` exige **unanimidade**: sem
+> isso daria para carimbar um cenário contendo decisão recusada, e ela seria aplicada igual.
+> Recusar **exige motivo** (a tela barra o vazio) e **não apaga a decisão** — quem propôs precisa
+> ver o que propôs ao lado do "não". Decisão alterada **zera o veredito**, porque o "não" anterior
+> era sobre outro número.
+>
+> ⚠⚠ **O gatilho da v3_165 disparava no próprio ato de aprovar.** Ele derrubava o carimbo a cada
+> `UPDATE` em `posto_versao`, e gravar o veredito É um `UPDATE` — não doía enquanto a aprovação
+> morava só em `versao_orcamento`, e passou a doer no instante em que os vereditos foram para a
+> mesma tabela. Hoje os dois gatilhos comparam **só os campos de decisão** (`ROW() IS DISTINCT
+> FROM ROW()`): veredito mudando não é decisão mudando. **Ao acrescentar campo em
+> `CAMPOS_CENARIO`, acrescentar nas duas listas do SQL** — esquecer faz a alteração daquele campo
+> deixar de derrubar a aprovação, em silêncio.
+
 > **Aprovação do cenário de postos (v3_165, nov/2026).** O gerente decide, o controller aprova, e
 > só então o `Aplicar no orçado` libera. Aprovação é da **versão**, não do posto: o cenário é a
 > unidade de negociação, e aprovar linha a linha passaria ao aprovador a responsabilidade de quem
