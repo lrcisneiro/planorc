@@ -114,6 +114,30 @@ A tela é a **Orçar por linha** com modo comparativo: duas colunas de valor
 conversa real é "esse aumento de viagens não passa", não "a célula de março da
 filial 2002 não passa".
 
+Em modo comparativo as 12 colunas de mês dão lugar a **Baseline · Cenário · Δ ·
+Veredito** — 36 colunas não se leem. O mês continua a um clique, no drill.
+
+⚠ **A baseline é lida com o MESMO filtro de tela.** Comparar o escopo de quem
+olha contra o total da empresa daria um Δ que é diferença de *recorte*, não de
+proposta — e toda linha pareceria um corte enorme.
+
+⚠ **"Só alteradas" preserva a sintética** cujo filho mudou: o Δ dela já soma as
+filhas, então a árvore se sustenta. Esconder os pais deixaria linhas soltas sem
+dizer de que bloco saíram.
+
+⚠ O gatilho de `fat_orcado` é **de COMANDO, não de linha** — por linha, semear
+24 mil células emitiria 24 mil `UPDATE` em `versao_orcamento`. Com tabela de
+transição é um por comando, e por isso são três gatilhos (INSERT vê só `NEW
+TABLE`, DELETE só `OLD TABLE`).
+
+⚠ O conjunto que exige veredito é **calculado** (`cenario_orcado_diff`), não
+cadastrado: guardar a lista no momento da proposta a deixaria velha na primeira
+edição seguinte, e o carimbo certificaria um conjunto que já não existe.
+
+⚠ `cenario.aprovar` passou a reger **os dois** cenários — o rótulo em
+`capacidades.ts` dizia "de postos" e quem liberasse pensaria estar liberando só
+aquilo.
+
 Mesma mecânica dos postos, que já se provou:
 - ✓/✗ por linha, recusa **exige motivo**, motivo aparece na linha;
 - quem propôs **responde e reenvia** (volta a pendente) ou **abandona**;
@@ -174,7 +198,7 @@ dizer, também.
 | | |
 |---|---|
 | **B1** | ✅ `origem_versao_id` + `copiar_versao` + criar cenário pela tela (`v3_171`) |
-| **B2** | modo comparativo em `/orcar-linha` + `orcado_veredito` + vereditos |
+| **B2** | ✅ modo comparativo em `/orcar-linha` + `orcado_veredito` + vereditos (`v3_172`) |
 | **B3** | o merge, com relatório do que foi escrito e do que ficou de fora |
 | **B4** | ~~limpeza do grão misto~~ — não bloqueia (ver § 4); virou higiene de 2026 |
 

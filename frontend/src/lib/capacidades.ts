@@ -110,7 +110,7 @@ export const CAPACIDADES: Capacidade[] = [
   // versão, é comparável com o cadastro e passa por aprovação.
   { escrita: true, key: 'posto.cadastro.editar', label: 'Editar o cadastro de postos (dado do ERP)', categoria: 'Funções', padrao: { admin: true, member: false, viewer: false } },
   { escrita: true, key: 'posto.cenario.decidir', label: 'Decidir no cenário (cortes, reajustes)',     categoria: 'Funções', padrao: { admin: true, member: true,  viewer: false } },
-  { escrita: true, key: 'cenario.aprovar',       label: 'Aprovar cenário de postos',                  categoria: 'Funções', padrao: { admin: true, member: false, viewer: false } },
+  { escrita: true, key: 'cenario.aprovar',       label: 'Aprovar cenário (postos e orçamento)',        categoria: 'Funções', padrao: { admin: true, member: false, viewer: false } },
 
   // ── Importações ──
   // TODA carga de arquivo do app tem chave própria, inclusive as que ficam

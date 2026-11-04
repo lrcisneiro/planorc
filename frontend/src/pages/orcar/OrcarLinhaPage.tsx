@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ChevronLeft, AlertTriangle, Layers, ListFilter, EyeOff } from 'lucide-react'
+import { ChevronLeft, AlertTriangle, Layers, ListFilter, EyeOff, GitCompare, BadgeCheck, Loader2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
 import { carregarVersoes } from '../../lib/escopoDados'
@@ -10,6 +10,7 @@ import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/Das
 import { useCapacidades } from '../../hooks/useCapacidades'
 import DrillCombinacoes from './DrillCombinacoes'
 import NovoCenario from './NovoCenario'
+import VereditoLinha, { type Veredito } from './VereditoLinha'
 
 // ============================================================
 // Orçar por LINHA — a visão de quem analisa, não de quem digita célula.
@@ -96,6 +97,13 @@ export default function OrcarLinhaPage() {
   const [drill, setDrill] = useState<Linha | null>(null)
   const [erro, setErro] = useState('')
   const [recarga, setRecarga] = useState(0)   // o drill mexeu no dado: força o consolidado a refazer
+  // --- cenário (B2) ---
+  const [celsBase, setCelsBase] = useState<Record<string, Record<number, { v: number; n: number }>>>({})
+  const [vereditos, setVereditos] = useState<Record<string, Veredito>>({})
+  const [modoComp, setModoComp] = useState(true)
+  const [soAlteradas, setSoAlteradas] = useLocalPref<boolean>(`${pref}_soalteradas`, false)
+  const [fechando, setFechando] = useState(false)
+  const [carimbo, setCarimbo] = useState<{ em: string | null; nota: string | null }>({ em: null, nota: null })
 
   useEffect(() => {
     (async () => {
@@ -134,6 +142,8 @@ export default function OrcarLinhaPage() {
     cc: escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee),
   }), [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs, acesso])
   const versao = versoes.find(v => v.id === versaoId)
+  // Versão com origem é CENÁRIO: é o que liga o modo comparativo e o veredito.
+  const baseId = versao?.origem_versao_id || null
   useEffect(() => { if (versao?.ano) setAno(versao.ano) }, [versao?.ano]) // eslint-disable-line
 
   const byId = useMemo(() => Object.fromEntries(linhas.map(l => [l.id, l])), [linhas])
@@ -153,7 +163,7 @@ export default function OrcarLinhaPage() {
   const natOk = (l: Linha) => { const n = natEff(l.id); return n === 'RECEITA' ? cap.can('orcar.receita') : n === 'DESPESA' ? cap.can('orcar.despesa') : cap.can('orcar.neutra') }
   // Rollup: sintética soma as filhas; analítica usa o que veio do banco.
   // Fica ANTES de `vis` porque esconder zeradas depende dele.
-  const total = useMemo(() => {
+  const rollup = (fonte: Record<string, Record<number, { v: number; n: number }>>) => {
     const out: Record<string, Record<number, number>> = {}
     const filhos: Record<string, Linha[]> = {}
     linhas.forEach(l => { const k = l.pai_id || '__root'; (filhos[k] = filhos[k] || []).push(l) })
@@ -162,12 +172,16 @@ export default function OrcarLinhaPage() {
       const r: Record<number, number> = {}
       const fs = filhos[l.id] || []
       if (fs.length) { for (const f of fs) { const v = calc(f); for (let m = 1; m <= 12; m++) r[m] = (r[m] || 0) + (v[m] || 0) } }
-      else { const c = (l.linha_orc_id && !l.nao_soma ? cels[l.linha_orc_id] : null) || {}; for (let m = 1; m <= 12; m++) r[m] = c[m]?.v || 0 }
+      else { const c = (l.linha_orc_id && !l.nao_soma ? fonte[l.linha_orc_id] : null) || {}; for (let m = 1; m <= 12; m++) r[m] = c[m]?.v || 0 }
       out[l.id] = r; return r
     }
     linhas.forEach(calc)
     return out
-  }, [linhas, cels])
+  }
+  const total = useMemo(() => rollup(cels), [linhas, cels]) // eslint-disable-line
+  // Mesmo rollup para a baseline: somar de um jeito aqui e de outro ali daria
+  // um Δ que é diferença de método, não de proposta.
+  const totalBase = useMemo(() => rollup(celsBase), [linhas, celsBase]) // eslint-disable-line
 
   const secoes = useMemo(() => ordered.filter(l => !l.pai_id), [ordered])
   const secOcultasSet = useMemo(() => new Set(secOcultas), [secOcultas])
@@ -185,41 +199,128 @@ export default function OrcarLinhaPage() {
     return base.filter(temValor)
   }, [ordered, cap, secOcultasSet, semZeradas, total]) // eslint-disable-line
 
+  const anoDe = (t: Record<string, Record<number, number>>, id: string) =>
+    Object.values(t[id] || {}).reduce((s, x) => s + x, 0)
+  const ehCenario = !!baseId
+  const comparando = ehCenario && modoComp
+  // "Só alteradas" guarda a SINTÉTICA cujo filho mudou — o Δ dela já soma as
+  // filhas, então o contexto da árvore se preserva sozinho. Esconder os pais
+  // deixaria uma lista de linhas soltas sem dizer de que bloco saíram.
+  const visComp = useMemo(() => {
+    if (!comparando || !soAlteradas) return vis
+    return vis.filter(l => Math.abs(anoDe(total, l.id) - anoDe(totalBase, l.id)) > 0.005)
+  }, [vis, comparando, soAlteradas, total, totalBase]) // eslint-disable-line
+
+  // Quantas linhas ANALÍTICAS mudaram e quantas ainda não têm veredito — é o
+  // que o fechamento vai exigir, então tem de estar à vista antes do clique.
+  const resumoCenario = useMemo(() => {
+    if (!comparando) return { mudadas: 0, pendentes: 0 }
+    const masters = new Set<string>()
+    for (const l of ordered) {
+      if (!l.linha_orc_id || l.nao_soma) continue
+      if (linhas.some(x => x.pai_id === l.id)) continue
+      if (Math.abs(anoDe(total, l.id) - anoDe(totalBase, l.id)) > 0.005) masters.add(l.linha_orc_id)
+    }
+    let pend = 0
+    masters.forEach(m => { if (vereditos[m]?.aprovado == null) pend++ })
+    return { mudadas: masters.size, pendentes: pend }
+  }, [comparando, ordered, linhas, total, totalBase, vereditos]) // eslint-disable-line
+
   // Carrega o consolidado. Lê fat_orcado direto (e não a RPC de agregação)
   // porque além do total precisamos saber se há GRÃO MISTO — e isso só se vê
   // olhando se existem linhas com cc nulo e não nulo na mesma célula.
+  //
+  // ⚠ A BASELINE É LIDA COM O MESMO RECORTE do cenário. Comparar o escopo de
+  // alguém contra o total da empresa daria um Δ que é a diferença de recorte,
+  // não de proposta — e pareceria um corte gigantesco em toda linha.
+  async function carregarCels(vid: string) {
+    const alvo = filtro.emp ?? empresasEscopo.map(e => e.id)
+    let q = supabase.from('fat_orcado')
+      .select('linha_id,mes,valor,cc_id').eq('versao_id', vid).eq('ano', ano).in('empresa_id', alvo)
+    if (filtro.fil) q = q.in('filial_id', filtro.fil)
+    if (filtro.cc) q = q.in('cc_id', filtro.cc)
+    const rows = await pageAll(() => q)
+    const c: Record<string, Record<number, { v: number; n: number }>> = {}
+    const semCc: Record<string, Set<number>> = {}, comCc: Record<string, Set<number>> = {}
+    for (const r of rows as any[]) {
+      const m = (c[r.linha_id] ||= {}); const cur = (m[r.mes] ||= { v: 0, n: 0 })
+      cur.v += Number(r.valor) || 0; cur.n++
+      const bag = r.cc_id == null ? (semCc[r.linha_id] ||= new Set()) : (comCc[r.linha_id] ||= new Set())
+      bag.add(r.mes)
+    }
+    const mix = new Set<string>()
+    for (const lid of Object.keys(semCc)) for (const m of semCc[lid]) if (comCc[lid]?.has(m)) mix.add(lid)
+    return { c, mix }
+  }
+
   useEffect(() => {
-    if (!versaoId || !empresasEscopo.length) { setCels({}); setMisto(new Set()); return }
+    if (!versaoId || !empresasEscopo.length) { setCels({}); setCelsBase({}); setMisto(new Set()); return }
     let vivo = true
     ;(async () => {
       setCarregandoCels(true); setErro('')
       try {
-        const alvo = filtro.emp ?? empresasEscopo.map(e => e.id)
-        let q = supabase.from('fat_orcado')
-          .select('linha_id,mes,valor,cc_id').eq('versao_id', versaoId).eq('ano', ano).in('empresa_id', alvo)
-        if (filtro.fil) q = q.in('filial_id', filtro.fil)
-        if (filtro.cc) q = q.in('cc_id', filtro.cc)
-        const rows = await pageAll(() => q)
+        const [atual, base] = await Promise.all([
+          carregarCels(versaoId),
+          baseId ? carregarCels(baseId) : Promise.resolve(null),
+        ])
         if (!vivo) return
-        const c: Record<string, Record<number, { v: number; n: number }>> = {}
-        const semCc: Record<string, Set<number>> = {}, comCc: Record<string, Set<number>> = {}
-        for (const r of rows as any[]) {
-          const m = (c[r.linha_id] ||= {}); const cur = (m[r.mes] ||= { v: 0, n: 0 })
-          cur.v += Number(r.valor) || 0; cur.n++
-          const bag = r.cc_id == null ? (semCc[r.linha_id] ||= new Set()) : (comCc[r.linha_id] ||= new Set())
-          bag.add(r.mes)
-        }
-        const mix = new Set<string>()
-        for (const lid of Object.keys(semCc)) for (const m of semCc[lid]) if (comCc[lid]?.has(m)) mix.add(lid)
-        setCels(c); setMisto(mix)
+        setCels(atual.c); setMisto(atual.mix)
+        setCelsBase(base?.c || {})
       } catch (e: any) { if (vivo) setErro(e?.message || String(e)) }
       finally { if (vivo) setCarregandoCels(false) }
     })()
     return () => { vivo = false }
-  }, [versaoId, ano, empresasEscopo.length, recarga, JSON.stringify(filtro)]) // eslint-disable-line
+  }, [versaoId, baseId, ano, empresasEscopo.length, recarga, JSON.stringify(filtro)]) // eslint-disable-line
 
+  // Vereditos e carimbo do cenário.
+  useEffect(() => {
+    if (!baseId || !versaoId) { setVereditos({}); setCarimbo({ em: null, nota: null }); return }
+    let vivo = true
+    ;(async () => {
+      const [vr, vs] = await Promise.all([
+        supabase.from('orcado_veredito').select('linha_id,aprovado,nota,aprov_nota').eq('versao_id', versaoId),
+        supabase.from('versao_orcamento').select('aprovado_em,aprovacao_nota').eq('id', versaoId).maybeSingle(),
+      ])
+      if (!vivo) return
+      setVereditos(Object.fromEntries((vr.data || []).map((r: any) => [r.linha_id, r as Veredito])))
+      setCarimbo({ em: vs.data?.aprovado_em || null, nota: vs.data?.aprovacao_nota || null })
+    })()
+    return () => { vivo = false }
+  }, [versaoId, baseId, recarga])
 
   const anos = useMemo(() => [...new Set(versoes.map(v => v.ano).filter(Boolean))].sort((a, b) => b - a), [versoes])
+
+  const podeAprovar = cap.can('cenario.aprovar')
+  const podeResponder = acesso.podeEscrever && cap.can('orcar')
+
+  async function decidir(master: string, aprovado: boolean, nota?: string) {
+    const { error } = await supabase.rpc('decidir_linha_orcado',
+      { p_versao: versaoId, p_linha: master, p_aprovado: aprovado, p_nota: nota ?? null })
+    if (error) { setErro(error.message); return }
+    setErro('')
+    setVereditos(v => ({ ...v, [master]: { aprovado, nota: v[master]?.nota ?? null, aprov_nota: aprovado ? null : (nota ?? null) } }))
+    // O gatilho da v3_172 derruba o carimbo quando um veredito muda — a tela
+    // espelha na hora, senão o selo "fechado" continua ali mentindo até o F5.
+    setCarimbo({ em: null, nota: null })
+  }
+
+  async function responder(master: string, nota: string) {
+    const { error } = await supabase.rpc('reabrir_linha_orcado',
+      { p_versao: versaoId, p_linha: master, p_nota: nota })
+    if (error) { setErro(error.message); return }
+    setErro('')
+    setVereditos(v => ({ ...v, [master]: { aprovado: null, nota, aprov_nota: v[master]?.aprov_nota ?? null } }))
+    setCarimbo({ em: null, nota: null })
+  }
+
+  async function fechar() {
+    setFechando(true)
+    const { data, error } = await supabase.rpc('aprovar_cenario', { p_versao: versaoId, p_nota: null })
+    setFechando(false)
+    if (error) { setErro(error.message); return }
+    const r: any = Array.isArray(data) ? data[0] : data
+    setErro(''); setCarimbo({ em: r?.aprovado_em || new Date().toISOString(), nota: null })
+  }
 
   if (loading) return <div style={{ padding: 28, color: 'var(--muted)' }}>Carregando…</div>
 
@@ -323,7 +424,67 @@ export default function OrcarLinhaPage() {
               color: semZeradas ? 'var(--violet)' : 'var(--text)' }}>
             <EyeOff size={13} /> {semZeradas ? 'Zeradas ocultas' : 'Mostrando zeradas'}
           </button></div>
+
+        {ehCenario && (<>
+          <div><div style={S.lbl}>Cenário</div>
+            <button onClick={() => setModoComp(v => !v)}
+              title="Mostrar baseline, cenário e a diferença, em vez dos 12 meses"
+              style={{ ...S.sel, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+                borderColor: comparando ? 'var(--violet)' : 'var(--border-strong)',
+                color: comparando ? 'var(--violet)' : 'var(--text)' }}>
+              <GitCompare size={13} /> {comparando ? 'Comparando' : 'Comparar'}
+            </button></div>
+          {comparando && (
+            <div><div style={S.lbl}>&nbsp;</div>
+              <button onClick={() => setSoAlteradas(v => !v)}
+                style={{ ...S.sel, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+                  borderColor: soAlteradas ? 'var(--violet)' : 'var(--border-strong)',
+                  color: soAlteradas ? 'var(--violet)' : 'var(--text)' }}>
+                {soAlteradas ? 'Só alteradas' : 'Todas as linhas'}
+              </button></div>
+          )}
+        </>)}
       </div>
+
+      {/* A barra do cenário: contra qual baseline, quanto falta decidir e o
+          fechamento. Fica acima da tabela porque é o estado do trabalho, não
+          um filtro — e porque o número de pendentes é o que explica o botão
+          recusar o fechamento. */}
+      {comparando && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', marginBottom: 14,
+                      padding: '11px 14px', borderRadius: 10, border: '1px solid var(--border-strong)',
+                      background: 'var(--panel)' }}>
+          <GitCompare size={16} style={{ color: 'var(--violet)' }} />
+          <div style={{ flex: 1, minWidth: 260, fontSize: 12.5, color: 'var(--text)', lineHeight: 1.55 }}>
+            <b>{versao?.codigo}</b> contra <b>{versoes.find(v => v.id === baseId)?.codigo || 'baseline'}</b>
+            {' · '}{resumoCenario.mudadas} linha(s) alterada(s)
+            {resumoCenario.pendentes > 0
+              ? <span style={{ color: 'var(--orange)' }}>{` · ${resumoCenario.pendentes} sem veredito`}</span>
+              : <span style={{ color: 'var(--green)' }}> · todas decididas</span>}
+            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              A baseline é lida com o <b>mesmo filtro</b> desta tela — o Δ é de proposta, não de recorte.
+            </div>
+          </div>
+          {carimbo.em ? (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--green)' }}>
+              <BadgeCheck size={16} /> Fechado em {new Date(carimbo.em).toLocaleDateString('pt-BR')}
+            </div>
+          ) : podeAprovar && (
+            <button onClick={fechar} disabled={fechando || resumoCenario.pendentes > 0}
+              title={resumoCenario.pendentes > 0
+                ? `Decida as ${resumoCenario.pendentes} linha(s) pendentes na coluna Veredito`
+                : 'Carimbar o cenário como revisado'}
+              style={{ height: 32, padding: '0 14px', borderRadius: 8, border: 'none', fontSize: 12.5, fontWeight: 600,
+                       background: resumoCenario.pendentes > 0 ? 'var(--panel-2)' : 'var(--green)',
+                       color: resumoCenario.pendentes > 0 ? 'var(--muted)' : '#fff',
+                       cursor: resumoCenario.pendentes > 0 || fechando ? 'default' : 'pointer',
+                       display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+              {fechando && <Loader2 size={13} className="animate-spin" />}
+              Fechar cenário
+            </button>
+          )}
+        </div>
+      )}
 
       {erro && <div style={{ fontSize: 12.5, color: 'var(--red)', background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.4)', borderRadius: 8, padding: '9px 12px', marginBottom: 12 }}>{erro}</div>}
 
@@ -362,11 +523,18 @@ export default function OrcarLinhaPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead><tr>
               <th style={{ ...S.th, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--bg)', minWidth: 300 }}>Linha</th>
-              {MES.map(m => <th key={m} style={S.th}>{m}</th>)}
-              <th style={{ ...S.th, color: 'var(--text)' }}>Ano</th>
+              {comparando ? (<>
+                <th style={S.th}>Baseline</th>
+                <th style={{ ...S.th, color: 'var(--text)' }}>Cenário</th>
+                <th style={S.th}>Δ</th>
+                <th style={{ ...S.th, textAlign: 'left' }}>Veredito</th>
+              </>) : (<>
+                {MES.map(m => <th key={m} style={S.th}>{m}</th>)}
+                <th style={{ ...S.th, color: 'var(--text)' }}>Ano</th>
+              </>)}
             </tr></thead>
             <tbody>
-              {vis.map(l => {
+              {(comparando ? visComp : vis).map(l => {
                 const sint = !!(linhas.find(x => x.pai_id === l.id))
                 const t = total[l.id] || {}
                 const anoT = Object.values(t).reduce((s, x) => s + x, 0)
@@ -392,14 +560,43 @@ export default function OrcarLinhaPage() {
                         )}
                       </span>
                     </td>
-                    {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                      <td key={m} style={{ ...S.td, color: (t[m] || 0) === 0 ? 'var(--faint)' : sint ? 'var(--text)' : 'var(--text-mid)', fontWeight: sint ? 600 : 400 }}>
-                        {(t[m] || 0) === 0 ? '—' : money((t[m] || 0) * f)}
+                    {comparando ? (() => {
+                      const baseT = anoDe(totalBase, l.id)
+                      const d = anoT - baseT
+                      // ⚠ Cor = bom ou ruim, NUNCA o sinal (convenção do projeto).
+                      // `f` é o mesmo fator que já decide a exibição, então a
+                      // despesa que cai aparece positiva e fica verde sozinha.
+                      const bom = f === -1 ? d < 0 : d > 0
+                      const master = !sint && !l.nao_soma ? l.linha_orc_id : null
+                      return (<>
+                        <td style={{ ...S.td, color: baseT === 0 ? 'var(--faint)' : 'var(--text-mid)' }}>
+                          {baseT === 0 ? '—' : money(baseT * f)}
+                        </td>
+                        <td style={{ ...S.td, fontWeight: sint ? 700 : 600, color: anoT === 0 ? 'var(--faint)' : 'var(--text)' }}>
+                          {anoT === 0 ? '—' : money(anoT * f)}
+                        </td>
+                        <td style={{ ...S.td, fontWeight: 600,
+                                     color: Math.abs(d) < 0.005 ? 'var(--faint)' : bom ? 'var(--green)' : 'var(--red)' }}>
+                          {Math.abs(d) < 0.005 ? '—' : (d * f > 0 ? '+' : '') + money(d * f)}
+                        </td>
+                        <td style={{ ...S.td, textAlign: 'left' }}>
+                          {master && Math.abs(d) >= 0.005 && (
+                            <VereditoLinha v={vereditos[master]} podeAprovar={podeAprovar} podeResponder={podeResponder}
+                              onDecidir={(ap, nota) => decidir(master, ap, nota)}
+                              onReabrir={nota => responder(master, nota)} />
+                          )}
+                        </td>
+                      </>)
+                    })() : (<>
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                        <td key={m} style={{ ...S.td, color: (t[m] || 0) === 0 ? 'var(--faint)' : sint ? 'var(--text)' : 'var(--text-mid)', fontWeight: sint ? 600 : 400 }}>
+                          {(t[m] || 0) === 0 ? '—' : money((t[m] || 0) * f)}
+                        </td>
+                      ))}
+                      <td style={{ ...S.td, fontWeight: 700, color: anoT === 0 ? 'var(--faint)' : 'var(--text)' }}>
+                        {anoT === 0 ? '—' : money(anoT * f)}
                       </td>
-                    ))}
-                    <td style={{ ...S.td, fontWeight: 700, color: anoT === 0 ? 'var(--faint)' : 'var(--text)' }}>
-                      {anoT === 0 ? '—' : money(anoT * f)}
-                    </td>
+                    </>)}
                   </tr>
                 )
               })}
@@ -408,9 +605,9 @@ export default function OrcarLinhaPage() {
           {carregandoCels && <div style={{ padding: 10, fontSize: 12, color: 'var(--muted)' }}>Somando…</div>}
           {/* Quem confere total precisa saber que há linha fora da vista, senão
               procura defeito no número. */}
-          {ordered.length > vis.length && (
+          {ordered.length > (comparando ? visComp : vis).length && (
             <div style={{ padding: '8px 12px', fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid var(--border)' }}>
-              {ordered.length - vis.length} linha(s) ocultas pelos filtros de exibição — os totais acima continuam somando tudo.
+              {ordered.length - (comparando ? visComp : vis).length} linha(s) ocultas pelos filtros de exibição — os totais acima continuam somando tudo.
             </div>
           )}
         </div>
