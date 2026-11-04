@@ -121,6 +121,22 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > caiu sobre mudança posterior da controladoria, e caiu sobre valor gerado (que a próxima
 > aplicação de posto/formulário regrava). `p_simular` é o **default** — a tela simula, não libera.
 
+> ⚠ **A baseline SE MOVE, e o desenho não previa (`v3_176`).** Em 2027 ela estava em construção
+> quando o primeiro cenário ia nascer. O **merge** não quebra — ele grava o que o cenário mexeu,
+> nunca o que difere. O que quebra é **o Δ que o aprovador lê**: a célula que a área não tocou
+> guarda o valor do dia do semear, então mudança da controladoria passa a aparecer como proposta
+> de *reverter*, e ainda entra em `cenario_orcado_diff` exigindo veredito.
+> **`ressincronizar_cenario`** traz da baseline só o que a área **não** tocou (atualiza, inclui o
+> que nasceu depois, tira o que sumiu), preserva a proposta e **zera o veredito das linhas
+> afetadas** — o ✓ anterior era sobre outro número (regra da v3_166).
+> ⚠ Ela exigiu corrigir o gatilho de touch: ele carimbava `atualizado_em` **sempre**, então não
+> havia como devolver a célula ao estado "veio do semear". Hoje só carimba quando o comando não
+> escreveu a coluna — que é o padrão de todo touch e o que faltava.
+> **`excluir_cenario`** é a saída grosseira: já funcionava por cascata e **sem guarda**, pela tela
+> de Cadastros, ao lado da baseline — a linha errada ali leva 24 mil células. Agora recusa
+> baseline, recusa cenário já liberado e exige o código digitado. Na tela ela vem **depois** de
+> Ressincronizar, porque excluir perde o trabalho da área e a outra o preserva.
+>
 > ⚠⚠ **Ausência só é proposta de APAGAR em cenário semeado (`v3_175`).** O merge trata "célula na
 > baseline sem par no cenário" como pedido de exclusão — certo, porque o drill **apaga a linha de
 > fato** ao limpar a célula (`.delete()`, não `valor = null`). Mas desmarcar *Copiar o orçado*

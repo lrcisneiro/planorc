@@ -12,6 +12,7 @@ import DrillCombinacoes from './DrillCombinacoes'
 import NovoCenario from './NovoCenario'
 import VereditoLinha, { type Veredito } from './VereditoLinha'
 import LiberarCenario from './LiberarCenario'
+import CenarioManutencao from './CenarioManutencao'
 
 // ============================================================
 // Orçar por LINHA — a visão de quem analisa, não de quem digita célula.
@@ -131,7 +132,11 @@ export default function OrcarLinhaPage() {
   async function recarregarVersoes(selecionar?: string) {
     const vs = await carregarVersoes('id,codigo,ano,bloqueada,origem_versao_id,aprovado_em', { ativa: true, ordem: 'ano_desc' })
     setVersoes((vs || []) as Versao[])
-    if (selecionar) setVersaoId(selecionar)
+    if (selecionar) { setVersaoId(selecionar); return }
+    // ⚠ A versão escolhida pode ter deixado de existir — excluir o cenário é
+    // justamente isso. Sem soltar a seleção, a tela seguiria pedindo células de
+    // uma versão apagada e viria vazia, sem erro e sem explicação.
+    if (versaoId && !(vs || []).some((v: any) => v.id === versaoId)) setVersaoId('')
   }
 
   const empresasEscopo = useMemo(() => acesso.filterList('empresa', empresas as any) as Opt[], [empresas, acesso])
@@ -481,7 +486,14 @@ export default function OrcarLinhaPage() {
                   onLiberado={() => { setCarimbo(c => ({ ...c, mesclado: new Date().toISOString() })); setRecarga(r => r + 1) }} />
               )}
             </div>
-          ) : podeAprovar && (
+          ) : (<>
+            {/* Manutenção fica ao lado do fechar porque é o que se faz ANTES
+                de fechar — a baseline em construção move o Δ por baixo. */}
+            {acesso.isAdmin && (
+              <CenarioManutencao versaoId={versaoId} codigo={versao?.codigo}
+                onMudou={() => { recarregarVersoes(); setRecarga(r => r + 1) }} />
+            )}
+            {podeAprovar && (
             <button onClick={fechar} disabled={fechando || resumoCenario.pendentes > 0}
               title={resumoCenario.pendentes > 0
                 ? `Decida as ${resumoCenario.pendentes} linha(s) pendentes na coluna Veredito`
@@ -494,7 +506,8 @@ export default function OrcarLinhaPage() {
               {fechando && <Loader2 size={13} className="animate-spin" />}
               Fechar cenário
             </button>
-          )}
+            )}
+          </>)}
         </div>
       )}
 
