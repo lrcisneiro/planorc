@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ChevronLeft, AlertTriangle, Layers, ListFilter, EyeOff, GitCompare, BadgeCheck, Loader2 } from 'lucide-react'
+import { ChevronLeft, AlertTriangle, Layers, ListFilter, EyeOff, GitCompare, BadgeCheck, Loader2, RotateCcw } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
 import { carregarVersoes } from '../../lib/escopoDados'
@@ -13,6 +13,7 @@ import NovoCenario from './NovoCenario'
 import VereditoLinha, { type Veredito } from './VereditoLinha'
 import LiberarCenario from './LiberarCenario'
 import CenarioManutencao from './CenarioManutencao'
+import HistoricoLiberacao from './HistoricoLiberacao'
 
 // ============================================================
 // Orçar por LINHA — a visão de quem analisa, não de quem digita célula.
@@ -296,6 +297,14 @@ export default function OrcarLinhaPage() {
 
   const anos = useMemo(() => [...new Set(versoes.map(v => v.ano).filter(Boolean))].sort((a, b) => b - a), [versoes])
 
+  // O histórico guarda o id do MASTER (conta_orcamentaria); quem sabe o nome
+  // legível é a árvore do relatório aberto.
+  const nomeMaster = (mid: string | null) => {
+    if (!mid) return '—'
+    const l = linhas.find(x => x.linha_orc_id === mid)
+    return l ? l.descricao : mid.slice(0, 8)
+  }
+
   const podeAprovar = cap.can('cenario.aprovar')
   const podeResponder = acesso.podeEscrever && cap.can('orcar')
 
@@ -317,6 +326,15 @@ export default function OrcarLinhaPage() {
     setErro('')
     setVereditos(v => ({ ...v, [master]: { aprovado: null, nota, aprov_nota: v[master]?.aprov_nota ?? null } }))
     setCarimbo(c => ({ ...c, em: null, nota: null }))
+  }
+
+  // Reabrir = tirar o carimbo. Os vereditos ficam: o que volta a ser possível
+  // é revê-los e responder. `reprovar_cenario` já existia da v3_165 e nunca
+  // tinha botão — fechar sem caminho de volta é cilada, não governança.
+  async function reabrir() {
+    const { error } = await supabase.rpc('reprovar_cenario', { p_versao: versaoId, p_nota: null })
+    if (error) { setErro(error.message); return }
+    setErro(''); setCarimbo(c => ({ ...c, em: null, nota: null }))
   }
 
   async function fechar() {
@@ -479,15 +497,34 @@ export default function OrcarLinhaPage() {
               A baseline é lida com o <b>mesmo filtro</b> desta tela — o Δ é de proposta, não de recorte.
             </div>
           </div>
+          {/* ⚠ Fechar o cenário escondia Ressincronizar, excluir e qualquer
+              volta atrás — e fechar é reversível de propósito (o carimbo é
+              carimbo, não cadeado). Os caminhos continuam à mão até a
+              liberação, que é o único passo sem desfazer. */}
           {carimbo.mesclado ? (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--green)' }}>
-              <BadgeCheck size={16} /> Liberado na baseline em {new Date(carimbo.mesclado).toLocaleDateString('pt-BR')}
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--green)' }}>
+                <BadgeCheck size={16} /> Liberado na baseline em {new Date(carimbo.mesclado).toLocaleDateString('pt-BR')}
+              </span>
+              <HistoricoLiberacao versaoId={versaoId} nomeLinha={nomeMaster} />
             </div>
           ) : carimbo.em ? (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--green)' }}>
                 <BadgeCheck size={16} /> Fechado em {new Date(carimbo.em).toLocaleDateString('pt-BR')}
               </span>
+              {podeAprovar && (
+                <button onClick={reabrir} title="Tirar o carimbo e voltar à análise — os vereditos ficam"
+                  style={{ height: 32, padding: '0 12px', borderRadius: 8, border: '1px solid var(--border-strong)',
+                           background: 'var(--panel-2)', color: 'var(--text)', fontSize: 12.5, cursor: 'pointer',
+                           display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <RotateCcw size={13} /> Reabrir
+                </button>
+              )}
+              {acesso.isAdmin && (
+                <CenarioManutencao versaoId={versaoId} codigo={versao?.codigo}
+                  onMudou={() => { recarregarVersoes(); setRecarga(r => r + 1) }} />
+              )}
               {podeAprovar && (
                 <LiberarCenario versaoId={versaoId} codigo={versao?.codigo}
                   baselineCodigo={versoes.find(v => v.id === baseId)?.codigo}

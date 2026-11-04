@@ -121,6 +121,18 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > caiu sobre mudança posterior da controladoria, e caiu sobre valor gerado (que a próxima
 > aplicação de posto/formulário regrava). `p_simular` é o **default** — a tela simula, não libera.
 
+> ⚠ **Fechar é reversível; liberar não (`v3_178`).** A tela escondia Ressincronizar, excluir e
+> qualquer volta atrás assim que o cenário fechava — mas o carimbo é carimbo, não cadeado.
+> `reprovar_cenario` existia desde a v3_165 e **nunca tivera botão**: hoje é *Reabrir*, e os
+> vereditos ficam (o que volta a ser possível é revê-los). O único passo sem desfazer é a
+> liberação.
+> ⚠ **E ela não deixava rastro do QUE escreveu** — a versão guardava só `mesclado_em`, e a tabela
+> `auditoria` não cobre, porque o gatilho de `fat_orcado` registra apenas DELETE em massa. Numa
+> ação sem desfazer, "por que esta linha da baseline mudou?" ficava sem resposta até para quem
+> aprovou. `cenario_liberacao` + `cenario_liberacao_linha` guardam o relatório **por linha** (~200
+> por liberação, não as 24 mil células) com a ação e o Δ. **Escrita só pela RPC** (lição da
+> v3_174): registro que o auditado pode editar não é registro.
+>
 > ⚠ **A baseline SE MOVE, e o desenho não previa (`v3_176`).** Em 2027 ela estava em construção
 > quando o primeiro cenário ia nascer. O **merge** não quebra — ele grava o que o cenário mexeu,
 > nunca o que difere. O que quebra é **o Δ que o aprovador lê**: a célula que a área não tocou
