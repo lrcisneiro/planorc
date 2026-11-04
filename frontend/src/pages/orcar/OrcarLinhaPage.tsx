@@ -327,6 +327,18 @@ export default function OrcarLinhaPage() {
 
       {erro && <div style={{ fontSize: 12.5, color: 'var(--red)', background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.4)', borderRadius: 8, padding: '9px 12px', marginBottom: 12 }}>{erro}</div>}
 
+      {/* Combo de versão vazio é AMBÍGUO — pode ser escopo, pode ser consulta
+          que falhou (foi o que houve ao pedir `origem_versao_id` antes da
+          v3_171 rodar). Dizer as duas causas custa uma linha e economiza a
+          sessão inteira de diagnóstico que um combo calado provoca. */}
+      {!loading && !versoes.length && (
+        <div style={{ fontSize: 12.5, color: 'var(--orange)', background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.4)',
+                      borderRadius: 8, padding: '9px 12px', marginBottom: 12 }}>
+          Nenhuma versão para escolher. Ou não há versão ativa no seu escopo (Configurações → acesso),
+          ou a consulta falhou — o console do navegador diz qual das duas.
+        </div>
+      )}
+
       {misto.size > 0 && (
         <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12.5, color: 'var(--orange)',
                       background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.35)',

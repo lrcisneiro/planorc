@@ -109,7 +109,13 @@ export async function carregarVersoes(
   let q = supabase.from('versao_orcamento').select(cols)
   if (opts.ativa) q = q.eq('ativa', true)
   q = opts.ordem === 'ano_desc' ? q.order('ano', { ascending: false }).order('codigo') : q.order('codigo')
-  const { data } = await q
+  const { data, error } = await q
+  // ⚠ ERRO AQUI VIRAVA LISTA VAZIA, e lista vazia é ambígua: pode ser "não há
+  // versão no seu escopo" ou "a consulta falhou". Foi o que aconteceu ao pedir
+  // `origem_versao_id` antes de rodar a v3_171 — o combo ficou só com
+  // "— selecione —" e a tela não disse nada. Quem chama decide o que mostrar;
+  // aqui, no mínimo, a causa fica no console em vez de sumir.
+  if (error) console.error('[carregarVersoes] consulta falhou — lista virá vazia:', error.message, '| colunas:', cols)
   return filtrarPorEscopo('versao', data as any)
 }
 
@@ -118,6 +124,7 @@ export async function carregarVersoes(
 // capacidade. "Pode abrir relatórios" é capacidade; "pode abrir ESTA DRE" é
 // escopo de dados, e muda sem deploy.
 export async function carregarRelatorios(cols = 'id,nome', ordem: 'nome' | 'codigo' = 'nome'): Promise<any[]> {
-  const { data } = await supabase.from('relatorio').select(cols).order(ordem)
+  const { data, error } = await supabase.from('relatorio').select(cols).order(ordem)
+  if (error) console.error('[carregarRelatorios] consulta falhou — lista virá vazia:', error.message, '| colunas:', cols)
   return filtrarPorEscopo('relatorio', data as any)
 }
