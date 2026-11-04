@@ -155,6 +155,10 @@ export const CAPACIDADES: Capacidade[] = [
   // não dava para dar a grade a um diretor sem dar junto os drivers, que são
   // premissas do grupo. Cada uma com a sua; o padrão repete o que valia antes
   // para não tirar acesso de ninguém ao aplicar.
+  // A grade é para DIGITAR (fixa uma combinação); a visão por linha é para
+  // ANALISAR (soma o escopo inteiro, edita no drill). Chaves separadas porque
+  // são públicos diferentes: o gerente quase sempre quer só a segunda.
+  { key: 'menu.orcar.linha', label: 'Orçar — por linha (consolidado)', categoria: 'Menu', padrao: { admin: true, member: true, viewer: false } },
   { key: 'menu.orcar.grade', label: '· Orçar (grade)',          categoria: 'Menu', padrao: { admin: true, member: true,  viewer: false } },
   { key: 'menu.formularios', label: '· Formulário de drivers',  categoria: 'Menu', padrao: { admin: true, member: false,  viewer: false } },
   { key: 'menu.estruturas', label: 'Estruturas de relatórios', categoria: 'Menu', padrao: { admin: true, member: false, viewer: false } },

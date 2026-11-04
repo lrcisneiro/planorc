@@ -12,6 +12,7 @@ import CadastrosPage from './pages/cadastros/CadastrosPage'
 import RelatorioPage from './pages/relatorios/RelatorioPage'
 import RelatorioEditorPage from './pages/relatorios/RelatorioEditorPage'
 import OrcarGradePage from './pages/orcar/OrcarGradePage'
+import OrcarLinhaPage from './pages/orcar/OrcarLinhaPage'
 import FormulariosPage from './pages/formularios/FormulariosPage'
 import FormularioEditorPage from './pages/formularios/FormularioEditorPage'
 import PostosRegrasPage from './pages/postos/PostosRegrasPage'
@@ -61,6 +62,7 @@ type NavGroup = { area: string; mode: string; dot: string; items: NavItem[] }
 const NAV_GROUPS: NavGroup[] = [
   { area: 'Orçamentação', mode: 'escrita', dot: '#8b5cf6', items: [
     { to: '/orcamento',   label: 'Orçamento',                icon: FileText, cap: 'menu.orcamento' },
+    { to: '/orcar-linha', label: 'Orçar por linha',           icon: ListTree, cap: 'menu.orcar.linha' },
     { to: '/orcar-grade', label: 'Orçar (grade)',            icon: Grid3x3,  cap: 'menu.orcar.grade' },
     { to: '/estruturas',  label: 'Estruturas de relatórios', icon: ListTree, cap: 'menu.estruturas' },
     { to: '/formularios', label: 'Formulário de drivers', icon: SlidersHorizontal, cap: 'menu.formularios' },
@@ -358,6 +360,8 @@ function Shell({ session }: { session: Session }) {
             <Route path="/orcar/:id"       element={<RedirOrcar />} />
             <Route path="/estrutura/:id"   element={<Exige cap="estrutura.ver" ou="estrutura"><RelatorioEditorPage mode="estrutura" /></Exige>} />
             <Route path="/estruturas"      element={<Exige cap="menu.estruturas"><RelatorioPage linkBase="/estrutura" titulo="Estruturas de Relatórios" subtitulo="Edite a árvore, fórmulas e amarração de cada relatório" /></Exige>} />
+            <Route path="/orcar-linha"     element={<Exige cap="menu.orcar.linha"><RelatorioPage linkBase="/orcar-linha" titulo="Orçar por linha" subtitulo="Escolha o relatório para ver e orçar com o escopo somado, editando no drill" /></Exige>} />
+            <Route path="/orcar-linha/:id" element={<Exige cap="menu.orcar.linha"><OrcarLinhaPage /></Exige>} />
             <Route path="/orcar-grade"     element={<Exige cap="menu.orcar.grade"><RelatorioPage linkBase="/orcar-grade" titulo="Orçar (grade)" subtitulo="Escolha o relatório para orçar por empresa × filial × centro de custo" /></Exige>} />
             <Route path="/orcar-grade/:id" element={<Exige cap="menu.orcar.grade"><OrcarGradePage /></Exige>} />
             <Route path="/formularios"     element={<Exige cap="menu.formularios"><FormulariosPage /></Exige>} />

@@ -58,6 +58,21 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > aplica quando `tree` existir; sem isso `recolherAteNivel` rodaria sobre árvore vazia e o preset
 > abriria tudo expandido, calado.
 
+> **Orçar por LINHA (`/orcar-linha/:id`, nov/2026)** — a visão de quem analisa. A grade fixa UMA
+> combinação empresa×filial×CC no cabeçalho: certa para digitar, errada para enxergar; um gerente
+> com seis CCs via o número partido em seis. Aqui a linha vem inteira, somando o escopo, com
+> `FiltrosButton` (o mesmo de 10 telas), Seções, ocultar zeradas e tudo lembrado **por relatório**.
+>
+> ⚠ **O consolidado NUNCA grava.** `fat_orcado` só existe no grão da combinação — digitar num
+> total exigiria ratear (engana: digita 100, vira 37+41+22) ou gravar em filial/CC nulos, que é o
+> que a grade faz em "— consolidado —" e é a origem das 15.613 linhas de grão consolidado. Edita-se
+> no **drill** (combinações × 12 meses, com `»`/Ctrl+Enter para repetir até dezembro).
+>
+> ⚠ **Esta é a única tela onde o GRÃO MISTO aparece** — somando tudo, linha com consolidado *e*
+> detalhe no mesmo mês infla. São **122 grupos** hoje. Ela denuncia (aviso no topo, ⚠ na linha, as
+> duas pontas no drill) em vez de deixar o número mentir; na grade é invisível, porque cada grão
+> fica atrás de um filtro diferente.
+
 > **Split do editor (F1):** `RelatorioEditorPage` recebe a prop `mode ∈ consulta | orcar | estrutura`. É **um componente só** com três experiências — `consulta` (só leitura), `orcar` (edita só o orçado; realizado nunca é digitado, vem do ERP) e `estrutura` (edita a árvore/fórmulas, sem meses/visões/filtros). Não são três páginas separadas.
 
 Páginas **não roteadas** (legado, manter cautela antes de reusar): `orcamento/OrcamentoPage.tsx`, `templates/TemplatePage.tsx`, `templates/TemplateEditorPage.tsx`, `lancamentos/LancamentosPage.tsx`. (`/dre` → `DrePage` está roteada mas é legado.)
@@ -88,7 +103,10 @@ Todas as tabelas têm `tenant_id` e RLS. Base SQL em `schema_v2.sql`; evoluçõe
 - **`formulario`**, **`formulario_linha`** (hierárquico, com `expressao`/`natureza`), **`formulario_valor`** — captura orçado por direcionadores (ex.: quantidade × preço × índice, fórmulas tipo `=ANTERIOR()*1,05`). Linhas de formulário podem alimentar `fat_orcado` (ver `origem_formulario_linha_id`).
 
 ### Tabelas de fato
-- **`fat_orcado`** — orçado por `versao_id` × `linha_id` (relatorio_linha) × `empresa_id` × `filial_id` × `cc_id` × `ano`/`mes`. Tem `valor` **ou** `expressao` (célula calculada). `dims jsonb` para dimensões opcionais do tenant (funcionário, verba, projeto…). `origem ∈ MANUAL | FORMULARIO`. Unique por `(versao, linha, empresa, COALESCE(filial), COALESCE(cc), ano, mes, dims::text)`.
+- **`fat_orcado`** — ⚠ **`linha_id` é a `conta_orcamentaria` (o MASTER), não `relatorio_linha`** —
+  este documento dizia o contrário e a correção custou uma tela que somava por id de linha de
+  relatório e vinha **toda vazia, sem erro nenhum**, porque os dois lados são `uuid` e não casam.
+  A ponte é `relatorio_linha.linha_orc_id`. Orçado por `versao_id` × `linha_id` × `empresa_id` × `filial_id` × `cc_id` × `ano`/`mes`. Tem `valor` **ou** `expressao` (célula calculada). `dims jsonb` para dimensões opcionais do tenant (funcionário, verba, projeto…). `origem ∈ MANUAL | FORMULARIO`. Unique por `(versao, linha, empresa, COALESCE(filial), COALESCE(cc), ano, mes, dims::text)`.
 - **`fat_realizado`** — razão do ERP (fluxo/movimentação, com sinal). `conta_id`, `linha_id` (nullable — resolvida via `conta_linha` na consulta), `empresa_id`, `filial_id`, `cc_id`, `ano`/`mes`, `valor`, `dims`. `origem ∈ ERP | MANUAL | IMPORT`. Importado em lotes (`lote`/`sublote`).
 - **`fat_saldo`** — balancete mensal do ERP (saldo final/estoque por conta/empresa/**filial**/ano/mês). O **Balanço** lê isto direto; a **DRE** usa `fat_realizado` (fluxo).
 
