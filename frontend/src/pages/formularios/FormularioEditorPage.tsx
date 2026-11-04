@@ -8,7 +8,7 @@ import { parseFormularioCsv } from '../../lib/importFormulario'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { parseNum, numToInput, formatValor, computeCenario, pkey } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Periodo } from '../../lib/engine'
-import { ChevronLeft, Lock, Plus, Trash2, ArrowUp, ArrowDown, Settings2, Play, Globe, Table } from 'lucide-react'
+import { ChevronLeft, Lock, Plus, Trash2, ArrowUp, ArrowDown, Settings2, Play, Globe, Table, Upload } from 'lucide-react'
 import FormulaCellInput from '../relatorios/FormulaCellInput'
 import { taxaOrcada, materializa } from '../../lib/cambio'
 import type { VersaoTaxaRow } from '../../lib/cambio'
@@ -79,7 +79,7 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
   // Carga por tabela larga. A calibragem do baseline é iterativa — o estudo
   // devolve o CSV, confere na tela, corrige e devolve de novo —, então isto
   // roda muitas vezes e precisa ser reversível, não um tiro só.
-  const [imp, setImp] = useState<{ txt: string; modo: 'substituir' | 'incluir'; prev: ReturnType<typeof parseFormularioCsv> | null; res: string[] | null } | null>(null)
+  const [imp, setImp] = useState<{ txt: string; modo: 'substituir' | 'incluir'; prev: ReturnType<typeof parseFormularioCsv> | null; res: string[] | null; arquivo?: string } | null>(null)
   const [importando, setImportando] = useState(false)
   const [cellsRefresh, setCellsRefresh] = useState(0)   // recarrega as células do escopo após a carga
   const [limpAberto, setLimpAberto] = useState(false)
@@ -1133,14 +1133,31 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
             )}
 
             {!imp.res && <>
+              {/* ⚠ `<input type="file">` cru vira TEXTO no tema escuro — "Escolher
+                  arquivo / Nenhum arquivo escolhido" não parece controle, e
+                  não se descobre onde clicar. Era o único do app ainda cru:
+                  as outras 14 importações já escondem o input atrás de um
+                  botão, e esta passa a seguir o mesmo padrão. */}
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
-                <input type="file" accept=".csv,.txt" disabled={importando}
-                  onChange={async e => { const f = e.target.files?.[0]; if (!f) return
-                    const t = await f.text(); setImp(x => x && ({ ...x, txt: t, prev: parseFormularioCsv(t) })) }} />
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>ou cole abaixo</span>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 34, padding: '0 13px',
+                                borderRadius: 8, border: '1px solid var(--violet)', color: 'var(--violet)',
+                                background: 'transparent', fontSize: 13, fontWeight: 600,
+                                cursor: importando ? 'default' : 'pointer', opacity: importando ? 0.5 : 1 }}>
+                  <Upload size={14} /> Escolher arquivo
+                  <input type="file" accept=".csv,.txt" disabled={importando} style={{ display: 'none' }}
+                    onChange={async e => { const f = e.target.files?.[0]; if (!f) return
+                      const t = await f.text()
+                      setImp(x => x && ({ ...x, txt: t, prev: parseFormularioCsv(t), arquivo: f.name }))
+                      e.target.value = '' }} />
+                </label>
+                {/* O nome do arquivo escolhido sumia junto com o input cru — e é
+                    o que diz que a escolha pegou. */}
+                {imp.arquivo
+                  ? <span style={{ fontSize: 12, color: 'var(--text-mid)' }}>{imp.arquivo}</span>
+                  : <span style={{ fontSize: 12, color: 'var(--muted)' }}>ou cole abaixo</span>}
               </div>
               <textarea value={imp.txt} disabled={importando} spellCheck={false}
-                onChange={e => setImp(x => x && ({ ...x, txt: e.target.value, prev: e.target.value.trim() ? parseFormularioCsv(e.target.value) : null }))}
+                onChange={e => setImp(x => x && ({ ...x, txt: e.target.value, arquivo: undefined, prev: e.target.value.trim() ? parseFormularioCsv(e.target.value) : null }))}
                 placeholder="empresa;filial;cc;linha;jan;fev;mar;abr;mai;jun;jul;ago;set;out;nov;dez"
                 style={{ width: '100%', height: 120, fontFamily: 'monospace', fontSize: 11.5, padding: 8, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }} />
 
