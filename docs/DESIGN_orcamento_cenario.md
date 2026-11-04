@@ -185,6 +185,20 @@ desde então, o merge grava **o valor aprovado** (foi o que se aprovou) e
 que está sobrescrevendo. Recusar silenciosamente seria pior; sobrescrever sem
 dizer, também.
 
+### Como se sabe o que o cenário propôs — e a coluna que mentia
+
+⚠⚠ `fat_orcado.atualizado_em` **nunca era atualizado**: default `now()` e
+nenhum caminho de escrita a enviava no `update`. Uma coluna chamada
+"atualizado_em" que só sabia a hora do INSERT. (`formulario_valor` já tinha
+gatilho de touch; esta não.) A `v3_173` põe o gatilho, **só no UPDATE** — o
+INSERT já tem o default, e assim semear 24 mil células não paga nada.
+
+Com ela, o teste é exato: `copiar_versao` cria a versão e semeia na **mesma
+transação**, então `now()` é idêntico nos dois e a célula semeada nasce com
+`atualizado_em = versao.criado_em`. Logo `atualizado_em > criado_em` significa
+"mexida depois do semear" — que é a pergunta certa. O teste ingênuo ("difere da
+baseline") devolve a célula errada, que é exatamente o caso do exemplo acima.
+
 ### Guardas
 
 - a baseline **não pode estar `bloqueada`**;
@@ -199,7 +213,7 @@ dizer, também.
 |---|---|
 | **B1** | ✅ `origem_versao_id` + `copiar_versao` + criar cenário pela tela (`v3_171`) |
 | **B2** | ✅ modo comparativo em `/orcar-linha` + `orcado_veredito` + vereditos (`v3_172`) |
-| **B3** | o merge, com relatório do que foi escrito e do que ficou de fora |
+| **B3** | ✅ o merge, com prévia e relatório do que ficou de fora (`v3_173`) |
 | **B4** | ~~limpeza do grão misto~~ — não bloqueia (ver § 4); virou higiene de 2026 |
 
 ## 8. Fora de escopo, de propósito

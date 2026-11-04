@@ -11,6 +11,7 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 import DrillCombinacoes from './DrillCombinacoes'
 import NovoCenario from './NovoCenario'
 import VereditoLinha, { type Veredito } from './VereditoLinha'
+import LiberarCenario from './LiberarCenario'
 
 // ============================================================
 // Orçar por LINHA — a visão de quem analisa, não de quem digita célula.
@@ -103,7 +104,7 @@ export default function OrcarLinhaPage() {
   const [modoComp, setModoComp] = useState(true)
   const [soAlteradas, setSoAlteradas] = useLocalPref<boolean>(`${pref}_soalteradas`, false)
   const [fechando, setFechando] = useState(false)
-  const [carimbo, setCarimbo] = useState<{ em: string | null; nota: string | null }>({ em: null, nota: null })
+  const [carimbo, setCarimbo] = useState<{ em: string | null; nota: string | null; mesclado: string | null }>({ em: null, nota: null, mesclado: null })
 
   useEffect(() => {
     (async () => {
@@ -274,16 +275,16 @@ export default function OrcarLinhaPage() {
 
   // Vereditos e carimbo do cenário.
   useEffect(() => {
-    if (!baseId || !versaoId) { setVereditos({}); setCarimbo({ em: null, nota: null }); return }
+    if (!baseId || !versaoId) { setVereditos({}); setCarimbo({ em: null, nota: null, mesclado: null }); return }
     let vivo = true
     ;(async () => {
       const [vr, vs] = await Promise.all([
         supabase.from('orcado_veredito').select('linha_id,aprovado,nota,aprov_nota').eq('versao_id', versaoId),
-        supabase.from('versao_orcamento').select('aprovado_em,aprovacao_nota').eq('id', versaoId).maybeSingle(),
+        supabase.from('versao_orcamento').select('aprovado_em,aprovacao_nota,mesclado_em').eq('id', versaoId).maybeSingle(),
       ])
       if (!vivo) return
       setVereditos(Object.fromEntries((vr.data || []).map((r: any) => [r.linha_id, r as Veredito])))
-      setCarimbo({ em: vs.data?.aprovado_em || null, nota: vs.data?.aprovacao_nota || null })
+      setCarimbo({ em: vs.data?.aprovado_em || null, nota: vs.data?.aprovacao_nota || null, mesclado: vs.data?.mesclado_em || null })
     })()
     return () => { vivo = false }
   }, [versaoId, baseId, recarga])
@@ -301,7 +302,7 @@ export default function OrcarLinhaPage() {
     setVereditos(v => ({ ...v, [master]: { aprovado, nota: v[master]?.nota ?? null, aprov_nota: aprovado ? null : (nota ?? null) } }))
     // O gatilho da v3_172 derruba o carimbo quando um veredito muda — a tela
     // espelha na hora, senão o selo "fechado" continua ali mentindo até o F5.
-    setCarimbo({ em: null, nota: null })
+    setCarimbo(c => ({ ...c, em: null, nota: null }))
   }
 
   async function responder(master: string, nota: string) {
@@ -310,7 +311,7 @@ export default function OrcarLinhaPage() {
     if (error) { setErro(error.message); return }
     setErro('')
     setVereditos(v => ({ ...v, [master]: { aprovado: null, nota, aprov_nota: v[master]?.aprov_nota ?? null } }))
-    setCarimbo({ em: null, nota: null })
+    setCarimbo(c => ({ ...c, em: null, nota: null }))
   }
 
   async function fechar() {
@@ -319,7 +320,7 @@ export default function OrcarLinhaPage() {
     setFechando(false)
     if (error) { setErro(error.message); return }
     const r: any = Array.isArray(data) ? data[0] : data
-    setErro(''); setCarimbo({ em: r?.aprovado_em || new Date().toISOString(), nota: null })
+    setErro(''); setCarimbo(c => ({ ...c, em: r?.aprovado_em || new Date().toISOString(), nota: null }))
   }
 
   if (loading) return <div style={{ padding: 28, color: 'var(--muted)' }}>Carregando…</div>
@@ -465,9 +466,20 @@ export default function OrcarLinhaPage() {
               A baseline é lida com o <b>mesmo filtro</b> desta tela — o Δ é de proposta, não de recorte.
             </div>
           </div>
-          {carimbo.em ? (
+          {carimbo.mesclado ? (
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--green)' }}>
-              <BadgeCheck size={16} /> Fechado em {new Date(carimbo.em).toLocaleDateString('pt-BR')}
+              <BadgeCheck size={16} /> Liberado na baseline em {new Date(carimbo.mesclado).toLocaleDateString('pt-BR')}
+            </div>
+          ) : carimbo.em ? (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--green)' }}>
+                <BadgeCheck size={16} /> Fechado em {new Date(carimbo.em).toLocaleDateString('pt-BR')}
+              </span>
+              {podeAprovar && (
+                <LiberarCenario versaoId={versaoId} codigo={versao?.codigo}
+                  baselineCodigo={versoes.find(v => v.id === baseId)?.codigo}
+                  onLiberado={() => { setCarimbo(c => ({ ...c, mesclado: new Date().toISOString() })); setRecarga(r => r + 1) }} />
+              )}
             </div>
           ) : podeAprovar && (
             <button onClick={fechar} disabled={fechando || resumoCenario.pendentes > 0}
