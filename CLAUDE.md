@@ -73,6 +73,54 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > duas pontas no drill) em vez de deixar o número mentir; na grade é invisível, porque cada grão
 > fica atrás de um filtro diferente.
 
+> **Cenário de ORÇAMENTO — o cenário É a versão (`v3_171..173`, nov/2026).** Desenho em
+> `docs/DESIGN_orcamento_cenario.md`. Diferente dos postos — que precisaram de `posto_versao`
+> porque o posto é único e atravessa versões — `fat_orcado` já tem `versao_id`, então **não há
+> tabela de sobreposição**. `versao_orcamento.origem_versao_id` é o que torna a versão um cenário:
+> sem origem é baseline, com origem é proposta. **Um cenário por área**, o que dissolve de graça o
+> escopo da aprovação: a versão já é da área. O controle de acesso sai **zerado de código** — o
+> RLS de `fat_orcado` recorta por versão desde a `v3_137`, então "liberar o orçamento para a área"
+> é dar `ORCAR` na versão dela, em Configurações.
+>
+> ⚠ **Só admin semeia** (`copiar_versao`): a função é `SECURITY DEFINER` e copia a baseline
+> inteira sem olhar escopo — na mão do gerente seria o caminho para materializar numa versão sua
+> o orçado de áreas que ele não vê. **Semeia todas as origens**, embora o merge escreva só
+> `MANUAL`: sem POSTO e FORMULARIO o cenário mostraria a área sem 70% do próprio custo e o Δ não
+> significaria nada. **Cenário de cenário não** — empilhar Δ sobre Δ deixa o comparativo sem
+> referência.
+>
+> **Veredito por LINHA** (`orcado_veredito`), não por célula: 82 linhas contra 89 mil células, e a
+> conversa real é "esse aumento de viagens não passa". `linha_id` é `conta_orcamentaria` (o
+> MASTER). Mecânica idêntica à dos postos, que já se provou: recusa exige motivo, `nota` é de quem
+> propõe e `aprov_nota` de quem aprova, pendente trava e **recusada não** (recusar é decidir: a
+> linha fica com a baseline). `cenario.aprovar` passou a reger **os dois** cenários — o rótulo
+> dizia "de postos" e quem liberasse acharia estar liberando só aquilo.
+>
+> ⚠ **O conjunto que exige veredito é CALCULADO** (`cenario_orcado_diff`), não cadastrado:
+> guardar a lista no momento da proposta a deixaria velha na primeira edição seguinte, e o
+> carimbo passaria a certificar um conjunto que não existe mais. O `FULL JOIN` ali é porque
+> **zerar também é alteração**.
+>
+> ⚠ **Gatilho de COMANDO, não de linha.** O que derruba o carimbo quando o orçado muda usa tabela
+> de transição (`REFERENCING NEW TABLE`): por linha, semear 24 mil células emitiria 24 mil
+> `UPDATE` em `versao_orcamento`. São três gatilhos porque INSERT só enxerga `NEW TABLE` e DELETE
+> só `OLD TABLE`.
+>
+> ⚠⚠ **`fat_orcado.atualizado_em` NUNCA ERA ATUALIZADO** (consertado na `v3_173`): default `now()`
+> e nenhum caminho de escrita a enviava no `update` — uma coluna chamada "atualizado_em" que só
+> sabia a hora do INSERT (`formulario_valor` já tinha o gatilho de touch; esta não). O merge
+> depende dela, e o gatilho é **só no UPDATE**, para o semear não pagar nada.
+>
+> ⚠⚠ **O merge grava o que o cenário MEXEU, nunca "o que difere".** `copiar_versao` cria a versão
+> e semeia na mesma transação, então a célula semeada nasce com `atualizado_em = criado_em`, e
+> `atualizado_em > criado_em` quer dizer "mexida depois do semear". O teste ingênuo devolve a
+> célula errada: se a controladoria ajustou março da baseline depois do semear, março *difere* sem
+> que o cenário o tenha tocado — e "o que difere" o devolveria ao valor antigo, apagando o ajuste
+> em silêncio. Além disso o merge só escreve **linha aprovada** e **origem `MANUAL`**, apaga o que
+> o cenário zerou **só se já existia no semear**, e **reporta sem deixar de gravar** dois casos:
+> caiu sobre mudança posterior da controladoria, e caiu sobre valor gerado (que a próxima
+> aplicação de posto/formulário regrava). `p_simular` é o **default** — a tela simula, não libera.
+
 > **Split do editor (F1):** `RelatorioEditorPage` recebe a prop `mode ∈ consulta | orcar | estrutura`. É **um componente só** com três experiências — `consulta` (só leitura), `orcar` (edita só o orçado; realizado nunca é digitado, vem do ERP) e `estrutura` (edita a árvore/fórmulas, sem meses/visões/filtros). Não são três páginas separadas.
 
 Páginas **não roteadas** (legado, manter cautela antes de reusar): `orcamento/OrcamentoPage.tsx`, `templates/TemplatePage.tsx`, `templates/TemplateEditorPage.tsx`, `lancamentos/LancamentosPage.tsx`. (`/dre` → `DrePage` está roteada mas é legado.)
@@ -644,7 +692,7 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
 
 **Roadmap — fases:**
 - **F3** — grade de Orçar dedicada (empresa×filial×CC, escopo ORÇAR) + Importar Baseline. ✅ **concluída**.
-- **F4** — workflow / governança / aprovação (submeter, aprovar/rejeitar versão, travar). ⬜
+- **F4** — workflow / governança / aprovação. 🟢 **feita para o orçamento** (`v3_171..173`, nov/2026) — ver *Cenário de orçamento* abaixo. Falta: alçada por valor e mais de um aprovador.
 - **F5** — métodos avançados de orçamentação: formulário de **drivers** (qtd×preço, `=ANTERIOR()`), posto de trabalho/folha, presets. 🟡 *(em andamento — jul/2026)*. Já feito: `formulario`/`formulario_linha`/`formulario_valor` (v3_049); editor split por `mode ∈ estrutura | preencher` (`/formularios/:id` e `/formularios/:id/estrutura`, mesmo padrão da F1 — a **estrutura é genérica**, sem empresa/filial; o preenchimento/Aplicar é por versão×empresa×filial); **premissas globais** (v3_050: `formulario_valor.empresa_id NULL` = vale para todas as empresas; grade da empresa herda em itálico e sobrescreve por célula, vazio volta a herdar; opção 🌐 no seletor de empresa; Aplicar desabilitado no escopo global).
 
   **Receitas (out/2026)** — três metas, **um formulário cada**, porque as metas comerciais são separadas: `MRR` (recorrente), `VENDAS_NR` (não recorrente), `SERVICO`. Estrutura, decisões e armadilhas em `docs/DESIGN_receitas.md`; os prompts do estudo em `docs/PROMPT_estudo_baseline_mrr.md` e `docs/PROMPT_estudo_nr_servicos.md`. A fronteira que evita contagem dupla: a conta **10201 recebe TODA comissão recorrente**, qualquer que seja a origem, então o `BASE` do MRR já contém a carteira histórica inteira — e o formulário de NR **não tem estoque inicial de propósito**, projetando só a mensalidade nova do ano. Dois vícios do motor moldaram o desenho: **`ANTERIOR()` não atravessa o ano** (daí os drivers `METADEZ` no MRR e `PARCANT` no NR, que o estudo preenche mês a mês) e **célula vazia vale ZERO, não "neutro"** (daí todo percentual precisar dos 12 meses, e o `NP = SE([NPARC] < 1; 6; [NPARC])` que impede um escopo esquecido de zerar a receita NR inteira).
