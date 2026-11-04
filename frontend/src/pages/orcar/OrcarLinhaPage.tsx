@@ -347,13 +347,19 @@ export default function OrcarLinhaPage() {
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 16 }}>
         <div><div style={S.lbl}>Versão</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {/* Cenário aparece recuado e marcado: a baseline e a proposta
-                estão no mesmo combo, e confundi-las é digitar no orçamento
-                oficial pensando estar propondo. */}
+            {/* O cenário diz de QUAL baseline saiu, por extenso.
+                ⚠ Antes vinha recuado com `↳`, e recuo em <option> é lido como
+                "filho do item de cima" — que é o vizinho da lista, não a
+                origem. O combo afirmava uma ascendência errada sem nenhum dado
+                errado por trás. Hierarquia não cabe num <select>; o nome cabe. */}
             <select style={S.sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>
               <option value="">— selecione —</option>
               {versoes.map(v => <option key={v.id} value={v.id}>
-                {v.origem_versao_id ? '↳ ' : ''}{v.codigo}{v.origem_versao_id ? ' · cenário' : ''}{v.bloqueada ? ' 🔒' : ''}
+                {v.codigo}
+                {v.origem_versao_id
+                  ? ` · cenário de ${versoes.find(b => b.id === v.origem_versao_id)?.codigo || 'outra versão'}`
+                  : ''}
+                {v.bloqueada ? ' 🔒' : ''}
               </option>)}
             </select>
             {acesso.isAdmin && (
@@ -464,9 +470,11 @@ export default function OrcarLinhaPage() {
           <div style={{ flex: 1, minWidth: 260, fontSize: 12.5, color: 'var(--text)', lineHeight: 1.55 }}>
             <b>{versao?.codigo}</b> contra <b>{versoes.find(v => v.id === baseId)?.codigo || 'baseline'}</b>
             {' · '}{resumoCenario.mudadas} linha(s) alterada(s)
-            {resumoCenario.pendentes > 0
-              ? <span style={{ color: 'var(--orange)' }}>{` · ${resumoCenario.pendentes} sem veredito`}</span>
-              : <span style={{ color: 'var(--green)' }}> · todas decididas</span>}
+            {resumoCenario.mudadas === 0
+              ? <span style={{ color: 'var(--muted)' }}> · nada proposto ainda</span>
+              : resumoCenario.pendentes > 0
+                ? <span style={{ color: 'var(--orange)' }}>{` · ${resumoCenario.pendentes} sem veredito`}</span>
+                : <span style={{ color: 'var(--green)' }}> · todas decididas</span>}
             <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
               A baseline é lida com o <b>mesmo filtro</b> desta tela — o Δ é de proposta, não de recorte.
             </div>
