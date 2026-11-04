@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { GitBranch, X, Loader2 } from 'lucide-react'
+import { GitBranch, X, Loader2, AlertTriangle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 
 // ============================================================
@@ -121,12 +121,12 @@ export default function NovoCenario({ versoes, baseSugerida, onCriado }: {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 12 }}>
               <div>
                 <div style={S.lbl}>Código</div>
-                <input style={S.inp} value={codigo} maxLength={40} placeholder="2027_COMERCIAL"
+                <input style={S.inp} value={codigo} maxLength={40} placeholder="ex.: 2027_COMERCIAL"
                   onChange={e => setCodigo(e.target.value.toUpperCase())} />
               </div>
               <div>
                 <div style={S.lbl}>Descrição</div>
-                <input style={S.inp} value={descricao} placeholder="2027 · Comercial"
+                <input style={S.inp} value={descricao} placeholder="ex.: 2027 · Comercial"
                   onChange={e => setDescricao(e.target.value)} />
               </div>
             </div>
@@ -134,10 +134,26 @@ export default function NovoCenario({ versoes, baseSugerida, onCriado }: {
             <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12.5, color: 'var(--text)', cursor: 'pointer' }}>
               <input type="checkbox" checked={semear} onChange={e => setSemear(e.target.checked)} style={{ marginTop: 2 }} />
               <span>Copiar o orçado da baseline
-                <span style={{ color: 'var(--muted)' }}> — sem isso o cenário nasce vazio e o comparativo
-                mostra a área toda como corte. Copia <b>todas as origens</b> (posto, formulário, manual);
-                a liberação depois escreve só o que é manual.</span></span>
+                <span style={{ color: 'var(--muted)' }}> — copia a <b>baseline inteira</b>, todas as
+                origens (posto, formulário, manual). <b>O filtro da tela não entra aqui:</b> o cenário é
+                a versão inteira, e quem enxerga e edita o quê continua sendo o escopo de acesso de cada
+                pessoa. A liberação depois escreve só o que é manual e só o que foi alterado.</span></span>
             </label>
+
+            {/* ⚠ Cenário vazio é só ADITIVO, e isso precisa ser dito: do
+                contrário parece que ele "parte do zero" e que apagar é
+                possível por omissão — que é justamente o que a v3_175
+                impediu no banco. */}
+            {!semear && (
+              <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12,
+                            color: 'var(--orange)', background: 'rgba(245,158,11,0.10)',
+                            border: '1px solid rgba(245,158,11,0.4)', borderRadius: 8, padding: '9px 11px', lineHeight: 1.5 }}>
+                <AlertTriangle size={14} style={{ marginTop: 1, flexShrink: 0 }} />
+                <span>O cenário nasce <b>vazio</b>: o comparativo mostrará a área toda como corte, e a
+                liberação será <b>só aditiva</b> — o que não estiver nele não é tratado como proposta de
+                apagar.</span>
+              </div>
+            )}
 
             {erro && <div style={{ fontSize: 12.5, color: 'var(--red)' }}>{erro}</div>}
 
@@ -145,9 +161,15 @@ export default function NovoCenario({ versoes, baseSugerida, onCriado }: {
               <button onClick={() => setAberto(false)} disabled={salvando}
                 style={{ height: 34, padding: '0 14px', borderRadius: 8, border: '1px solid var(--border-strong)',
                          background: 'transparent', color: 'var(--text)', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+              {/* ⚠ Botão desabilitado tem de PARECER desabilitado: antes só
+                  esmaecia durante o salvamento, então sem código ele ficava
+                  roxo, convidativo e inerte — e quem clica e não vê nada
+                  acontecer procura defeito em vez de preencher o campo. */}
               <button onClick={criar} disabled={salvando || !base || !codigo.trim()}
-                style={{ height: 34, padding: '0 16px', borderRadius: 8, border: 'none', background: 'var(--violet)',
-                         color: '#fff', fontSize: 13, fontWeight: 600,
+                title={!codigo.trim() ? 'Dê um código ao cenário para continuar' : undefined}
+                style={{ height: 34, padding: '0 16px', borderRadius: 8, border: 'none',
+                         background: !base || !codigo.trim() ? 'var(--panel-2)' : 'var(--violet)',
+                         color: !base || !codigo.trim() ? 'var(--muted)' : '#fff', fontSize: 13, fontWeight: 600,
                          cursor: salvando || !base || !codigo.trim() ? 'default' : 'pointer', opacity: salvando ? 0.7 : 1,
                          display: 'inline-flex', alignItems: 'center', gap: 7 }}>
                 {salvando && <Loader2 size={14} className="animate-spin" />}

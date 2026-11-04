@@ -121,6 +121,17 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > caiu sobre mudança posterior da controladoria, e caiu sobre valor gerado (que a próxima
 > aplicação de posto/formulário regrava). `p_simular` é o **default** — a tela simula, não libera.
 
+> ⚠⚠ **Ausência só é proposta de APAGAR em cenário semeado (`v3_175`).** O merge trata "célula na
+> baseline sem par no cenário" como pedido de exclusão — certo, porque o drill **apaga a linha de
+> fato** ao limpar a célula (`.delete()`, não `valor = null`). Mas desmarcar *Copiar o orçado*
+> cria o cenário vazio, e aí **toda** célula manual de linha aprovada ficaria sem par: a baseline
+> inteira daquela linha ia embora por um checkbox. Hoje `semeado_em` registra a cópia e a
+> exclusão só é inferida quando ela existe — cenário vazio é **só aditivo**.
+> ⚠ **É a mesma razão pela qual o semear ignora o filtro da tela** (pergunta certa do Ricardo ao
+> criar o primeiro cenário, com o CSC filtrado): copiar só o recorte de quem cria faria toda
+> célula fora dele parecer proposta de exclusão. O cenário é a **versão inteira**; quem vê e
+> edita o quê é o escopo de acesso, que já vale no RLS por versão.
+>
 > ⚠⚠ **A autoridade de aprovar existia na FUNÇÃO e faltava na TABELA (`v3_174`).** Achado ao
 > conferir a v3_172, e valia para os **postos desde a v3_165**: `pode_aprovar_cenario()` existe, as
 > RPCs a chamam, e as tabelas aceitavam escrita direta de qualquer `member` pela API — um `PATCH`
