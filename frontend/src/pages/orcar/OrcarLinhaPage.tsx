@@ -9,6 +9,7 @@ import { useLocalPref } from '../../lib/uiPrefs'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import DrillCombinacoes from './DrillCombinacoes'
+import NovoCenario from './NovoCenario'
 
 // ============================================================
 // Orçar por LINHA — a visão de quem analisa, não de quem digita célula.
@@ -26,8 +27,13 @@ import DrillCombinacoes from './DrillCombinacoes'
 // decidir em qual combinação aquilo cai. As saídas seriam ratear (regra nova,
 // que engana — você digita 100, vê 100, e virou 37+41+22) ou gravar numa linha
 // de filial/CC nulos, que é como a grade trata "— consolidado —" e é a origem
-// das 15.613 linhas de grão consolidado e dos 122 grupos MISTOS que existem
-// hoje. Por isso: aqui se lê o total e se edita no DRILL, na combinação.
+// das 15.613 linhas de grão consolidado e de 50 dos 122 grupos MISTOS (conta
+// 20601, versão de 2026). Por isso: aqui se lê o total e se edita no DRILL.
+//
+// Os outros 72 grupos NÃO vêm da digitação: são rateio de posto cujo destino
+// não tem CC (19 dos 25 `rateio_destino`), e aí os dois lados somam em vez de
+// se sobrepor. Medido em 04/nov — vale saber antes de sair "consertando" o
+// aviso ⚠ como se fosse tudo a mesma causa. 2027 não tem nenhum dos dois.
 //
 // ⚠ `fat_orcado.linha_id` É O MASTER (`conta_orcamentaria`), não `relatorio_linha`.
 // O CLAUDE.md dizia o contrário e foi o que me fez escrever a primeira versão
@@ -43,7 +49,7 @@ import DrillCombinacoes from './DrillCombinacoes'
 
 type Linha = { id: string; pai_id: string | null; codigo: string; descricao: string; tipo_linha: any; expressao: string | null; natureza: string | null; linha_orc_id: string | null; desativada: boolean; nao_soma: boolean; ordem: number | null }
 type Opt = { id: string; codigo: string; descricao: string }
-type Versao = { id: string; codigo: string; ano: number; bloqueada: boolean }
+type Versao = { id: string; codigo: string; ano: number; bloqueada: boolean; origem_versao_id: string | null; aprovado_em: string | null }
 
 const MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
@@ -96,7 +102,7 @@ export default function OrcarLinhaPage() {
       const [rel, lr, vs, emp, fl, cc] = await Promise.all([
         supabase.from('relatorio').select('nome').eq('id', relId).maybeSingle(),
         supabase.from('relatorio_linha').select('id,pai_id,codigo,descricao,tipo_linha,expressao,natureza,linha_orc_id,desativada,nao_soma,ordem').eq('relatorio_id', relId).order('ordem', { nullsFirst: false }),
-        carregarVersoes('id,codigo,ano,bloqueada', { ativa: true, ordem: 'ano_desc' }).then(d => ({ data: d })),
+        carregarVersoes('id,codigo,ano,bloqueada,origem_versao_id,aprovado_em', { ativa: true, ordem: 'ano_desc' }).then(d => ({ data: d })),
         supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
         supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
         supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
@@ -109,6 +115,15 @@ export default function OrcarLinhaPage() {
       setLoading(false)
     })()
   }, [relId])
+
+  // Depois de semear, a lista de versões tem de incluir a nova — e a tela tem
+  // de ir para ela, senão quem acabou de criar o cenário continua olhando a
+  // baseline e edita o lugar errado.
+  async function recarregarVersoes(selecionar?: string) {
+    const vs = await carregarVersoes('id,codigo,ano,bloqueada,origem_versao_id,aprovado_em', { ativa: true, ordem: 'ano_desc' })
+    setVersoes((vs || []) as Versao[])
+    if (selecionar) setVersaoId(selecionar)
+  }
 
   const empresasEscopo = useMemo(() => acesso.filterList('empresa', empresas as any) as Opt[], [empresas, acesso])
   // Seleção de tela ∩ escopo do usuário — `escopoFiltro` faz a interseção, e
@@ -224,10 +239,21 @@ export default function OrcarLinhaPage() {
 
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 16 }}>
         <div><div style={S.lbl}>Versão</div>
-          <select style={S.sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>
-            <option value="">— selecione —</option>
-            {versoes.map(v => <option key={v.id} value={v.id}>{v.codigo}{v.bloqueada ? ' 🔒' : ''}</option>)}
-          </select></div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {/* Cenário aparece recuado e marcado: a baseline e a proposta
+                estão no mesmo combo, e confundi-las é digitar no orçamento
+                oficial pensando estar propondo. */}
+            <select style={S.sel} value={versaoId} onChange={e => setVersaoId(e.target.value)}>
+              <option value="">— selecione —</option>
+              {versoes.map(v => <option key={v.id} value={v.id}>
+                {v.origem_versao_id ? '↳ ' : ''}{v.codigo}{v.origem_versao_id ? ' · cenário' : ''}{v.bloqueada ? ' 🔒' : ''}
+              </option>)}
+            </select>
+            {acesso.isAdmin && (
+              <NovoCenario versoes={versoes} baseSugerida={versao?.origem_versao_id || versaoId}
+                onCriado={id => recarregarVersoes(id)} />
+            )}
+          </div></div>
         <div><div style={S.lbl}>Filtros</div>
           <FiltrosButton
             empresas={acesso.filterList('empresa', empresas as any) as any}
