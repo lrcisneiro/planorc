@@ -927,6 +927,18 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `set_config('request.jwt.claims', …)` + `SET LOCAL ROLE authenticated` — sem trocar de papel, o
   dono das tabelas ignora RLS e toda contagem volta cheia. Padrão em
   `seguranca_passo2_naoregressao.sql`.
+- ⚠⚠ **Paginar sem `ORDER BY` repete linhas e perde outras** (nov/2026). `range(0,999)` e
+  `range(1000,1999)` são **duas consultas independentes**: sem ordenação o Postgres não promete a
+  mesma sequência entre elas — basta um plano paralelo ou outra execução. Não dá erro; devolve um
+  conjunto *quase* certo, que erra em proporção ao tamanho da tabela.
+  **Como apareceu:** um cenário de orçamento recém-copiado — dado idêntico, provado no banco
+  (24.454 = 24.454, soma igual, `cenario_orcado_diff` = 0) — mostrou **74 linhas divergentes** na
+  tela, algumas com 30% a mais. As linhas de poucas células vinham iguais, as de milhares não:
+  assinatura exata de duas paginações de 25 páginas sem ordem.
+  Hoje **`pageAll` impõe a ordem** (`id` por padrão, `{ orderBy }` para quem não tem `id`), e não
+  é convenção do chamador — eram 60 chamadas e a maioria não ordenava; convenção voltaria a
+  faltar na próxima. Quando não consegue ordenar (view sem `id`, coluna sem `GRANT`), segue sem
+  ordem mas **reclama no console** em vez de devolver aproximação calada.
 - **Paginação obrigatória:** o PostgREST corta em **1000 linhas por chamada, sem erro**. Todo `.select()` numa tabela que cresce com o negócio (fatos `fat_*`, plano de contas `conta_contabil`/`conta_orcamentaria`, junções `posto_verba`/`posto_rateio`, dropdowns de competência distinct) DEVE usar o helper `pageAll()` de `frontend/src/lib/pageAll.ts`. Dispensam: `.single()`/`.maybeSingle()`, `.in(ids.slice(...))` já em lotes, e catálogos naturalmente pequenos (empresa, filial, versão, sindicato). Sintoma de esquecer: "sumiu gente/conta" que só aparece quando a base passa de 1000.
 
 ## Como rodar
