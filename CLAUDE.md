@@ -121,6 +121,23 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > caiu sobre mudança posterior da controladoria, e caiu sobre valor gerado (que a próxima
 > aplicação de posto/formulário regrava). `p_simular` é o **default** — a tela simula, não libera.
 
+> ⚠⚠ **A autoridade de aprovar existia na FUNÇÃO e faltava na TABELA (`v3_174`).** Achado ao
+> conferir a v3_172, e valia para os **postos desde a v3_165**: `pode_aprovar_cenario()` existe, as
+> RPCs a chamam, e as tabelas aceitavam escrita direta de qualquer `member` pela API — um `PATCH`
+> em `posto_versao` com `{"aprovado": true}` passava, porque a policy de escrita só exige
+> `pode_escrever()`. O comentário da v3_165 dizia que sem a função "o controle vira teatro"; a
+> função foi escrita e a porta ficou aberta do lado de fora. **ACS-02 de novo: `pg_proc`
+> confirmava que a autoridade existia, e só o GRANT mostrou que ela não valia.**
+> Fecham por caminhos diferentes porque as tabelas são diferentes: `orcado_veredito` **só** guarda
+> veredito e nada legítimo a escreve direto, então some a escrita inteira (resta `SELECT`);
+> `posto_versao` guarda a proposta **e** o veredito na mesma linha, e a proposta é escrita pela
+> grade — logo o corte é **por coluna**, concedida **por regra** (lição da v3_148). `DELETE` fica:
+> abandonar a decisão é ato de quem propõe. Prova em `prova_veredito_fechado.sql`, que confere
+> também que a **proposta continua passando** — controle que impede o trabalho legítimo volta
+> desligado amanhã.
+> ⚠ **Ao criar tabela nova cujo valor seja uma DECISÃO** (aprovação, liberação, travamento), a
+> RPC que a escreve não basta: conferir o `GRANT` da tabela no mesmo passo.
+
 > **Split do editor (F1):** `RelatorioEditorPage` recebe a prop `mode ∈ consulta | orcar | estrutura`. É **um componente só** com três experiências — `consulta` (só leitura), `orcar` (edita só o orçado; realizado nunca é digitado, vem do ERP) e `estrutura` (edita a árvore/fórmulas, sem meses/visões/filtros). Não são três páginas separadas.
 
 Páginas **não roteadas** (legado, manter cautela antes de reusar): `orcamento/OrcamentoPage.tsx`, `templates/TemplatePage.tsx`, `templates/TemplateEditorPage.tsx`, `lancamentos/LancamentosPage.tsx`. (`/dre` → `DrePage` está roteada mas é legado.)
