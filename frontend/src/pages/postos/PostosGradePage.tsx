@@ -713,8 +713,18 @@ export default function PostosGradePage() {
             const base = mensal[mi] * sin; if (!base) continue
             for (const cell of cells) {
               const valor = round2(base * cell.pct); if (!valor) continue
-              const mudouEmpresa = cell.empresa_id !== p.empresa_id
-              const filial_id = mudouEmpresa ? null : (p.filial_id || null)
+              // ⚠ A FILIAL É CONTÁBIL E NÃO ACOMPANHA O RATEIO. A empresa de destino
+              // é recorte GERENCIAL — o rateio move o custo entre áreas do grupo —,
+              // mas a entidade que contabilizou continua sendo a do posto. Por isso
+              // o par (empresa de destino × filial de origem) é o certo aqui, e não
+              // uma inconsistência, mesmo com `filial.empresa_id` apontando para
+              // outra: empresa é agrupadora, não matriz.
+              // Antes a filial era ANULADA quando a empresa mudava, e isso deixou
+              // 8.064 das 13.140 células de posto de 2027 (R$ 8,4 mi) sem filial —
+              // invisíveis para quem tiver escopo de filial, porque a policy de
+              // leitura exige `filial_id IS NOT NULL`, e origem do grão misto na
+              // tela de Orçar por linha.
+              const filial_id = p.filial_id || null
               const cc_id = cell.cc_id || null
               const dims: any = { posto: p.codigo, posto_id: p.id, nome: p.nome || null, matricula: p.matricula || null, cc_origem: p.cc_id || null, ...(cell.pct < 0.999999 ? { rateio_pct: round2(cell.pct * 100) } : {}) }
               const dk = JSON.stringify(Object.keys(dims).sort().reduce((o: any, k) => (o[k] = dims[k], o), {}))
