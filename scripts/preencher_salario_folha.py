@@ -1,133 +1,110 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-2º passo do import de postos: preenche `salario` no funcionarios_convertido.csv
-a partir da folha analítica (prgper02_emp*.xlsx), por REGIME (Ricardo, 09/jul):
+2º passo do import de postos: preenche a coluna `salario` do
+funcionarios_convertido.csv, que o export `Funcionarios.csv` do RH NÃO traz.
 
-    CLT        -> verba B39 (SALARIO BASE)
-    PROLABORE  -> verba 073 (PRO-LABORE)
-    PRESTADOR  -> verba 228 (PRESTACAO SERVICOS)
+    CLT / PRÓ-LABORE -> verba B39 (SALARIO BASE), do `srd.csv` do RH.zip
+    PRESTADOR        -> verbas 222 + 228 da folha do mês (folha_realizada_*.csv)
+    demitido (sit=D) -> em branco, sempre
 
-Soma as linhas da verba por (filial, matrícula). Bônus/comissões/férias ficam fora.
-Junção: filial = EMPRESA(2) + FILIAL(2) da folha  (20+01=2001, 25+01=2501…),
-        que bate com a filial derivada dos postos. matrícula normalizada a 6 díg.
+⚠ A VERSÃO ANTERIOR LIA O B39 DO `prgper02` E ISSO PAROU DE FUNCIONAR. O
+prgper02 é a *contabilização*, e o B39 é verba de referência — não gera
+lançamento, então não está lá. Em out/26: zero de 243 CLT com B39 no prgper02,
+124 no srd. Daí a fonte ter mudado para o movimento bruto.
 
-Uso: python3 scripts/preencher_salario_folha.py [postos.csv] [pasta_folha] [saida.csv]
+⚠ **ÚLTIMO B39 DISPONÍVEL POR PESSOA, não o do mês.** O srd de out/26 veio com
+só 16 pessoas no B39 (2.475 linhas contra ~12.000 dos meses anteriores) — a
+folha CLT do mês ainda não estava nele. Pegar "o B39 de outubro" deixaria 96 de
+97 CLT sem salário; pegar o último de cada pessoa resolve 96, com setembro.
+Salário-base é valor contratual e muda pouco, então a defasagem de um mês é
+aceitável — mas o script IMPRIME de que competência cada valor veio, porque
+essa escolha não pode ficar implícita.
+
+⚠ **CÉLULA EM BRANCO É "NÃO MEXER", não zero** — e isso só vale porque o
+importador foi corrigido junto (nov/2026): antes ele gravava `salario_base = 0`
+para linha sem salário, o que numa carga de rotina zerava os 339 postos que
+tinham valor. Quem está fora da folha (demitido, confidencial, caso pontual)
+sai em branco de propósito e mantém o que está no cadastro.
+
+Uso:
+  python3 scripts/preencher_salario_folha.py \
+      dados_rh/funcionarios_convertido_202610.csv \
+      dados_rh/folha_realizada_202610.csv \
+      dados_rh/folha_202610/rh/srd.csv \
+      [saida.csv]
 """
-import csv, glob, os, sys, openpyxl
-from collections import defaultdict, Counter
+import csv, sys, collections
 
-POSTOS    = sys.argv[1] if len(sys.argv) > 1 else 'dados_rh/funcionarios_convertido.csv'
-FOLHA_DIR = sys.argv[2] if len(sys.argv) > 2 else 'dados_rh'
-SAIDA     = sys.argv[3] if len(sys.argv) > 3 else POSTOS   # sobrescreve por padrão
+if len(sys.argv) < 4:
+    print(__doc__); sys.exit(1)
+POSTOS, FOLHA, SRD = sys.argv[1], sys.argv[2], sys.argv[3]
+SAIDA = sys.argv[4] if len(sys.argv) > 4 else POSTOS
 
-# verba(s) de salário-base por regime (soma as linhas). Exclui reembolsos
-# (223 translado, 168/224 despesas) e variáveis (231 bônus, 230 comissões).
-VERBA_BASE = {
-    'CLT':       ['B39'],           # salário base (referência contratual)
-    'PROLABORE': ['073'],           # pró-labore
-    'PRESTADOR': ['222', '228'],    # horas faturáveis + prestação de serviços (agregada PREST)
-}
+VERBA_PREST = ('222', '228')   # horas faturáveis + prestação de serviços
+norm = lambda m: (m or '').strip().zfill(6)
+# ⚠ o folha_realizada_*.csv sai do conversor com PONTO decimal ("1991.55").
+# Tratar o ponto como separador de milhar multiplicava tudo por 100 e deu
+# R$ 259 milhões de prestadores na primeira rodada — número tão absurdo que
+# saltou à vista; se fosse 10% errado teria passado.
+def num(t):
+    t = (t or '').strip()
+    if not t: return 0.0
+    if ',' in t: t = t.replace('.', '').replace(',', '.')   # formato brasileiro
+    try: return float(t)
+    except ValueError: return 0.0
 
-# Benefícios (VALOR_FIXO) — valor por PESSOA. O código no catálogo = CD_VERBA da folha.
-# Lê os códigos VALOR_FIXO do verbas_folha_import.xlsx; senão usa o fallback conhecido.
-def carregar_benef():
-    for f in ('verbas_folha_import.xlsx', 'dados_rh/verbas_folha_import.xlsx'):
-        if os.path.exists(f):
-            try:
-                ws = openpyxl.load_workbook(f, data_only=True)['Dados']
-                rows = list(ws.iter_rows(values_only=True)); h = {c: i for i, c in enumerate(rows[0])}
-                cods = [str(r[h['codigo']]).strip() for r in rows[1:]
-                        if r[h['codigo']] and str(r[h['tipo_calculo']]).strip() == 'VALOR_FIXO']
-                if cods:
-                    return cods
-            except Exception:
-                pass
-    return ['D49', 'A76', 'D50', 'A15', 'A51']   # VA/VR, médica, multibenef, VT, seguro
-BENEF = carregar_benef()
-
-def norm_mat(x) -> str:
-    return str(x).strip().split('.')[0].zfill(6)   # 2 -> '000002' ; '900000' -> '900000'
-
-def filial_folha(emp, fil) -> str:
-    return f'{str(emp).strip().zfill(2)}{str(fil).strip().zfill(2)}'   # 20,01 -> 2001
-
-# ── 1) indexa a folha: (filial, matrícula) -> { verba: soma(VALOR) } ──
-idx = defaultdict(lambda: defaultdict(float))
-arquivos = sorted(glob.glob(os.path.join(FOLHA_DIR, 'prgper02_emp*.xlsx')))
-if not arquivos:
-    print(f'ERRO: nenhum prgper02_emp*.xlsx em "{FOLHA_DIR}"'); sys.exit(1)
-for fn in arquivos:
-    wb = openpyxl.load_workbook(fn, data_only=True, read_only=True); ws = wb.active
-    # O cabeçalho NÃO fica numa linha fixa: o prgper02 mudou de layout em set/2026
-    # e passou de linha 2 para linha 7 (ganhou Dt.Ref/Hora/Emissão no topo, com
-    # linhas em branco entre elas). Fixo em `i == 1`, o script lia o arquivo
-    # inteiro e indexava ZERO linhas, em silêncio — o salário saía 0 para todo
-    # mundo. Então procura-se a linha que tem os rótulos.
-    hdr = None
-    for r in ws.iter_rows(values_only=True):
-        if hdr is None:
-            rotulos = {str(c).strip().upper() for c in r if c is not None}
-            if {'EMPRESA', 'FILIAL', 'MATRICULA'} <= rotulos:
-                hdr = {h: j for j, h in enumerate(r)}
+# ── último B39 por pessoa, do movimento bruto ────────────────────────────────
+ultB39 = {}
+with open(SRD, encoding='utf-8-sig', errors='replace') as f:
+    for r in csv.DictReader(f):
+        if (r.get('BK_SRV') or '').split('|')[-1].strip() != 'B39':
             continue
-        if not r or all(c is None for c in r):
-            continue
-        try:
-            fil = filial_folha(r[hdr['EMPRESA']], r[hdr['FILIAL']])
-            mat = norm_mat(r[hdr['MATRICULA']])
-            cd  = str(r[hdr['CD_VERBA']]).strip()
-            val = float(r[hdr['VALOR']] or 0)
-        except Exception:
-            continue
-        idx[(fil, mat)][cd] += val
-    wb.close()
-print(f'Folha indexada: {len(arquivos)} arquivos, {len(idx)} (filial,matrícula) distintos.')
+        k = ((r.get('BK_FILIAL') or '').split('|')[-1].strip(),
+             norm((r.get('BK_SRA') or '').split('|')[-1]))
+        comp = (r.get('DTCOMPET') or '').strip()[:7].replace('-', '')
+        try: v = float((r.get('RD_VALOR') or '0').replace(',', '.'))
+        except ValueError: continue
+        if k not in ultB39 or comp > ultB39[k][0]:
+            ultB39[k] = (comp, v)
 
-# ── 2) preenche o salário nos postos ──
+# ── o que o prestador recebeu no mês ─────────────────────────────────────────
+prest = collections.defaultdict(float)
+with open(FOLHA, encoding='utf-8-sig') as f:
+    for l in csv.DictReader(f):
+        if l['verba_cod'] in VERBA_PREST:
+            prest[(l['filial'], norm(l['matricula']))] += num(l['valor'])
+
+# ── preenche ─────────────────────────────────────────────────────────────────
 with open(POSTOS, encoding='utf-8-sig') as f:
-    postos = list(csv.DictReader(f))
-if not postos:
-    print('ERRO: postos.csv vazio.'); sys.exit(1)
+    rows = list(csv.DictReader(f)); cols = list(rows[0].keys())
+if 'salario' not in cols: cols.insert(cols.index('regime') + 1, 'salario')
 
-campos = list(postos[0].keys())
-match = sem_folha = sem_verba = 0
-por_reg = Counter(); total = 0.0
-benef_cnt = Counter(); benef_tot = 0.0
-faltantes = []
-for p in postos:
-    reg    = (p.get('regime') or '').strip().upper()
-    codigos = VERBA_BASE.get(reg, [])
-    key    = ((p.get('filial') or '').strip(), norm_mat(p.get('matricula')))
-    verbas = idx.get(key) or {}
-    # salário-base
-    val = sum(verbas.get(cd, 0.0) for cd in codigos)
-    if not idx.get(key):
-        sem_folha += 1; faltantes.append((p.get('posto_codigo'), reg, 'sem linha na folha'))
-    elif val:
-        p['salario'] = f'{val:.2f}'; match += 1; por_reg[reg] += 1; total += val
+cont = collections.Counter(); soma = collections.defaultdict(float)
+comps = collections.Counter()
+for p in rows:
+    reg = (p.get('regime') or '').strip().upper()
+    sit = (p.get('situacao') or '').strip().upper()
+    k = (p['filial'], norm(p.get('matricula')))
+    val = None
+    if sit == 'D':
+        fonte = 'demitido · em branco'
+    elif reg in ('CLT', 'PROLABORE') and k in ultB39:
+        comp, val = ultB39[k]; fonte = f'B39 {comp}'; comps[comp] += 1
+    elif reg == 'PRESTADOR' and prest.get(k):
+        val = prest[k]; fonte = '222+228 do mês'
     else:
-        sem_verba += 1; faltantes.append((p.get('posto_codigo'), reg, f'sem verba {"/".join(codigos)} na folha'))
-    # benefícios por pessoa (VALOR_FIXO)
-    for cd in BENEF:
-        v = verbas.get(cd, 0.0)
-        p[cd] = f'{v:.2f}' if v else ''
-        if v:
-            benef_cnt[cd] += 1; benef_tot += v
+        fonte = 'sem fonte · em branco'
+    p['salario'] = f'{val:.2f}' if val else ''
+    cont[fonte] += 1
+    if val: soma[fonte] += val
 
-fieldnames = campos + [c for c in BENEF if c not in campos]
-with open(SAIDA, 'w', newline='', encoding='utf-8-sig') as f:
-    w = csv.DictWriter(f, fieldnames=fieldnames)
-    w.writeheader(); w.writerows(postos)
+with open(SAIDA, 'w', encoding='utf-8-sig', newline='') as f:
+    w = csv.DictWriter(f, fieldnames=cols); w.writeheader(); w.writerows(rows)
 
-print(f'\nPostos: {len(postos)} | com salário: {match} | sem linha na folha: {sem_folha} | '
-      f'linha existe mas sem a verba do regime: {sem_verba}')
-print('Salário preenchido por regime: ' + ', '.join(f'{k}={v}' for k, v in sorted(por_reg.items())))
-print(f'Massa salarial base (mês): R$ {total:,.2f}')
-print(f'Benefícios ({", ".join(BENEF)}): {sum(benef_cnt.values())} valores · R$ {benef_tot:,.2f}/mês · '
-      + ', '.join(f'{k}={v}' for k, v in sorted(benef_cnt.items())))
-if faltantes:
-    print(f'\nAmostra de {min(15, len(faltantes))} sem salário (confira se são vagas/admissões novas):')
-    for pc, reg, motivo in faltantes[:15]:
-        print(f'  {pc:16s} {reg:10s} {motivo}')
-print(f'\n→ {SAIDA}')
+print(f"{'fonte':<26}{'postos':>8}{'soma':>16}")
+for k in sorted(cont):
+    print(f"{k:<26}{cont[k]:>8}{soma[k]:>16,.2f}" if soma[k] else f"{k:<26}{cont[k]:>8}{'—':>16}")
+print(f"{'TOTAL com salário':<26}{sum(cont[k] for k in soma):>8}{sum(soma.values()):>16,.2f}")
+if comps: print("competências do B39 usadas:", ", ".join(f"{c}×{n}" for c, n in sorted(comps.items())))
+print(f"\n→ {SAIDA}")

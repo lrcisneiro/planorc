@@ -189,7 +189,7 @@ export default function PostosGradePage() {
   // afastado e em férias contando como ativo no headcount, no FTE e no custo.
   const [sits, setSits] = useLocalPref<Situacao[]>('planorc_postos_situacoes', ['ativo'])
   const [erro, setErro] = useState<string | null>(null)
-  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[]; afastados: number; cargoAmbiguo: number } | null>(null)
+  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[]; afastados: number; cargoAmbiguo: number; semSalario: number } | null>(null)
   const [importando, setImportando] = useState(false)
   const [fechados, setFechados] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
@@ -389,7 +389,15 @@ export default function PostosGradePage() {
         const [ay, am] = (r.admissao || '').split('-')
         payload.push({ tenant_id: TENANT_ID, codigo: r.posto_codigo, empresa_id, filial_id, cc_id, cargo_id,
           sindicato_id: sindByCod[sindCodPorEmp((r.empresa || '').trim())] || null,
-          regime: (() => { const s = (r.regime || '').trim(); return s ? (s.includes('-') ? s : 'BR-' + s) : null })(), salario_base: r.salario ? parseFloat(r.salario) : 0,
+          regime: (() => { const s = (r.regime || '').trim(); return s ? (s.includes('-') ? s : 'BR-' + s) : null })(),
+          // ⚠ SALÁRIO VAZIO NÃO É ZERO. Antes era `r.salario ? parseFloat(...) : 0`, e como
+          // o `Funcionarios.csv` do RH NÃO TRAZ salário, uma importação de rotina zeraria
+          // os 339 postos que tinham valor (R$ 3,5 mi) — sem erro e sem aviso. O valor fica
+          // num campo auxiliar e só entra no upsert de quem realmente tem; `salario_base` é
+          // NOT NULL DEFAULT 0, então omiti-lo preserva no UPDATE e dá zero no INSERT.
+          // Mesma família do `Number(null) || 0` que já mordeu na grade.
+          _sal: (() => { const t = (r.salario || '').trim().replace(/\./g, '').replace(',', '.')
+                         const n = t ? parseFloat(t) : NaN; return isFinite(n) ? n : null })(),
           nome: (r.nome || '').trim() || null, matricula: (r.matricula || '').trim() || null,
           // código do recurso no apontamento de horas (SRA.RA_X_RECUR). É o que liga o
           // posto ao Extrato de Horas Apontadas — lá a pessoa é identificada por recurso,
@@ -438,8 +446,18 @@ export default function PostosGradePage() {
         if (delErr) { setErro('Erro ao limpar o escopo: ' + delErr.message); return }
         apagados = count || 0
       }
-      const { error } = await supabase.from('posto').upsert(payload, { onConflict: 'tenant_id,codigo' })
-      if (error) { setErro('Erro no import: ' + error.message); return }
+      // Dois upserts: quem tem salário no arquivo e quem não tem. Um só não
+      // serve — o PostgREST monta UM comando com as colunas do payload, então
+      // misturar os dois grupos obrigaria a mandar `salario_base` para todos.
+      const semAux = (p: any) => { const { _sal, ...resto } = p; return resto }
+      const comSal = payload.filter(p => p._sal != null).map(p => ({ ...semAux(p), salario_base: p._sal }))
+      const semSal = payload.filter(p => p._sal == null).map(semAux)
+      for (const lote of [comSal, semSal]) {
+        if (!lote.length) continue
+        const { error } = await supabase.from('posto').upsert(lote, { onConflict: 'tenant_id,codigo' })
+        if (error) { setErro('Erro no import: ' + error.message); return }
+      }
+      const semSalario = semSal.length
 
       // ids dos postos gravados (reusado por benefícios e rateio)
       const codigos = payload.map(p => p.codigo)
@@ -492,7 +510,7 @@ export default function PostosGradePage() {
         if (prRows.length) { const { error: prErr } = await supabase.from('posto_rateio').upsert(prRows, { onConflict: 'tenant_id,posto_id,regra_id' }); if (prErr) setErro('Aviso — rateio: ' + prErr.message) }
       }
 
-      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], foraEscopo: foraEscopo.size, cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length, rateioPostos, rateioCol: !!rateioCol, rateioNaoAchados: [...rateioNaoAchados], afastados: nAfast, cargoAmbiguo })
+      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], foraEscopo: foraEscopo.size, cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length, rateioPostos, rateioCol: !!rateioCol, rateioNaoAchados: [...rateioNaoAchados], afastados: nAfast, cargoAmbiguo, semSalario })
       loadPostos()
     } finally { setImportando(false) }
   }
@@ -1309,6 +1327,12 @@ export default function PostosGradePage() {
               ? `${importInfo.beneficios} valores de benefício por posto (posto_verba) atualizados, em ${importInfo.benefColunas} verba(s) da folha.`
               : '⚠ Nenhuma coluna do arquivo casou com verba do catálogo — benefícios NÃO atualizados. Cadastre as verbas (D49, A76, D50, A15, A51…) em Estrutura → Verbas e reimporte.'}</div>
             {importInfo.rateioCol && <div style={{ color: 'var(--text-mid)' }}>{importInfo.rateioPostos} posto(s) com rateio anexado (posto_rateio) pela coluna RATEIO.</div>}
+            {/* Dizer quantos ficaram sem salário no arquivo é o que diferencia
+                "preservei" de "zerei" — sem a linha, as duas parecem iguais. */}
+            {importInfo.semSalario > 0 && <div style={{ color: 'var(--muted)' }}>
+              {importInfo.semSalario} posto(s) vieram <b>sem salário</b> no arquivo — o valor que já
+              estava no cadastro foi <b>mantido</b>, não zerado.
+            </div>}
             {importInfo.cargoAmbiguo > 0 && <div style={{ color: 'var(--orange)' }}>
               {importInfo.cargoAmbiguo} posto(s) ficaram <b>sem cargo</b>: o nome que veio no arquivo existe em mais de
               uma subárea (<i>ESPECIALISTA DE DESENVOLVIMENTO DE SOFTWARE I</i> existe em quatro) e o arquivo não traz

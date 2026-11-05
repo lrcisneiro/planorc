@@ -789,6 +789,25 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   editar tela. Convenção da instalação (concatenar empresa+filial) mora **no perfil**, perto das
   colunas, para o banco seguir genérico — mesma razão de `planorc_pj_frag()`.
 
+  ⚠⚠ **Salário vazio no arquivo NÃO é zero** (nov/2026). O importador do Quadro fazia
+  `salario_base: r.salario ? parseFloat(r.salario) : 0` — e o `Funcionarios.csv` do RH **não traz
+  salário**. Uma importação de rotina zeraria os **339 postos com valor (R$ 3,5 mi)**, sem erro e
+  sem aviso, levando junto memória de cálculo, custo do quadro e o orçado de origem POSTO. Hoje o
+  upsert vai em **dois lotes** (com e sem salário) — um só não serve, porque o PostgREST monta um
+  comando com as colunas do payload — e `salario_base` é `NOT NULL DEFAULT 0`, então omiti-lo
+  **preserva no UPDATE** e dá zero só no INSERT. O resumo da importação diz quantos foram
+  preservados: sem essa linha, "preservei" e "zerei" parecem iguais. Mesma família do
+  `Number(null) || 0` da grade.
+  **Preencher o salário é o 2º passo** (`scripts/preencher_salario_folha.py`): CLT e pró-labore
+  saem do **último B39 por pessoa** no `srd.csv` do RH.zip; prestador sai de **222+228 da folha do
+  mês**; demitido fica em branco. ⚠ O B39 **não está no `prgper02`** (é verba de referência, não
+  gera contabilização) — a versão antiga do script lia de lá e devolvia zero de 243 CLT.
+  ⚠ E **o último por pessoa, não o do mês**: o `srd` de out/26 veio com 16 pessoas no B39 contra
+  124 em setembro (a folha CLT ainda não estava nele), então "o B39 do mês" deixaria 96 de 97 CLT
+  sem salário. Salário-base é contratual e muda pouco; o script imprime de que competência cada
+  valor veio, para a defasagem não ficar implícita. Medido em out/26: o pagamento PJ oscila
+  **1% na mediana** entre meses (só 15 de 194 passam de 20%), então usar o mês é estável.
+
   **Situação do posto** — regra e seletor em **`lib/situacaoPosto.tsx`**, usados por *Postos*,
   *Memória de cálculo* e *Organograma*. ⚠⚠ **Não usar em tela por COMPETÊNCIA** (Folha realizada,
   Apontamento, Conciliação): `sit_folha` é um retrato do momento da importação, sobrescrito na
