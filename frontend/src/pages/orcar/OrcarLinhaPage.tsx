@@ -107,6 +107,13 @@ export default function OrcarLinhaPage() {
   const [soAlteradas, setSoAlteradas] = useLocalPref<boolean>(`${pref}_soalteradas`, false)
   const [fechando, setFechando] = useState(false)
   const [carimbo, setCarimbo] = useState<{ em: string | null; nota: string | null; mesclado: string | null }>({ em: null, nota: null, mesclado: null })
+  // ⚠ O DIFF VEM DO SERVIDOR, não da tela. A completude do cenário não pode
+  // depender do filtro de quem olha: com Seções em 1/32 a barra dizia "1 linha
+  // alterada · todas decididas" enquanto havia uma receita de -696 mil sem
+  // veredito, escondida pelo recorte — e o fechamento era recusado sem que
+  // desse para ver por quê. `cenario_orcado_diff` é a MESMA fonte que
+  // `aprovar_cenario` usa para contar, então as duas passam a concordar.
+  const [diffServidor, setDiffServidor] = useState<{ linha_id: string; base: number; cenario: number }[]>([])
 
   useEffect(() => {
     (async () => {
@@ -218,20 +225,24 @@ export default function OrcarLinhaPage() {
     return vis.filter(l => Math.abs(anoDe(total, l.id) - anoDe(totalBase, l.id)) > 0.005)
   }, [vis, comparando, soAlteradas, total, totalBase]) // eslint-disable-line
 
-  // Quantas linhas ANALÍTICAS mudaram e quantas ainda não têm veredito — é o
-  // que o fechamento vai exigir, então tem de estar à vista antes do clique.
+  // Nome legível de um MASTER (conta_orcamentaria), pela árvore do relatório.
+  const nomeMaster = (mid: string | null) => {
+    if (!mid) return '—'
+    const l = linhas.find(x => x.linha_orc_id === mid)
+    return l ? l.descricao : (mid || '').slice(0, 8)
+  }
+
+  // ⚠ Conta pelo DIFF DO SERVIDOR, não pelo que a tela mostra. Era por linha
+  // visível, e com filtro a barra dizia "todas decididas" enquanto o
+  // fechamento era recusado — o número da tela e o do banco discordavam, e o
+  // da tela era o errado.
   const resumoCenario = useMemo(() => {
-    if (!comparando) return { mudadas: 0, pendentes: 0 }
-    const masters = new Set<string>()
-    for (const l of ordered) {
-      if (!l.linha_orc_id || l.nao_soma) continue
-      if (linhas.some(x => x.pai_id === l.id)) continue
-      if (Math.abs(anoDe(total, l.id) - anoDe(totalBase, l.id)) > 0.005) masters.add(l.linha_orc_id)
-    }
-    let pend = 0
-    masters.forEach(m => { if (vereditos[m]?.aprovado == null) pend++ })
-    return { mudadas: masters.size, pendentes: pend }
-  }, [comparando, ordered, linhas, total, totalBase, vereditos]) // eslint-disable-line
+    if (!comparando) return { mudadas: 0, pendentes: 0, ocultas: [] as string[] }
+    const pend = diffServidor.filter(d => vereditos[d.linha_id]?.aprovado == null)
+    const visiveis = new Set(vis.map(l => l.linha_orc_id).filter(Boolean) as string[])
+    return { mudadas: diffServidor.length, pendentes: pend.length,
+             ocultas: pend.filter(d => !visiveis.has(d.linha_id)).map(d => nomeMaster(d.linha_id)) }
+  }, [comparando, diffServidor, vereditos, vis, linhas]) // eslint-disable-line
 
   // Carrega o consolidado. Lê fat_orcado direto (e não a RPC de agregação)
   // porque além do total precisamos saber se há GRÃO MISTO — e isso só se vê
@@ -281,14 +292,16 @@ export default function OrcarLinhaPage() {
 
   // Vereditos e carimbo do cenário.
   useEffect(() => {
-    if (!baseId || !versaoId) { setVereditos({}); setCarimbo({ em: null, nota: null, mesclado: null }); return }
+    if (!baseId || !versaoId) { setVereditos({}); setDiffServidor([]); setCarimbo({ em: null, nota: null, mesclado: null }); return }
     let vivo = true
     ;(async () => {
-      const [vr, vs] = await Promise.all([
+      const [vr, vs, df] = await Promise.all([
         supabase.from('orcado_veredito').select('linha_id,aprovado,nota,aprov_nota').eq('versao_id', versaoId),
         supabase.from('versao_orcamento').select('aprovado_em,aprovacao_nota,mesclado_em').eq('id', versaoId).maybeSingle(),
+        supabase.rpc('cenario_orcado_diff', { p_versao: versaoId }),
       ])
       if (!vivo) return
+      setDiffServidor((df.data || []) as any)
       setVereditos(Object.fromEntries((vr.data || []).map((r: any) => [r.linha_id, r as Veredito])))
       setCarimbo({ em: vs.data?.aprovado_em || null, nota: vs.data?.aprovacao_nota || null, mesclado: vs.data?.mesclado_em || null })
     })()
@@ -296,14 +309,6 @@ export default function OrcarLinhaPage() {
   }, [versaoId, baseId, recarga])
 
   const anos = useMemo(() => [...new Set(versoes.map(v => v.ano).filter(Boolean))].sort((a, b) => b - a), [versoes])
-
-  // O histórico guarda o id do MASTER (conta_orcamentaria); quem sabe o nome
-  // legível é a árvore do relatório aberto.
-  const nomeMaster = (mid: string | null) => {
-    if (!mid) return '—'
-    const l = linhas.find(x => x.linha_orc_id === mid)
-    return l ? l.descricao : mid.slice(0, 8)
-  }
 
   const podeAprovar = cap.can('cenario.aprovar')
   const podeResponder = acesso.podeEscrever && cap.can('orcar')
@@ -495,7 +500,18 @@ export default function OrcarLinhaPage() {
                 : <span style={{ color: 'var(--green)' }}> · todas decididas</span>}
             <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
               A baseline é lida com o <b>mesmo filtro</b> desta tela — o Δ é de proposta, não de recorte.
+              {' '}A contagem acima, porém, é do <b>cenário inteiro</b>: é ela que o fechamento exige.
             </div>
+            {/* Sem nomear o que está fora da vista, "faltam N" vira um número
+                que não se consegue perseguir — foi assim que uma receita de
+                -696 mil ficou pendente atrás do filtro de Seções. */}
+            {!!resumoCenario.ocultas.length && (
+              <div style={{ fontSize: 11.5, color: 'var(--orange)', marginTop: 3 }}>
+                Fora da vista atual (ajuste Filtros/Seções para decidir):{' '}
+                <b>{resumoCenario.ocultas.slice(0, 6).join(' · ')}</b>
+                {resumoCenario.ocultas.length > 6 ? ` e mais ${resumoCenario.ocultas.length - 6}` : ''}
+              </div>
+            )}
           </div>
           {/* ⚠ Fechar o cenário escondia Ressincronizar, excluir e qualquer
               volta atrás — e fechar é reversível de propósito (o carimbo é
