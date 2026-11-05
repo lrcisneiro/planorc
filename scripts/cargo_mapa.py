@@ -61,3 +61,17 @@ ORG_DEPARA = {
     # julgamento: "desenvolvimento educacional e cultura" ≈ cultura e engajamento
     ('RECURSOS HUMANOS', 'DESENVOLVIMENTO EDUCACIONAL E CULTURA'): '163',
 }
+
+
+# ⚠ FAMÍLIA DO CARGO ≠ LUGAR DA PESSOA, e Mercado Internacional é o caso que
+# obriga a separar os dois. No ORGANOGRAMA essas pessoas ficam em
+# `141 FÁBRICA DE SOFTWARE` sob a Diretoria Mercado Internacional — é onde
+# trabalham. Mas o CARGO delas (`ESPECIALISTA DE DESENVOLVIMENTO DE SOFTWARE
+# I`, `GERENTE DE PROJETO`) só existe nas famílias de Serviços e TI; a área M
+# não tem esses cargos e nunca vai ter, porque ela é unidade de negócio, não
+# família de carreira. Sem esta tabela, 13 pessoas ficam sem cargo.
+PLANO_FAMILIA = {
+    ('MERCADO INTERNACIONAL', 'FABRICA DE SOFWARE'): ('SERVIÇOS', 'FÁBRICA DE SOFTWARE'),
+    ('SERVIÇOS', 'MERCADO INTERNACIONAL'):           ('SERVIÇOS', 'FÁBRICA DE SOFTWARE'),
+    ('None', 'FABRICA DE SOFWARE'):                  ('SERVIÇOS', 'FÁBRICA DE SOFTWARE'),
+}

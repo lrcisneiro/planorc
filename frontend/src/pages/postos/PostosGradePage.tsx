@@ -193,7 +193,7 @@ export default function PostosGradePage() {
   // afastado e em férias contando como ativo no headcount, no FTE e no custo.
   const [sits, setSits] = useLocalPref<Situacao[]>('planorc_postos_situacoes', ['ativo'])
   const [erro, setErro] = useState<string | null>(null)
-  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[]; afastados: number; cargoAmbiguo: number; semSalario: number; salarioFora: number; areasNaoAchadas: string[]; comAreaFunc: number } | null>(null)
+  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[]; afastados: number; cargoAmbiguo: number; semSalario: number; salarioFora: number; areasNaoAchadas: string[]; codsNaoAchados: string[]; comAreaFunc: number } | null>(null)
   const [importando, setImportando] = useState(false)
   const [fechados, setFechados] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
@@ -344,7 +344,10 @@ export default function PostosGradePage() {
       const cargoAtual = new Map(postos.map((p: any) => [String(p.codigo), p.cargo_id]))
       const idsPorNome = porNome
       let cargoAmbiguo = 0
-      const nomesNovos = [...new Set(rows.map(r => (r.cargo || '').trim())
+      // Quem traz código não gera cargo novo: o código já aponta para um que
+      // existe, e criar outro pelo nome duplicaria o catálogo.
+      const nomesNovos = [...new Set(rows.filter(r => !((r as any).cargo_codigo || '').trim())
+        .map(r => (r.cargo || '').trim())
         .filter(n => n && !cargoByNome.has(n.toUpperCase()) && !ambiguos.has(n.toUpperCase())))]
       if (nomesNovos.length) {
         const novos = nomesNovos.map(nome => ({ tenant_id: TENANT_ID, codigo: slug(nome), nome, ativo: true }))
@@ -379,6 +382,12 @@ export default function PostosGradePage() {
       const temAreaFunc = rows.some(r => 'area_funcional' in r)
       const areaByCod = new Map(areasFunc.map(a => [String(a.codigo).trim(), a.id]))
       const areasNaoAchadas = new Set<string>()
+      // ⚠ `cargo_codigo` RESOLVE A AMBIGUIDADE QUE O NOME NÃO RESOLVE. O mesmo
+      // nome existe em até quatro subáreas; quem sabe qual é a subárea da
+      // pessoa é o arquivo do RH, e o script a traduz em código antes de
+      // chegar aqui. Com código, 106 postos deixam de ficar sem cargo.
+      const cargoByCod = new Map(cargos.map((c: any) => [String(c.codigo).trim(), c.id]))
+      const codsNaoAchados = new Set<string>()
       let nAfast = 0
       const payload: any[] = []
       for (const r of rows) {
@@ -392,7 +401,10 @@ export default function PostosGradePage() {
           foraEscopo.add(r.posto_codigo); continue
         }
         const nomeCargo = (r.cargo || '').trim().toUpperCase()
-        let cargo_id = cargoByNome.get(nomeCargo) || null
+        const codCargo = ((r as any).cargo_codigo || '').trim()
+        let cargo_id = (codCargo ? cargoByCod.get(codCargo) : null) || null
+        if (codCargo && !cargo_id) codsNaoAchados.add(codCargo)
+        if (!cargo_id) cargo_id = cargoByNome.get(nomeCargo) || null
         if (!cargo_id && ambiguos.has(nomeCargo)) {
           // Preserva a escolha já feita; só conta quem fica sem.
           const jaTem = cargoAtual.get(r.posto_codigo)
@@ -566,7 +578,7 @@ export default function PostosGradePage() {
         if (prRows.length) { const { error: prErr } = await supabase.from('posto_rateio').upsert(prRows, { onConflict: 'tenant_id,posto_id,regra_id' }); if (prErr) setErro('Aviso — rateio: ' + prErr.message) }
       }
 
-      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], foraEscopo: foraEscopo.size, cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length, rateioPostos, rateioCol: !!rateioCol, rateioNaoAchados: [...rateioNaoAchados], afastados: nAfast, cargoAmbiguo, semSalario, salarioFora, areasNaoAchadas: [...areasNaoAchadas], comAreaFunc: temAreaFunc ? payload.filter(x => (x as any).area_func_id).length : 0 })
+      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], foraEscopo: foraEscopo.size, cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length, rateioPostos, rateioCol: !!rateioCol, rateioNaoAchados: [...rateioNaoAchados], afastados: nAfast, cargoAmbiguo, semSalario, salarioFora, areasNaoAchadas: [...areasNaoAchadas], codsNaoAchados: [...codsNaoAchados], comAreaFunc: temAreaFunc ? payload.filter(x => (x as any).area_func_id).length : 0 })
       loadPostos()
     } finally { setImportando(false) }
   }
@@ -1427,6 +1439,10 @@ export default function PostosGradePage() {
             </div>}
             {importInfo.comAreaFunc > 0 && <div style={{ color: 'var(--text-mid)' }}>
               {importInfo.comAreaFunc} posto(s) com <b>área funcional</b> atribuída pela coluna <code>area_funcional</code>.
+            </div>}
+            {importInfo.codsNaoAchados.length > 0 && <div style={{ color: 'var(--orange)' }}>
+              Códigos de cargo não encontrados: <b>{importInfo.codsNaoAchados.slice(0, 8).join(', ')}</b>
+              {importInfo.codsNaoAchados.length > 8 ? ` e mais ${importInfo.codsNaoAchados.length - 8}` : ''} — o cargo ficou pelo nome, se houver.
             </div>}
             {importInfo.areasNaoAchadas.length > 0 && <div style={{ color: 'var(--orange)' }}>
               Códigos de área funcional não encontrados: <b>{importInfo.areasNaoAchadas.join(', ')}</b> — cadastre em Cadastros → Áreas funcionais.
