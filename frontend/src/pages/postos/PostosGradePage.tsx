@@ -882,6 +882,11 @@ export default function PostosGradePage() {
   }
 
   // filtro compartilhado (empresa/filial/CC/área/divisão/BU) cruzado com o escopo de dados do usuário (F2)
+  const regimesUsados = useMemo(
+    () => [...new Set(postosEf.map(p => p.regime).filter(Boolean) as string[])]
+            .sort((a, b) => (REGIMES_LABEL[a] || a).localeCompare(REGIMES_LABEL[b] || b, 'pt-BR')),
+    [postosEf])
+
   const filtrados = useMemo(() => {
     const empF = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSeePessoas)
     const filF = escopoFiltro((filialSel.length && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSeePessoas)
@@ -1285,9 +1290,15 @@ export default function PostosGradePage() {
           </div>
         </div>
         <div style={S.fld}><span style={S.lbl}>Modelo</span>
+          {/* ⚠ As opções saem DO DADO, não de uma lista escrita à mão. Estavam
+              fixas em CLT/PRESTADOR/PROLABORE enquanto `posto.regime` guarda
+              `BR-CLT`, `BR-PRESTADOR`, `BR-PROLABORE` — o `===` nunca casava e
+              o filtro esvaziava a tela em silêncio. Derivando do universo, o
+              valor é sempre o que está no banco, e um regime novo (PY-IPS,
+              PY-CONTRATO) aparece sozinho quando houver posto com ele. */}
           <select style={S.sel} value={regimeSel} onChange={e => setRegimeSel(e.target.value)}>
             <option value="">Todos</option>
-            <option value="CLT">CLT</option><option value="PRESTADOR">Prestador</option><option value="PROLABORE">Pró-labore</option>
+            {regimesUsados.map(r => <option key={r} value={r}>{REGIMES_LABEL[r] || r}</option>)}
           </select>
         </div>
         <div style={S.fld}>
