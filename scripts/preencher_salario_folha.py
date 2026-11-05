@@ -6,7 +6,15 @@ funcionarios_convertido.csv, que o export `Funcionarios.csv` do RH NÃO traz.
 
     CLT / PRÓ-LABORE -> verba B39 (SALARIO BASE), do `srd.csv` do RH.zip
     PRESTADOR        -> verbas 222 + 228 da folha do mês (folha_realizada_*.csv)
+    confidencial     -> verba 228 do `Folha Confidencial.xlsx` (--confidencial=)
     demitido (sit=D) -> em branco, sempre
+
+⚠ O LOTE CONFIDENCIAL NÃO VEM NO prgper02 — são 8 diretores/sócios cujo valor
+chega num arquivo à parte. Sem ele, esses postos saem sem salário, e numa carga
+"substituir escopo" (que apaga antes de gravar) isso vira ZERO no cadastro. Foi
+o que houve em 05/nov: 8 postos ativos perderam o salário por não estarem na
+folha comum. A verba 231 do mesmo arquivo é BÔNUS e fica de fora, como as
+variáveis da folha comum.
 
 ⚠ A VERSÃO ANTERIOR LIA O B39 DO `prgper02` E ISSO PAROU DE FUNCIONAR. O
 prgper02 é a *contabilização*, e o B39 é verba de referência — não gera
@@ -38,8 +46,15 @@ import csv, sys, collections
 
 if len(sys.argv) < 4:
     print(__doc__); sys.exit(1)
-POSTOS, FOLHA, SRD = sys.argv[1], sys.argv[2], sys.argv[3]
-SAIDA = sys.argv[4] if len(sys.argv) > 4 else POSTOS
+_args  = [a for a in sys.argv[1:] if not a.startswith('--')]
+_flags = {a.split('=', 1)[0]: a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--') and '=' in a}
+POSTOS, FOLHA, SRD = _args[0], _args[1], _args[2]
+SAIDA = _args[3] if len(_args) > 3 else POSTOS
+CONFID = _flags.get('--confidencial', 'dados_rh/Folha Confidencial.xlsx')
+# ⚠ O xlsx confidencial ACUMULA COMPETÊNCIAS (202608+202609+202610 na mesma
+# aba). Sem filtrar, a soma dá 3x o valor do mês — Andrea saiu com 62.556 em
+# vez de 20.852. A competência vem de --comp= ou da própria folha do mês.
+COMP = _flags.get('--comp', '')
 
 VERBA_PREST = ('222', '228')   # horas faturáveis + prestação de serviços
 norm = lambda m: (m or '').strip().zfill(6)
@@ -68,12 +83,37 @@ with open(SRD, encoding='utf-8-sig', errors='replace') as f:
         if k not in ultB39 or comp > ultB39[k][0]:
             ultB39[k] = (comp, v)
 
+# ── competência do arquivo da folha, se não veio por parâmetro ─────────────
+if not COMP:
+    with open(FOLHA, encoding='utf-8-sig') as f:
+        cs = {l['competencia'] for l in csv.DictReader(f) if l.get('competencia')}
+    if len(cs) == 1: COMP = cs.pop()
+
 # ── o que o prestador recebeu no mês ─────────────────────────────────────────
 prest = collections.defaultdict(float)
 with open(FOLHA, encoding='utf-8-sig') as f:
     for l in csv.DictReader(f):
         if l['verba_cod'] in VERBA_PREST:
             prest[(l['filial'], norm(l['matricula']))] += num(l['valor'])
+
+# ── folha confidencial: o que não vem no prgper02 ───────────────────────────
+confid = collections.defaultdict(float)
+try:
+    import openpyxl
+    wb = openpyxl.load_workbook(CONFID, data_only=True)
+    ws = wb['folha'] if 'folha' in wb.sheetnames else wb.worksheets[0]
+    linhas = list(ws.iter_rows(values_only=True))
+    h = {str(c).strip(): i for i, c in enumerate(linhas[0]) if c}
+    for r in linhas[1:]:
+        if not r or r[h['matricula']] is None: continue
+        if COMP and str(r[h['competencia']]).strip() != COMP: continue
+        if str(r[h['verba_cod']]).strip().zfill(3) not in VERBA_PREST: continue
+        k = (str(r[h['filial']]).strip(), norm(str(r[h['matricula']])))
+        confid[k] += float(r[h['valor']] or 0)
+except FileNotFoundError:
+    print(f"(sem folha confidencial em {CONFID} — esses postos sairão sem salário)")
+except Exception as e:
+    print(f"⚠ não consegui ler {CONFID}: {e}")
 
 # ── preenche ─────────────────────────────────────────────────────────────────
 with open(POSTOS, encoding='utf-8-sig') as f:
@@ -93,6 +133,8 @@ for p in rows:
         comp, val = ultB39[k]; fonte = f'B39 {comp}'; comps[comp] += 1
     elif reg == 'PRESTADOR' and prest.get(k):
         val = prest[k]; fonte = '222+228 do mês'
+    elif confid.get(k):
+        val = confid[k]; fonte = '228 confidencial'
     else:
         fonte = 'sem fonte · em branco'
     p['salario'] = f'{val:.2f}' if val else ''
