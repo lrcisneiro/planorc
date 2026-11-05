@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { X, Plus, Trash2, ChevronsRight } from 'lucide-react'
+import { X, Plus, Trash2, ChevronsRight, Lock } from 'lucide-react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
 import { useUserAccess } from '../../hooks/useUserAccess'
@@ -23,6 +23,9 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 // ============================================================
 
 type Props = { linha: any; versao: any; ano: number; empresas: any[]; onFechar: (mudou: boolean) => void }
+type Lanc = { id: string; valor: number; origem: string; dims: any }
+type Cel = { total: number; itens: Lanc[] }
+
 type Comb = { empresa_id: string; filial_id: string | null; cc_id: string | null }
 
 const MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
@@ -35,7 +38,12 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
   const cap = useCapacidades()
   const [filiais, setFiliais] = useState<any[]>([])
   const [ccs, setCcs] = useState<any[]>([])
-  const [cel, setCel] = useState<Record<string, Record<number, { id: string; valor: number; origem: string }>>>({})
+  // ⚠ A célula tem N LANÇAMENTOS, não um. Em Salários há um por PESSOA por
+  // mês — 13.140 células de posto em 2027. Antes guardávamos só o último lido,
+  // então o drill mostrava o valor de uma pessoa como se fosse o da célula e
+  // discordava do total da linha acima. Agora soma, e guarda os itens para
+  // saber se dá para editar.
+  const [cel, setCel] = useState<Record<string, Record<number, Cel>>>({})
   const [combs, setCombs] = useState<Comb[]>([])
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
@@ -55,17 +63,19 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
         supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
         supabase.from('centro_custo').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
         pageAll(() => supabase.from('fat_orcado')
-          .select('id,empresa_id,filial_id,cc_id,mes,valor,origem')
+          .select('id,empresa_id,filial_id,cc_id,mes,valor,origem,dims')
           .eq('versao_id', versao.id).eq('ano', ano).eq('linha_id', master)
           .in('empresa_id', empresas.map(e => e.id))),
       ])
       setFiliais(fl.data || []); setCcs(cc.data || [])
-      const c: Record<string, Record<number, any>> = {}
+      const c: Record<string, Record<number, Cel>> = {}
       const vistos = new Map<string, Comb>()
       for (const r of rows as any[]) {
         const comb: Comb = { empresa_id: r.empresa_id, filial_id: r.filial_id, cc_id: r.cc_id }
         const k = chave(comb); vistos.set(k, comb)
-        ;(c[k] ||= {})[r.mes] = { id: r.id, valor: Number(r.valor) || 0, origem: r.origem }
+        const cl = ((c[k] ||= {})[r.mes] ||= { total: 0, itens: [] })
+        cl.itens.push({ id: r.id, valor: Number(r.valor) || 0, origem: r.origem, dims: r.dims })
+        cl.total += Number(r.valor) || 0
       }
       setCel(c); setCombs([...vistos.values()])
     } catch (e: any) { setErro(e?.message || String(e)) }
@@ -84,7 +94,9 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
 
   const gravar = async (c: Comb, mes: number, texto: string) => {
     const k = chave(c)
-    const atual = cel[k]?.[mes]
+    const cl = cel[k]?.[mes]
+    if (!editavelCel(cl)) { setErro('Esta célula vem do motor (posto/formulário) — altere na origem.'); return }
+    const atual = cl?.itens[0]
     const n = texto.trim() === '' ? null : parseNum(texto)
     if (n !== null && isNaN(n)) return
     if ((atual?.valor ?? null) === n) return
@@ -126,7 +138,9 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
     setErro('')
     try {
       for (let m = desde; m <= 12; m++) {
-        const atual = cel[k]?.[m]
+        const cl = cel[k]?.[m]
+        if (!editavelCel(cl)) continue   // replicar pula o que é gerado
+        const atual = cl?.itens[0]
         if ((atual?.valor ?? null) === n) continue
         if (n === null) {
           if (atual) {
@@ -162,8 +176,18 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
   const trocar = (i: number, patch: Partial<Comb>) =>
     setCombs(v => v.map((c, j) => j === i ? { ...c, ...patch } : c))
 
-  const totalMes = (m: number) => combs.reduce((s, c) => s + (cel[chave(c)]?.[m]?.valor || 0), 0)
-  const totalAno = combs.reduce((s, c) => s + Object.values(cel[chave(c)] || {}).reduce((a, x) => a + x.valor, 0), 0)
+  const totalMes = (m: number) => combs.reduce((s, c) => s + (cel[chave(c)]?.[m]?.total || 0), 0)
+  const totalAno = combs.reduce((s, c) => s + Object.values(cel[chave(c)] || {}).reduce((a, x) => a + x.total, 0), 0)
+
+  // ⚠ SÓ EDITA CÉLULA PURAMENTE MANUAL. Com valor de posto ou formulário
+  // dentro, digitar aqui converte aquele lançamento para MANUAL **mantendo o
+  // dims** — e aí o próximo Aplicar não o apaga (já não é da origem dele) e
+  // insere outro com a mesma chave única: o Aplicar passa a FALHAR. Com mais
+  // de um lançamento, editar mexeria num deles e o total diria outra coisa.
+  // O caminho de mudar valor gerado é a origem (cenário de postos, formulário).
+  const editavelCel = (cl?: Cel) =>
+    !cl || (cl.itens.length <= 1 && (cl.itens[0]?.origem ?? 'MANUAL') === 'MANUAL')
+  const origensDe = (cl?: Cel) => [...new Set((cl?.itens || []).map(i => i.origem))].join(' · ')
   const temConsolidado = combs.some(c => !c.cc_id)
   const temDetalhe = combs.some(c => !!c.cc_id)
 
@@ -213,7 +237,7 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
               <tbody>
                 {combs.map((c, i) => {
                   const k = chave(c); const linhaCel = cel[k] || {}
-                  const tot = Object.values(linhaCel).reduce((s, x) => s + x.valor, 0)
+                  const tot = Object.values(linhaCel).reduce((s, x) => s + x.total, 0)
                   const pode = podeCelula(c)
                   const nova = !Object.keys(linhaCel).length
                   return (
@@ -246,13 +270,24 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
                       </td>
                       {Array.from({ length: 12 }, (_, j) => j + 1).map(m => {
                         const v = linhaCel[m]
+                        const editavel = editavelCel(v)
                         return (
                           <td key={m} style={td}>
-                            {pode
+                            {/* Célula com valor gerado ou com vários lançamentos: mostra o
+                                TOTAL e não aceita digitação — ver `editavelCel`. */}
+                            {pode && !editavel
+                              ? <span title={`${v!.itens.length} lançamento(s) · origem ${origensDe(v)}. `
+                                  + `Não se edita aqui: o valor vem do motor. Mude na origem `
+                                  + `(${origensDe(v).includes('POSTO') ? 'Posto de trabalho' : 'Formulário de drivers'}).`}
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end',
+                                           width: '100%', color: 'var(--text-mid)', cursor: 'help' }}>
+                                  {money(v!.total)}
+                                  <Lock size={10} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                                </span>
+                              : pode
                               ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                                  <input style={{ ...inp, opacity: v?.origem && v.origem !== 'MANUAL' ? 0.7 : 1 }}
-                                    defaultValue={v ? money(v.valor) : ''} key={`${k}-${m}-${v?.valor ?? ''}`}
-                                    title={v?.origem && v.origem !== 'MANUAL' ? `Veio de ${v.origem} — editar aqui transforma em MANUAL` : undefined}
+                                  <input style={inp}
+                                    defaultValue={v ? money(v.total) : ''} key={`${k}-${m}-${v?.total ?? ''}`}
                                     onFocus={e => setFoco({ k, mes: m, txt: e.target.value })}
                                     onChange={e => setFoco({ k, mes: m, txt: e.target.value })}
                                     onBlur={e => { gravar(c, m, e.target.value); setFoco(f => (f && f.k === k && f.mes === m) ? null : f) }}
@@ -272,7 +307,7 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
                                     </button>
                                   )}
                                 </span>
-                              : <span style={{ color: v ? 'var(--text-mid)' : 'var(--faint)' }}>{v ? money(v.valor) : '—'}</span>}
+                              : <span style={{ color: v ? 'var(--text-mid)' : 'var(--faint)' }}>{v ? money(v.total) : '—'}</span>}
                           </td>
                         )
                       })}
