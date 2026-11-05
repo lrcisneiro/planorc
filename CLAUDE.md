@@ -68,6 +68,20 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > que a grade faz em "— consolidado —" e é a origem das 15.613 linhas de grão consolidado. Edita-se
 > no **drill** (combinações × 12 meses, com `»`/Ctrl+Enter para repetir até dezembro).
 >
+> ⚠⚠ **Célula de origem GERADA não se edita no drill** (nov/2026). Digitar numa célula de posto
+> convertia aquele lançamento para `MANUAL` **mantendo o `dims`** — e o próximo *Aplicar* não o
+> apagava (já não era da origem dele) e inseria outro com a mesma chave única: **o Aplicar passava
+> a falhar**. São 13.140 células de posto em 2027, **uma por pessoa por mês**, nas contas 20101 ·
+> 20201 · 20301; o formulário alimenta outras 23 contas.
+> ⚠ E o drill mostrava **o valor de UMA pessoa como se fosse o da célula**, porque guardava o
+> último lançamento lido — discordando do total da linha acima, que estava certo. Hoje soma.
+> **Quem precisa corrigir valor gerado lança um AJUSTE à parte** (`MANUAL` com `dims` vazio), que
+> soma ao motor: `dims` vazio é o que o distingue na chave única, então ele **convive** em vez de
+> colidir, e o *Aplicar* da origem continua apagando só o que é dela. A composição da célula abre
+> no clique e mostra cada lançamento com seu rótulo (nome do posto, histórico do formulário).
+> ⚠ **Não criar capacidade para "poder editar o gerado"** — seria reintroduzir exatamente o
+> caminho que quebra o Aplicar. O que separa quem pode é o *mecanismo*, não um interruptor.
+
 > ⚠ **Esta é a única tela onde o GRÃO MISTO aparece** — somando tudo, linha com consolidado *e*
 > detalhe no mesmo mês infla. São **122 grupos** hoje. Ela denuncia (aviso no topo, ⚠ na linha, as
 > duas pontas no drill) em vez de deixar o número mentir; na grade é invisível, porque cada grão

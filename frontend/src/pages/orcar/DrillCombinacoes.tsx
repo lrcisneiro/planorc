@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, Fragment } from 'react'
 import { X, Plus, Trash2, ChevronsRight, Lock } from 'lucide-react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
@@ -44,6 +44,8 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
   // discordava do total da linha acima. Agora soma, e guarda os itens para
   // saber se dá para editar.
   const [cel, setCel] = useState<Record<string, Record<number, Cel>>>({})
+  // Qual célula está com a composição aberta — uma de cada vez.
+  const [comp, setComp] = useState<{ k: string; mes: number } | null>(null)
   const [combs, setCombs] = useState<Comb[]>([])
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
@@ -125,6 +127,54 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
       await carregar()
     } catch (e: any) { setErro(e?.message || String(e)) }
   }
+
+
+  /** Rótulo legível de um lançamento, a partir do que a origem carimbou em `dims`. */
+  const rotulo = (l: Lanc) => {
+    const d = l.dims || {}
+    if (d.nome) return `${d.nome}${d.posto ? ` · ${d.posto}` : ''}`   // posto
+    if (d.historico) return String(d.historico)                        // formulário
+    return l.origem === 'MANUAL' ? 'Ajuste manual' : l.origem
+  }
+
+  /** Grava UM lançamento. `alvo` nulo = criar o ajuste manual desta célula.
+   *  ⚠ O ajuste nasce com `dims` VAZIO de propósito: é o que o distingue dos
+   *  lançamentos do motor na chave única, então ele CONVIVE com eles em vez de
+   *  colidir — e o Aplicar da origem continua apagando só o que é dela. */
+  const gravarLanc = async (c: Comb, mes: number, alvo: Lanc | null, texto: string) => {
+    if (alvo && alvo.origem !== 'MANUAL') { setErro('Lançamento do motor — altere na origem.'); return }
+    const n = texto.trim() === '' ? null : parseNum(texto)
+    if (n !== null && isNaN(n)) return
+    if ((alvo?.valor ?? null) === n) return
+    setErro('')
+    try {
+      if (n === null) {
+        if (!alvo) return
+        const { data, error } = await supabase.from('fat_orcado').delete().eq('id', alvo.id).select('id')
+        if (error) throw new Error(error.message)
+        if (!data?.length) throw new Error('Nada foi apagado — fora do seu escopo de edição.')
+      } else if (alvo) {
+        const { data, error } = await supabase.from('fat_orcado')
+          .update({ valor: n, expressao: null, origem: 'MANUAL' }).eq('id', alvo.id).select('id')
+        if (error) throw new Error(error.message)
+        if (!data?.length) throw new Error('Nada foi gravado — fora do seu escopo de edição.')
+      } else {
+        const { data, error } = await supabase.from('fat_orcado').insert({
+          tenant_id: TENANT_ID, versao_id: versao.id, linha_id: master, empresa_id: c.empresa_id,
+          filial_id: c.filial_id, cc_id: c.cc_id, ano, mes, valor: n, expressao: null,
+          origem: 'MANUAL', dims: {},
+        }).select('id')
+        if (error) throw new Error(error.message)
+        if (!data?.length) throw new Error('Nada foi gravado — fora do seu escopo de edição.')
+      }
+      setMudou(true)
+      await carregar()
+    } catch (e: any) { setErro(e?.message || String(e)) }
+  }
+
+  /** O ajuste manual de uma célula: o lançamento MANUAL sem dims. */
+  const ajusteDe = (cl?: Cel) => (cl?.itens || []).find(i => i.origem === 'MANUAL'
+    && (!i.dims || Object.keys(i.dims).length === 0)) || null
 
   // Preencher à direita: repete o valor da célula ativa até dezembro, como o
   // →| da grade. É o gesto mais comum do orçamento — valor que se repete o ano
@@ -241,7 +291,8 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
                   const pode = podeCelula(c)
                   const nova = !Object.keys(linhaCel).length
                   return (
-                    <tr key={k + i}>
+                    <Fragment key={k + i}>
+                    <tr>
                       <td style={{ ...td, textAlign: 'left' }}>
                         {nova ? (
                           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
@@ -276,14 +327,14 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
                             {/* Célula com valor gerado ou com vários lançamentos: mostra o
                                 TOTAL e não aceita digitação — ver `editavelCel`. */}
                             {pode && !editavel
-                              ? <span title={`${v!.itens.length} lançamento(s) · origem ${origensDe(v)}. `
-                                  + `Não se edita aqui: o valor vem do motor. Mude na origem `
-                                  + `(${origensDe(v).includes('POSTO') ? 'Posto de trabalho' : 'Formulário de drivers'}).`}
+                              ? <button onClick={() => setComp(x => x && x.k === k && x.mes === m ? null : { k, mes: m })}
+                                  title={`${v!.itens.length} lançamento(s) · ${origensDe(v)}. Clique para ver a composição e ajustar.`}
                                   style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end',
-                                           width: '100%', color: 'var(--text-mid)', cursor: 'help' }}>
+                                           width: '100%', background: 'none', border: 'none', font: 'inherit', padding: 0,
+                                           cursor: 'pointer', color: comp && comp.k === k && comp.mes === m ? 'var(--violet)' : 'var(--text-mid)' }}>
                                   {money(v!.total)}
                                   <Lock size={10} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                                </span>
+                                </button>
                               : pode
                               ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
                                   <input style={inp}
@@ -317,6 +368,55 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
                           style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}><Trash2 size={13} /></button>}
                       </td>
                     </tr>
+                    {comp && comp.k === k && (() => {
+                      const cl = linhaCel[comp.mes]; if (!cl) return null
+                      const aj = ajusteDe(cl)
+                      const gerados = cl.itens.filter(i => i !== aj)
+                      return (
+                        <tr key={k + '-comp'}>
+                          <td colSpan={14} style={{ ...td, textAlign: 'left', background: 'var(--bg)',
+                                                    borderBottom: '2px solid var(--border-strong)' }}>
+                            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>
+                              Composição de <b style={{ color: 'var(--text)' }}>{MES[comp.mes - 1]}</b> — {gerados.length} lançamento(s).
+                              {' '}O que vem do motor não se edita aqui; some um <b>ajuste</b> abaixo se precisar corrigir.
+                            </div>
+                            <div style={{ display: 'grid', gap: 3, maxHeight: 220, overflow: 'auto' }}>
+                              {gerados.map(l => (
+                                <div key={l.id} style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 12 }}>
+                                  <span style={{ width: 92, color: 'var(--muted)', fontSize: 10.5 }}>{l.origem}</span>
+                                  <span style={{ flex: 1, color: 'var(--text-mid)' }}>{rotulo(l)}</span>
+                                  {/* MANUAL continua editável aqui: o cadeado da célula é por
+                                      ela ter VÁRIOS lançamentos, não por este ser do motor.
+                                      Travar o que a pessoa mesma digitou seria tirar acesso
+                                      a um dado que é dela. */}
+                                  {l.origem === 'MANUAL' && pode
+                                    ? <input style={{ ...inp, width: 110 }} defaultValue={money(l.valor)}
+                                        key={`it-${l.id}-${l.valor}`}
+                                        onBlur={e => gravarLanc(c, comp.mes, l, e.target.value)} />
+                                    : <span style={{ width: 110, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                                                     color: 'var(--text)' }}>{money(l.valor)}</span>}
+                                </div>
+                              ))}
+                            </div>
+                            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8,
+                                          borderTop: '1px solid var(--border)', paddingTop: 8, fontSize: 12 }}>
+                              <span style={{ width: 92, color: 'var(--violet)', fontSize: 10.5, fontWeight: 700 }}>AJUSTE</span>
+                              <span style={{ flex: 1, color: 'var(--muted)' }}>
+                                soma ao que o motor calculou — o Aplicar da origem não o apaga
+                              </span>
+                              <input style={{ ...inp, width: 110 }} defaultValue={aj ? money(aj.valor) : ''}
+                                key={`aj-${k}-${comp.mes}-${aj?.valor ?? ''}`} disabled={!pode}
+                                placeholder="0,00"
+                                onBlur={e => gravarLanc(c, comp.mes, aj, e.target.value)} />
+                              <span style={{ width: 110, textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>
+                                = {money(cl.total)}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })()}
+                    </Fragment>
                   )
                 })}
                 <tr>
