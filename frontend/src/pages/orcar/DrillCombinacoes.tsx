@@ -22,7 +22,8 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 // a pessoa perde o trabalho sem entender.
 // ============================================================
 
-type Props = { linha: any; versao: any; ano: number; empresas: any[]; onFechar: (mudou: boolean) => void }
+type Props = { linha: any; versao: any; ano: number; empresas: any[]; fator?: number
+               onFechar: (mudou: boolean) => void }
 type Lanc = { id: string; valor: number; origem: string; dims: any }
 type Cel = { total: number; itens: Lanc[] }
 
@@ -33,7 +34,13 @@ const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 
 const parseNum = (s: string) => Number(String(s).replace(/\./g, '').replace(',', '.'))
 const chave = (c: Comb) => `${c.empresa_id}|${c.filial_id || ''}|${c.cc_id || ''}`
 
-export default function DrillCombinacoes({ linha, versao, ano, empresas, onFechar }: Props) {
+export default function DrillCombinacoes({ linha, versao, ano, empresas, fator = 1, onFechar }: Props) {
+  // ⚠ SINAL: o banco guarda despesa NEGATIVA; a tela de linha mostra positiva
+  // (`fatorExibicao`). O drill mostrava o valor cru, então a MESMA célula
+  // aparecia +19.834,29 numa tela e -19.834,29 na outra. Aqui tudo que entra e
+  // sai passa por `fator`, e o sinal deixa de ser assunto de quem digita.
+  const mostrar = (v: number) => money(v * fator)
+  const paraBanco = (n: number | null) => n === null ? null : n * fator
   const acesso = useUserAccess()
   const cap = useCapacidades()
   const [filiais, setFiliais] = useState<any[]>([])
@@ -99,8 +106,9 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
     const cl = cel[k]?.[mes]
     if (!editavelCel(cl)) { setErro('Esta célula vem do motor (posto/formulário) — altere na origem.'); return }
     const atual = cl?.itens[0]
-    const n = texto.trim() === '' ? null : parseNum(texto)
-    if (n !== null && isNaN(n)) return
+    const digitado = texto.trim() === '' ? null : parseNum(texto)
+    if (digitado !== null && isNaN(digitado)) return
+    const n = paraBanco(digitado)
     if ((atual?.valor ?? null) === n) return
     setErro('')
     try {
@@ -143,8 +151,9 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
    *  colidir — e o Aplicar da origem continua apagando só o que é dela. */
   const gravarLanc = async (c: Comb, mes: number, alvo: Lanc | null, texto: string) => {
     if (alvo && alvo.origem !== 'MANUAL') { setErro('Lançamento do motor — altere na origem.'); return }
-    const n = texto.trim() === '' ? null : parseNum(texto)
-    if (n !== null && isNaN(n)) return
+    const digitado = texto.trim() === '' ? null : parseNum(texto)
+    if (digitado !== null && isNaN(digitado)) return
+    const n = paraBanco(digitado)
     if ((alvo?.valor ?? null) === n) return
     setErro('')
     try {
@@ -182,8 +191,9 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
   // ⚠ Uma gravação por mês e UM recarregar no fim: recarregar a cada mês faria
   // onze idas ao banco e a tabela piscando onze vezes.
   const replicar = async (c: Comb, desde: number, texto: string) => {
-    const n = texto.trim() === '' ? null : parseNum(texto)
-    if (n !== null && isNaN(n)) return
+    const digitado = texto.trim() === '' ? null : parseNum(texto)
+    if (digitado !== null && isNaN(digitado)) return
+    const n = paraBanco(digitado)
     const k = chave(c)
     setErro('')
     try {
@@ -257,7 +267,7 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
           <div style={{ flex: 1 }}>
             <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{linha.descricao}</h2>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-              {versao.codigo} · {ano} · {combs.length} combinação(ões) · total {money(totalAno)}
+              {versao.codigo} · {ano} · {combs.length} combinação(ões) · total {mostrar(totalAno)}
               {bloqueada && <b style={{ color: 'var(--orange)' }}> · versão bloqueada, só leitura</b>}
             </div>
           </div>
@@ -332,13 +342,13 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
                                   style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end',
                                            width: '100%', background: 'none', border: 'none', font: 'inherit', padding: 0,
                                            cursor: 'pointer', color: comp && comp.k === k && comp.mes === m ? 'var(--violet)' : 'var(--text-mid)' }}>
-                                  {money(v!.total)}
+                                  {mostrar(v!.total)}
                                   <Lock size={10} style={{ color: 'var(--muted)', flexShrink: 0 }} />
                                 </button>
                               : pode
                               ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
                                   <input style={inp}
-                                    defaultValue={v ? money(v.total) : ''} key={`${k}-${m}-${v?.total ?? ''}`}
+                                    defaultValue={v ? mostrar(v.total) : ''} key={`${k}-${m}-${v?.total ?? ''}`}
                                     onFocus={e => setFoco({ k, mes: m, txt: e.target.value })}
                                     onChange={e => setFoco({ k, mes: m, txt: e.target.value })}
                                     onBlur={e => { gravar(c, m, e.target.value); setFoco(f => (f && f.k === k && f.mes === m) ? null : f) }}
@@ -358,11 +368,11 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
                                     </button>
                                   )}
                                 </span>
-                              : <span style={{ color: v ? 'var(--text-mid)' : 'var(--faint)' }}>{v ? money(v.total) : '—'}</span>}
+                              : <span style={{ color: v ? 'var(--text-mid)' : 'var(--faint)' }}>{v ? mostrar(v.total) : '—'}</span>}
                           </td>
                         )
                       })}
-                      <td style={{ ...td, fontWeight: 700, color: tot ? 'var(--text)' : 'var(--faint)' }}>{tot ? money(tot) : '—'}</td>
+                      <td style={{ ...td, fontWeight: 700, color: tot ? 'var(--text)' : 'var(--faint)' }}>{tot ? mostrar(tot) : '—'}</td>
                       <td style={td}>
                         {nova && <button onClick={() => setCombs(v => v.filter((_, j) => j !== i))}
                           style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}><Trash2 size={13} /></button>}
@@ -395,11 +405,11 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
                                       Travar o que a pessoa mesma digitou seria tirar acesso
                                       a um dado que é dela. */}
                                   {l.origem === 'MANUAL' && pode
-                                    ? <input style={{ ...inp, width: 110 }} defaultValue={money(l.valor)}
+                                    ? <input style={{ ...inp, width: 110 }} defaultValue={mostrar(l.valor)}
                                         key={`it-${l.id}-${l.valor}`}
                                         onBlur={e => gravarLanc(c, comp.mes, l, e.target.value)} />
                                     : <span style={{ width: 110, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                                                     color: 'var(--text)' }}>{money(l.valor)}</span>}
+                                                     color: 'var(--text)' }}>{mostrar(l.valor)}</span>}
                                 </div>
                               ))}
                             </div>
@@ -409,12 +419,12 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
                               <span style={{ flex: 1, color: 'var(--muted)' }}>
                                 soma ao que o motor calculou — o Aplicar da origem não o apaga
                               </span>
-                              <input style={{ ...inp, width: 110 }} defaultValue={aj ? money(aj.valor) : ''}
+                              <input style={{ ...inp, width: 110 }} defaultValue={aj ? mostrar(aj.valor) : ''}
                                 key={`aj-${k}-${comp.mes}-${aj?.valor ?? ''}`} disabled={!pode}
                                 placeholder="0,00"
                                 onBlur={e => gravarLanc(c, comp.mes, aj, e.target.value)} />
                               <span style={{ width: 110, textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>
-                                = {money(cl.total)}
+                                = {mostrar(cl.total)}
                               </span>
                             </div>
                             </div>
@@ -429,9 +439,9 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
                   <td style={{ ...td, textAlign: 'left', fontWeight: 700, color: 'var(--text)' }}>Total</td>
                   {Array.from({ length: 12 }, (_, j) => j + 1).map(m => (
                     <td key={m} style={{ ...td, fontWeight: 700, color: totalMes(m) ? 'var(--text)' : 'var(--faint)' }}>
-                      {totalMes(m) ? money(totalMes(m)) : '—'}</td>
+                      {totalMes(m) ? mostrar(totalMes(m)) : '—'}</td>
                   ))}
-                  <td style={{ ...td, fontWeight: 700 }}>{money(totalAno)}</td>
+                  <td style={{ ...td, fontWeight: 700 }}>{mostrar(totalAno)}</td>
                   <td style={td} />
                 </tr>
               </tbody>

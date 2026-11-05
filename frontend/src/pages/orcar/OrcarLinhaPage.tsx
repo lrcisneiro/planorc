@@ -701,7 +701,7 @@ export default function OrcarLinhaPage() {
 
       {drill && versao && (
         <DrillCombinacoes
-          linha={drill} versao={versao} ano={ano}
+          linha={drill} versao={versao} ano={ano} fator={fac(drill)}
           empresas={filtro.emp ? empresasEscopo.filter(e => filtro.emp!.includes(e.id)) : empresasEscopo}
           onFechar={(mudou: boolean) => { setDrill(null); if (mudou) setRecarga(n => n + 1) }}
         />

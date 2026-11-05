@@ -956,6 +956,14 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
 
 ## Convenções de código
 
+- ⚠ **Quem mostra valor de despesa aplica `fatorExibicao`, e quem GRAVA desfaz.** O banco guarda
+  despesa negativa; a DRE mostra positiva. O drill mostrava o valor cru, então a **mesma célula**
+  aparecia `+19.834,29` em *Orçar por linha* e `-19.834,29` ao abrir — e quem digitasse teria de
+  lembrar do sinal. Hoje o drill recebe o fator por prop e converte nas duas pontas (`mostrar` /
+  `paraBanco`), inclusive na comparação que decide se houve mudança. **Tela nova que edite
+  `fat_orcado` precisa das duas conversões, não só da de exibição** — só a de exibição grava o
+  sinal trocado, e o erro aparece meses depois no relatório.
+
 - **Cor de variação = bom ou ruim, nunca o sinal do número.** Verde/vermelho num Δ é uma
   afirmação semântica, e o sinal sozinho erra metade das linhas: despesa que cai aparece
   negativa e é melhora. O critério sai do **mesmo lugar que a exibição** — `fatorExibicao`
