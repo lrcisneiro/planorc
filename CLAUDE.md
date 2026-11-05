@@ -857,6 +857,14 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   quê. Para servir ali, a situação teria de ser **histórica por competência**: outro desenho.
   O aviso está no topo do arquivo, para que "completar" as telas que faltam não introduza o erro.
 
+  ⚠⚠ **A IMPORTAÇÃO NUNCA GRAVOU `sit_folha`** (achado em 05/nov/2026). A v3_152 carimbou a
+  coluna **uma vez, por SQL**, e o import de postos jamais a manteve — o CLAUDE.md dizia que
+  "a importação carimba", e não carimbava. Ficou invisível enquanto o valor de 2026 continuou
+  lá; quando os 568 postos foram apagados e recriados, `sit_folha` veio **nula nos 570** e os
+  **243 demitidos passaram a contar como ativos** no headcount, no FTE e no custo. Hoje a coluna
+  `situacao` do arquivo é gravada como as outras opcionais (presente grava, ausente não toca) e
+  o resumo diz quantos demitidos entraram.
+
   **A fonte da situação vem da FOLHA, com dedução como reserva** (v3_152). `RA_SITFOLH` — uma letra:
   `D` demitido, `A` afastado, `F` férias, vazio trabalhando — chega na *Relação de Funcionários* e
   a importação carimba em **`posto.sit_folha`**. Guardada no **posto** e não na pessoa porque a

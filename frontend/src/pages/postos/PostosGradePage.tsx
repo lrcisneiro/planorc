@@ -193,7 +193,7 @@ export default function PostosGradePage() {
   // afastado e em férias contando como ativo no headcount, no FTE e no custo.
   const [sits, setSits] = useLocalPref<Situacao[]>('planorc_postos_situacoes', ['ativo'])
   const [erro, setErro] = useState<string | null>(null)
-  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[]; afastados: number; cargoAmbiguo: number; semSalario: number; salarioFora: number; areasNaoAchadas: string[]; codsNaoAchados: string[]; comAreaFunc: number } | null>(null)
+  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[]; afastados: number; cargoAmbiguo: number; semSalario: number; salarioFora: number; areasNaoAchadas: string[]; codsNaoAchados: string[]; comAreaFunc: number; demitidos: number } | null>(null)
   const [importando, setImportando] = useState(false)
   const [fechados, setFechados] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
@@ -380,6 +380,14 @@ export default function PostosGradePage() {
       // e uma carga mensal que não fala dela não pode apagá-la (foi o que o
       // "substituir escopo" fez com 350 postos em 05/nov).
       const temAreaFunc = rows.some(r => 'area_funcional' in r)
+      // ⚠ A SITUAÇÃO NUNCA FOI GRAVADA PELA IMPORTAÇÃO. A v3_152 carimbou
+      // `sit_folha` uma vez por SQL e o import nunca a manteve — então quando
+      // os postos foram recriados em 05/nov ela ficou NULA nos 570, e os 243
+      // demitidos passaram a contar como ativos no headcount, no FTE e no
+      // custo. `RA_SITFOLH` é uma letra: D demitido, A afastado, F férias,
+      // vazio trabalhando.
+      const temSit = rows.some(r => 'situacao' in r)
+      let nDemitidos = 0
       const areaByCod = new Map(areasFunc.map(a => [String(a.codigo).trim(), a.id]))
       const areasNaoAchadas = new Set<string>()
       // ⚠ `cargo_codigo` RESOLVE A AMBIGUIDADE QUE O NOME NÃO RESOLVE. O mesmo
@@ -453,6 +461,11 @@ export default function PostosGradePage() {
           // a admissão alimenta DUAS coisas: a vigência de início (o posto começa
           // a custar quando a pessoa entrou) e o tempo de casa da rescisão. A
           // segunda fica na sua própria coluna porque a vigência é editável.
+          ...(temSit ? (() => {
+            const sf = (r.situacao || '').trim().toUpperCase()
+            if (sf === 'D') nDemitidos++
+            return { sit_folha: sf || null }
+          })() : {}),
           ...(temAreaFunc ? (() => {
             const cod = (r.area_funcional || '').trim()
             if (!cod) return { area_func_id: null }
@@ -578,7 +591,7 @@ export default function PostosGradePage() {
         if (prRows.length) { const { error: prErr } = await supabase.from('posto_rateio').upsert(prRows, { onConflict: 'tenant_id,posto_id,regra_id' }); if (prErr) setErro('Aviso — rateio: ' + prErr.message) }
       }
 
-      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], foraEscopo: foraEscopo.size, cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length, rateioPostos, rateioCol: !!rateioCol, rateioNaoAchados: [...rateioNaoAchados], afastados: nAfast, cargoAmbiguo, semSalario, salarioFora, areasNaoAchadas: [...areasNaoAchadas], codsNaoAchados: [...codsNaoAchados], comAreaFunc: temAreaFunc ? payload.filter(x => (x as any).area_func_id).length : 0 })
+      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], foraEscopo: foraEscopo.size, cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length, rateioPostos, rateioCol: !!rateioCol, rateioNaoAchados: [...rateioNaoAchados], afastados: nAfast, cargoAmbiguo, semSalario, salarioFora, areasNaoAchadas: [...areasNaoAchadas], codsNaoAchados: [...codsNaoAchados], demitidos: temSit ? nDemitidos : -1, comAreaFunc: temAreaFunc ? payload.filter(x => (x as any).area_func_id).length : 0 })
       loadPostos()
     } finally { setImportando(false) }
   }
@@ -1436,6 +1449,10 @@ export default function PostosGradePage() {
             {importInfo.semSalario > 0 && <div style={{ color: 'var(--muted)' }}>
               {importInfo.semSalario} posto(s) vieram <b>sem salário</b> no arquivo — o valor que já
               estava no cadastro foi <b>mantido</b>, não zerado.
+            </div>}
+            {importInfo.demitidos >= 0 && <div style={{ color: 'var(--text-mid)' }}>
+              {importInfo.demitidos} posto(s) marcados como <b>demitidos</b> pela coluna <code>situacao</code> —
+              saem do headcount, do FTE e do custo.
             </div>}
             {importInfo.comAreaFunc > 0 && <div style={{ color: 'var(--text-mid)' }}>
               {importInfo.comAreaFunc} posto(s) com <b>área funcional</b> atribuída pela coluna <code>area_funcional</code>.
