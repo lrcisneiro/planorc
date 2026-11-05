@@ -22,6 +22,11 @@
 -- parece com código do ERP justamente para não ser confundido com um. O RH
 -- atribui o definitivo e devolve.
 --
+-- ⚠ `cargo.origem` só aceitava ERP|PLANO. O terceiro valor é deliberado, não
+-- atalho: esses cargos não vieram do plano (o plano não os tem) nem do ERP
+-- (o ERP não tem código para eles). Marcá-los de PLANO esconderia justamente
+-- o que precisa ficar visível — que estão esperando código do RH.
+--
 -- ⚠ O tenant vem da TABELA, não de `current_tenant_id()` — no SQL Editor essa
 -- função devolve NULL e tudo entraria órfão. Mesmo caminho da v3_158.
 --
@@ -32,6 +37,11 @@ DO $$ DECLARE n int; BEGIN
   SELECT count(*) INTO n FROM tenant;
   IF n <> 1 THEN RAISE EXCEPTION 'Esta carga supõe um tenant só; há %.', n; END IF;
 END $$;
+
+-- 0. o vocabulário de origem ganha um terceiro valor
+ALTER TABLE cargo DROP CONSTRAINT IF EXISTS cargo_origem_chk;
+ALTER TABLE cargo ADD CONSTRAINT cargo_origem_chk
+  CHECK (origem = ANY (ARRAY['ERP'::text, 'PLANO'::text, 'NOVO'::text]));
 
 -- 1. áreas (1 dígito) e subáreas (2 dígitos)
 INSERT INTO cargo_familia (tenant_id, codigo, nome)
