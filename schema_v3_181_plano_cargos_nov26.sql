@@ -15,9 +15,12 @@
 -- está vazio em 100% dos postos — o código nunca veio do ERP. No dia em que
 -- vier, esta reconstrução tem de virar upsert.
 --
--- ⚠ Os 29 cargos que o plano NÃO TEM entram **sem código**, com
--- `origem='NOVO'`. O código é chave do ERP; inventar um criaria uma chave que
--- o ERP não conhece. O RH atribui e devolve.
+-- ⚠ Os 29 cargos que o plano NÃO TEM entram com código **provisório**
+-- `NOVO-nn` e `origem='NOVO'`. `cargo.codigo` é NOT NULL, então não dá para
+-- deixar vazio — mas um código de 5 dígitos inventado viraria uma chave que o
+-- ERP não conhece e que ninguém distinguiria das verdadeiras. `NOVO-nn` não se
+-- parece com código do ERP justamente para não ser confundido com um. O RH
+-- atribui o definitivo e devolve.
 --
 -- ⚠ O tenant vem da TABELA, não de `current_tenant_id()` — no SQL Editor essa
 -- função devolve NULL e tudo entraria órfão. Mesmo caminho da v3_158.
@@ -350,9 +353,11 @@ ON CONFLICT (tenant_id, codigo) DO UPDATE
   SET nome = EXCLUDED.nome, area_cod = EXCLUDED.area_cod, sub_cod = EXCLUDED.sub_cod,
       origem = 'PLANO', ativo = true;
 
--- 4. os 29 que o plano não tem — sem código, para o RH atribuir
+-- 4. os 29 que o plano não tem — código provisório NOVO-nn, para o RH trocar
 INSERT INTO cargo (tenant_id, codigo, nome, origem, ativo)
-SELECT (SELECT id FROM tenant), NULL, v.nome, 'NOVO', true
+SELECT (SELECT id FROM tenant),
+       'NOVO-' || lpad((row_number() OVER (ORDER BY v.nome))::text, 2, '0'),
+       v.nome, 'NOVO', true
   FROM (VALUES
   ('ANALISTA DE DESENVOLVIMENTO EDUCACIONAL E CULTURA II'),
   ('ANALISTA DE DESENVOLVIMENTO ORGANIZACIONAL E EDUCACIONAL II'),
