@@ -376,6 +376,10 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
                         <tr key={k + '-comp'}>
                           <td colSpan={14} style={{ ...td, textAlign: 'left', background: 'var(--bg)',
                                                     borderBottom: '2px solid var(--border-strong)' }}>
+                            {/* ⚠ A linha ocupa as 14 colunas da tabela, mas o conteúdo não
+                                deve: com `flex:1` no nome, o valor ia parar no fim da tela,
+                                longe de quem ele descreve. Largura fixa aproxima os dois. */}
+                            <div style={{ maxWidth: 620 }}>
                             <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>
                               Composição de <b style={{ color: 'var(--text)' }}>{MES[comp.mes - 1]}</b> — {gerados.length} lançamento(s).
                               {' '}O que vem do motor não se edita aqui; some um <b>ajuste</b> abaixo se precisar corrigir.
@@ -384,7 +388,8 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
                               {gerados.map(l => (
                                 <div key={l.id} style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 12 }}>
                                   <span style={{ width: 92, color: 'var(--muted)', fontSize: 10.5 }}>{l.origem}</span>
-                                  <span style={{ flex: 1, color: 'var(--text-mid)' }}>{rotulo(l)}</span>
+                                  <span style={{ flex: 1, color: 'var(--text-mid)', overflow: 'hidden',
+                                                 textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rotulo(l)}</span>
                                   {/* MANUAL continua editável aqui: o cadeado da célula é por
                                       ela ter VÁRIOS lançamentos, não por este ser do motor.
                                       Travar o que a pessoa mesma digitou seria tirar acesso
@@ -411,6 +416,7 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, onFecha
                               <span style={{ width: 110, textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>
                                 = {money(cl.total)}
                               </span>
+                            </div>
                             </div>
                           </td>
                         </tr>
