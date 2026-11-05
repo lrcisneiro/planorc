@@ -30,3 +30,34 @@ DECIDIDO = {
     ('RECURSOS HUMANOS', 'DESENVOLVIMENTO EDUCACIONAL E CULTURA'): ('RELAÇÕES HUMANAS', 'DESENVOLVIMENTO ORGANIZACIONAL E CULTURA'),
     ('MARKETING', 'MARKETING DE EVENTOS'):                         ('MARKETING', 'MARKETING EVENTOS'),
 }
+
+
+# ── Organograma funcional (`area_funcional`) ────────────────────────────────
+# ⚠ É OUTRA ESTRUTURA, não a do cargo. `cargo_familia` diz a que família o
+# CARGO pertence; `area_funcional` diz onde a PESSOA trabalha. O projeto já
+# tinha medido que uma não serve de eixo da outra — o bloco 42 do plano hospeda
+# gente em três subáreas funcionais diferentes.
+#
+# 263 das 303 pessoas casam pelo nome da subárea. Estas dez precisam de regra
+# porque o nome sozinho erra:
+ORG_DEPARA = {
+    # abreviação no nó ("ADM" × "ADMINISTRATIVOS")
+    ('ADM/FINANCEIRO', 'CONTROLES FINANCEIROS E ADMINISTRATIVOS'): '131',
+    # typo na origem ("SOFWARE")
+    ('MERCADO INTERNACIONAL', 'FABRICA DE SOFWARE'):               '141',
+    ('None', 'FABRICA DE SOFWARE'):                                '141',
+    ('SERVIÇOS', 'MERCADO INTERNACIONAL'):                         '141',
+    # a subárea repete o nome da área: é a própria diretoria
+    ('EXECUTIVA', 'EXECUTIVA'):                                    '1',
+    ('SERVIÇOS', 'SERVIÇOS'):                                      '11',
+    ('OPERAÇÕES', 'OPERAÇÕES'):                                    '17',
+    # preposição a mais
+    ('MARKETING', 'MARKETING DE EVENTOS'):                         '151',
+    # ⚠⚠ ERRO QUE O NOME PRODUZIA: "DESENVOLVIMENTO" existe em DOIS ramos, e o
+    # desempate pelo pai falha porque a origem escreve "TI" e o nó
+    # "TECNOLOGIA DA INFORMAÇÃO". Sem esta linha, 3 pessoas de TI iam parar em
+    # Serviços — errado e invisível, porque o nome batia.
+    ('TI', 'DESENVOLVIMENTO'):                                     '1711',
+    # julgamento: "desenvolvimento educacional e cultura" ≈ cultura e engajamento
+    ('RECURSOS HUMANOS', 'DESENVOLVIMENTO EDUCACIONAL E CULTURA'): '163',
+}
