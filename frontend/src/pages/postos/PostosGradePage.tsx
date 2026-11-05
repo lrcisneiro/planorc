@@ -233,7 +233,7 @@ export default function PostosGradePage() {
       supabase.from('empresa').select('id,codigo,descricao,pais').eq('ativo', true).order('codigo'),
       supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
-      pageAll(() => supabase.from('cargo').select('id,codigo,nome,sub_cod').order('nome')).then(data => ({ data })),
+      pageAll(() => supabase.from('cargo').select('id,codigo,nome,sub_cod,ativo').order('nome')).then(data => ({ data })),
       carregarVersoes('id,codigo,bloqueada,aprovado_em,aprovado_por,aprovacao_nota').then(data => ({ data })),
       supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,mantem_afastado,regime,pais,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
       supabase.from('sindicato').select('id,codigo,mes_database'),
@@ -304,6 +304,15 @@ export default function PostosGradePage() {
   // antigo numa promoção, sem nada na tela denunciando.
   const nomeCargo = (id: string | null | undefined) =>
     (id && cargos.find((c: any) => c.id === id)?.nome) || ''
+
+  // ⚠ O SELETOR SÓ OFERECE CARGO ATIVO — mas CONTINUA MOSTRANDO o inativo que
+  // o posto já tem. A v3_181 desativou o catálogo anterior; a lista era
+  // carregada sem olhar `ativo`, então os nomes abreviados do ERP voltavam a
+  // aparecer como se fossem escolha válida. Filtrar sem a exceção seria pior:
+  // o <select> perderia o valor atual e a primeira edição de um posto de
+  // demitido trocaria o cargo dele em silêncio.
+  const opcoesCargo = (atual?: string | null) =>
+    cargos.filter((c: any) => c.ativo !== false || c.id === atual)
   const mestreById = useMemo(() => new Map(postos.map(p => [p.id, p])), [postos])
   // O quadro EFETIVO do cenário. Fora do modo cenário é o mestre, pela mesma
   // referência — nada muda para quem só cuida do cadastro.
@@ -339,8 +348,16 @@ export default function PostosGradePage() {
         const k = String(c.nome).trim().toUpperCase()
         porNome.set(k, [...(porNome.get(k) || []), c.id])
       }
-      let cargoByNome = new Map([...porNome].filter(([, v]) => v.length === 1).map(([k, v]) => [k, v[0]]))
-      const ambiguos = new Set([...porNome].filter(([, v]) => v.length > 1).map(([k]) => k))
+      // ⚠ Só cargo ATIVO entra no casamento por nome: um nome que só existe
+      // desativado tem de criar/usar o novo, não ressuscitar o antigo.
+      const cargosAtivos = cargos.filter((c: any) => c.ativo !== false)
+      const porNomeAtivo = new Map<string, string[]>()
+      for (const c of cargosAtivos) {
+        const k = String(c.nome).trim().toUpperCase()
+        porNomeAtivo.set(k, [...(porNomeAtivo.get(k) || []), c.id])
+      }
+      let cargoByNome = new Map([...porNomeAtivo].filter(([, v]) => v.length === 1).map(([k, v]) => [k, v[0]]))
+      const ambiguos = new Set([...porNomeAtivo].filter(([, v]) => v.length > 1).map(([k]) => k))
       const cargoAtual = new Map(postos.map((p: any) => [String(p.codigo), p.cargo_id]))
       const idsPorNome = porNome
       let cargoAmbiguo = 0
@@ -1724,7 +1741,7 @@ export default function PostosGradePage() {
                     <select style={{ ...S.finp, flex: 1 }} value={efet.cargo_id ?? ''}
                       onChange={e => set({ cargo_id: e.target.value || null })}>
                       <option value="">—</option>
-                      {cargos.map((c: any) => <option key={c.id} value={c.id}>{c.nome}{c.sub_cod ? ` · ${c.sub_cod}` : ''}</option>)}
+                      {opcoesCargo(efet.cargo_id).map((c: any) => <option key={c.id} value={c.id}>{c.nome}{c.sub_cod ? ` · ${c.sub_cod}` : ''}{c.ativo === false ? ' (inativo)' : ''}</option>)}
                     </select>
                     {decidido('cargo_id') && <button style={{ ...S.del, padding: '0 6px' }} title="Voltar a herdar" onClick={() => herda(['cargo_id' as CampoCenario])}><Undo2 size={14} /></button>}
                   </div>
@@ -1812,7 +1829,7 @@ export default function PostosGradePage() {
                     ? <button type="button" title="Editar código manualmente" style={{ padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--panel)', color: 'var(--text-mid)', cursor: 'pointer', display: 'flex', alignItems: 'center' }} onClick={() => setForm((f: any) => ({ ...f, codigoAuto: false }))}><Pencil size={14} /></button>
                     : <button type="button" title="Voltar ao código automático" style={{ padding: '0 10px', fontSize: 11, fontWeight: 600, border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--panel)', color: 'var(--text-mid)', cursor: 'pointer' }} onClick={() => setForm((f: any) => ({ ...f, codigoAuto: true, codigo: gerarCodigoPosto(f.filial_id, f.matricula) }))}>auto</button>}
                 </div></div>
-              <div><span style={S.flbl}>Cargo</span><select style={S.finp} value={form.cargo_id} onChange={e => setForm((f: any) => ({ ...f, cargo_id: e.target.value }))}><option value="">—</option>{cargos.map((c: any) => <option key={c.id} value={c.id}>{c.nome}{c.sub_cod ? ` · ${c.sub_cod}` : ''}</option>)}</select></div>
+              <div><span style={S.flbl}>Cargo</span><select style={S.finp} value={form.cargo_id} onChange={e => setForm((f: any) => ({ ...f, cargo_id: e.target.value }))}><option value="">—</option>{opcoesCargo(form.cargo_id).map((c: any) => <option key={c.id} value={c.id}>{c.nome}{c.sub_cod ? ` · ${c.sub_cod}` : ''}{c.ativo === false ? ' (inativo)' : ''}</option>)}</select></div>
               <div><span style={S.flbl}>Regime</span><select style={S.finp} value={form.regime} onChange={e => setForm((f: any) => ({ ...f, regime: e.target.value }))}><option value="">—</option>{REGIMES.map(r => <option key={r} value={r}>{REGIMES_LABEL[r] || r}</option>)}</select></div>
               <div><span style={S.flbl}>Sindicato <span style={{ color: 'var(--muted)' }}>(vazio = pela empresa)</span></span><select style={S.finp} value={form.sindicato_id} onChange={e => setForm((f: any) => ({ ...f, sindicato_id: e.target.value }))}><option value="">— automático —</option>{sindicatos.map((s: any) => <option key={s.id} value={s.id}>{s.codigo}</option>)}</select></div>
               {/* Saiu da grade (nov/2026): é exceção rara — a decisão normal é
