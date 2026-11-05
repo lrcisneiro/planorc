@@ -10,6 +10,7 @@ import { usePostoCtx } from '../../lib/postoCtx'
 import { pageAll } from '../../lib/pageAll'
 import { situacaoPosto, SeletorSituacao, type Situacao } from '../../lib/situacaoPosto'
 import { useLocalPref } from '../../lib/uiPrefs'
+import { useOrdenacao } from '../../lib/ordenarTabela'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
 import { ChevronDown, ChevronRight, Printer, Split, Search, X } from 'lucide-react'
 import { RateioModal } from './RateioModal'
@@ -170,6 +171,21 @@ export default function PostosMemoriaPage() {
   const compTot = CATEGORIAS.reduce((t, c) => t + agg.cat[c], 0)
   const pct = (v: number) => compTot ? Math.round(v / compTot * 100) : 0
 
+  // Ordenar a memória pelo custo é como se acha o posto que puxa a conta;
+  // sem isso a lista sai na ordem do cadastro e a pergunta vira rolagem.
+  const ord = useOrdenacao('planorc_postos_memoria_ordem', { th: S.th })
+  const valorDeMem = (p: any, col: string) => {
+    const r = custos.get(p.id)
+    switch (col) {
+      case 'posto':    return p.codigo || ''
+      case 'ocupante': return p.nome || ''
+      case 'cargo':    return p.cargo?.nome || ''
+      case 'mes':      return r?.totalMes || 0
+      case 'ano':      return r?.totalAno || 0
+      default:         return ''
+    }
+  }
+
   const empById = useMemo(() => new Map(empresas.map((e: any) => [e.id, e])), [empresas])
   const ccById = useMemo(() => new Map(ccs.map((c: any) => [c.id, c])), [ccs])
 
@@ -241,9 +257,15 @@ export default function PostosMemoriaPage() {
           <div style={S.cardT}>Memória por posto <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— clique para abrir a cascata</span></div>
           <div style={{ maxHeight: 620, overflow: 'auto' }}>
             <table style={S.table}>
-              <thead><tr><th style={S.th}>Posto</th><th style={S.th}>Ocupante</th><th style={S.th}>Cargo</th><th style={{ ...S.th, textAlign: 'right' }}>Custo/mês</th><th style={{ ...S.th, textAlign: 'right' }}>Custo/ano</th></tr></thead>
+              <thead><tr>
+                <ord.Th col="posto">Posto</ord.Th>
+                <ord.Th col="ocupante">Ocupante</ord.Th>
+                <ord.Th col="cargo">Cargo</ord.Th>
+                <ord.Th col="mes" right>Custo/mês</ord.Th>
+                <ord.Th col="ano" right>Custo/ano</ord.Th>
+              </tr></thead>
               <tbody>
-                {filtrados.map(p => {
+                {ord.ordenar(filtrados, valorDeMem).map((p: any) => {
                   const r = custos.get(p.id); const open = aberto.has(p.id)
                   return (
                     <Fragment key={p.id}>

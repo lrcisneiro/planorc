@@ -169,7 +169,10 @@ export default function PostosGradePage() {
   const [divisaoSel, setDivisaoSel] = usePostoCtx('divisaoSel', [])
   const [buSel, setBuSel] = usePostoCtx('buSel', [])
   const [modo, setModo] = useState<'upsert' | 'substituir'>('upsert')
-  const [agruparPor, setAgruparPor] = useLocalPref<'cc' | 'cargo'>('planorc_postos_grade_agrupar', 'cc')
+  // 'nenhum' existe para ordenar a EMPRESA INTEIRA por custo. Com agrupamento
+  // a ordenação acontece dentro de cada grupo, então "os dez mais caros da
+  // empresa" era uma pergunta que a tela não respondia.
+  const [agruparPor, setAgruparPor] = useLocalPref<'cc' | 'cargo' | 'nenhum'>('planorc_postos_grade_agrupar', 'cc')
   // Ordenação DENTRO do grupo — o agrupamento continua mandando. `null` volta à
   // ordem natural (código do posto), que é a terceira parada do ciclo: sem ela,
   // quem ordena por salário não tem como desfazer.
@@ -995,7 +998,7 @@ export default function PostosGradePage() {
                    ...(podeClicar ? { cursor: 'pointer', userSelect: 'none' } : {}),
                    ...(ativo ? { color: 'var(--violet)' } : {}) }}
           onClick={podeClicar ? () => clicarCol(col!) : undefined}
-          title={podeClicar ? 'Ordenar dentro de cada grupo' : undefined}>
+          title={podeClicar ? (agruparPor === 'nenhum' ? 'Ordenar todos os postos' : 'Ordenar dentro de cada grupo') : undefined}>
         {children}{ativo && <span style={{ marginLeft: 4 }}>{ordem.dir === 'asc' ? '▲' : '▼'}</span>}
       </th>
     )
@@ -1004,6 +1007,20 @@ export default function PostosGradePage() {
   const grupos = useMemo(() => {
     const porCc = agruparPor === 'cc'
     const custo = (ps: Posto[]) => ps.reduce((s, p) => s + custoAnoP(p), 0)
+    const sinal0 = ordem.dir === 'asc' ? 1 : -1
+    // Sem agrupamento: UM grupo com tudo, para a ordenação valer sobre a
+    // empresa inteira. Mantém o mesmo formato dos outros para o render não
+    // precisar de um segundo caminho.
+    if (agruparPor === 'nenhum') {
+      const todos = ordem.col
+        ? [...filtrados].sort((a, b) => {
+            const x = valorDe(a, ordem.col!), y = valorDe(b, ordem.col!)
+            return sinal0 * (typeof x === 'number' && typeof y === 'number'
+              ? x - y : String(x).localeCompare(String(y), 'pt-BR'))
+          })
+        : filtrados
+      return [{ key: '__todos', cod: '', desc: 'Todos os postos', postos: todos, custoAno: custo(todos) }]
+    }
     const m = new Map<string, { key: string; cod: string; desc: string; postos: Posto[] }>()
     for (const p of filtrados) {
       const k = (porCc ? p.cc_id : p.cargo_id) || '__sem'
@@ -1256,9 +1273,10 @@ export default function PostosGradePage() {
         </div>
         <div style={S.fld}><span style={S.lbl}>Agrupar por</span>
           <div style={{ display: 'flex', gap: 6 }}>
-            <select style={S.sel} value={agruparPor} onChange={e => setAgruparPor(e.target.value as 'cc' | 'cargo')}>
+            <select style={S.sel} value={agruparPor} onChange={e => setAgruparPor(e.target.value as any)}>
               <option value="cc">Centro de custo</option>
               <option value="cargo">Cargo</option>
+              <option value="nenhum">Sem agrupamento</option>
             </select>
             <button style={{ ...S.sel, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text-mid)' }} onClick={toggleTodos}
               title={algumAberto ? 'Recolher todos os grupos' : 'Expandir todos os grupos'}>
@@ -1440,7 +1458,7 @@ export default function PostosGradePage() {
                             {g.cod && <span style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{g.cod} · </span>}{g.desc}
                             <span style={{ color: 'var(--muted)', fontWeight: 400 }}> — {g.postos.length} posto{g.postos.length === 1 ? '' : 's'} · {milAno(g.custoAno)}/ano</span>
                           </span>
-                          {editavel && g.key !== '__sem' && <button title={`Novo posto ${agruparPor === 'cc' ? 'neste centro de custo' : 'neste cargo'}`}
+                          {editavel && g.key !== '__sem' && g.key !== '__todos' && <button title={`Novo posto ${agruparPor === 'cc' ? 'neste centro de custo' : 'neste cargo'}`}
                             onClick={ev => { ev.stopPropagation(); novoPosto(agruparPor === 'cc' ? { cc_id: g.key } : { cargo_id: g.key }) }}
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', fontSize: 11.5, fontWeight: 600, borderRadius: 6, cursor: 'pointer', color: 'var(--violet)', border: '1px solid var(--violet)55', background: 'rgba(139,92,246,0.12)' }}>
                             <Plus size={12} /> Posto</button>}

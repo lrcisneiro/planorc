@@ -5,6 +5,7 @@ import { PostosPills } from './PostosPills'
 import { usePostoCtx } from '../../lib/postoCtx'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
+import { useOrdenacao } from '../../lib/ordenarTabela'
 import { cascataRateio } from '../../lib/rateioFolha'
 import { fimDoMes, taxaRealizada, materializa } from '../../lib/cambio'
 import { useUserAccess } from '../../hooks/useUserAccess'
@@ -200,6 +201,27 @@ export default function FolhaRealizadaPage() {
     }
     return [...m.values()].sort((a, b) => (b.prov - b.desc) - (a.prov - a.desc))
   }, [filtrados])
+
+  // ⚠ A ordem PADRÃO continua sendo por líquido decrescente — é a que responde
+  // "quem pesa mais no mês". O clique no cabeçalho substitui; a terceira
+  // parada do ciclo devolve esta.
+  const ord = useOrdenacao('planorc_folha_realizada_ordem', { th: S.th })
+  const valorDeFolha = (g: any, col: string): string | number => {
+    const pd = g.key.startsWith('mat:') ? null : postoDim.get(g.key)
+    switch (col) {
+      case 'posto':    return pd?.codigo || g.matricula || ''
+      case 'ocupante': return pd?.nome || g.nome || ''
+      case 'local':    return [empById.get(pd?.empresa_id ?? g.empresa_id)?.codigo,
+                               filById.get((pd?.filial_id ?? g.filial_id) || '')?.codigo,
+                               ccById.get((pd?.cc_id ?? g.cc_id) || '')?.codigo].join(' ')
+      case 'prov':     return g.prov
+      case 'desc':     return g.desc
+      case 'liq':      return g.prov - g.desc
+      default:         return ''
+    }
+  }
+  type GrupoFolha = (typeof grupos)[number]
+  const gruposVis = useMemo(() => ord.ordenar<GrupoFolha>(grupos, valorDeFolha), [grupos, ord.ordem]) // eslint-disable-line
   // o que já está carregado nesta competência, por lote: é o que diz se a folha
   // confidencial ainda está lá depois de uma reimportação da folha do ERP
   const porLote = useMemo(() => {
@@ -505,11 +527,15 @@ export default function FolhaRealizadaPage() {
         <div style={{ maxHeight: 640, overflow: 'auto' }}>
           <table style={S.table}>
             <thead><tr>
-              <th style={S.th}>Posto / matrícula</th><th style={S.th}>Ocupante</th><th style={S.th}>Empresa · Filial · CC</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>Proventos</th><th style={{ ...S.th, textAlign: 'right' }}>Descontos</th><th style={{ ...S.th, textAlign: 'right' }}>Líquido</th>
+              <ord.Th col="posto">Posto / matrícula</ord.Th>
+              <ord.Th col="ocupante">Ocupante</ord.Th>
+              <ord.Th col="local">Empresa · Filial · CC</ord.Th>
+              <ord.Th col="prov" right>Proventos</ord.Th>
+              <ord.Th col="desc" right>Descontos</ord.Th>
+              <ord.Th col="liq" right>Líquido</ord.Th>
             </tr></thead>
             <tbody>
-              {grupos.map(g => {
+              {gruposVis.map(g => {
                 const open = aberto.has(g.key)
                 return (
                   <Fragment key={g.key}>
@@ -526,7 +552,7 @@ export default function FolhaRealizadaPage() {
                       <td style={{ ...S.td, textAlign: 'right', color: 'var(--muted)' }}>{money(g.desc)}</td>
                       <td style={{ ...S.td, textAlign: 'right', fontWeight: 600 }}>{money(g.prov - g.desc)}</td>
                     </tr>
-                    {open && g.verbas.map((v, i) => (
+                    {open && g.verbas.map((v: FolhaRow, i: number) => (
                       <tr key={g.key + i}>
                         <td style={S.sub2} colSpan={2}>
                           <span style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{v.verba_cod}</span> {v.verba_desc}
