@@ -189,7 +189,7 @@ export default function PostosGradePage() {
   // afastado e em férias contando como ativo no headcount, no FTE e no custo.
   const [sits, setSits] = useLocalPref<Situacao[]>('planorc_postos_situacoes', ['ativo'])
   const [erro, setErro] = useState<string | null>(null)
-  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[]; afastados: number; cargoAmbiguo: number; semSalario: number } | null>(null)
+  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[]; afastados: number; cargoAmbiguo: number; semSalario: number; salarioFora: number } | null>(null)
   const [importando, setImportando] = useState(false)
   const [fechados, setFechados] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
@@ -446,18 +446,26 @@ export default function PostosGradePage() {
         if (delErr) { setErro('Erro ao limpar o escopo: ' + delErr.message); return }
         apagados = count || 0
       }
-      // Dois upserts: quem tem salário no arquivo e quem não tem. Um só não
-      // serve — o PostgREST monta UM comando com as colunas do payload, então
-      // misturar os dois grupos obrigaria a mandar `salario_base` para todos.
+      // ⚠ `salario_base` NÃO PODE IR NO UPSERT (v3_179). A v3_143 revogou o
+      // `SELECT` dessa coluna, e `ON CONFLICT DO UPDATE SET x = excluded.x`
+      // **lê** `excluded.x` — o Postgres então nega a instrução inteira com
+      // "permission denied for table posto". Gravar pode (UPDATE está
+      // concedido); o upsert é que não. Por isso o salário sai daqui e entra
+      // depois, por `atualizar_salario_postos`, que faz UPDATE puro.
       const semAux = (p: any) => { const { _sal, ...resto } = p; return resto }
-      const comSal = payload.filter(p => p._sal != null).map(p => ({ ...semAux(p), salario_base: p._sal }))
-      const semSal = payload.filter(p => p._sal == null).map(semAux)
-      for (const lote of [comSal, semSal]) {
-        if (!lote.length) continue
-        const { error } = await supabase.from('posto').upsert(lote, { onConflict: 'tenant_id,codigo' })
-        if (error) { setErro('Erro no import: ' + error.message); return }
+      const { error } = await supabase.from('posto').upsert(payload.map(semAux), { onConflict: 'tenant_id,codigo' })
+      if (error) { setErro('Erro no import: ' + error.message); return }
+
+      const salarios = payload.filter(p => p._sal != null).map(p => ({ codigo: p.codigo, salario: p._sal }))
+      const semSalario = payload.length - salarios.length
+      let salarioFora = 0
+      if (salarios.length) {
+        // Depois do upsert, para o posto novo já existir quando o salário chega.
+        const { data: rs, error: eSal } = await supabase.rpc('atualizar_salario_postos', { p_dados: salarios })
+        if (eSal) { setErro('Postos gravados, mas o salário falhou: ' + eSal.message); return }
+        const r: any = Array.isArray(rs) ? rs[0] : rs
+        salarioFora = (r?.fora_escopo || 0) + (r?.nao_encontrados || 0)
       }
-      const semSalario = semSal.length
 
       // ids dos postos gravados (reusado por benefícios e rateio)
       const codigos = payload.map(p => p.codigo)
@@ -510,7 +518,7 @@ export default function PostosGradePage() {
         if (prRows.length) { const { error: prErr } = await supabase.from('posto_rateio').upsert(prRows, { onConflict: 'tenant_id,posto_id,regra_id' }); if (prErr) setErro('Aviso — rateio: ' + prErr.message) }
       }
 
-      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], foraEscopo: foraEscopo.size, cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length, rateioPostos, rateioCol: !!rateioCol, rateioNaoAchados: [...rateioNaoAchados], afastados: nAfast, cargoAmbiguo, semSalario })
+      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], foraEscopo: foraEscopo.size, cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length, rateioPostos, rateioCol: !!rateioCol, rateioNaoAchados: [...rateioNaoAchados], afastados: nAfast, cargoAmbiguo, semSalario, salarioFora })
       loadPostos()
     } finally { setImportando(false) }
   }
@@ -1332,6 +1340,10 @@ export default function PostosGradePage() {
             {importInfo.semSalario > 0 && <div style={{ color: 'var(--muted)' }}>
               {importInfo.semSalario} posto(s) vieram <b>sem salário</b> no arquivo — o valor que já
               estava no cadastro foi <b>mantido</b>, não zerado.
+            </div>}
+            {importInfo.salarioFora > 0 && <div style={{ color: 'var(--orange)' }}>
+              {importInfo.salarioFora} posto(s) tinham salário no arquivo mas <b>não foram atualizados</b> —
+              fora do seu escopo de edição ou sem posto correspondente.
             </div>}
             {importInfo.cargoAmbiguo > 0 && <div style={{ color: 'var(--orange)' }}>
               {importInfo.cargoAmbiguo} posto(s) ficaram <b>sem cargo</b>: o nome que veio no arquivo existe em mais de

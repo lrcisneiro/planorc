@@ -789,6 +789,19 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   editar tela. Convenção da instalação (concatenar empresa+filial) mora **no perfil**, perto das
   colunas, para o banco seguir genérico — mesma razão de `planorc_pj_frag()`.
 
+  ⚠⚠ **`UPSERT` com `salario_base` é negado; `UPDATE` não** (v3_179). `INSERT` e `UPDATE` na
+  coluna estão concedidos — falta o **`SELECT`**, revogado na v3_143 — e
+  `ON CONFLICT DO UPDATE SET x = excluded.x` **lê** `excluded.x`, então o Postgres recusa a
+  instrução inteira com *permission denied for table posto*. Medido:
+  `has_column_privilege(...,'salario_base','UPDATE')=true`, `...,'SELECT')=false`. A v3_142
+  anotou "gravar não é ler, então escrever salário continua podendo" — verdade para `UPDATE`,
+  **falsa para `UPSERT`**, e a diferença ficou sem registro até a importação de nov/26 bater nela
+  (estava quebrada desde a v3_143; ninguém reimportou postos no intervalo).
+  Hoje o upsert não manda a coluna e o valor entra por `atualizar_salario_postos(jsonb)`, que faz
+  `UPDATE` puro. ⚠ Sendo `SECURITY DEFINER`, ela **repete o predicado de escopo** da política
+  `posto_upd` no `WHERE` — mesma solução e mesmo custo de `posto_v`: ao mexer no escopo de
+  pessoas, conferir os dois.
+
   ⚠⚠ **Salário vazio no arquivo NÃO é zero** (nov/2026). O importador do Quadro fazia
   `salario_base: r.salario ? parseFloat(r.salario) : 0` — e o `Funcionarios.csv` do RH **não traz
   salário**. Uma importação de rotina zeraria os **339 postos com valor (R$ 3,5 mi)**, sem erro e
