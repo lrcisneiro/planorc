@@ -23,7 +23,54 @@ import { Upload, X, CheckCircle2, AlertTriangle } from 'lucide-react'
 // `filial_cod` é montado AQUI, não no banco: concatenar "Código da empresa" com
 // "Código da filial" é convenção desta instalação do Protheus. Mantê-la no
 // perfil, perto das colunas, é o que faz o banco continuar genérico.
+//
+// ⚠⚠ PLANILHA COME ZERO À ESQUERDA, E O CASAMENTO É POR CÓDIGO. O leitor
+// interpreta a coluna como NÚMERO: `01234567890` vira 1234567890 e `000036`
+// vira 36. Esta tela já sabia disso para empresa e filial (o `padStart(2)`
+// abaixo) e não aplicava a CPF nem a matrícula — que são justamente as duas
+// chaves. Medido na relação de out/26: **158 de 564 CPFs** começam com zero e
+// o banco os descartava por `length(cpf) <> 11`; dos 406 que sobravam, só 221
+// casavam por chave, porque **243 matrículas** também começam com zero. Nada
+// disso dá erro: a prévia mostra "83 postos ficam sem CPF" e parece cadastro
+// faltando.
+// Largura fixa porque a chave TEM largura: CPF são 11 dígitos sempre, e a
+// matrícula do Protheus são 6 (medido: 570 de 570 postos). Isso é convenção
+// de ERP, e por isso mora aqui, ao lado das colunas.
+//
+// ⚠ Não dá para exigir um mínimo de dígitos: `000001` chega como `1`, e na
+// relação de out/26 há CPF com UM, DOIS e TRÊS zeros na frente (142 · 14 · 2).
+// As duas chaves se protegem por caminhos diferentes, porque o estrago delas é
+// diferente: matrícula errada **não casa** com posto nenhum e acabou; CPF
+// errado **cria pessoa** no cadastro. Por isso o CPF só é completado quando o
+// resultado passa no **dígito verificador** — que é a prova de que o zero
+// reposto era mesmo o que faltava (os 564 da relação passam). O que não passa
+// segue cru e o banco o descarta, aparecendo como posto sem CPF, que é a
+// resposta honesta.
 // ============================================================
+
+/** Repõe o zero à esquerda que a planilha comeu, até a largura da chave. */
+function zeroEsquerda(v: unknown, largura: number): string {
+  const d = String(v ?? '').replace(/\D/g, '')
+  return d.length && d.length < largura ? d.padStart(largura, '0') : d
+}
+
+/** Dígito verificador do CPF — usado só para decidir se vale repor o zero. */
+function cpfValido(c: string): boolean {
+  if (c.length !== 11 || /^(\d)\1{10}$/.test(c)) return false
+  for (const n of [9, 10]) {
+    let s = 0
+    for (let i = 0; i < n; i++) s += Number(c[i]) * (n + 1 - i)
+    if ((s * 10) % 11 % 10 !== Number(c[n])) return false
+  }
+  return true
+}
+
+/** O CPF como ele saiu do ERP: completado só se a conta fechar. */
+function cpfDaPlanilha(v: unknown): string {
+  const d = String(v ?? '').replace(/\D/g, '')
+  const p = zeroEsquerda(d, 11)
+  return cpfValido(p) ? p : d
+}
 
 const PERFIL: PerfilImport = {
   id: 'protheus.relacao_funcionario',
@@ -92,8 +139,8 @@ export function ImportarFuncionarios({ onFim }: { onFim: () => void }) {
       const dados = brutas.map(b => {
         const r = aplicar(mapa, b)
         return {
-          cpf: String(r.cpf ?? ''), nome: String(r.nome ?? ''),
-          matricula: String(r.matricula ?? '').trim(),
+          cpf: cpfDaPlanilha(r.cpf), nome: String(r.nome ?? ''),
+          matricula: zeroEsquerda(r.matricula, 6),
           filial_cod: String(r.empresa ?? '').trim().padStart(2, '0')
                     + String(r.filial ?? '').trim().padStart(2, '0'),
           situacao: String(r.situacao ?? '').trim(),
