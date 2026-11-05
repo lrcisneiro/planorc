@@ -34,8 +34,28 @@ export async function pageAll<T = any>(
       // sempre permitiu). Então só acrescenta a ordem se ela ainda não está
       // lá, senão a segunda página mandaria `order` duplicado.
       if (ordenar && !temOrdem(q)) q = q.order(col)
-      const { data, error } = await q.range(from, from + size - 1)
-      if (error) throw error
+      const alvo = nomeDaFonte(q)
+
+      // ⚠ LEITURA TAMBÉM CAI DE REDE. "TypeError: Failed to fetch" não tem
+      // `code` — não é recusa do servidor, é a requisição que não voltou — e
+      // uma carga grande faz dezenas delas. A gravação já tratava isso (o
+      // laço de insert em FolhaRealizadaPage tem o mesmo retry, com o mesmo
+      // comentário); a leitura não, então a importação inteira morria numa
+      // página que teria funcionado na segunda tentativa.
+      let data: any = null, error: any = null
+      for (let tent = 1; tent <= 3; tent++) {
+        const r = await q.range(from, from + size - 1)
+        data = r.data; error = r.error
+        if (!error) break
+        if (error.code || tent === 3) break    // com `code` é dado/permissão: repetir não adianta
+        await new Promise(res => setTimeout(res, 400 * tent))
+      }
+      if (error) {
+        // Sem o nome da fonte, "Failed to fetch" não diz em qual das dez
+        // consultas da tela parou — e era exatamente o que faltava saber.
+        error.message = `${error.message} (ao ler ${alvo})`
+        throw error
+      }
       out.push(...(data || []))
       if (!data || data.length < size) break
       from += size
@@ -63,6 +83,12 @@ export async function pageAll<T = any>(
     }
     throw e
   }
+}
+
+// Nome legível da tabela/view, para a mensagem de erro.
+function nomeDaFonte(q: any): string {
+  try { return decodeURIComponent(String(q?.url?.pathname || '')).split('/').pop() || 'a consulta' }
+  catch { return 'a consulta' }
 }
 
 // O builder do supabase-js guarda os parâmetros em `url.searchParams`; `order`
