@@ -789,6 +789,20 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   editar tela. Convenção da instalação (concatenar empresa+filial) mora **no perfil**, perto das
   colunas, para o banco seguir genérico — mesma razão de `planorc_pj_frag()`.
 
+  ⚠⚠ **"Substituir escopo" APAGA e recria, e isso corta os ponteiros** (05/nov/2026). Uma carga
+  de rotina nesse modo apagou 568 postos e recriou 564 do arquivo: **ids novos**. Como
+  `fat_folha.posto_id` e `fat_apontamento.posto_id` são `ON DELETE SET NULL`, 27.865 linhas de
+  folha e 14.309 de apontamento ficaram **sem vínculo, em silêncio** — nenhum valor se perdeu, só
+  o ponteiro, e a conciliação por posto parou de enxergar. `posto_versao` é `ON DELETE CASCADE`:
+  as decisões de cenário de posto **foram embora**. E o que o arquivo do RH não traz não volta:
+  `area_func_id` (350 → 2) e os 6 postos de sócios (`matricula 8000xx`), que são cadastro só do
+  Planorc.
+  **Religar é exato** quando preciso: `(filial_id, matrícula)` é único em `posto` e cobre 100% da
+  folha; o apontamento casa por `recurso_cod`, que tem 12 códigos repetidos, então só o
+  inequívoco. **O conserto de verdade é o modo não apagar**: upsert por código e depois remover
+  só os ausentes — assim o id sobrevive e nada se desliga. Para a carga mensal o modo é
+  **Adicionar/atualizar**.
+
   ⚠⚠ **`UPSERT` com `salario_base` é negado; `UPDATE` não** (v3_179). `INSERT` e `UPDATE` na
   coluna estão concedidos — falta o **`SELECT`**, revogado na v3_143 — e
   `ON CONFLICT DO UPDATE SET x = excluded.x` **lê** `excluded.x`, então o Postgres recusa a
