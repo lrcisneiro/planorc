@@ -396,8 +396,16 @@ export default function PostosGradePage() {
           // num campo auxiliar e só entra no upsert de quem realmente tem; `salario_base` é
           // NOT NULL DEFAULT 0, então omiti-lo preserva no UPDATE e dá zero no INSERT.
           // Mesma família do `Number(null) || 0` que já mordeu na grade.
-          _sal: (() => { const t = (r.salario || '').trim().replace(/\./g, '').replace(',', '.')
-                         const n = t ? parseFloat(t) : NaN; return isFinite(n) ? n : null })(),
+          // ⚠ PONTO É DECIMAL AQUI. O arquivo sai do conversor com "18000.00";
+          // tratar o ponto como separador de milhar multiplicava por 100 e
+          // gravou salário de R$ 1.800.000. Só é formato brasileiro quando há
+          // VÍRGULA — aí o ponto é milhar. Mesmo erro que eu tinha acabado de
+          // corrigir no script Python e repeti aqui.
+          _sal: (() => {
+            let t = (r.salario || '').trim()
+            if (!t) return null
+            t = t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t
+            const n = parseFloat(t); return isFinite(n) ? n : null })(),
           nome: (r.nome || '').trim() || null, matricula: (r.matricula || '').trim() || null,
           // código do recurso no apontamento de horas (SRA.RA_X_RECUR). É o que liga o
           // posto ao Extrato de Horas Apontadas — lá a pessoa é identificada por recurso,
@@ -438,13 +446,33 @@ export default function PostosGradePage() {
         const editCc = ccs.filter(c => acesso.canEditPessoas('centro_custo', c.id)).map(c => c.id)
         const scopedFil = editFil.length < filiais.length, scopedCc = editCc.length < ccs.length
         const alvo = scopedFil || scopedCc ? 'os postos do seu escopo' : 'TODOS os postos'
-        if (!confirm(`SUBSTITUIR: apaga ${alvo} nas empresas ${cods.join(', ')} e recarrega do arquivo.\nAjustes manuais e vagas desse escopo serão perdidos. Continuar?`)) return
+        // ⚠ Listar o que o arquivo do RH NÃO traz de volta. "Ajustes manuais
+        // serão perdidos" é vago demais para quem só quer atualizar o mês —
+        // área funcional foi atribuída a mão em 350 postos e sumiu numa carga
+        // de rotina, porque a frase não dizia o nome dela.
+        const comArea = postos.filter(p => (p as any).area_func_id).length
+        if (!confirm(
+          `SUBSTITUIR: APAGA ${alvo} nas empresas ${cods.join(', ')} e recria a partir do arquivo.\n\n` +
+          `O arquivo do RH NÃO traz de volta:\n` +
+          `  · área funcional (hoje em ${comArea} posto(s)) — atribuída à mão, sem backup\n` +
+          `  · vagas planejadas, que não existem no RH\n` +
+          `  · qualquer ajuste feito na grade\n\n` +
+          `Para a carga mensal o modo certo é "Adicionar/atualizar", que atualiza sem apagar.\n\n` +
+          `Continuar mesmo assim?`)) return
         let dq = supabase.from('posto').delete({ count: 'exact' }).in('empresa_id', empIds)
         if (scopedFil) dq = dq.in('filial_id', editFil)
         if (scopedCc) dq = dq.in('cc_id', editCc)
-        const { count, error: delErr } = await dq
+        // ⚠ CONTAR ANTES, pela VIEW. `delete({count:'exact'})` em `posto`
+        // devolve nulo — contar exige SELECT na tabela, e `posto` só tem
+        // SELECT por coluna desde a v3_143. O resultado era a tela dizer
+        // "0 apagados" depois de apagar 568, que é pior que não dizer nada.
+        let cq = supabase.from('posto_v').select('id', { count: 'exact', head: true }).in('empresa_id', empIds)
+        if (scopedFil) cq = cq.in('filial_id', editFil)
+        if (scopedCc) cq = cq.in('cc_id', editCc)
+        const { count: antes } = await cq
+        const { error: delErr } = await dq
         if (delErr) { setErro('Erro ao limpar o escopo: ' + delErr.message); return }
-        apagados = count || 0
+        apagados = antes || 0
       }
       // ⚠ `salario_base` NÃO PODE IR NO UPSERT (v3_179). A v3_143 revogou o
       // `SELECT` dessa coluna, e `ON CONFLICT DO UPDATE SET x = excluded.x`
