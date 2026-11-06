@@ -14,7 +14,7 @@ chega num arquivo à parte. Sem ele, esses postos saem sem salário, e numa carg
 "substituir escopo" (que apaga antes de gravar) isso vira ZERO no cadastro. Foi
 o que houve em 05/nov: 8 postos ativos perderam o salário por não estarem na
 folha comum. A verba 231 do mesmo arquivo é BÔNUS e fica de fora, como as
-variáveis da folha comum.
+variáveis da folha comum — salvo contrato partido, em `VERBA_PREST_FIXA`.
 
 ⚠ A VERSÃO ANTERIOR LIA O B39 DO `prgper02` E ISSO PAROU DE FUNCIONAR. O
 prgper02 é a *contabilização*, e o B39 é verba de referência — não gera
@@ -57,6 +57,22 @@ CONFID = _flags.get('--confidencial', 'dados_rh/Folha Confidencial.xlsx')
 COMP = _flags.get('--comp', '')
 
 VERBA_PREST = ('222', '228')   # horas faturáveis + prestação de serviços
+
+# ⚠ CONTRATO PARTIDO EM DUAS VERBAS — exceção declarada, não regra.
+# A 231 é BÔNUS e fica de fora porque é variável: medido em todas as
+# competências carregadas, 50 dos 64 PJs que a recebem têm valor diferente a
+# cada mês (de 300 a 14.624 na mesma pessoa). Mas há quem tenha o contrato
+# partido em 228 fixa + 231 fixa, e aí a 231 É remuneração — a folha não
+# distingue as duas coisas, só o dono do contrato distingue.
+# Lista explícita por (filial, matrícula), no espírito da tabela de alias da
+# v3_160: julgamento declarado e reversível, em vez de uma heurística ("231
+# igual em N meses") que hoje arrastaria 13 bônus que por acaso se repetiram
+# em dois meses.
+# ⚠ SEM ISTO O VALOR É SILENCIOSAMENTE DESFEITO: corrigir na grade não
+# adianta, porque a importação seguinte regrava `salario_base`.
+VERBA_PREST_FIXA = {
+    ('2001', '900108'): ('231',),   # TIAGO FRANCISCO LOPES — 18.000 + 3.000
+}
 norm = lambda m: (m or '').strip().zfill(6)
 # ⚠ o folha_realizada_*.csv sai do conversor com PONTO decimal ("1991.55").
 # Tratar o ponto como separador de milhar multiplicava tudo por 100 e deu
@@ -91,10 +107,14 @@ if not COMP:
 
 # ── o que o prestador recebeu no mês ─────────────────────────────────────────
 prest = collections.defaultdict(float)
+extra = collections.Counter()
 with open(FOLHA, encoding='utf-8-sig') as f:
     for l in csv.DictReader(f):
+        k = (l['filial'], norm(l['matricula']))
         if l['verba_cod'] in VERBA_PREST:
-            prest[(l['filial'], norm(l['matricula']))] += num(l['valor'])
+            prest[k] += num(l['valor'])
+        elif l['verba_cod'] in VERBA_PREST_FIXA.get(k, ()):
+            prest[k] += num(l['valor']); extra[k] += 1
 
 # ── folha confidencial: o que não vem no prgper02 ───────────────────────────
 confid = collections.defaultdict(float)
@@ -132,7 +152,8 @@ for p in rows:
     elif reg in ('CLT', 'PROLABORE') and k in ultB39:
         comp, val = ultB39[k]; fonte = f'B39 {comp}'; comps[comp] += 1
     elif reg == 'PRESTADOR' and prest.get(k):
-        val = prest[k]; fonte = '222+228 do mês'
+        val = prest[k]
+        fonte = '222+228+fixa do mês' if k in extra else '222+228 do mês'
     elif confid.get(k):
         val = confid[k]; fonte = '228 confidencial'
     else:
@@ -149,4 +170,9 @@ for k in sorted(cont):
     print(f"{k:<26}{cont[k]:>8}{soma[k]:>16,.2f}" if soma[k] else f"{k:<26}{cont[k]:>8}{'—':>16}")
 print(f"{'TOTAL com salário':<26}{sum(cont[k] for k in soma):>8}{sum(soma.values()):>16,.2f}")
 if comps: print("competências do B39 usadas:", ", ".join(f"{c}×{n}" for c, n in sorted(comps.items())))
+for k, n in sorted(extra.items()):
+    print(f"verba fixa somada ao PJ {k[0]}-{k[1]}: {', '.join(VERBA_PREST_FIXA[k])} ({n} linha(s))")
+for k in VERBA_PREST_FIXA:
+    if k not in extra:
+        print(f"⚠ exceção de verba fixa sem efeito em {k[0]}-{k[1]} — conferir se a pessoa saiu ou mudou de verba")
 print(f"\n→ {SAIDA}")
