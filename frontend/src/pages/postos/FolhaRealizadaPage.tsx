@@ -189,6 +189,27 @@ export default function FolhaRealizadaPage() {
   const filById = useMemo(() => new Map(filiais.map(f => [f.id, f])), [filiais])
   const ccById = useMemo(() => new Map(ccs.map(c => [c.id, c])), [ccs])
 
+  // ⚠⚠ `tipo_verba` tem QUATRO valores, não dois: além de `Provento` e
+  // `Desconto` vêm `Base (Provento)` e `Base (Desconto)`, que são **base de
+  // cálculo**, não dinheiro — a base do INSS, a do seguro de vida PJ. O teste
+  // antigo era `startsWith('Desconto')`, então as duas Base caíam no `else` e
+  // viravam PROVENTO: 476.109,50 a mais em out/26, e no caso que levantou isto
+  // (Tiago, 2001-900108) R$ 102,70 de *base* do seguro PJ somados aos 21.000
+  // que ele de fato recebeu.
+  // ⚠ E o desconto JÁ CHEGA NEGATIVO do ERP (280 de 280 linhas em out/26), e a
+  // tela fazia `prov − desc`: o sinal entrava duas vezes e o **líquido ficava
+  // maior que o provento** — 21.158,03 contra 21.102,70. É o que denuncia o
+  // defeito à vista, porque líquido acima do bruto não existe.
+  // A classificação cai no SINAL quando o tipo vem vazio: competência antiga
+  // pode não ter a coluna, e chutar provento inflaria o bruto em silêncio.
+  const classe = (r: { tipo_verba: string | null; valor: number }) => {
+    const t = (r.tipo_verba || '').trim()
+    if (t.startsWith('Base')) return 'base' as const
+    if (t.startsWith('Desconto')) return 'desc' as const
+    if (t.startsWith('Provento')) return 'prov' as const
+    return r.valor < 0 ? ('desc' as const) : ('prov' as const)
+  }
+
   // agrupa por posto (matrícula quando não resolveu)
   const grupos = useMemo(() => {
     const m = new Map<string, { key: string; nome: string; matricula: string; empresa_id: string; filial_id: string | null; cc_id: string | null; prov: number; desc: number; verbas: FolhaRow[] }>()
@@ -196,10 +217,11 @@ export default function FolhaRealizadaPage() {
       const k = r.posto_id || `mat:${r.matricula}`
       if (!m.has(k)) m.set(k, { key: k, nome: r.nome, matricula: r.matricula, empresa_id: r.empresa_id, filial_id: r.filial_id, cc_id: r.cc_id, prov: 0, desc: 0, verbas: [] })
       const g = m.get(k)!
-      if ((r.tipo_verba || '').startsWith('Desconto')) g.desc += r.valor; else g.prov += r.valor
-      g.verbas.push(r)
+      const c = classe(r)
+      if (c === 'desc') g.desc += r.valor; else if (c === 'prov') g.prov += r.valor
+      g.verbas.push(r)   // a base continua na abertura, rotulada — some do total, não da vista
     }
-    return [...m.values()].sort((a, b) => (b.prov - b.desc) - (a.prov - a.desc))
+    return [...m.values()].sort((a, b) => (b.prov + b.desc) - (a.prov + a.desc))
   }, [filtrados])
 
   // ⚠ A ordem PADRÃO continua sendo por líquido decrescente — é a que responde
@@ -216,7 +238,7 @@ export default function FolhaRealizadaPage() {
                                ccById.get((pd?.cc_id ?? g.cc_id) || '')?.codigo].join(' ')
       case 'prov':     return g.prov
       case 'desc':     return g.desc
-      case 'liq':      return g.prov - g.desc
+      case 'liq':      return g.prov + g.desc   // desc já é negativo
       default:         return ''
     }
   }
@@ -519,7 +541,7 @@ export default function FolhaRealizadaPage() {
         <div style={S.kpi}><div style={S.kpiL}>Postos com folha</div><div style={S.kpiV}>{tot.n}</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Proventos</div><div style={S.kpiV}>{milAno(tot.prov)}</div></div>
         <div style={S.kpi}><div style={S.kpiL}>Descontos</div><div style={S.kpiV}>{milAno(tot.desc)}</div></div>
-        <div style={S.kpi}><div style={S.kpiL}>Líquido (prov − desc)</div><div style={S.kpiV}>{milAno(tot.prov - tot.desc)}</div></div>
+        <div style={S.kpi}><div style={S.kpiL}>Líquido</div><div style={S.kpiV}>{milAno(tot.prov + tot.desc)}</div></div>
       </div>
 
       <div style={S.card}>
@@ -550,7 +572,7 @@ export default function FolhaRealizadaPage() {
                       })()}
                       <td style={{ ...S.td, textAlign: 'right' }}>{money(g.prov)}</td>
                       <td style={{ ...S.td, textAlign: 'right', color: 'var(--muted)' }}>{money(g.desc)}</td>
-                      <td style={{ ...S.td, textAlign: 'right', fontWeight: 600 }}>{money(g.prov - g.desc)}</td>
+                      <td style={{ ...S.td, textAlign: 'right', fontWeight: 600 }}>{money(g.prov + g.desc)}</td>
                     </tr>
                     {open && g.verbas.map((v: FolhaRow, i: number) => (
                       <tr key={g.key + i}>
