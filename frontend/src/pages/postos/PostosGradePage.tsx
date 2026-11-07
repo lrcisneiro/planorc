@@ -193,7 +193,7 @@ export default function PostosGradePage() {
   // afastado e em férias contando como ativo no headcount, no FTE e no custo.
   const [sits, setSits] = useLocalPref<Situacao[]>('planorc_postos_situacoes', ['ativo'])
   const [erro, setErro] = useState<string | null>(null)
-  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[]; afastados: number; cargoAmbiguo: number; semSalario: number; salarioFora: number; areasNaoAchadas: string[]; codsNaoAchados: string[]; comAreaFunc: number; demitidos: number } | null>(null)
+  const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; cargoDesativado: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[]; afastados: number; cargoAmbiguo: number; semSalario: number; salarioFora: number; areasNaoAchadas: string[]; codsNaoAchados: string[]; comAreaFunc: number; demitidos: number } | null>(null)
   const [importando, setImportando] = useState(false)
   const [fechados, setFechados] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
@@ -366,18 +366,37 @@ export default function PostosGradePage() {
       const nomesNovos = [...new Set(rows.filter(r => !((r as any).cargo_codigo || '').trim())
         .map(r => (r.cargo || '').trim())
         .filter(n => n && !cargoByNome.has(n.toUpperCase()) && !ambiguos.has(n.toUpperCase())))]
+      // Nome que SÓ existe desativado: o casamento acima o ignora de propósito.
+      // Guardado para não virar `cargo_id = null` lá embaixo — apagar o cargo
+      // de 235 postos seria perder informação para "arrumar" o catálogo.
+      const soInativos = new Set([...porNome.keys()].filter(k => !porNomeAtivo.has(k)))
+      let cargoDesativado = 0
+      let cargosCriados = 0
       if (nomesNovos.length) {
         const novos = nomesNovos.map(nome => ({ tenant_id: TENANT_ID, codigo: slug(nome), nome, ativo: true }))
-        const { error } = await supabase.from('cargo').upsert(novos, { onConflict: 'tenant_id,codigo', ignoreDuplicates: true })
+        // ⚠ `.select` para saber o que foi CRIADO: com `ignoreDuplicates` o
+        // conflito não é erro, e contar `nomesNovos` reportava a INTENÇÃO. Na
+        // carga de nov/26 a tela disse "50 cargos criados" e **um** foi criado
+        // — os outros 49 bateram no `codigo` de cargos desativados, porque o
+        // slug do nome é o mesmo. Mesma família do `ON CONFLICT` da v3_157.
+        const { data: inseridos, error } = await supabase.from('cargo')
+          .upsert(novos, { onConflict: 'tenant_id,codigo', ignoreDuplicates: true }).select('id')
         if (error) { setErro('Erro criando cargos: ' + error.message); return }
-        const { data } = await supabase.from('cargo').select('id,nome')
+        cargosCriados = (inseridos || []).length
+        const { data } = await supabase.from('cargo').select('id,nome,ativo')
+        // ⚠ O mapa se reconstrói SÓ COM ATIVO, como o de cima. Antes relia a
+        // tabela inteira e o filtro de 20 linhas acima era desfeito em silêncio:
+        // o nome voltava a casar com o cargo desativado e 236 postos foram parar
+        // no catálogo que tinha acabado de ser aposentado.
         const pn = new Map<string, string[]>()
         for (const c of (data || []) as any[]) {
+          if (c.ativo === false) continue
           const k = String(c.nome).trim().toUpperCase()
           pn.set(k, [...(pn.get(k) || []), c.id])
         }
         cargoByNome = new Map([...pn].filter(([, v]) => v.length === 1).map(([k, v]) => [k, v[0]]))
         for (const [k, v] of pn) if (v.length > 1) ambiguos.add(k)
+        for (const k of pn.keys()) soInativos.delete(k)
         setCargos(data || [])
       }
       const semEmp = new Set<string>(), semFil = new Set<string>(), semCc = new Set<string>()
@@ -435,6 +454,13 @@ export default function PostosGradePage() {
           const jaTem = cargoAtual.get(r.posto_codigo)
           if (jaTem && (idsPorNome.get(nomeCargo) || []).includes(jaTem)) cargo_id = jaTem
           else cargoAmbiguo++
+        }
+        if (!cargo_id && soInativos.has(nomeCargo)) {
+          // O arquivo ainda fala a língua do catálogo antigo. Mantém o cargo que
+          // o posto já tem e CONTA: é o que diz quanto do quadro continua preso
+          // ao catálogo aposentado, que some quando o ERP mandar o código.
+          cargo_id = cargoAtual.get(r.posto_codigo) || null
+          cargoDesativado++
         }
         const [ay, am] = (r.admissao || '').split('-')
         payload.push({ tenant_id: TENANT_ID, codigo: r.posto_codigo, empresa_id, filial_id, cc_id, cargo_id,
@@ -608,7 +634,7 @@ export default function PostosGradePage() {
         if (prRows.length) { const { error: prErr } = await supabase.from('posto_rateio').upsert(prRows, { onConflict: 'tenant_id,posto_id,regra_id' }); if (prErr) setErro('Aviso — rateio: ' + prErr.message) }
       }
 
-      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], foraEscopo: foraEscopo.size, cargosNovos: nomesNovos.length, beneficios: benefCriados, benefColunas: benefCols.length, rateioPostos, rateioCol: !!rateioCol, rateioNaoAchados: [...rateioNaoAchados], afastados: nAfast, cargoAmbiguo, semSalario, salarioFora, areasNaoAchadas: [...areasNaoAchadas], codsNaoAchados: [...codsNaoAchados], demitidos: temSit ? nDemitidos : -1, comAreaFunc: temAreaFunc ? payload.filter(x => (x as any).area_func_id).length : 0 })
+      setImportInfo({ gravados: payload.length, apagados, modo, semEmp: [...semEmp], semFil: [...semFil], semCc: [...semCc], foraEscopo: foraEscopo.size, cargosNovos: cargosCriados, cargoDesativado, beneficios: benefCriados, benefColunas: benefCols.length, rateioPostos, rateioCol: !!rateioCol, rateioNaoAchados: [...rateioNaoAchados], afastados: nAfast, cargoAmbiguo, semSalario, salarioFora, areasNaoAchadas: [...areasNaoAchadas], codsNaoAchados: [...codsNaoAchados], demitidos: temSit ? nDemitidos : -1, comAreaFunc: temAreaFunc ? payload.filter(x => (x as any).area_func_id).length : 0 })
       loadPostos()
     } finally { setImportando(false) }
   }
@@ -1461,6 +1487,13 @@ export default function PostosGradePage() {
               ? `${importInfo.beneficios} valores de benefício por posto (posto_verba) atualizados, em ${importInfo.benefColunas} verba(s) da folha.`
               : '⚠ Nenhuma coluna do arquivo casou com verba do catálogo — benefícios NÃO atualizados. Cadastre as verbas (D49, A76, D50, A15, A51…) em Estrutura → Verbas e reimporte.'}</div>
             {importInfo.rateioCol && <div style={{ color: 'var(--text-mid)' }}>{importInfo.rateioPostos} posto(s) com rateio anexado (posto_rateio) pela coluna RATEIO.</div>}
+            {/* Quanto do quadro ainda fala a língua do catálogo aposentado. Sem
+                esta linha, o número só aparece em Cadastros → Cargos, onde ninguém
+                vai olhar depois de uma importação que disse "importados". */}
+            {importInfo.cargoDesativado > 0 && <div style={{ color: 'var(--muted)' }}>
+              {importInfo.cargoDesativado} posto(s) com <b>cargo só no catálogo desativado</b> — o nome do arquivo
+              não existe entre os cargos ativos. O cargo atual foi <b>mantido</b>, nada foi ressuscitado;
+              resolve quando o ERP mandar o código do cargo (<code>cargo_codigo</code>).</div>}
             {/* Dizer quantos ficaram sem salário no arquivo é o que diferencia
                 "preservei" de "zerei" — sem a linha, as duas parecem iguais. */}
             {importInfo.semSalario > 0 && <div style={{ color: 'var(--muted)' }}>
