@@ -61,7 +61,7 @@ python3 scripts/converter_funcionarios.py \
   dados_rh/Funcionarios.csv dados_rh/funcionarios_convertido.csv \
   --depara=dados_rh/Depara_filial_empresa.csv
 
-# 2) Preenche salário + benefícios (D49/A76/D50/A15/A51) a partir da folha.
+# 2) Preenche salário a partir da folha (os benefícios já vêm do passo 1).
 #    Sobrescreve o mesmo CSV, preservando as colunas do passo 1 (inclui rateio).
 python3 scripts/preencher_salario_folha.py dados_rh/funcionarios_convertido.csv dados_rh
 
@@ -70,7 +70,7 @@ python3 scripts/preencher_salario_folha.py dados_rh/funcionarios_convertido.csv 
 
 Colunas finais do CSV: `posto_codigo, empresa, filial, cc, matricula, nome, cargo,
 regime, salario, admissao, demissao, situacao, ativo, rateio, recurso, D49, A76, D50,
-A15, A51`.
+A15, A51, 230, 231`.
 
 - **`recurso`** vem de `BK_RECURSO` (`P |01|AE8200||001075` → `001075`; vazio quando a
   pessoa não aponta horas). É `SRA.RA_X_RECUR`, o campo que o integrador da folha usa
@@ -81,7 +81,9 @@ A15, A51`.
 - **posto** (posto_codigo/empresa/filial/cc/cargo/regime/salario/vigência) → tabela `posto`.
 - **rateio** (código, ex.: `RATEMP01`) → `posto_rateio` (casa por **nome** do código já
   cadastrado em `4 · Rateio`; vários separados por `;` viram cascata por ordem).
-- **D49/A76/D50/A15/A51** (colunas que casam com **código de verba** VALOR_FIXO) → `posto_verba`.
+- **D49/A76/D50/A15/A51/230/231** (colunas que casam com **código de verba** VALOR_FIXO)
+  → `posto_verba`. ⚠ O import **apaga e recria** os benefícios dos postos do arquivo:
+  coluna em branco é "não tem", não "não mexe".
 
 ## Regras embutidas
 - **Salário por regime** (`preencher_salario_folha.py`): CLT→B39, PROLABORE→073,
@@ -90,8 +92,13 @@ A15, A51`.
   - CC 111/141/411/210/310 → **RATEMP01**
   - CC 121/122/123/131/132/133 → **RATEMP02**
   - CC 317 → **RATEMP03**
-- **Benefícios** (`BENEF`): lidos de `verbas_folha_import.xlsx` (tipo VALOR_FIXO) ou
-  fallback `D49, A76, D50, A15, A51`.
+- **Benefícios** (`VERBAS_BENEFICIO`, em `converter_funcionarios.py`): lidos do `srd.csv`.
+  Inclui **230 (comissões) e 231 (bônus)**, que chegam como provento mas são `VALOR_FIXO`
+  no catálogo: no salário elas seriam reajustadas pelo **dissídio**, e dissídio não corrige
+  bônus — o motor só reajusta a BASE. Vale até para contrato partido (228 fixa + 231 fixa).
+  ⚠ A competência é escolhida **por verba**: elas não fecham juntas (no srd de out/26 a 231
+  veio com 31 pessoas e a D49 com nenhuma), e um teste único deixaria as outras vazias — isto
+  é, orçadas a menos, em silêncio. Mesma lição do B39 em `preencher_salario_folha.py`.
 
 ## Folha realizada (conciliação — fat_folha)
 

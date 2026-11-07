@@ -76,8 +76,14 @@ SEM_BENEF = '--sem-beneficios' in _flags
 # Verbas de benefício que viram coluna no arquivo de import. O nome da coluna é o
 # CÓDIGO da verba: é assim que a tela de Postos casa coluna -> posto_verba
 # (ela procura colunas cujo nome bate com uma verba do catálogo, tipo VALOR_FIXO).
-# Todas apontam para o master "Encargos e Benefícios" no SRV.
-VERBAS_BENEFICIO = ['D49', 'A76', 'D50', 'A15', 'A51']
+#
+# 230 (comissões) e 231 (bônus) entram aqui e NÃO no salário, embora cheguem
+# como provento: no catálogo as duas são `VALOR_FIXO`, que é o tipo de quem tem
+# valor próprio por pessoa. Somá-las à base faria o motor reajustá-las pelo
+# DISSÍDIO — ele só reajusta a BASE —, e dissídio de sindicato não corrige
+# bônus. Vale inclusive para contrato partido (228 fixa + 231 fixa): a parte
+# fixa do bônus é bônus.
+VERBAS_BENEFICIO = ['D49', 'A76', 'D50', 'A15', 'A51', '230', '231']
 
 def apos_ultimo_pipe(v: str) -> str:
     return (v or '').split('|')[-1].strip()
@@ -171,6 +177,13 @@ def carregar_beneficios(path: str, comp_pedida: str = ''):
     corrente entra no export com a folha ainda rodando (out/2026 tinha só uma das
     cinco verbas) e orçaria benefício a menos para todo mundo. "Fechada" aqui é o
     último mês com pelo menos 60% das pessoas da mediana dos meses anteriores.
+
+    ⚠ A ESCOLHA É POR VERBA, não uma só para todas. Elas não fecham juntas: no
+    srd de out/26 a 231 veio com 31 pessoas e a D49 com NENHUMA. Com um teste
+    único, bastava uma verba cheia para o mês parecer fechado e as outras
+    entrarem vazias — e vazio aqui não é "não tem", é benefício orçado a menos,
+    calado. É a mesma lição do B39 no `preencher_salario_folha.py`: a
+    completude do export varia por verba.
     """
     if not os.path.exists(path):
         return {}, '', f'sem {path} — benefícios não incluídos'
@@ -199,20 +212,37 @@ def carregar_beneficios(path: str, comp_pedida: str = ''):
         return {}, '', 'nenhuma das verbas de benefício apareceu no movimento'
 
     comps = sorted(por_comp)
-    if comp_pedida:
-        if comp_pedida not in por_comp:
-            return {}, '', f'competência {comp_pedida} não existe no movimento ({comps[0]}..{comps[-1]})'
-        escolhida, aviso = comp_pedida, ''
-    else:
-        tamanhos = [len(por_comp[c]) for c in comps]
-        mediana = sorted(tamanhos)[len(tamanhos) // 2]
-        fechadas = [c for c in comps if len(por_comp[c]) >= mediana * 0.6]
-        escolhida = fechadas[-1] if fechadas else comps[-1]
-        aviso = ''
-        if escolhida != comps[-1]:
-            aviso = (f'{comps[-1]} ignorada por parecer em aberto '
-                     f'({len(por_comp[comps[-1]])} pessoas contra mediana de {mediana})')
-    return por_comp[escolhida], escolhida, aviso
+    if comp_pedida and comp_pedida not in por_comp:
+        return {}, '', f'competência {comp_pedida} não existe no movimento ({comps[0]}..{comps[-1]})'
+
+    # quantas pessoas cada verba teve em cada competência
+    pop = {}
+    for c, postos in por_comp.items():
+        for ch, vs in postos.items():
+            for v in vs:
+                pop.setdefault(v, {}).setdefault(c, 0)
+                pop[v][c] += 1
+
+    escolha, avisos = {}, []
+    for v, porc in sorted(pop.items()):
+        cs = sorted(porc)
+        if comp_pedida:
+            escolha[v] = comp_pedida; continue
+        tam = sorted(porc[c] for c in cs)
+        mediana = tam[len(tam) // 2]
+        fechadas = [c for c in cs if porc[c] >= mediana * 0.6]
+        escolha[v] = fechadas[-1] if fechadas else cs[-1]
+        if escolha[v] != comps[-1]:
+            avisos.append(f'{v}: {escolha[v]} (a {comps[-1]} tem '
+                          f'{porc.get(comps[-1], 0)} contra mediana de {mediana})')
+
+    saida = {}
+    for v, c in escolha.items():
+        for ch, vs in por_comp.get(c, {}).items():
+            if v in vs:
+                saida.setdefault(ch, {})[v] = vs[v]
+    usadas = sorted(set(escolha.values()))
+    return saida, '/'.join(usadas), ('competência por verba — ' + ' · '.join(avisos) if avisos else '')
 
 
 COLS_SAIDA = ['posto_codigo', 'empresa', 'filial', 'cc', 'matricula',
