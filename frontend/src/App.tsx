@@ -52,6 +52,19 @@ import { PASSOS as ERP_TELAS } from './pages/erp/ErpPills'
 // pessoa alcança qualquer uma delas, e aponta para a PRIMEIRA que ela alcança —
 // fixar o destino mandaria quem só tem Amarração para uma tela negada.
 type NavItem = { label: string; icon: LucideIcon; to: string; cap?: string; capAny?: { to: string; cap: string }[] }
+
+// ⚠⚠ `key={id}`: trocar de relatório NÃO desmonta o editor — a rota é a mesma e
+// só o parâmetro muda, então o React reusa a instância. O estado dessa tela
+// (empresa, filial, CC, visão, seções) é lido do localStorage em lazy-init de
+// `useState`, que só roda na MONTAGEM: sem a key, o relatório B abria com o
+// recorte do A e, pior, o efeito de persistência gravava o recorte do A na
+// chave do B — o filtro do B era destruído sem ninguém tocar nele.
+// A key força a remontagem, que é o que já se esperava ao abrir outro relatório.
+function EditorRel({ mode }: { mode?: 'consulta' | 'estrutura' }) {
+  const { id } = useParams()
+  return <RelatorioEditorPage key={id} mode={mode} />
+}
+
 function RedirOrcar() {
   const { id } = useParams()
   return <Navigate to={id ? `/orcar-grade/${id}` : '/orcar-grade'} replace />
@@ -354,11 +367,11 @@ function Shell({ session }: { session: Session }) {
             <Route path="/dashboard"       element={<Exige cap="dash.acompanhamento"><DashboardPage /></Exige>} />
             <Route path="/balanco"         element={<Exige cap="dash.balanco"><BalancoDashboardPage /></Exige>} />
             <Route path="/relatorios"      element={<RelatorioPage />} />
-            <Route path="/relatorios/:id"  element={<RelatorioEditorPage mode="consulta" />} />
+            <Route path="/relatorios/:id"  element={<EditorRel mode="consulta" />} />
             {/* /orcar/:id era o editor em modo de edição, anterior à grade de Orçar
                 (F3). Redireciona em vez de sumir: o link pode estar em favorito. */}
             <Route path="/orcar/:id"       element={<RedirOrcar />} />
-            <Route path="/estrutura/:id"   element={<Exige cap="estrutura.ver" ou="estrutura"><RelatorioEditorPage mode="estrutura" /></Exige>} />
+            <Route path="/estrutura/:id"   element={<Exige cap="estrutura.ver" ou="estrutura"><EditorRel mode="estrutura" /></Exige>} />
             <Route path="/estruturas"      element={<Exige cap="menu.estruturas"><RelatorioPage linkBase="/estrutura" titulo="Estruturas de Relatórios" subtitulo="Edite a árvore, fórmulas e amarração de cada relatório" /></Exige>} />
             <Route path="/orcar-linha"     element={<Exige cap="menu.orcar.linha"><RelatorioPage linkBase="/orcar-linha" titulo="Orçar por linha" subtitulo="Escolha o relatório para ver e orçar com o escopo somado, editando no drill" /></Exige>} />
             <Route path="/orcar-linha/:id" element={<Exige cap="menu.orcar.linha"><OrcarLinhaPage /></Exige>} />

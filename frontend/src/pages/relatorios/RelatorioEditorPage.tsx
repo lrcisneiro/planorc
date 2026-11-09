@@ -214,6 +214,14 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const [ccs,       setCcs]       = useState<{ id: string; codigo: string; descricao: string }[]>([])
   const [versoes,   setVersoes]   = useState<Versao[]>([])
   const [empresaSel, setEmpresaSel] = useState<string[]>(Array.isArray(saved0.empresaSel) ? saved0.empresaSel : [])
+  // ⚠ Desde que vazio passou a SIGNIFICAR "todas", ele deixou de poder ser lido
+  // como "ninguém escolheu ainda" — e eram os dois efeitos abaixo que o liam
+  // assim, re-defaultando para a 1ª empresa. Quem limpava, saía e voltava
+  // encontrava o relatório noutro recorte, sem ter mudado nada.
+  // O que distingue os dois casos não é o valor, é a EXISTÊNCIA do registro:
+  // `savedFiltro` devolve `{}` quando nunca se esteve aqui, e `[]` quando se
+  // escolheu "todas". Só o primeiro caso merece default.
+  const escolheuEmpresa = useRef(Array.isArray(saved0.empresaSel))
   const [filialSel,  setFilialSel]  = useState<string[]>(Array.isArray(saved0.filialSel) ? saved0.filialSel : [])
   const [ccSel,      setCcSel]      = useState<string[]>(Array.isArray(saved0.ccSel) ? saved0.ccSel : [])
   const [areaSel,    setAreaSel]    = useState<string[]>(Array.isArray(saved0.areaSel) ? saved0.areaSel : [])
@@ -464,14 +472,21 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const e = emps || [], v = vers || []
     setEmpresas(e); setVersoes(v); setFiliais(fis || []); setCcs(cc || [])
     setMoedas((mo || []) as any)
-    if (e.length) setEmpresaSel(prev => prev.length ? prev : [e[0].id])
+    if (e.length) setEmpresaSel(prev => (prev.length || escolheuEmpresa.current) ? prev : [e[0].id])
     if (v.length) setVersaoId(prev => prev || v[0].id)
   }, [])
 
   // F2: poda as seleções ao escopo VER do usuário (e re-default p/ a 1ª empresa permitida)
   useEffect(() => {
     if (acesso.loading) return
-    setEmpresaSel(prev => { const f = prev.filter(x => acesso.canSee('empresa', x)); if (f.length) return f; const ok = acesso.filterList('empresa', empresas); return ok.length ? [ok[0].id] : [] })
+    setEmpresaSel(prev => {
+      // Vazio já É o escopo inteiro (`empresaFiltro` resolve para as visíveis),
+      // então não há o que podar — e trocá-lo pela 1ª empresa seria estreitar o
+      // recorte de quem pediu todas.
+      if (!prev.length && escolheuEmpresa.current) return prev
+      const f = prev.filter(x => acesso.canSee('empresa', x)); if (f.length) return f
+      const ok = acesso.filterList('empresa', empresas); return ok.length ? [ok[0].id] : []
+    })
     setFilialSel(prev => prev.filter(x => acesso.canSee('filial', x)))
     setCcSel(prev => prev.filter(x => acesso.canSee('centro_custo', x)))
   }, [acesso.loading, empresas]) // eslint-disable-line
@@ -522,7 +537,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const getFiltros = () => ({ empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, versaoId, periodosSel, activeView, hideEmpty, hideOff, secOcultas, nivel: nivelSel, collapsed: [...collapsed] })
   const aplicarPreset = (f: any) => {
     if (!f) return
-    if (Array.isArray(f.empresaSel)) setEmpresaSel(f.empresaSel)
+    // Preset também é escolha explícita — inclusive a de não filtrar empresa.
+    if (Array.isArray(f.empresaSel)) { setEmpresaSel(f.empresaSel); escolheuEmpresa.current = true }
     if (Array.isArray(f.filialSel)) setFilialSel(f.filialSel)
     if (Array.isArray(f.ccSel)) setCcSel(f.ccSel)
     if (Array.isArray(f.areaSel)) setAreaSel(f.areaSel)
