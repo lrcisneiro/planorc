@@ -3,11 +3,11 @@ import { pageAll } from '../../lib/pageAll'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { limparCacheEscopo } from '../../lib/escopoDados'
 import { limparCacheFlags } from '../../lib/tenantFlags'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle2 } from 'lucide-react'
 import { CAPACIDADES } from '../../lib/capacidades'
 import type { Papel } from '../../lib/capacidades'
 
-type TenantUser = { user_id: string; email: string; role: string }
+type TenantUser = { user_id: string; email: string; role: string; estado?: 'pendente' | 'sem_senha' | 'ativo'; ultimo_acesso?: string | null }
 type Empresa    = { id: string; codigo: string; descricao: string }
 type Filial     = { id: string; codigo: string; descricao: string }
 type Dimensao   = { id: string; codigo: string; label: string; tabela_ref: string | null }
@@ -522,24 +522,30 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
 }
 
 // ── Modal de convite ─────────────────────────────────────
-function ModalConvidarUsuario({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+function ModalConvidarUsuario({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('member')
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
+  // A opção de teste local só aparece para quem ESTÁ em localhost — fora daí
+  // ela seria ruído, e dentro daí é a diferença entre testar e mandar um link
+  // quebrado para outra pessoa.
+  const emDev = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])([:/]|$)/i.test(window.location.origin)
+  const [permitirLocal, setPermitirLocal] = useState(false)
 
   const convidar = async () => {
     if (!email.trim()) { setErro('Informe o email.'); return }
     setLoading(true); setErro('')
-    const { error } = await supabase.functions.invoke('criar-usuario', {
+    const { data, error } = await supabase.functions.invoke('criar-usuario', {
       body: {
         email: email.trim(),
         role,
-        // mesmo destino do e-mail de recuperação: o convidado vai DEFINIR
-        // senha, não entrar. `/login` nem é rota da aplicação, e por não estar
-        // na allow-list do Supabase o convite caía no Site URL — mandando para
-        // produção quem estava testando em dev.
+        // Mesmo destino do e-mail de recuperação: o convidado vai DEFINIR
+        // senha, não entrar. ⚠ Quem MANDA é o servidor: daqui vai só uma
+        // sugestão, e ele a descarta quando é localhost — convite é para outra
+        // pessoa, e um link de localhost nunca abre no computador dela.
         redirectTo: `${window.location.origin}/nova-senha`,
+        permitirLocal,
       },
     })
     setLoading(false)
@@ -553,7 +559,8 @@ function ModalConvidarUsuario({ onClose, onSuccess }: { onClose: () => void; onS
       setErro(msg)
       return
     }
-    onSuccess()
+    onSuccess(`Convite enviado para ${data?.email || email.trim()} — o link aponta para ${data?.destino || '(não informado)'}.`
+      + (data?.aviso ? ` ⚠ ${data.aviso}` : ''))
     onClose()
   }
 
@@ -561,9 +568,21 @@ function ModalConvidarUsuario({ onClose, onSuccess }: { onClose: () => void; onS
     <div style={S.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ ...S.modal, width: 420 }}>
         <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>Convidar usuário</div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: emDev ? 10 : 20 }}>
           Um email de convite será enviado com o link de acesso.
         </div>
+        {emDev && (
+          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 18, padding: '8px 10px',
+            borderRadius: 6, background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.35)',
+            fontSize: 12, color: 'var(--text-mid)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={permitirLocal} onChange={e => setPermitirLocal(e.target.checked)}
+              style={{ marginTop: 2 }} />
+            <span>
+              Você está em <b>{window.location.origin}</b>. Por padrão o link do e-mail vai apontar para o
+              endereço publicado — marque esta caixa só se o convite é <b>para você mesmo</b>, para testar aqui.
+            </span>
+          </label>
+        )}
 
         <div style={{ marginBottom: 14 }}>
           <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Email</label>
@@ -599,6 +618,17 @@ function ModalConvidarUsuario({ onClose, onSuccess }: { onClose: () => void; onS
   )
 }
 
+// Três estados, porque eles pedem AÇÕES diferentes — e é isso que o rótulo
+// precisa comunicar. `pendente` é convite que nunca foi aberto (o caso do link
+// de localhost); `sem_senha` é quem abriu e parou antes de definir a senha.
+const ESTADO: Record<string, { label: string; cor: string; dica: string }> = {
+  pendente:  { label: 'convite pendente', cor: 'var(--orange)',
+               dica: 'O convite foi enviado e nunca foi aberto. Reenviar manda um convite novo.' },
+  sem_senha: { label: 'sem senha',        cor: 'var(--muted)',
+               dica: 'Abriu o convite mas não definiu senha. Reenviar manda um link de criação de senha.' },
+  ativo:     { label: '',                 cor: '', dica: '' },
+}
+
 // ── Aba de usuários ───────────────────────────────────────
 function UsuariosTab() {
   const [users, setUsers] = useState<TenantUser[]>([])
@@ -611,7 +641,38 @@ function UsuariosTab() {
   const [erroAcesso, setErroAcesso] = useState('')
   const [erroAcao, setErroAcao] = useState('')
   const [excluindo, setExcluindo] = useState<string | null>(null)
+  const [reenviando, setReenviando] = useState<string | null>(null)
+  const [okAcao, setOkAcao] = useState('')
   const [eu, setEu] = useState<string | null>(null)
+
+  // Reenviar o link de acesso. QUAL e-mail sai é decisão do servidor — ele vê
+  // se a pessoa já confirmou o e-mail e escolhe entre convite e recuperação.
+  // Repetir esse julgamento aqui daria duas fontes de verdade para a mesma
+  // pergunta, e a daqui não enxerga `auth.users`.
+  const reenviar = async (u: TenantUser) => {
+    setErroAcao(''); setOkAcao(''); setReenviando(u.user_id)
+    const { data, error } = await supabase.functions.invoke('criar-usuario', {
+      body: { acao: 'reenviar', user_id: u.user_id, redirectTo: `${window.location.origin}/nova-senha` },
+    })
+    setReenviando(null)
+    let msg = ''
+    if (error) {
+      msg = error.message
+      try { const b = await (error as any).context?.json?.(); if (b?.error) msg = b.error } catch { /* corpo não-JSON */ }
+    } else if (data?.error) msg = data.error
+    if (msg) {
+      setErroAcao(msg.includes('Failed to send a request')
+        ? 'A função de usuários ainda não está publicada com o reenvio. Rode: supabase functions deploy criar-usuario'
+        : msg)
+      return
+    }
+    // Mostrar o DESTINO é o ponto da funcionalidade: foi um link apontando
+    // para localhost que criou o problema, e ninguém tinha como ver isso.
+    const tipo = data?.tipo === 'recuperacao' ? 'link para criar senha' : 'convite'
+    setOkAcao(`Novo ${tipo} enviado para ${data?.email || u.email} — o link aponta para ${data?.destino || '(não informado)'}.`
+      + (data?.aviso ? ` ⚠ ${data.aviso}` : ''))
+    carregar()
+  }
 
   useEffect(() => { supabase.auth.getUser().then(({ data }) => setEu(data.user?.id || null)) }, [])
 
@@ -666,6 +727,16 @@ function UsuariosTab() {
     </div>
   ) : null
 
+  const avisoOk = okAcao ? (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px', padding: '10px 14px',
+      background: 'rgba(74,222,128,0.10)', border: '1px solid rgba(74,222,128,0.35)', borderRadius: 8,
+      color: 'var(--green)', fontSize: 13 }}>
+      <CheckCircle2 size={15} /> {okAcao}
+      <button onClick={() => setOkAcao('')} style={{ marginLeft: 'auto', background: 'none', border: 'none',
+        color: 'var(--green)', cursor: 'pointer', fontSize: 12 }}>fechar</button>
+    </div>
+  ) : null
+
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
@@ -675,6 +746,7 @@ function UsuariosTab() {
       </div>
 
       {avisoAcao}
+      {avisoOk}
 
       <div style={S.card}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -693,7 +765,16 @@ function UsuariosTab() {
               <tr key={u.user_id}
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg)')}
                 onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                <td style={S.td}>{u.email}</td>
+                <td style={S.td}>
+                  {u.email}
+                  {u.estado && u.estado !== 'ativo' && (
+                    <span title={ESTADO[u.estado].dica}
+                      style={{ marginLeft: 8, fontSize: 10.5, color: ESTADO[u.estado].cor,
+                        border: `1px solid ${ESTADO[u.estado].cor}`, borderRadius: 4, padding: '1px 5px' }}>
+                      {ESTADO[u.estado].label}
+                    </span>
+                  )}
+                </td>
                 <td style={S.td}><span style={S.badge(u.role)}>{u.role}</span></td>
                 <td style={S.td}>
                   <AccessSummary userId={u.user_id} />
@@ -701,6 +782,13 @@ function UsuariosTab() {
                 <td style={{ ...S.td, textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <button style={S.btn('secondary')} onClick={() => setSelecionado(u)}>
                     Editar acesso
+                  </button>
+                  {/* Vale para qualquer um, não só para o convite pendente: o
+                      link expira, e quem perdeu o e-mail também precisa. */}
+                  <button style={{ ...S.btn('secondary'), marginLeft: 6 }}
+                    disabled={reenviando === u.user_id} onClick={() => reenviar(u)}
+                    title={u.estado && ESTADO[u.estado]?.dica ? ESTADO[u.estado].dica : 'Envia um novo link de acesso'}>
+                    {reenviando === u.user_id ? 'Enviando…' : 'Reenviar'}
                   </button>
                   {/* o próprio usuário não aparece com Excluir: a trava real
                       está no servidor, mas oferecer o botão só para recusar
@@ -725,7 +813,7 @@ function UsuariosTab() {
       {showConvidar && (
         <ModalConvidarUsuario
           onClose={() => setShowConvidar(false)}
-          onSuccess={() => { setShowConvidar(false); carregar() }}
+          onSuccess={(msg: string) => { setShowConvidar(false); setOkAcao(msg); carregar() }}
         />
       )}
     </>
