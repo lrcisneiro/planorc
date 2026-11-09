@@ -570,12 +570,24 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
 
   // ── Agrupar colunas por EMPRESA (visão "Por empresa"; só leitura; não em comparativo)
   const colEmpresa = !!(view.filtros?.colEmpresa) && view.funcao !== 'COMPARATIVO'
-  const empsCols = useMemo(() => (empresaSel.length ? empresaSel : empresas.map(e => e.id)), [empresaSel, empresas])
+  // ⚠⚠ VAZIO É "TODAS", em toda parte — é o contrato do `FiltrosButton` ("Vazio
+  // = todas", e o rótulo da seção escreve *todas* ao lado do nome). O editor
+  // honrava isso só nas COLUNAS (`empsCols`): a carga usava `empresaSel` cru,
+  // então "Limpar" na Empresa devolvia tela em branco, enquanto "Todas" — o
+  // mesmo recorte, escrito com N ids — funcionava. Parece defeito de dado e é
+  // de contrato: dois jeitos de dizer a mesma coisa com respostas diferentes.
+  // O default do carregamento (primeira empresa) continua valendo, porque ele
+  // existe para a tela não abrir somando o grupo inteiro sem ninguém pedir.
+  const empresasVisiveis = useMemo(() => acesso.filterList('empresa', empresas), [empresas, acesso.loading]) // eslint-disable-line
+  const empresaFiltro = useMemo(
+    () => (empresaSel.length ? empresaSel : empresasVisiveis.map((e: any) => e.id)),
+    [empresaSel, empresasVisiveis])
+  const empsCols = useMemo(() => (empresaSel.length ? empresaSel : empresasVisiveis.map((e: any) => e.id)), [empresaSel, empresasVisiveis])
   const empCodById = useMemo(() => Object.fromEntries(empresas.map(e => [e.id, `${e.codigo} · ${e.descricao}`])), [empresas])
 
   // ── Carrega valores brutos por cenário
   const loadValores = useCallback(async () => {
-    if (!empresaSel.length || !cenariosAtivos.length) { setRaw({}); setDetalhado({}); return }
+    if (!empresaFiltro.length || !cenariosAtivos.length) { setRaw({}); setDetalhado({}); return }
     const myseq = ++loadSeq.current   // só conta os carregamentos "de verdade" (com deps prontas)
     const t0Fetch = performance.now()
     setCarregandoVal(true)
@@ -627,12 +639,12 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         // aparece quando há exatamente dois cenários.
         if (isBalanco) {
           const { data, error } = await supabase.rpc('relatorio_saldo_agg',
-            { p_empresas: empresaSel, p_ano: anoRealAnt, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
+            { p_empresas: empresaFiltro, p_ano: anoRealAnt, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
           if (error) throw new Error(error.message)
           for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${refAno}-${r.mes}`] = { valor: Number(r.saldo) || 0 } }
         } else {
           const { data, error } = await supabase.rpc('relatorio_realizado_agg',
-            { p_empresas: empresaSel, p_anos: [anoRealAnt], p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
+            { p_empresas: empresaFiltro, p_anos: [anoRealAnt], p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
           if (error) throw new Error(error.message)
           for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${refAno}-${r.mes}`] = { valor: Number(r.valor) || 0 } }
         }
@@ -641,20 +653,20 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           // Balanço: realizado = SALDO (balancete) por mês, lido do fat_saldo
           for (const y of anos) {
             const { data, error } = await supabase.rpc('relatorio_saldo_agg',
-              { p_empresas: empresaSel, p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
+              { p_empresas: empresaFiltro, p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
             if (error) throw new Error(error.message)
             for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${y}-${r.mes}`] = { valor: Number(r.saldo) || 0 } }
           }
         } else {
           const { data, error } = await supabase.rpc('relatorio_realizado_agg',
-            { p_empresas: empresaSel, p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
+            { p_empresas: empresaFiltro, p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
           if (error) throw new Error(error.message)
           for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${r.ano}-${r.mes}`] = { valor: Number(r.valor) || 0 } }
         }
       } else {
         const anosCen = cicloMode ? [anoDoCenario[cen] ?? refAno] : anos   // ciclo: só o ano DESTA versão
         const { data, error } = await supabase.rpc('relatorio_orcado_agg',
-          { p_versao: cen, p_empresas: empresaSel, p_anos: anosCen, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
+          { p_versao: cen, p_empresas: empresaFiltro, p_anos: anosCen, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
         if (error) throw new Error(error.message)
         for (const r of data || []) {
           const rl = rlOfOrc[r.linha_id]; if (!rl) continue
@@ -725,18 +737,18 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           if (ehReal(cen)) {
             if (isBalanco) {
               for (const y of anosDoCen(cen)) {
-                const { data, error } = await supabase.rpc('relatorio_saldo_agg', { p_empresas: empresaSel, p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
+                const { data, error } = await supabase.rpc('relatorio_saldo_agg', { p_empresas: empresaFiltro, p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
                 if (error) throw new Error(error.message)
                 for (const r of data || []) setMaster(r.linha_id, `${anoChave(cen, y)}-${r.mes}`, { valor: Number(r.saldo) || 0 })
               }
             } else {
-              const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: empresaSel, p_anos: anosDoCen(cen), p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccList, p_slot: moedaView })
+              const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: empresaFiltro, p_anos: anosDoCen(cen), p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccList, p_slot: moedaView })
               if (error) throw new Error(error.message)
               for (const r of data || []) setMaster(r.linha_id, `${anoChave(cen, r.ano)}-${r.mes}`, { valor: Number(r.valor) || 0 })
             }
           } else {
             const anosCen = cicloMode ? [anoDoCenario[cen] ?? refAno] : anos
-            const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: empresaSel, p_anos: anosCen, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccList, p_slot: moedaView })
+            const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: empresaFiltro, p_anos: anosCen, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccList, p_slot: moedaView })
             if (error) throw new Error(error.message)
             for (const r of data || []) setMaster(r.linha_id, `${cicloMode ? refAno : r.ano}-${r.mes}`, (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 })
           }
@@ -792,7 +804,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       // depois, apagaria o sinal enquanto o atual ainda está rodando
       if (myseq === loadSeq.current) setCarregandoVal(false)
     }
-  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, periodosSel, cenariosAtivos, cicloMode, anoDoCenario, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEmpresa, empsCols, linhas, acesso.loading, moedaView]) // eslint-disable-line
+  }, [empresaFiltro, filialSel, ccSel, areaSel, divisaoSel, buSel, periodosSel, cenariosAtivos, cicloMode, anoDoCenario, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEmpresa, empsCols, linhas, acesso.loading, moedaView]) // eslint-disable-line
 
   useEffect(() => { loadValores() }, [loadValores])
 
@@ -1043,7 +1055,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   }
   const abrirRazao = (l: Linha, period: Period, cen: string) => {
     if (l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR' || l.tipo_linha === 'ESPACO') return
-    if (!empresaSel.length) return
+    if (!empresaFiltro.length) return
     const filialFilter0 = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
     const ccFilter0 = effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel)
     // F2: aplica o escopo VER mesmo SEM filtro explícito (vazio = "todos" → interseção com o permitido)
@@ -1083,7 +1095,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     }
     setRazao({
       titulo: l.descricao, cen, cenLabel: cenarioLabel(cen), periodoLabel, meses: mesesCen, perAdd: mesesCen.length === 1 ? mesesCen[0] : null,
-      linhaIds, contaIds, contaSinal, contaItemMap, empresaSel, filialFilter, ccFilter,
+      linhaIds, contaIds, contaSinal, contaItemMap, empresaSel: empresaFiltro, filialFilter, ccFilter,
       ccById: Object.fromEntries(ccs.map(c => [c.id, c])),
       contaById: Object.fromEntries(contas.map(c => [c.id, c])),
       linhaById: Object.fromEntries(linhas.map(x => [x.linha_orc_id, x.descricao])),
