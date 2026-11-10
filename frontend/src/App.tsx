@@ -224,15 +224,31 @@ export default function App() {
   // sensíveis; enquanto isso não existir, isto protege a navegação, não a API.
   const [mfa, setMfa] = useState<'checando' | 'ok' | 'pendente'>('ok')
 
+  // ⚠⚠ DEPENDE DO USUÁRIO, NÃO DO OBJETO DE SESSÃO. O Supabase renova o token
+  // sozinho (de hora em hora, e ao voltar para a aba) e emite TOKEN_REFRESHED
+  // com um objeto `session` NOVO. Com `[session]`, cada renovação remontava o
+  // app inteiro: `setMfa('checando')` troca a árvore pelo "Verificando…", e ao
+  // voltar o `<BrowserRouter>` nasce de novo — tela, filtros e progresso
+  // perdidos. Visto como "a página deu refresh sozinha", e capaz de interromper
+  // uma importação em andamento, que foi como apareceu (10/nov).
+  // O nível de AAL é do USUÁRIO: só muda quando ele troca ou responde o
+  // desafio — e aí o próprio MfaDesafio força a reavaliação. Renovar token não
+  // muda nada que esta verificação precise reler.
+  // ⚠ O desafio respondido PRECISA avisar: antes ele dependia justamente do
+  // TOKEN_REFRESHED que acabou de deixar de reavaliar, e sem este contador o
+  // app ficaria preso em "pendente" depois do código certo. Sinal explícito no
+  // lugar de efeito colateral.
+  const [recheck, setRecheck] = useState(0)
+  const uid = session?.user?.id || ''
   useEffect(() => {
-    if (!session) { setMfa('ok'); return }
+    if (!uid) { setMfa('ok'); return }
     let vivo = true
     setMfa('checando')
     nivel()
       .then(n => { if (vivo) setMfa(n.precisaDesafio ? 'pendente' : 'ok') })
       .catch(() => { if (vivo) setMfa('ok') })
     return () => { vivo = false }
-  }, [session])
+  }, [uid, recheck])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setCarregando(false) })
@@ -256,7 +272,7 @@ export default function App() {
   // Depois da senha e antes do app. `checando` segura o render por um instante
   // para a tela não piscar o app e então saltar para o desafio.
   if (mfa === 'checando') return <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#868e96', fontFamily: 'system-ui' }}>Verificando…</div>
-  if (mfa === 'pendente') return <MfaDesafio email={session.user?.email} />
+  if (mfa === 'pendente') return <MfaDesafio email={session.user?.email} onVerificado={() => setRecheck(x => x + 1)} />
 
   return <BrowserRouter><Shell session={session} /></BrowserRouter>
 }

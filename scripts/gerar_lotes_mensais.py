@@ -111,9 +111,29 @@ def resolver_entrada(arg: str | None, perfil: dict, workdir: str) -> str:
                        and not os.path.basename(n).startswith('._')]
             if not membros:
                 sair(f'{src}: o zip não tem nenhum .csv dentro.')
-            print(f'descompactando {membros[0]} de {os.path.basename(src)}…')
-            z.extract(membros[0], workdir)
-            src = os.path.join(workdir, membros[0])
+            # ⚠⚠ O ZIP DO ERP PASSOU A TRAZER O EXPORT INTEIRO. Antes era um
+            # `LancamentoContabil.zip` com um csv só, e pegar `membros[0]`
+            # bastava. O `PROTHEUSRP.zip` tem ~20 csv (Prod_TOeste, Comissao,
+            # Movimentos_projetos…) e o primeiro NÃO é o razão — em 10/nov a
+            # conversão começou a ler produtos no lugar de lançamentos. Só não
+            # virou dado errado porque a conferência de colunas barrou; com um
+            # arquivo de colunas parecidas teria passado.
+            # Agora o nome do perfil é que manda, e ambiguidade é erro, não
+            # escolha silenciosa.
+            padrao_nome = os.path.basename(perfil.get('arquivo_padrao') or 'LancamentoContabil.csv').lower()
+            exatos = [n for n in membros if os.path.basename(n).lower() == padrao_nome]
+            if exatos:
+                escolhido = exatos[0]
+            elif len(membros) == 1:
+                escolhido = membros[0]
+            else:
+                sair(f'{os.path.basename(src)}: não achei "{padrao_nome}" dentro do zip, e há '
+                     f'{len(membros)} csv — não dá para adivinhar qual é o razão.\n'
+                     f'  Dentro do zip: {", ".join(sorted(os.path.basename(n) for n in membros))}\n'
+                     f'  Ajuste "arquivo_padrao" no perfil ou extraia o csv e passe o caminho dele.')
+            print(f'descompactando {escolhido} de {os.path.basename(src)}…')
+            z.extract(escolhido, workdir)
+            src = os.path.join(workdir, escolhido)
     return src
 
 

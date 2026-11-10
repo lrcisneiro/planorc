@@ -16,7 +16,7 @@ import { listarFatores, responderDesafio, erroLegivel, type Fator } from '../../
 // tentar outra conta.
 // ============================================================
 
-export default function MfaDesafio({ email }: { email?: string }) {
+export default function MfaDesafio({ email, onVerificado }: { email?: string; onVerificado?: () => void }) {
   const [fatores, setFatores] = useState<Fator[]>([])
   const [sel, setSel] = useState('')
   const [codigo, setCodigo] = useState('')
@@ -35,10 +35,13 @@ export default function MfaDesafio({ email }: { email?: string }) {
     setErro(''); setOcupado(true)
     try {
       await responderDesafio(sel, codigo)
-      // `challengeAndVerify` troca a sessão por uma em aal2; o
-      // onAuthStateChange do App recebe o TOKEN_REFRESHED e reavalia.
+      // `challengeAndVerify` troca a sessão por uma em aal2. ⚠ AVISAR É
+      // OBRIGATÓRIO: o App deixou de reavaliar a cada TOKEN_REFRESHED (isso
+      // remontava a tela inteira de hora em hora), então sem este aviso o
+      // código certo não abriria o app — ficaria preso no desafio.
       const { data } = await supabase.auth.getSession()
-      if (!data.session) setErro('Sessão perdida. Entre de novo.')
+      if (!data.session) { setErro('Sessão perdida. Entre de novo.'); return }
+      onVerificado?.()
     } catch (err) { setErro(erroLegivel(err)); setCodigo('') } finally { setOcupado(false) }
   }
 
