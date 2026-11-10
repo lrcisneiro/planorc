@@ -75,10 +75,22 @@ const S: Record<string, CSSProperties> = {
 }
 
 export default function CenarioDiffModal(props: any) {
-  const { postos, overlays, verbas, dissidio, sindMesBase, anoCalc, postoVerbas,
+  const { postos, postosFiltrados, overlays, verbas, dissidio, sindMesBase, anoCalc, postoVerbas,
           empPais, empById, ccById, cargoNome, versaoLabel, onClose,
           aprovadoEm, aprovacaoNota, podeAprovar, onDecidir, onVeredito, vereditos,
           podeDecidir, onAbandonar, onReabrir } = props
+
+  // ⚠ DOIS PAPÉIS NA MESMA TELA. Quem APROVA precisa do cenário inteiro — é o
+  // que ele carimba, e esconder parte dele seria carimbar no escuro. Quem
+  // PROPÕE quer a própria área: com muitos gerentes e um aprovador só, o
+  // gerente do CC 111 abria o comparativo e recebia as decisões de todo mundo.
+  // Por isso é uma CHAVE, não uma regra: o padrão continua sendo o cenário
+  // inteiro (o comportamento que o aprovador depende), e o recorte é escolha
+  // explícita, rotulada, de quem está conferindo a própria área.
+  // O escopo IMPRESSO continua saindo do dado — ver `escopo` abaixo.
+  const temFiltro = Array.isArray(postosFiltrados) && postosFiltrados.length !== (postos || []).length
+  const [soFiltro, setSoFiltro] = useState(false)
+  const base = (soFiltro && temFiltro ? postosFiltrados : postos) as any[]
   const [nota, setNota] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erroAprov, setErroAprov] = useState('')
@@ -209,7 +221,7 @@ export default function CenarioDiffModal(props: any) {
 
   const linhas = useMemo(() => {
     const out: any[] = []
-    for (const m of postos as any[]) {
+    for (const m of base) {
       const ov: PostoVersao | undefined = overlays.get(m.id)
       const campos = camposAlterados(m, ov)
       if (!campos.length) continue
@@ -230,7 +242,7 @@ export default function CenarioDiffModal(props: any) {
       })
     }
     return out.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
-  }, [postos, overlays, verbas, dissidio, sindMesBase, anoCalc, postoVerbas]) // eslint-disable-line
+  }, [base, overlays, verbas, dissidio, sindMesBase, anoCalc, postoVerbas]) // eslint-disable-line
 
   // ⚠ O escopo sai do DADO, não do filtro da tela. Filtro é vista: muda com
   // quem abriu e produziria outro PDF do mesmo cenário amanhã. O que foi
@@ -379,6 +391,21 @@ export default function CenarioDiffModal(props: any) {
                 <b style={{ color: 'var(--text)' }}>Alcança</b> {escopo.emp.length} empresa(s) ·
                 {' '}{escopo.fil.length} filial(is) · {escopo.ccs.length} centro(s) de custo
                 <div style={{ color: 'var(--muted)', marginTop: 3 }}>{escopo.texto}</div>
+              </div>
+            )}
+
+            {temFiltro && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12,
+                            color: 'var(--text-mid)', marginBottom: 10 }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={soFiltro} onChange={e => setSoFiltro(e.target.checked)} />
+                  Ver só o recorte da tela ({postosFiltrados.length} de {postos.length} postos)
+                </label>
+                <span style={{ color: soFiltro ? 'var(--orange)' : 'var(--muted)' }}>
+                  {soFiltro
+                    ? '⚠ conferência da sua área — o cenário tem mais decisões do que as mostradas aqui'
+                    : 'mostrando o cenário inteiro, que é o que o fechamento carimba'}
+                </span>
               </div>
             )}
 

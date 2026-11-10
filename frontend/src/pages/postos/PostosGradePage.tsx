@@ -1000,6 +1000,17 @@ export default function PostosGradePage() {
     )
   }, [postosEf, soAlteradas, alterados, sits, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, regimeSel, busca, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
 
+  // ⚠⚠ O RECORTE PARA O COMPARATIVO SAI DOS POSTOS-MESTRE, não de `filtrados`.
+  // `filtrados` deriva de `postosEf`, que no modo cenário já vem RESOLVIDO pelo
+  // overlay — passar aquilo ao comparativo faria `camposAlterados(m, ov)`
+  // comparar o resolvido com o próprio overlay e não achar diferença nenhuma:
+  // a lista viria VAZIA, como se a área não tivesse proposto nada.
+  const postosDoRecorte = useMemo(() => {
+    const ids = new Set(filtrados.map((p: any) => p.id))
+    return postos.filter(p => ids.has(p.id))
+  }, [postos, filtrados])
+
+
   // ── motor: custo por posto (com encargos/provisões/benefícios) ──
   const anoCalc = useMemo(() => {
     const m = (versoes.find(v => v.id === versaoSel)?.codigo || '').match(/(20\d{2})/)
@@ -1684,7 +1695,7 @@ export default function PostosGradePage() {
           rateio e grava fatos — nada disso faz sentido num cenário. */}
       {verDiff && (
         <CenarioDiffModal
-          postos={postos} overlays={overlays} verbas={verbas}
+          postos={postos} postosFiltrados={postosDoRecorte} overlays={overlays} verbas={verbas}
           dissidio={dissidio} sindMesBase={sindMesBase} anoCalc={anoCalc}
           postoVerbas={postoVerbas} empPais={empPais} empById={empById} ccById={ccById}
           filById={new Map((filiais as any[]).map(f => [f.id, f]))}
