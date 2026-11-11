@@ -394,20 +394,31 @@ export default function CenarioDiffModal(props: any) {
               </div>
             )}
 
-            {temFiltro && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12,
-                            color: 'var(--text-mid)', marginBottom: 10 }}>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={soFiltro} onChange={e => setSoFiltro(e.target.checked)} />
-                  Ver só o recorte da tela ({postosFiltrados.length} de {postos.length} postos)
-                </label>
-                <span style={{ color: soFiltro ? 'var(--orange)' : 'var(--muted)' }}>
-                  {soFiltro
+            {/* ⚠ SEMPRE VISÍVEL, inclusive quando não há recorte. A versão
+                anterior só aparecia com `temFiltro` e, quando o filtro da tela
+                não chegava aqui, o controle simplesmente não existia — quem
+                procurava concluía que a funcionalidade não tinha subido. Um
+                controle que some não diz por que sumiu; este diz. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, flexWrap: 'wrap',
+                          color: 'var(--text-mid)', marginBottom: 10, padding: '8px 11px',
+                          border: '1px solid var(--border)', borderRadius: 8 }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7,
+                              cursor: temFiltro ? 'pointer' : 'not-allowed', opacity: temFiltro ? 1 : 0.55 }}>
+                <input type="checkbox" checked={soFiltro && temFiltro} disabled={!temFiltro}
+                       onChange={e => setSoFiltro(e.target.checked)} />
+                Ver só o recorte da tela
+              </label>
+              <span style={{ color: 'var(--muted)', fontFamily: 'monospace', fontSize: 11 }}>
+                {(postosFiltrados || []).length} de {(postos || []).length} postos no recorte
+              </span>
+              <span style={{ color: soFiltro && temFiltro ? 'var(--orange)' : 'var(--muted)' }}>
+                {!temFiltro
+                  ? 'nenhum filtro de tela ativo — o recorte é igual ao quadro inteiro'
+                  : soFiltro
                     ? '⚠ conferência da sua área — o cenário tem mais decisões do que as mostradas aqui'
                     : 'mostrando o cenário inteiro, que é o que o fechamento carimba'}
-                </span>
-              </div>
-            )}
+              </span>
+            </div>
 
             {TIPOS.map(t => {
               const ls = linhas.filter(l => l.tipo === t.k)
