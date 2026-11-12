@@ -93,6 +93,11 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
   useEffect(() => { carregar() }, [linha.id, versao.id, ano]) // eslint-disable-line
 
   const empCod = useMemo(() => Object.fromEntries(empresas.map(e => [e.id, e.codigo])), [empresas])
+  // O código da empresa não é o nome da unidade: `ZZ` é Londrina, `YY` é
+  // Cascavel, `05` é Rio Preto. Quem lê a combinação está conferindo QUAL
+  // unidade gastou, e decorar o de-para é atrito que não precisa existir.
+  const empNome = useMemo(
+    () => Object.fromEntries(empresas.map(e => [e.id, e.descricao || ''])), [empresas])
   const filCod = useMemo(() => Object.fromEntries(filiais.map(f => [f.id, f.codigo])), [filiais])
   const ccCod = useMemo(() => Object.fromEntries(ccs.map(c => [c.id, `${c.codigo} · ${c.descricao || ''}`])), [ccs])
 
@@ -289,7 +294,7 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
           {carregando ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Carregando…</div> : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
               <thead><tr>
-                <th style={{ ...th, textAlign: 'left', minWidth: 250 }}>Empresa · Filial · Centro de custo</th>
+                <th style={{ ...th, textAlign: 'left', minWidth: 320 }}>Empresa · Filial · Centro de custo</th>
                 {MES.map(m => <th key={m} style={th}>{m}</th>)}
                 <th style={{ ...th, color: 'var(--text)' }}>Ano</th>
                 <th style={th} />
@@ -308,7 +313,7 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
                           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                             <select value={c.empresa_id} onChange={e => trocar(i, { empresa_id: e.target.value, filial_id: null })}
                               style={{ ...inp, width: 'auto', textAlign: 'left' }}>
-                              {empresas.map(e => <option key={e.id} value={e.id}>{e.codigo}</option>)}
+                              {empresas.map(e => <option key={e.id} value={e.id}>{e.codigo}{e.descricao ? ` · ${e.descricao}` : ''}</option>)}
                             </select>
                             <select value={c.filial_id || ''} onChange={e => trocar(i, { filial_id: e.target.value || null })}
                               style={{ ...inp, width: 'auto', textAlign: 'left' }}>
@@ -324,6 +329,7 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
                         ) : (
                           <span style={{ color: 'var(--text)' }}>
                             <b style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5 }}>{empCod[c.empresa_id] || '?'}</b>
+                            {empNome[c.empresa_id] && <>{' '}<span style={{ color: 'var(--text-mid)' }}>{empNome[c.empresa_id]}</span></>}
                             {' · '}{c.filial_id ? filCod[c.filial_id] : <i style={{ color: 'var(--muted)' }}>sem filial</i>}
                             {' · '}{c.cc_id ? ccCod[c.cc_id] : <i style={{ color: 'var(--orange)' }}>sem CC (consolidado)</i>}
                           </span>
