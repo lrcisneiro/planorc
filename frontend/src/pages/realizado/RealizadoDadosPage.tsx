@@ -315,6 +315,7 @@ export default function RealizadoDadosPage() {
       const contaNat: Record<string, string> = {}; contas.forEach((c: any) => { contaNat[c.id] = c.natureza || '' })
       const ccObrig = (cid: string | undefined) => cid != null && (contaNat[cid] === 'RECEITA' || contaNat[cid] === 'DESPESA')   // CC obrigatório
       const ccFaltando = new Map<string, number>()   // código do CC faltando → nº de lançamentos (conta receita/despesa)
+      const ccEmBranco = new Map<string, number>()   // conta → nº de lançamentos que vieram SEM CC na origem
       const empMap: Record<string, string> = {}; emps.forEach((e: any) => { empMap[norm(e.codigo)] = e.id })
       const empPlano: Record<string, string> = {}; emps.forEach((e: any) => { empPlano[e.id] = e.plano_id })
       const filMap: Record<string, string> = {}; fis.forEach((f: any) => { filMap[norm(f.codigo)] = f.id })
@@ -387,8 +388,18 @@ export default function RealizadoDadosPage() {
           if (devePular(lote, sublote, empresa_id)) { ign++; addIgn(`lote ignorado (${lote}${sublote ? '/' + sublote : ''})`); continue }
           const ccCod = txt(r, 'cc_codigo', 'cc', 'centro_custo', 'CENTRO DE CUSTO')
           const cc_id = ccCod ? (ccMap[norm(ccCod)] || null) : null
-          // CC é obrigatório em conta de receita/despesa → detecta os que faltam
-          if (!cc_id && ccObrig(conta_id)) { const k = ccCod || '(sem CC)'; ccFaltando.set(k, (ccFaltando.get(k) || 0) + 1) }
+          // CC é obrigatório em conta de receita/despesa → detecta os que faltam.
+          // ⚠ SÃO DOIS PROBLEMAS DIFERENTES e o aviso tratava como um só: código
+          // que o arquivo traz e o cadastro não tem (cadastre e reimporte) × CC
+          // EM BRANCO na origem (não há o que cadastrar — o ERP lançou assim).
+          // O texto antigo mandava "cadastrar (sem CC)", que não existe.
+          if (!cc_id && ccObrig(conta_id)) {
+            if (ccCod) ccFaltando.set(ccCod, (ccFaltando.get(ccCod) || 0) + 1)
+            else {
+              const c = contaCod || '?'
+              ccEmBranco.set(c, (ccEmBranco.get(c) || 0) + 1)
+            }
+          }
           const valor = +(cre - deb).toFixed(2)
           const cv = conv(valor, comp.ano, comp.mes, comp.dataISO || null)
           if (!cv) { ign++; addIgn('sem cotação de câmbio da data'); continue }
@@ -442,7 +453,17 @@ export default function RealizadoDadosPage() {
       if (ccFaltando.size) {
         const total = [...ccFaltando.values()].reduce((s, n) => s + n, 0)
         const lista = [...ccFaltando.entries()].sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c} (${n})`).join(', ')
-        log.push(`⚠ ${total.toLocaleString('pt-BR')} lançamento(s) de receita/despesa SEM CC cadastrado. CCs faltando: ${lista}. Cadastre-os em Cadastros → Centro de Custo e reimporte.`)
+        log.push(`⚠ ${total.toLocaleString('pt-BR')} lançamento(s) de receita/despesa com CC NÃO CADASTRADO: ${lista}. Cadastre-os em Cadastros → Centro de Custo e reimporte.`)
+        setImpLog([...log])
+      }
+      // CC vazio na origem: não há o que cadastrar. O que importa saber é QUAIS
+      // CONTAS lançam assim — é por elas que a conversa com a contabilidade
+      // começa — e que esse valor some de qualquer recorte por centro de custo,
+      // então a soma das áreas não bate com o total da DRE.
+      if (ccEmBranco.size) {
+        const total = [...ccEmBranco.values()].reduce((s, n) => s + n, 0)
+        const lista = [...ccEmBranco.entries()].sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c} (${n})`).join(', ')
+        log.push(`⚠ ${total.toLocaleString('pt-BR')} lançamento(s) de receita/despesa vieram SEM centro de custo no arquivo — não é cadastro faltando, é o ERP que lançou assim. Contas: ${lista}. Eles entram na DRE consolidada mas somem de qualquer recorte por CC, então a soma das áreas não fecha com o total.`)
         setImpLog([...log])
       }
       // monta o log em xlsx (aba Arquivos + aba Ignorados) e baixa automaticamente se houver ignorados
@@ -552,11 +573,17 @@ export default function RealizadoDadosPage() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setCcFaltOpen(false)}>
           <div style={{ background: 'var(--panel)', borderRadius: 14, padding: 24, width: 620, maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
-              <strong style={{ fontSize: 15 }}>CCs faltando — receita/despesa sem CC ({ano}{empresaId ? ' · empresa selecionada' : ' · todas'})</strong>
+              <strong style={{ fontSize: 15 }}>Receita/despesa sem centro de custo ({ano}{empresaId ? ' · empresa selecionada' : ' · todas'})</strong>
               <div style={{ flex: 1 }} />
               <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={() => setCcFaltOpen(false)} />
             </div>
-            <p style={{ ...S.sub, marginTop: 0 }}>Em contas de receita/despesa o CC é obrigatório. Aqui ficam os lançamentos com CC não cadastrado (código original do arquivo). Cadastre o CC em Cadastros → Centro de Custo e reimporte (ou recalcule).</p>
+            {/* ⚠ Dois casos no mesmo lugar, e só um se resolve cadastrando. A
+                coluna "CC (orig)" é que distingue: com código, falta cadastro;
+                com "(sem CC)", o ERP lançou vazio e não há o que cadastrar. */}
+            <p style={{ ...S.sub, marginTop: 0 }}>Em contas de receita/despesa o CC é obrigatório, e aqui ficam os lançamentos que não têm.
+              Veja a coluna <b>CC (orig)</b>: se vier um <b>código</b>, falta cadastrá-lo em Cadastros → Centro de Custo e reimportar.
+              Se vier <b>(sem CC)</b>, o ERP lançou sem centro de custo — não há o que cadastrar, e a conversa é com a contabilidade.
+              Nos dois casos o valor entra na DRE consolidada mas some de qualquer recorte por CC, então a soma das áreas não fecha com o total.</p>
             {ccFaltBusy ? <div style={S.sub}>Buscando…</div> : ccFalt.length === 0 ? (
               <div style={{ ...S.info, marginTop: 8 }}>Nenhum lançamento de receita/despesa sem CC. 👍</div>
             ) : (
