@@ -107,8 +107,26 @@ limpeza; o que falta é o hábito.
 | | |
 |---|---|
 | **P1** | ✅ 13/nov/2026 — Aplicar com destino + modo "como se tudo passasse"; trava no banco (`v3_185`) |
-| **P2** | Botão "criar orçado preliminar": `copiar_versao` + descrição carimbada + visão comparativa |
-| **P3** | Rótulo de preliminar onde o número aparece (DRE, dashboards, seletor de versão) |
+| **P2** | ❌ **DESCARTADA** (13/nov/2026) — botão único que criaria versão + visão |
+| **P3** | ❌ **DESCARTADA** (13/nov/2026) — rótulo de preliminar nas telas |
+
+### Por que P2 e P3 saíram
+
+Decisão do Ricardo depois de rodar o ciclo inteiro à mão: a P1 já entrega o
+que faltava, e os passos restantes são de **cadastro**, não de produto. Criar a
+versão em *Novo cenário* e apontar uma visão para ela é trabalho de uma vez por
+rodada, feito por quem conhece o orçamento — automatizar isso economizaria
+cliques e criaria uma segunda forma de criar versão, divergente da primeira.
+
+⚠ **O que se aceita junto:** sem a P3, **nada na tela diz que o número é
+preliminar**. Quem abrir a DRE na versão preliminar lê o EBITDA como qualquer
+outro. A mitigação é o nome da versão (`ORC2027_PRELIM`) e a descrição — que
+passam a ser a única proteção, e por isso devem ser escritos para serem lidos
+por quem não participou da simulação.
+
+⚠ Se um dia isto voltar à mesa, o que muda a conta é **alguém de fora da
+controladoria abrir o preliminar sem saber o que é** — aí o rótulo deixa de ser
+conveniência. A coluna `papel` da F7 continua sendo o lugar certo.
 
 ## 5.1 Nota da P1 — por que o gatilho é `SECURITY DEFINER`
 
