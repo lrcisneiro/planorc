@@ -54,9 +54,29 @@ function parseXlsxRows(file: File): Promise<Row[]> {
 }
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const inpNum = (v: any) => String(v ?? '').replace('.', ',')   // p/ inputs: vírgula decimal, sem separador de milhar
-const inp2 = (v: any) => Number(v ?? 0).toFixed(2).replace('.', ',')   // 2 casas, vírgula (ex.: 6000 -> "6000,00")
-// aceita "3908,71", "3.908,71" (vírgula = decimal) e "3908.71" (ponto = decimal quando não há vírgula)
-const parseNum = (s: string): number => { const r = (s || '').trim(); return r.includes(',') ? parseFloat(r.replace(/\./g, '').replace(',', '.')) : parseFloat(r) }
+// Dinheiro em campo EDITÁVEL: com separador de milhar, porque "33294,97" se lê
+// contando dígito por dígito e "33.294,97" não. Só para valor monetário — o FTE
+// usa `inpNum`, que não leva separador nenhum (1,00 não precisa).
+const inp2 = (v: any) => Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+// ⚠⚠ O SEPARADOR DE MILHAR NA MÁSCARA CRIA UM CASO QUE NÃO EXISTIA: o usuário
+// apaga os centavos e deixa "33.294". Sem vírgula, a regra antiga mandava no
+// `parseFloat`, que lê o ponto como DECIMAL e devolve 33,294 — mil vezes menos,
+// gravado sem erro nenhum. É a mesma família do salário 100× de nov/26, só que
+// na direção oposta.
+// Então a leitura é por FORMA, não por "tem vírgula ou não":
+//   "3.908,71" e "3908,71" → vírgula manda, ponto é milhar
+//   "33.294" e "1.234.567" → grupos de 3 dígitos, ponto é milhar
+//   "3908.71" e "6000.5"   → ponto é decimal (é o que o arquivo do ERP manda)
+// O caso ambíguo "1.500" resolve como 1500, que é o que alguém digitando num
+// campo com máscara pt-BR quis dizer.
+const MILHAR = /^-?\d{1,3}(\.\d{3})+$/
+const parseNum = (s: string): number => {
+  const r = (s || '').trim()
+  if (r.includes(',')) return parseFloat(r.replace(/\./g, '').replace(',', '.'))
+  if (MILHAR.test(r)) return parseFloat(r.replace(/\./g, ''))
+  return parseFloat(r)
+}
 const milAno = (v: number) => v >= 1e6 ? `R$ ${(v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} mi` : `R$ ${money(v)}`
 const REGIMES = ['BR-CLT', 'BR-PRESTADOR', 'BR-PROLABORE', 'PY-IPS', 'PY-CONTRATO']
 // sindicato por empresa (regra Ricardo): 06→MS, 08/YY/ZZ→PR, demais→SP. O import atribui (persiste no reimport).
@@ -909,7 +929,7 @@ export default function PostosGradePage() {
   }
   // novo posto / vaga ou edição (código, ocupante, cargo, local, regime, salário, vigência)
   const novoPosto = (pre?: { cc_id?: string; cargo_id?: string }) => setForm({ codigo: '', codigoAuto: true, nome: '', matricula: '', cargo_id: pre?.cargo_id || '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: pre?.cc_id || '', sindicato_id: '', regime: 'BR-CLT', recebe_hora: '', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', reajuste_mes: '', reajuste_pct: '', reajuste_valor: '', admissao: '', afast_ini_ano: '', afast_ini_mes: '', afast_fim_ano: '', afast_fim_mes: '', afast_motivo: '', rateios: [] })
-  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, codigoAuto: false, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', recebe_hora: p.recebe_hora == null ? '' : (p.recebe_hora ? 'sim' : 'nao'), salario_base: p.salario_base != null ? String(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', reajuste_mes: p.reajuste_mes ? String(p.reajuste_mes) : '', reajuste_pct: p.reajuste_pct != null ? String(p.reajuste_pct) : '', reajuste_valor: p.reajuste_valor != null ? String(p.reajuste_valor) : '', afast_ini_ano: p.afast_ini_ano ? String(p.afast_ini_ano) : '', afast_ini_mes: p.afast_ini_mes ? String(p.afast_ini_mes) : '', afast_fim_ano: p.afast_fim_ano ? String(p.afast_fim_ano) : '', afast_fim_mes: p.afast_fim_mes ? String(p.afast_fim_mes) : '', afast_motivo: p.afast_motivo || '', admissao: p.admissao || '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
+  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, codigoAuto: false, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', recebe_hora: p.recebe_hora == null ? '' : (p.recebe_hora ? 'sim' : 'nao'), salario_base: p.salario_base != null ? inp2(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', reajuste_mes: p.reajuste_mes ? String(p.reajuste_mes) : '', reajuste_pct: p.reajuste_pct != null ? String(p.reajuste_pct) : '', reajuste_valor: p.reajuste_valor != null ? inp2(p.reajuste_valor) : '', afast_ini_ano: p.afast_ini_ano ? String(p.afast_ini_ano) : '', afast_ini_mes: p.afast_ini_mes ? String(p.afast_ini_mes) : '', afast_fim_ano: p.afast_fim_ano ? String(p.afast_fim_ano) : '', afast_fim_mes: p.afast_fim_mes ? String(p.afast_fim_mes) : '', afast_motivo: p.afast_motivo || '', admissao: p.admissao || '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
   const salvarPosto = async () => {
     if (!form) return
     if (!form.empresa_id) { setErro('Informe a empresa.'); return }
