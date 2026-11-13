@@ -254,7 +254,7 @@ export default function PostosGradePage() {
       supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
       pageAll(() => supabase.from('cargo').select('id,codigo,nome,sub_cod,ativo').order('nome')).then(data => ({ data })),
-      carregarVersoes('id,codigo,bloqueada,aprovado_em,aprovado_por,aprovacao_nota').then(data => ({ data })),
+      carregarVersoes('id,codigo,ano,descricao,bloqueada,aprovado_em,aprovado_por,aprovacao_nota,origem_versao_id').then(data => ({ data })),
       supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,mantem_afastado,regime,pais,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
       supabase.from('sindicato').select('id,codigo,mes_database'),
       supabase.from('rateio_regra').select('id,nome,dimensao').eq('ativo', true).order('nome'),
@@ -665,6 +665,10 @@ export default function PostosGradePage() {
 
   // ── Aplicar no orçado (step 5): grava fat_orcado (origem POSTO) do quadro ativo da versão ──
   const [aplicando, setAplicando] = useState(false)
+  // Diálogo do Aplicar: o `confirm()` não comporta um seletor, e as duas
+  // perguntas que ele passa a fazer — ONDE pousa e COMO resolve — são
+  // escolhas, não um "ok".
+  const [aplForm, setAplForm] = useState<{ destino: string; comoAprovado: boolean } | null>(null)
   const [aplicarInfo, setAplicarInfo] = useState<{ linhas: number; postos: number; contas: number; ano: number; fundidas: number; semTaxa: number; semConta: string[]; natEstranha: string[] } | null>(null)
   // A tela só chama; quem confere a autoridade é o banco (`pode_aprovar_cenario`).
   // Conferir o retorno importa: RPC barrada levanta erro, mas versão fora do
@@ -720,23 +724,40 @@ export default function PostosGradePage() {
     await loadLookups()
   }
 
-  const aplicarNoOrcado = async () => {
+  // ⚠⚠ DUAS PERGUNTAS DIFERENTES: de onde vêm as DECISÕES e onde o dinheiro
+  // POUSA. Eram a mesma — o Aplicar sempre escrevia na versão selecionada —, e
+  // é isso que impedia simular: para ver o efeito de um cenário em atualização
+  // era preciso aprová-lo, o que inverte a ordem das coisas.
+  // As decisões continuam onde estão (`copiar_versao` copia `fat_orcado`, NÃO
+  // `posto_versao`); o que muda é o destino. Ver docs/DESIGN_orcado_preliminar.md.
+  const ehPreliminar = (vid: string) => !!versoes.find((v: any) => v.id === vid)?.origem_versao_id
+  const vSelCodDe = (vid: string) => versoes.find((v: any) => v.id === vid)?.codigo || ''
+
+  const aplicarNoOrcado = async (destinoId?: string, comoAprovado = false) => {
     setErro(null); setAplicarInfo(null)
     if (!versaoSel) { setErro('Selecione a versão do orçamento.'); return }
+    const destino = destinoId || versaoSel
+    const preliminar = ehPreliminar(destino)
     // Versão bloqueada é versão aprovada: o Aplicar APAGA todo o orçado POSTO dela e
     // regrava do quadro ATUAL — que pode já estar noutra hipótese. O editor de
     // formulário sempre respeitou `bloqueada`; a folha não, e é justamente o maior
     // bloco de custo. Guarda do P0 (docs/DESIGN_cenarios.md §7.6).
-    const vSel = versoes.find(v => v.id === versaoSel)
-    if (vSel?.bloqueada) {
-      setErro(`A versão ${vSel.codigo} está BLOQUEADA (aprovada) — o Aplicar apagaria e regravaria o orçado de folha dela a partir do quadro de postos de hoje. Desbloqueie em Cadastros → Versões se for mesmo para refazer, ou escolha outra versão.`)
+    const vDest = versoes.find(v => v.id === destino)
+    if (vDest?.bloqueada) {
+      setErro(`A versão ${vDest.codigo} está BLOQUEADA (aprovada) — o Aplicar apagaria e regravaria o orçado de folha dela a partir do quadro de postos de hoje. Desbloqueie em Cadastros → Versões se for mesmo para refazer, ou escolha outra versão.`)
       return
     }
-    // ⚠ Cenário com decisão só vira dinheiro depois de aprovado. Fora do modo
-    // cenário (ou sem nenhuma decisão) o Aplicar é o de sempre: não há o que
-    // aprovar quando o quadro é o próprio cadastro.
-    if (modoCenario && alterados.size > 0 && !vSel?.aprovado_em) {
-      setErro(`O cenário ${vSel?.codigo} decide ${alterados.size} posto(s) e ainda NÃO foi aprovado. Abra "Comparar com o cadastro" para revisar e aprovar antes de aplicar no orçado.`)
+    // ⚠ A trava vale pelo TIPO DO DESTINO, não pelo da origem das decisões:
+    // baseline é dinheiro e exige carimbo; cenário é hipótese e dispensa.
+    // Fora do modo cenário (ou sem nenhuma decisão) o Aplicar é o de sempre:
+    // não há o que aprovar quando o quadro é o próprio cadastro.
+    // A mesma regra vale no banco (v3_185) — aqui ela é só o aviso decente.
+    if (modoCenario && alterados.size > 0 && !preliminar && !vDest?.aprovado_em) {
+      setErro(`O cenário ${vSelCodDe(versaoSel)} decide ${alterados.size} posto(s) e ainda NÃO foi aprovado. Revise e aprove em "Comparar com o cadastro" — ou aplique numa versão PRELIMINAR para só simular, sem comprometer o orçamento.`)
+      return
+    }
+    if (comoAprovado && !preliminar) {
+      setErro('Resolver "como se tudo passasse" só vale em versão preliminar — numa baseline isso gravaria como acordado o que ninguém decidiu.')
       return
     }
     if (!temMotor) { setErro('Sem verbas cadastradas — cadastre a Estrutura antes de aplicar.'); return }
@@ -750,22 +771,30 @@ export default function PostosGradePage() {
     // do cenário ignorando a recusa — e o pior é que o carimbo diria que foi
     // revisado. A tela continua mostrando a proposta; o aviso abaixo declara a
     // diferença no momento em que ela passa a valer dinheiro.
+    // ⚠ `comoAprovado` usa a PROPOSTA mesmo sem veredito — é o que torna a
+    // simulação possível com o cenário ainda em atualização, e é por isso que
+    // só vale em versão preliminar: numa baseline gravaria como acordado o que
+    // ninguém decidiu. O rótulo do número tem de dizer "se tudo passar".
     const aplicaveis = modoCenario
       ? postos.map(p => {
           const ov: any = overlays.get(p.id)
-          return ov?.aprovado === true ? resolvePosto(p, ov) : p
+          const usar = comoAprovado ? !!ov : ov?.aprovado === true
+          return usar ? resolvePosto(p, ov) : p
         })
       : postosEf
-    const recusadasFora = modoCenario
+    const recusadasFora = modoCenario && !comoAprovado
       ? [...alterados.keys()].filter(id => (overlays.get(id) as any)?.aprovado === false).length
+      : 0
+    const semVeredito = modoCenario && comoAprovado
+      ? [...alterados.keys()].filter(id => (overlays.get(id) as any)?.aprovado == null).length
       : 0
     const ativos = aplicaveis.filter(p => p.ativo !== false)
     // "ativos" aqui é "não demitidos": férias e afastamento seguem custando —
     // para o afastado o motor zera a base e mantém as verbas marcadas com
     // `mantem_afastado`. Dizer só "ativos" escondia esses 16.
     const fora = ativos.filter(p => situacaoPosto(p as any) !== 'ativo').length
-    const versaoCod = versoes.find(v => v.id === versaoSel)?.codigo || String(anoCalc)
-    if (!confirm(`Aplicar ${ativos.length} postos no orçado da versão ${versaoCod} (ano ${anoCalc})?\n\nEntram todos os não demitidos${fora ? `, incluindo ${fora} em férias ou afastados — quem está afastado ou de férias continua custando` : ''}.${recusadasFora ? `\n\n⚠ ${recusadasFora} decisão(ões) RECUSADA(S) não entram: esses postos vão com o valor do CADASTRO, não com o do cenário.` : ''} Os filtros da tela NÃO afetam o que é gravado.\n\nIsto SUBSTITUI todo o orçado de origem POSTO desta versão. Lançamentos manuais e de formulário não são afetados.\n\nDespesa é gravada com sinal NEGATIVO, como o orçado manual e o realizado.`)) return
+    const versaoCod = vDest?.codigo || String(anoCalc)
+    if (!confirm(`Aplicar ${ativos.length} postos no orçado da versão ${versaoCod} (ano ${anoCalc})?${preliminar ? '\n\n⚠ VERSÃO PRELIMINAR — simulação. Não é o orçamento acordado.' : ''}${semVeredito ? `\n\n⚠ ${semVeredito} decisão(ões) SEM VEREDITO entram como se tivessem passado.` : ''}\n\nEntram todos os não demitidos${fora ? `, incluindo ${fora} em férias ou afastados — quem está afastado ou de férias continua custando` : ''}.${recusadasFora ? `\n\n⚠ ${recusadasFora} decisão(ões) RECUSADA(S) não entram: esses postos vão com o valor do CADASTRO, não com o do cenário.` : ''} Os filtros da tela NÃO afetam o que é gravado.\n\nIsto SUBSTITUI todo o orçado de origem POSTO desta versão. Lançamentos manuais e de formulário não são afetados.\n\nDespesa é gravada com sinal NEGATIVO, como o orçado manual e o realizado.`)) return
     setAplicando(true)
     try {
       const round2 = (n: number) => Math.round(n * 100) / 100
@@ -774,7 +803,7 @@ export default function PostosGradePage() {
       const [{ data: moedasD }, { data: empMoedaD }, vtaxas, contasNat] = await Promise.all([
         supabase.from('moeda').select('slot').eq('ativo', true).order('slot'),
         supabase.from('empresa').select('id,moeda_slot'),
-        pageAll(() => supabase.from('versao_taxa').select('moeda_slot,ano,mes,taxa').eq('versao_id', versaoSel)),
+        pageAll(() => supabase.from('versao_taxa').select('moeda_slot,ano,mes,taxa').eq('versao_id', destino)),
         pageAll(() => supabase.from('conta_orcamentaria').select('id,codigo,natureza')),
       ])
       // SINAL: fat_orcado guarda despesa NEGATIVA — é a convenção do orçado
@@ -837,7 +866,7 @@ export default function PostosGradePage() {
               gerados++
               const ex = byKey.get(key)
               if (ex) ex.valor = round2(ex.valor + valor)
-              else byKey.set(key, { tenant_id: TENANT_ID, versao_id: versaoSel, linha_id: conta, empresa_id: cell.empresa_id, filial_id, cc_id, ano: anoCalc, mes: mi + 1, valor, expressao: null, origem: 'POSTO', dims, moeda_origem: empMoeda.get(p.empresa_id) || 1 })
+              else byKey.set(key, { tenant_id: TENANT_ID, versao_id: destino, linha_id: conta, empresa_id: cell.empresa_id, filial_id, cc_id, ano: anoCalc, mes: mi + 1, valor, expressao: null, origem: 'POSTO', dims, moeda_origem: empMoeda.get(p.empresa_id) || 1 })
               contasTocadas.add(conta); algo = true
             }
           }
@@ -850,7 +879,7 @@ export default function PostosGradePage() {
           for (let mi = 0; mi < 12; mi++) {
             const valor = round2(mensal[mi]); if (!valor) continue
             folhaRows.push({
-              tenant_id: TENANT_ID, versao_id: versaoSel, ano: anoCalc, mes: mi + 1, tipo: 'ORCADO', origem: 'POSTO',
+              tenant_id: TENANT_ID, versao_id: destino, ano: anoCalc, mes: mi + 1, tipo: 'ORCADO', origem: 'POSTO',
               empresa_id: p.empresa_id, filial_id: p.filial_id || null, cc_id: p.cc_id || null,
               matricula: p.matricula || null, nome: p.nome || null, posto_id: p.id,
               verba_cod: vinfo?.codigo || null, verba_desc: vinfo?.descricao || null,
@@ -863,14 +892,14 @@ export default function PostosGradePage() {
       const rows = [...byKey.values()].filter(matOrc)
       const folhaOk = folhaRows.filter(matOrc)
       // substitui o orçado origem POSTO da versão e reinsere
-      const { error: delErr } = await supabase.from('fat_orcado').delete().eq('versao_id', versaoSel).eq('origem', 'POSTO')
+      const { error: delErr } = await supabase.from('fat_orcado').delete().eq('versao_id', destino).eq('origem', 'POSTO')
       if (delErr) { setErro('Erro ao limpar o orçado POSTO: ' + delErr.message); return }
       for (let i = 0; i < rows.length; i += 500) {
         const { error } = await supabase.from('fat_orcado').insert(rows.slice(i, i + 500))
         if (error) { setErro('Erro ao gravar o orçado (parcial): ' + error.message); return }
       }
       // paralelo: orçado por verba na fat_folha (tipo ORCADO) — p/ conciliação por verba
-      const delF = await supabase.from('fat_folha').delete().eq('tipo', 'ORCADO').eq('versao_id', versaoSel)
+      const delF = await supabase.from('fat_folha').delete().eq('tipo', 'ORCADO').eq('versao_id', destino)
       if (delF.error) { setErro('Aviso — orçado por verba (limpeza): ' + delF.error.message) }
       else for (let i = 0; i < folhaOk.length; i += 500) {
         const { error } = await supabase.from('fat_folha').insert(folhaOk.slice(i, i + 500))
@@ -1435,7 +1464,7 @@ export default function PostosGradePage() {
         {podeCadastro && <button style={{ ...S.btn, opacity: modoCenario ? 0.45 : 1, cursor: modoCenario ? 'not-allowed' : 'pointer' }}
           title={modoCenario ? 'Posto novo entra no CADASTRO, não no cenário — vaga que existe só numa versão ainda não é suportada (P3). Troque para Cadastro.' : undefined}
           onClick={() => { if (modoCenario) { setErro('Posto novo entra no cadastro, não no cenário. Troque para "Cadastro" — vaga que existe só numa versão ainda não é suportada.'); return } novoPosto() }}><Plus size={14} /> Posto / vaga</button>}
-        {podeAplicar && <button style={S.btnPri} disabled={aplicando || !versaoSel || !temMotor} onClick={aplicarNoOrcado}
+        {podeAplicar && <button style={S.btnPri} disabled={aplicando || !versaoSel || !temMotor} onClick={() => setAplForm({ destino: versaoSel, comoAprovado: false })}
           title="Grava o custo do quadro ativo desta versão no orçado (origem POSTO), aplicando o rateio.">
           <Play size={13} /> {aplicando ? 'Aplicando…' : 'Aplicar no orçado'}</button>}
       </div>
@@ -1713,6 +1742,86 @@ export default function PostosGradePage() {
           Modal PRÓPRIO, não o do cadastro: aqui só entram campos de DECISÃO, e
           cada um mostra o que herda. O do cadastro gera código, sincroniza
           rateio e grava fatos — nada disso faz sentido num cenário. */}
+      {aplForm && (() => {
+        const dest = versoes.find((v: any) => v.id === aplForm.destino)
+        const prelim = !!dest?.origem_versao_id
+        const baseDe = (v: any) => versoes.find((x: any) => x.id === v?.origem_versao_id)?.codigo || ''
+        const semVer = modoCenario ? [...alterados.keys()].filter(id => (overlays.get(id) as any)?.aprovado == null).length : 0
+        const precisaCarimbo = modoCenario && alterados.size > 0 && !prelim && !dest?.aprovado_em
+        return (
+          <div style={S.overlay} onClick={e => e.target === e.currentTarget && setAplForm(null)}>
+            <div style={{ ...S.modal, width: 560 }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Aplicar o quadro no orçado</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 18px' }}>
+                As decisões continuam em <b>{vSelCodDe(versaoSel) || '—'}</b>. Aqui você escolhe
+                onde o <b>dinheiro</b> pousa.
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <span style={S.flbl}>Aplicar em</span>
+                <select style={S.finp} value={aplForm.destino}
+                  onChange={e => setAplForm(f => f && ({ ...f, destino: e.target.value, comoAprovado: false }))}>
+                  {versoes.filter((v: any) => v.ano === anoCalc || !v.ano).map((v: any) => (
+                    <option key={v.id} value={v.id}>
+                      {v.codigo}{v.origem_versao_id ? ` · preliminar (de ${baseDe(v)})` : ' · baseline'}
+                      {v.bloqueada ? ' · BLOQUEADA' : ''}
+                    </option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                  Para simular sem comprometer o orçamento, crie um cenário a partir da
+                  baseline em <b>Orçar por linha → Novo cenário</b> e aplique nele.
+                </div>
+              </div>
+
+              {modoCenario && (
+                <div style={{ marginBottom: 16 }}>
+                  <span style={S.flbl}>Como resolver as decisões</span>
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, marginTop: 6, cursor: 'pointer' }}>
+                    <input type="radio" checked={!aplForm.comoAprovado} onChange={() => setAplForm(f => f && ({ ...f, comoAprovado: false }))} />
+                    <span>Só o <b>aprovado</b> — decisão sem veredito ou recusada entra com o valor do cadastro.</span>
+                  </label>
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, marginTop: 8,
+                                  cursor: prelim ? 'pointer' : 'not-allowed', opacity: prelim ? 1 : 0.5 }}>
+                    <input type="radio" disabled={!prelim} checked={aplForm.comoAprovado}
+                      onChange={() => setAplForm(f => f && ({ ...f, comoAprovado: true }))} />
+                    <span>
+                      <b>Como se tudo passasse</b> — usa a proposta inteira{semVer ? `, inclusive as ${semVer} sem veredito` : ''}.
+                      {!prelim && <i style={{ color: 'var(--muted)' }}> Só em versão preliminar: numa baseline isto gravaria
+                      como acordado o que ninguém decidiu.</i>}
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              {precisaCarimbo && (
+                <div style={{ fontSize: 12, color: 'var(--orange)', background: 'rgba(251,146,60,0.10)',
+                              border: '1px solid rgba(251,146,60,0.35)', borderRadius: 8, padding: '9px 12px', marginBottom: 14 }}>
+                  O cenário decide {alterados.size} posto(s) e a versão de destino é uma <b>baseline não aprovada</b>.
+                  Aprove em "Comparar com o cadastro", ou escolha uma versão preliminar.
+                </div>
+              )}
+              {prelim && (
+                <div style={{ fontSize: 12, color: 'var(--text-mid)', background: 'var(--bg-soft)',
+                              border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', marginBottom: 14 }}>
+                  <b style={{ color: 'var(--text)' }}>Simulação.</b> O resultado é "se tudo passar", não o orçamento
+                  acordado. Para lê-lo, aponte uma visão do relatório para <b>{dest?.codigo}</b> — ou crie uma visão
+                  comparativa com {baseDe(dest) || 'a baseline'}.
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button style={S.btn} onClick={() => setAplForm(null)}>Cancelar</button>
+                <button style={S.btnPri} disabled={aplicando || precisaCarimbo}
+                  onClick={() => { const f = aplForm; setAplForm(null); aplicarNoOrcado(f.destino, f.comoAprovado) }}>
+                  {aplicando ? 'Aplicando…' : 'Aplicar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {verDiff && (
         <CenarioDiffModal
           postos={postos} postosFiltrados={postosDoRecorte} overlays={overlays} verbas={verbas}
