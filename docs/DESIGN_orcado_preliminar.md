@@ -106,9 +106,22 @@ limpeza; o que falta é o hábito.
 
 | | |
 |---|---|
-| **P1** | Aplicar com destino + modo "como se tudo passasse"; trava por tipo de versão, no banco também |
+| **P1** | ✅ 13/nov/2026 — Aplicar com destino + modo "como se tudo passasse"; trava no banco (`v3_185`) |
 | **P2** | Botão "criar orçado preliminar": `copiar_versao` + descrição carimbada + visão comparativa |
 | **P3** | Rótulo de preliminar onde o número aparece (DRE, dashboards, seletor de versão) |
+
+## 5.1 Nota da P1 — por que o gatilho é `SECURITY DEFINER`
+
+Ele lê `versao_orcamento` e `posto_versao` para decidir se barra. As duas têm
+RLS, e `versao_orcamento` recorta por **versão** desde a `v3_137`. Como
+`INVOKER`, a conferência enxergaria só o que o chamador enxerga: quem tivesse
+recorte de versão não veria as decisões, o `EXISTS` daria falso e a trava
+**deixaria passar** — justamente para quem tem menos privilégio. Como `DEFINER`
+ele pergunta ao banco inteiro e responde o mesmo para todo mundo.
+
+É a mesma razão de `eh_dono_card()` na `v3_154` e de `posto_v` na `v3_142`:
+quando a decisão é de AUTORIDADE, ela não pode depender do que o chamador
+alcança.
 
 ## 6. Fora de escopo
 
