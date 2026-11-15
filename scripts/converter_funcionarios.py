@@ -132,11 +132,79 @@ def parse_bk_funcionario(bk: str):
             break
     return fiscal, filial, matricula
 
-def regime_por(mat: str, cargo: str) -> str:
-    # critério Ricardo (09/jul): cargo "SOCIO" = PROLABORE (prioridade);
-    # senão matrícula iniciando em 0 = CLT, em 9 = PRESTADOR.
+# Verbas que DIZEM o regime: quem recebe prestação de serviços é PJ, quem tem
+# salário-base é CLT. O ERP tem um campo próprio para isso e ele não vem no
+# export — e não vai vir (decisão do DP, nov/2026).
+VERBA_PRESTADOR = {'222', '228'}   # horas faturáveis + prestação de serviços
+VERBA_CLT       = {'B39'}          # salário base (verba de referência)
+
+
+def regime_pela_verba(srd_regimes: dict, filial: str, mat: str) -> str:
+    """Regime pela folha, quando o movimento diz. '' quando não há evidência."""
+    v = srd_regimes.get((filial, (mat or '').zfill(6)))
+    if not v:
+        return ''
+    # ⚠ A competência MAIS RECENTE manda, não "tem/não tem". Quem converte de PJ
+    # para CLT fica com os dois carimbos para sempre, e um teste de presença
+    # devolveria o regime antigo. Há um caso assim hoje (PJ até 202511, CLT
+    # desde 202610).
+    if v['prest'] and v['clt']:
+        return 'PRESTADOR' if v['prest'] > v['clt'] else 'CLT'
+    return 'PRESTADOR' if v['prest'] else 'CLT'
+
+
+def carregar_regimes(path: str) -> dict:
+    """{(filial, matrícula): {'prest': comp, 'clt': comp}} — a última competência
+    de cada tipo de verba, lendo o movimento INTEIRO.
+
+    ⚠ O arquivo inteiro, não o mês: o `srd` do mês corrente chega incompleto
+    (out/26 tinha 16 pessoas no B39 contra 124 em setembro, porque a folha CLT
+    ainda não havia fechado). Olhar só a última competência jogaria quase todo
+    mundo fora da evidência. Mesmo motivo do "último B39 por pessoa" em
+    `preencher_salario_folha.py`.
+    """
+    if not os.path.exists(path):
+        return {}
+    out: dict = {}
+    with open(path, newline='', encoding='latin-1') as f:
+        for r in csv.DictReader(f):
+            v = apos_ultimo_pipe(r.get('BK_SRV', ''))
+            tipo = 'prest' if v in VERBA_PRESTADOR else 'clt' if v in VERBA_CLT else ''
+            if not tipo:
+                continue
+            k = (apos_ultimo_pipe(r.get('BK_FILIAL', '')),
+                 apos_ultimo_pipe(r.get('BK_SRA', '')).zfill(6))
+            comp = apos_ultimo_pipe(r.get('DTCOMPET', ''))[:6]
+            d = out.setdefault(k, {'prest': '', 'clt': ''})
+            if comp > d[tipo]:
+                d[tipo] = comp
+    return out
+
+
+def regime_por(mat: str, cargo: str, srd_regimes: dict = {}, filial: str = '') -> str:
+    """Três degraus, nesta ordem — e a ordem é a regra.
+
+    1. cargo "SOCIO" → PROLABORE. ⚠ CONTINUA COM PRIORIDADE SOBRE A VERBA: o
+       pró-labore também é pago por B39, então a verba sozinha transformaria os
+       17 postos de sócios em CLT. Medido antes de mexer.
+    2. a verba do movimento (222/228 = PJ · B39 = CLT) — evidência, não
+       convenção. É o que resolve quem tem a matrícula fora da faixa: um
+       prestador numerado como `090041` virava CLT e saía sem salário, porque o
+       script de salário procura B39 para CLT e um PJ não tem B39.
+    3. a matrícula (0 = CLT, 9 = PRESTADOR) vira a RESERVA, não a regra. Ela
+       responde por quem ainda não apareceu na folha — admitido depois do
+       fechamento. Sem ela essa pessoa ficaria SEM regime, e sem regime o motor
+       não calcula encargo nenhum.
+
+    Medido em nov/2026: 545 de 569 resolvidos por sócio ou verba, 24 na reserva,
+    e um único posto muda de regime (o `090041`, CLT → PRESTADOR), que é o caso
+    que motivou a mudança.
+    """
     if 'SOCIO' in (cargo or '').upper():
         return 'PROLABORE'
+    pela_verba = regime_pela_verba(srd_regimes, filial, mat)
+    if pela_verba:
+        return pela_verba
     c = (mat or '')[:1]
     return 'CLT' if c == '0' else 'PRESTADOR' if c == '9' else ''
 
@@ -266,9 +334,11 @@ def eh_afastado(situacao: str) -> bool:
     return 'AFAST' in t or 'LICEN' in t or 'AUXILIO' in t or 'AUXÍLIO' in t
 
 def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=None,
-              beneficios=None, comp_benef: str = '', aviso_benef: str = ''):
+              beneficios=None, comp_benef: str = '', aviso_benef: str = '',
+              srd_regimes=None):
     depara = depara or {}
     beneficios = beneficios or {}
+    srd_regimes = srd_regimes or {}
     with open(entrada, newline='', encoding='utf-8-sig') as f:
         linhas = list(csv.DictReader(f))
 
@@ -320,7 +390,7 @@ def converter(entrada: str, saida: str, somente_ativos: bool = False, depara=Non
 
         row = {'posto_codigo': posto_codigo, 'empresa': empresa, 'filial': filial,
                'cc': cc, 'matricula': matricula, 'nome': nome, 'cargo': cargo,
-               'regime': regime_por(matricula, cargo), 'salario': '',
+               'regime': regime_por(matricula, cargo, srd_regimes, filial), 'salario': '',
                'admissao': admissao, 'demissao': demissao, 'situacao': situacao, 'ativo': ativo,
                'rateio': rateio_por_cc(cc), 'recurso': recurso,
                # O ERP diz que a pessoa ESTÁ afastada; não diz até quando. Então
@@ -410,4 +480,12 @@ if __name__ == '__main__':
         print(f'Benefícios: {len(benef)} pessoa(s) em "{SRD}", competência {comp_b}.')
     elif not SEM_BENEF:
         print(f'AVISO: benefícios não carregados — {aviso_b or "motivo desconhecido"}.')
-    converter(ENTRADA, SAIDA, SOMENTE_ATIVOS, depara, benef, comp_b, aviso_b)
+    # ⚠ O MESMO arquivo dos benefícios, lido por outra pergunta. `do_zip` já
+    # extraiu o csv; chamar de novo aqui reaproveita o caminho resolvido em vez
+    # de descompactar duas vezes.
+    regimes = carregar_regimes(do_zip(SRD))
+    if regimes:
+        print(f'Regime pela folha: {len(regimes)} pessoa(s) com verba que define CLT/PJ em "{SRD}".')
+    else:
+        print('AVISO: sem evidência de regime no movimento — tudo cai na faixa da matrícula.')
+    converter(ENTRADA, SAIDA, SOMENTE_ATIVOS, depara, benef, comp_b, aviso_b, regimes)
