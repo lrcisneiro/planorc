@@ -122,8 +122,12 @@ const MESES_NUM = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set'
 const catCor: Record<string, string> = { 'Rescisão': 'var(--red)', 'Salário': 'var(--green)', Encargos: 'var(--orange)', 'Provisões': 'var(--blue)', 'Benefícios': 'var(--violet)' }
 const tag = (bg: string, cor: string, brd: string): CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 6, background: bg, color: cor, border: `1px solid ${brd}` })
 const T = {
-  ocup: tag('rgba(52,211,153,0.12)', 'var(--green)', 'rgba(52,211,153,0.35)'),
-  vaga: tag('rgba(251,191,36,0.12)', 'var(--orange)', 'rgba(251,191,36,0.4)'),
+  // ⚠ Um ponto maior que as outras etiquetas, de propósito: a PESSOA é o assunto
+  // da linha. Quem lê a grade procura "quanto custa o Fulano", não "quanto custa
+  // o ESPECIALISTA DE DESENVOLVIMENTO" — e com todas as etiquetas do mesmo
+  // tamanho o nome se perdia entre modelo, rateio e sindicato.
+  ocup: { ...tag('rgba(52,211,153,0.12)', 'var(--green)', 'rgba(52,211,153,0.35)'), fontSize: 12 },
+  vaga: { ...tag('rgba(251,191,36,0.12)', 'var(--orange)', 'rgba(251,191,36,0.4)'), fontSize: 12 },
   rateio: tag('rgba(34,211,238,0.12)', 'var(--blue)', 'rgba(34,211,238,0.4)'),
   sind: tag('var(--panel-2)', 'var(--muted)', 'var(--border)'),
 }
@@ -1300,15 +1304,6 @@ export default function PostosGradePage() {
         <td style={{ ...S.td, fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)' }}
           title={`${p.empresa?.codigo || '?'} · ${p.filial?.codigo || '?'} · ${p.centro_custo?.codigo || '?'} ${p.centro_custo?.descricao || ''}`}>
           {p.empresa?.codigo || '—'}·{p.filial?.codigo || '—'}·{p.centro_custo?.codigo || '—'}</td>
-        {/* Cargo é a coluna que mais alarga a tabela — com o menu recolhido, nomes
-            como COORDENADOR ADMINISTRATIVO DE GENTE empurravam o salário para
-            fora da tela e obrigavam a rolar na horizontal. Trunca com reticência
-            e o nome inteiro fica no title. A ORDENAÇÃO usa o valor completo, não
-            o truncado: ordenar pelo que foi cortado mudaria a ordem conforme a
-            largura da janela. */}
-        <td style={{ ...S.td, maxWidth: 210, overflow: 'hidden', textOverflow: 'ellipsis', ...cel('cargo_id' as CampoCenario) }}
-            title={titCen('cargo_id' as CampoCenario, (x: any) => nomeCargo(x) || '—') || nomeCargo(p.cargo_id) || undefined}>
-          {nomeCargo(p.cargo_id) || '—'}</td>
         <td style={S.td}>{p.nome
           ? <span style={T.ocup}>{nomeCurto(p.nome)}</span>
           : <span style={T.vaga}>VAGA{p.ini_mes ? ` · ${MESES[p.ini_mes - 1]}/${String(p.ini_ano || '').slice(2)}` : ''}</span>}
@@ -1317,6 +1312,20 @@ export default function PostosGradePage() {
             AFASTADO {fa.txt}</span>}</td>
         <td style={S.td}>{p.regime ? <span style={tagRegime(p.regime)}>{REGIMES_LABEL[p.regime] || p.regime}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
 
+        {/* ⚠ CARGO DEPOIS DO OCUPANTE, e menor. A pessoa é o assunto da linha —
+            quem lê procura "quanto custa o Fulano", não "quanto custa o
+            ESPECIALISTA DE DESENVOLVIMENTO". Com o cargo em caixa alta logo
+            após o CC, ele puxava o olho antes do nome e todas as linhas
+            pareciam iguais. Fica como qualificação do salário, que é o número
+            ao lado dele.
+            Continua truncando com reticência: nomes como COORDENADOR
+            ADMINISTRATIVO DE GENTE empurravam o salário para fora da tela. A
+            ORDENAÇÃO usa o valor completo, não o truncado — ordenar pelo que foi
+            cortado mudaria a ordem conforme a largura da janela. */}
+        <td style={{ ...S.td, maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                     fontSize: 11.5, color: 'var(--muted)', ...cel('cargo_id' as CampoCenario) }}
+            title={titCen('cargo_id' as CampoCenario, (x: any) => nomeCargo(x) || '—') || nomeCargo(p.cargo_id) || undefined}>
+          {nomeCargo(p.cargo_id) || '—'}</td>
         <td style={{ ...S.td, textAlign: 'right', ...cel('salario_base') }} title={titCen('salario_base', x => money(Number(x)))}>
           {editavel
             ? <input style={{ ...S.inp, ...cel('salario_base') }} defaultValue={inp2(p.salario_base)}
@@ -1627,7 +1636,7 @@ export default function PostosGradePage() {
         <div style={{ overflowX: 'auto' }}>
           <table style={S.table}>
             <thead><tr>
-              <Th col="posto">Posto</Th><Th col="empfil">Empr·Fil·CC</Th><Th col="cargo">Cargo</Th><Th col="ocupante">Ocupante</Th><Th col="modelo">Modelo</Th>
+              <Th col="posto">Posto</Th><Th col="empfil">Empr·Fil·CC</Th><Th col="ocupante">Ocupante</Th><Th col="modelo">Modelo</Th><Th col="cargo">Cargo</Th>
               <Th col="salario" dir="right">Salário</Th><Th col="fte" dir="right">FTE</Th>
               <Th col="vigencia">Vigência</Th><Th col="rateio">Rateio</Th>
               <Th col="custoMes" dir="right">Custo/mês¹</Th><Th col="custoAno" dir="right">Custo ano</Th><th style={S.th} />
