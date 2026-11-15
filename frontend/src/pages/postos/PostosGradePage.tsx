@@ -2020,6 +2020,34 @@ export default function PostosGradePage() {
                 </div></div>
               <div><span style={S.flbl}>Cargo</span><select style={S.finp} value={form.cargo_id} onChange={e => setForm((f: any) => ({ ...f, cargo_id: e.target.value }))}><option value="">—</option>{opcoesCargo(form.cargo_id).map((c: any) => <option key={c.id} value={c.id}>{c.nome}{c.sub_cod ? ` · ${c.sub_cod}` : ''}{c.ativo === false ? ' (inativo)' : ''}</option>)}</select></div>
               <div><span style={S.flbl}>Regime</span><select style={S.finp} value={form.regime} onChange={e => setForm((f: any) => ({ ...f, regime: e.target.value }))}><option value="">—</option>{REGIMES.map(r => <option key={r} value={r}>{REGIMES_LABEL[r] || r}</option>)}</select></div>
+              {/* ⚠ FICA NO GRID PRINCIPAL. Na primeira tentativa este campo caiu
+                  dentro do bloco de rescisão, que só é desenhado quando o posto
+                  TEM vigência fim — então para o caso que ele existe para
+                  resolver (marcar como demitido quem o ERP mandou ativo) ele
+                  simplesmente não aparecia. Situação é atributo de todo posto. */}
+              <div><span style={S.flbl}>Situação <span style={{ color: 'var(--muted)' }}>(vem do ERP)</span></span>
+                <select style={S.finp} value={form.sit_folha}
+                  onChange={e => setForm((f: any) => ({ ...f, sit_folha: e.target.value }))}>
+                  <option value="">Trabalhando</option>
+                  <option value="F">Férias</option>
+                  <option value="A">Afastado</option>
+                  <option value="D">Demitido</option>
+                </select>
+                {/* A importação do RH regrava a coluna. Dizer isso aqui é a
+                    diferença entre um conserto e um trabalho que evapora sem
+                    aviso — a lição do salário editado no cadastro. */}
+                {form.sit_folha !== ((postos.find((x: any) => x.id === form.id) as any)?.sit_folha || '') && (
+                  <div style={{ fontSize: 10.5, color: 'var(--orange)', marginTop: 3, lineHeight: 1.45 }}>
+                    Correção manual: a próxima importação do RH <b>sobrescreve</b>. O conserto
+                    definitivo é no ERP.
+                  </div>
+                )}
+                {(form.sit_folha === 'A' || form.sit_folha === 'F') && !form.afast_ini_ano && (
+                  <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
+                    Muda só a etiqueta — o <b>custo</b> do afastamento vem de "Afastado desde".
+                  </div>
+                )}
+              </div>
               <div><span style={S.flbl}>Sindicato <span style={{ color: 'var(--muted)' }}>(vazio = pela empresa)</span></span><select style={S.finp} value={form.sindicato_id} onChange={e => setForm((f: any) => ({ ...f, sindicato_id: e.target.value }))}><option value="">— automático —</option>{sindicatos.map((s: any) => <option key={s.id} value={s.id}>{s.codigo}</option>)}</select></div>
               {/* Saiu da grade (nov/2026): é exceção rara — a decisão normal é
                   por FUNÇÃO, em Apontamento → Funções — e ocupava uma coluna
@@ -2085,29 +2113,6 @@ export default function PostosGradePage() {
                     Saída em {MESES_NUM[(form.fim_mes ? Number(form.fim_mes) : 12) - 1]}/{form.fim_ano} <span style={{ color: 'var(--muted)' }}>(a data é a vigência fim, acima)</span>
                   </span>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                    <div><span style={S.flbl}>Situação <span style={{ color: 'var(--muted)' }}>(do ERP)</span></span>
-                      <select style={{ ...S.finp, width: 170 }} value={form.sit_folha}
-                        onChange={e => setForm((f: any) => ({ ...f, sit_folha: e.target.value }))}>
-                        <option value="">Trabalhando</option>
-                        <option value="F">Férias</option>
-                        <option value="A">Afastado</option>
-                        <option value="D">Demitido</option>
-                      </select>
-                      {/* ⚠ Esta é a correção MANUAL de um dado que vem do ERP, e a
-                          importação do RH regrava a coluna. Dizer isso aqui é a
-                          diferença entre um conserto e um trabalho que evapora
-                          sem aviso — a mesma lição do salário editado no cadastro. */}
-                      <div style={{ fontSize: 10.5, color: 'var(--orange)', marginTop: 3, maxWidth: 260, lineHeight: 1.45 }}>
-                        A próxima importação do RH <b>sobrescreve</b> isto. Vale para corrigir
-                        agora; o conserto definitivo é no ERP.
-                      </div>
-                      {(form.sit_folha === 'A' || form.sit_folha === 'F') && !form.afast_ini_ano && (
-                        <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 3, maxWidth: 260, lineHeight: 1.45 }}>
-                          Só muda a etiqueta: o <b>custo</b> de quem está afastado depende de
-                          "Afastado desde", abaixo.
-                        </div>
-                      )}
-                    </div>
                     <div><span style={S.flbl}>Admissão <span style={{ color: 'var(--muted)' }}>(tempo de casa)</span></span>
                       <input type="date" style={{ ...S.finp, width: 150 }} value={form.admissao}
                         onChange={e => setForm((f: any) => ({ ...f, admissao: e.target.value }))} />
