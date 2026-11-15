@@ -167,7 +167,7 @@ export default function PostosGradePage() {
   const passoLabel = usePassoLabel()
   const flags = useTenantFlags()
   // a coluna "recebe por hora" só existe onde se aponta hora em projeto
-  const nCols = flags.usa_apontamento ? 14 : 13
+  const nCols = flags.usa_apontamento ? 13 : 12   // -1: FTE saiu da lista (nov/2026)
   // Editar depende de QUAL lado se está olhando. O cadastro vem do ERP e é
   // regravado pela próxima importação do RH, então mexer nele é privilégio
   // separado; decidir no cenário é o trabalho normal de quem planeja a área.
@@ -939,8 +939,12 @@ export default function PostosGradePage() {
     setOverlays(m => new Map(m).set(postoId, data as PostoVersao))
   }
 
-  // Roteador: no modo cenário a edição vira DECISÃO da versão; fora dele, cadastro.
-  const grava = (id: string, patch: any) => modoCenario ? salvarCenario(id, patch) : salvar(id, patch)
+  // ⚠ Saíram com a edição em linha da grade: o roteador `grava()` (cenário →
+  // decisão, cadastro → posto) e o `salvar()` de patch solto, que gravava campo
+  // a campo sem passar pelas validações do formulário. O que grava hoje é o
+  // formulário do posto (registro inteiro) e o `salvarCenario`, pelo formulário
+  // de decisões. Um `update` parcial em `posto` é justamente o caminho que
+  // deixava salário e FTE escaparem da conferência que o formulário faz.
 
   // Some com a sobreposição inteira: a linha volta a herdar o cadastro.
   const limparCenario = async (postoId: string) => {
@@ -949,11 +953,6 @@ export default function PostosGradePage() {
     setOverlays(m => { const n = new Map(m); n.delete(postoId); return n })
   }
 
-  const salvar = async (id: string, patch: Partial<Posto>) => {
-    const { error } = await supabase.from('posto').update(patch).eq('id', id)
-    if (error) { setErro(error.message); return }
-    setPostos(ps => ps.map(p => p.id === id ? { ...p, ...patch } : p))
-  }
   const excluir = async (id: string, cod: string) => {
     if (!confirm(`Excluir o posto ${cod}?`)) return
     const { error } = await supabase.from('posto').delete().eq('id', id)
@@ -1125,6 +1124,14 @@ export default function PostosGradePage() {
     return mat ? `${fc}-${mat}` : `${fc}-VG${String(proxVagaSeq(fc)).padStart(2, '0')}`
   }
 
+  // ⚠⚠ COLUNA QUE SAI DA TABELA TEM DE SAIR DA ORDENAÇÃO SALVA. A ordem fica em
+  // localStorage por usuário: quem tinha ordenado por FTE, quando a coluna saiu
+  // da lista (nov/2026), continuaria com as linhas ordenadas por um critério
+  // invisível — sem cabeçalho para clicar, sem como desfazer, e parecendo ordem
+  // aleatória. Ao tirar ou renomear coluna, acrescente aqui.
+  const COLS_FORA = new Set(['fte'])
+  const colOrdem = ordem.col && !COLS_FORA.has(ordem.col) ? ordem.col : null
+
   // agrupa por centro de custo OU cargo (seletor)
   // Colunas de dinheiro começam em DECRESCENTE: quem clica em salário quer ver
   // o maior, não o menor. Texto começa em crescente, que é como se lê lista.
@@ -1162,7 +1169,7 @@ export default function PostosGradePage() {
   const Th = ({ col, children, dir: align }: { col?: string; children?: any; dir?: 'right' }) => {
     // Sem salário visível, ordenar por dinheiro é ordenar por zeros — a coluna
     // deixa de ser clicável em vez de responder com uma ordem que não é ordem.
-    const ativo = col && ordem.col === col
+    const ativo = col && colOrdem === col
     const podeClicar = !!col && !(semFolha && NUM.has(col) && col !== 'fte')
     return (
       <th style={{ ...S.th, ...(align === 'right' ? { textAlign: 'right' } : {}),
@@ -1183,9 +1190,9 @@ export default function PostosGradePage() {
     // empresa inteira. Mantém o mesmo formato dos outros para o render não
     // precisar de um segundo caminho.
     if (agruparPor === 'nenhum') {
-      const todos = ordem.col
+      const todos = colOrdem
         ? [...filtrados].sort((a, b) => {
-            const x = valorDe(a, ordem.col!), y = valorDe(b, ordem.col!)
+            const x = valorDe(a, colOrdem!), y = valorDe(b, colOrdem!)
             return sinal0 * (typeof x === 'number' && typeof y === 'number'
               ? x - y : String(x).localeCompare(String(y), 'pt-BR'))
           })
@@ -1208,9 +1215,9 @@ export default function PostosGradePage() {
     const ordenados = [...m.values()].map(g => ({
       ...g,
       custoAno: custo(g.postos),
-      postos: ordem.col
+      postos: colOrdem
         ? [...g.postos].sort((a, b) => {
-            const x = valorDe(a, ordem.col!), y = valorDe(b, ordem.col!)
+            const x = valorDe(a, colOrdem!), y = valorDe(b, colOrdem!)
             return sinal * (typeof x === 'number' && typeof y === 'number'
               ? x - y
               : String(x).localeCompare(String(y), 'pt-BR'))
@@ -1333,17 +1340,15 @@ export default function PostosGradePage() {
                      fontSize: 11.5, color: 'var(--muted)', ...cel('cargo_id' as CampoCenario) }}
             title={titCen('cargo_id' as CampoCenario, (x: any) => nomeCargo(x) || '—') || nomeCargo(p.cargo_id) || undefined}>
           {nomeCargo(p.cargo_id) || '—'}</td>
+        {/* ⚠ SÓ LEITURA. Salário e FTE tinham caixa de edição na própria grade,
+            e eram os dois únicos campos assim — editar posto acontecia em dois
+            lugares com regras diferentes (aqui, campo a campo e sem validação;
+            no formulário, o registro inteiro). Um caminho só, no lápis da
+            linha: no cadastro abre o formulário do posto, no cenário abre o de
+            decisões. A cor da célula continua marcando o que o cenário decidiu
+            e o title continua dizendo de onde o valor veio. */}
         <td style={{ ...S.td, textAlign: 'right', ...cel('salario_base') }} title={titCen('salario_base', x => money(Number(x)))}>
-          {editavel
-            ? <input style={{ ...S.inp, ...cel('salario_base') }} defaultValue={inp2(p.salario_base)}
-                onBlur={e => { const x = parseNum(e.target.value); if (!isNaN(x) && x !== p.salario_base) grava(p.id, { salario_base: x }) }} />
-            : semFolha ? oculto : money(Number(p.salario_base) || 0)}{!p.nome && !semFolha && <span style={{ color: 'var(--muted)', marginLeft: 4 }}>(ref.)</span>}
-        </td>
-        <td style={{ ...S.td, textAlign: 'right', ...cel('fte') }} title={titCen('fte')}>
-          {editavel
-            ? <input style={{ ...S.inp, width: 50, ...cel('fte') }} defaultValue={inpNum(p.fte ?? 1)}
-                onBlur={e => { const x = parseNum(e.target.value); if (!isNaN(x) && x !== p.fte) grava(p.id, { fte: x }) }} />
-            : (Number(p.fte) || 1).toLocaleString('pt-BR', { minimumFractionDigits: 1 })}
+          {semFolha ? oculto : money(Number(p.salario_base) || 0)}{!p.nome && !semFolha && <span style={{ color: 'var(--muted)', marginLeft: 4 }}>(ref.)</span>}
         </td>
         {/* A saída já aparecia aqui ("jan–mai"); o que faltava era dizer quanto
             ela custa. O ✂ marca a demissão e o título abre a estimativa. */}
@@ -1644,7 +1649,12 @@ export default function PostosGradePage() {
           <table style={S.table}>
             <thead><tr>
               <Th col="posto">Posto</Th><Th col="empfil">Empr·Fil·CC</Th><Th col="ocupante">Ocupante</Th><Th col="modelo">Modelo</Th><Th col="cargo">Cargo</Th>
-              <Th col="salario" dir="right">Salário</Th><Th col="fte" dir="right">FTE</Th>
+              {/* ⚠ FTE saiu da LISTA, não do produto: ele é 1 em quase todo posto
+                  (meio período é exceção), então gastava uma coluna para repetir
+                  "1,0" linha após linha. Continua no formulário do posto, na
+                  decisão do cenário e no KPI "FTE total" do topo — que é onde a
+                  informação de fato importa, somada. */}
+              <Th col="salario" dir="right">Salário</Th>
               <Th col="vigencia">Vigência</Th><Th col="rateio">Rateio</Th>
               <Th col="custoMes" dir="right">Custo/mês¹</Th><Th col="custoAno" dir="right">Custo ano</Th><th style={S.th} />
             </tr></thead>
