@@ -212,6 +212,10 @@ export default function PostosGradePage() {
   const [overlays, setOverlays] = useState<Map<string, PostoVersao>>(new Map())
   const [verDiff, setVerDiff] = useState(false)   // comparativo cadastro × cenário, para aprovação
   const [soAlteradas, setSoAlteradas] = useState(false)
+  // ⚠ Lembrado por usuário e DESLIGADO por padrão: quem abre a tela pela
+  // primeira vez tem de ver o quadro inteiro. Esconder por padrão faria o
+  // número do topo discordar da lista sem ninguém ter pedido nada.
+  const [semSal, setSemSal] = useLocalPref<boolean>('planorc_postos_ocultar_sem_salario', false)
   const [cenForm, setCenForm] = useState<{ posto: Posto; ov: PostoVersao | null } | null>(null)
   // Quatro estados em vez de "demitido sim/não": o toggle antigo deixava
   // afastado e em férias contando como ativo no headcount, no FTE e no custo.
@@ -1050,6 +1054,7 @@ export default function PostosGradePage() {
     const match = (p: Posto) => !q || [p.nome, p.matricula, p.cargo?.nome, p.codigo, p.centro_custo?.descricao, p.centro_custo?.codigo]
       .some(x => (x || '').toString().toLowerCase().includes(q))
     return postosEf.filter(p =>
+      (!semSal || Number(p.salario_base) > 0) &&
       (!soAlteradas || alterados.has(p.id)) &&
       sits.includes(situacaoPosto(p)) &&
       (!sEmp || sEmp.has(p.empresa_id)) &&
@@ -1057,7 +1062,20 @@ export default function PostosGradePage() {
       (!sCc || (p.cc_id != null && sCc.has(p.cc_id))) &&
       (!regimeSel || p.regime === regimeSel) && match(p)
     )
-  }, [postosEf, soAlteradas, alterados, sits, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, regimeSel, busca, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
+  }, [postosEf, semSal, soAlteradas, alterados, sits, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, regimeSel, busca, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
+
+  // ⚠ O contador conta o que ESTE filtro esconde, não "todo posto com salário
+  // zero": aplica os demais recortes da tela e só então tira o salário da
+  // conta. Um número que ignorasse empresa/CC/situação diria "10 ocultos" numa
+  // tela filtrada que esconde dois — e aí o aviso vira ruído.
+  const ocultosSemSal = useMemo(() => {
+    if (!semSal) return 0
+    const vis = new Set(filtrados.map((p: any) => p.id))
+    return postosEf.filter(p =>
+      !vis.has(p.id) && !(Number(p.salario_base) > 0) &&
+      sits.includes(situacaoPosto(p)) &&
+      (!soAlteradas || alterados.has(p.id))).length
+  }, [semSal, filtrados, postosEf, sits, soAlteradas, alterados])
 
   // ⚠⚠ O RECORTE PARA O COMPARATIVO SAI DOS POSTOS-MESTRE, não de `filtrados`.
   // `filtrados` deriva de `postosEf`, que no modo cenário já vem RESOLVIDO pelo
@@ -1415,6 +1433,22 @@ export default function PostosGradePage() {
             ))}
           </div>
         </div>
+        {/* Vínculo sem salário é quase sempre duplicata do mesmo CPF noutra
+            empresa, ou cadastro de ERP que não custa nada — e eles poluem a
+            leitura de quem procura custo. ⚠ MAS NÃO É SEMPRE: salário zerado
+            também é dado FALTANDO (foi assim que apareceu um prestador
+            lançado como CLT, que recebia pela folha e custava zero no
+            orçamento). Por isso o contador ao lado: o que é escondido continua
+            dizendo que existe. Mesma convenção do "Orçar por natureza". */}
+        <div style={S.fld}><span style={S.lbl}>Sem salário</span>
+          <button onClick={() => setSemSal(x => !x)}
+            title="Oculta os postos com salário zerado — duplicatas do mesmo CPF e cadastros que não custam. O contador ao lado diz quantos ficaram de fora; salário zerado também pode ser dado faltando."
+            style={{ ...S.sel, cursor: 'pointer', fontWeight: semSal ? 700 : 500, width: 'auto',
+              color: semSal ? 'var(--violet)' : 'var(--text)',
+              borderColor: semSal ? 'var(--violet)' : 'var(--border)' }}>
+            {semSal ? '✓ ' : ''}ocultar zerados{semSal && ocultosSemSal ? ` (${ocultosSemSal})` : ''}
+          </button>
+        </div>
         {modoCenario && <div style={S.fld}><span style={S.lbl}>Decisões</span>
           <button onClick={() => setSoAlteradas(x => !x)}
             title="Mostra só os postos que ESTE cenário muda — é o diff que se apresenta junto com o EBITDA"
@@ -1622,6 +1656,20 @@ export default function PostosGradePage() {
           ? `salários ${pct(tot.cat['Salário'])}% · encargos ${pct(tot.cat.Encargos + tot.cat['Provisões'])}% · benef ${pct(tot.cat['Benefícios'])}%${tot.cat['Rescisão'] ? ` · rescisão ${pct(tot.cat['Rescisão'])}%` : ''}`
           : 'sem motor — cadastre verbas em Estrutura'
         return (
+          <>
+          {/* ⚠ O AVISO FICA JUNTO DOS NÚMEROS, não só no botão do filtro. Quem
+              confere o headcount olha o KPI, não a barra de filtros — e um
+              total menor sem explicação manda a pessoa procurar defeito. */}
+          {semSal && ocultosSemSal > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text-mid)', background: 'rgba(139,92,246,0.10)',
+                          border: '1px solid rgba(139,92,246,0.35)', borderRadius: 8,
+                          padding: '8px 12px', marginBottom: 12 }}>
+              <b style={{ color: 'var(--violet)' }}>{ocultosSemSal} posto(s) ocultos</b> por salário zerado —
+              não entram nos números acima. São duplicatas do mesmo CPF noutra empresa e cadastros
+              que não custam, <b>mas salário zerado também é dado faltando</b>: desmarque "ocultar
+              zerados" para conferir a lista.
+            </div>
+          )}
           <div style={S.kpis}>
             <div style={S.kpi}><div style={S.kpiL}>Postos</div><div style={S.kpiV}>{tot.head}</div><div style={S.kpiH}>{tot.vagas} vaga{tot.vagas === 1 ? '' : 's'} planejada{tot.vagas === 1 ? '' : 's'}</div></div>
             <div style={S.kpi}><div style={S.kpiL}>Headcount</div><div style={S.kpiV}>{tot.pessoas}</div>
@@ -1641,6 +1689,7 @@ export default function PostosGradePage() {
               <div style={S.kpiH}>{tot.saindo} saída{tot.saindo === 1 ? '' : 's'} no ano · fora do custo médio</div></div>}
             <div style={S.kpi}><div style={S.kpiL}>Custo médio / FTE</div><div style={S.kpiV}>{semFolha ? oculto : <>R$ {money(tot.medioFte)}<span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)' }}>/mês</span></>}</div><div style={S.kpiH}>{temMotor ? 'com encargos' : 'base'}</div></div>
           </div>
+          </>
         )
       })()}
 
