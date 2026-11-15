@@ -961,8 +961,8 @@ export default function PostosGradePage() {
     setPostos(ps => ps.filter(p => p.id !== id))
   }
   // novo posto / vaga ou edição (código, ocupante, cargo, local, regime, salário, vigência)
-  const novoPosto = (pre?: { cc_id?: string; cargo_id?: string }) => setForm({ codigo: '', codigoAuto: true, nome: '', matricula: '', cargo_id: pre?.cargo_id || '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: pre?.cc_id || '', sindicato_id: '', regime: 'BR-CLT', recebe_hora: '', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', reajuste_mes: '', reajuste_pct: '', reajuste_valor: '', admissao: '', afast_ini_ano: '', afast_ini_mes: '', afast_fim_ano: '', afast_fim_mes: '', afast_motivo: '', rateios: [] })
-  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, codigoAuto: false, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', recebe_hora: p.recebe_hora == null ? '' : (p.recebe_hora ? 'sim' : 'nao'), salario_base: p.salario_base != null ? inp2(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', reajuste_mes: p.reajuste_mes ? String(p.reajuste_mes) : '', reajuste_pct: p.reajuste_pct != null ? String(p.reajuste_pct) : '', reajuste_valor: p.reajuste_valor != null ? inp2(p.reajuste_valor) : '', afast_ini_ano: p.afast_ini_ano ? String(p.afast_ini_ano) : '', afast_ini_mes: p.afast_ini_mes ? String(p.afast_ini_mes) : '', afast_fim_ano: p.afast_fim_ano ? String(p.afast_fim_ano) : '', afast_fim_mes: p.afast_fim_mes ? String(p.afast_fim_mes) : '', afast_motivo: p.afast_motivo || '', admissao: p.admissao || '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
+  const novoPosto = (pre?: { cc_id?: string; cargo_id?: string }) => setForm({ codigo: '', codigoAuto: true, nome: '', matricula: '', cargo_id: pre?.cargo_id || '', empresa_id: (empresas[0]?.id || ''), filial_id: '', cc_id: pre?.cc_id || '', sindicato_id: '', regime: 'BR-CLT', recebe_hora: '', salario_base: '', fte: '1', ini_ano: String(anoCalc), ini_mes: '1', fim_ano: '', fim_mes: '', reajuste_mes: '', reajuste_pct: '', reajuste_valor: '', admissao: '', afast_ini_ano: '', afast_ini_mes: '', afast_fim_ano: '', afast_fim_mes: '', afast_motivo: '', sit_folha: '', rateios: [] })
+  const editarPosto = (p: Posto) => setForm({ id: p.id, codigo: p.codigo, codigoAuto: false, nome: p.nome || '', matricula: p.matricula || '', cargo_id: p.cargo_id || '', empresa_id: p.empresa_id, filial_id: p.filial_id || '', cc_id: p.cc_id || '', sindicato_id: p.sindicato_id || '', regime: p.regime || '', recebe_hora: p.recebe_hora == null ? '' : (p.recebe_hora ? 'sim' : 'nao'), salario_base: p.salario_base != null ? inp2(p.salario_base) : '', fte: p.fte != null ? String(p.fte) : '1', ini_ano: p.ini_ano ? String(p.ini_ano) : '', ini_mes: p.ini_mes ? String(p.ini_mes) : '', fim_ano: p.fim_ano ? String(p.fim_ano) : '', fim_mes: p.fim_mes ? String(p.fim_mes) : '', reajuste_mes: p.reajuste_mes ? String(p.reajuste_mes) : '', reajuste_pct: p.reajuste_pct != null ? String(p.reajuste_pct) : '', reajuste_valor: p.reajuste_valor != null ? inp2(p.reajuste_valor) : '', afast_ini_ano: p.afast_ini_ano ? String(p.afast_ini_ano) : '', afast_ini_mes: p.afast_ini_mes ? String(p.afast_ini_mes) : '', afast_fim_ano: p.afast_fim_ano ? String(p.afast_fim_ano) : '', afast_fim_mes: p.afast_fim_mes ? String(p.afast_fim_mes) : '', afast_motivo: p.afast_motivo || '', sit_folha: (p as any).sit_folha || '', admissao: p.admissao || '', rateios: (postoRateios[p.id] || []).map(r => ({ ...r })) })
   const salvarPosto = async () => {
     if (!form) return
     if (!form.empresa_id) { setErro('Informe a empresa.'); return }
@@ -998,7 +998,14 @@ export default function PostosGradePage() {
       afast_fim_mes: afastOn && form.afast_fim_ano && form.afast_fim_mes ? parseInt(form.afast_fim_mes, 10) : null,
       afast_motivo: afastOn ? ((form.afast_motivo || '').trim() || null) : null,
       admissao: (form.admissao || '').trim() || null,   // só a rescisão usa (tempo de casa)
-      ativo: true,
+      // ⚠⚠ `sit_folha` e `ativo` TÊM DE ANDAR JUNTOS. A grade decide a situação
+      // por `situacaoPosto()`, que olha `sit_folha` primeiro; o Aplicar no
+      // orçado filtra por `ativo !== false`. Gravar só um deixaria o posto
+      // marcado DEMITIDO na tela e ainda custando no orçamento — ou o contrário.
+      // Medido antes de mexer: hoje os dois são coerentes em 569 de 569
+      // (D ⇔ ativo=false), porque a importação os escreve no mesmo lote.
+      sit_folha: (form.sit_folha || '').trim() || null,
+      ativo: (form.sit_folha || '').trim().toUpperCase() !== 'D',
     }
     const saved = form.id
       ? await supabase.from('posto').update(payload).eq('id', form.id).select('id').single()
@@ -2078,6 +2085,29 @@ export default function PostosGradePage() {
                     Saída em {MESES_NUM[(form.fim_mes ? Number(form.fim_mes) : 12) - 1]}/{form.fim_ano} <span style={{ color: 'var(--muted)' }}>(a data é a vigência fim, acima)</span>
                   </span>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div><span style={S.flbl}>Situação <span style={{ color: 'var(--muted)' }}>(do ERP)</span></span>
+                      <select style={{ ...S.finp, width: 170 }} value={form.sit_folha}
+                        onChange={e => setForm((f: any) => ({ ...f, sit_folha: e.target.value }))}>
+                        <option value="">Trabalhando</option>
+                        <option value="F">Férias</option>
+                        <option value="A">Afastado</option>
+                        <option value="D">Demitido</option>
+                      </select>
+                      {/* ⚠ Esta é a correção MANUAL de um dado que vem do ERP, e a
+                          importação do RH regrava a coluna. Dizer isso aqui é a
+                          diferença entre um conserto e um trabalho que evapora
+                          sem aviso — a mesma lição do salário editado no cadastro. */}
+                      <div style={{ fontSize: 10.5, color: 'var(--orange)', marginTop: 3, maxWidth: 260, lineHeight: 1.45 }}>
+                        A próxima importação do RH <b>sobrescreve</b> isto. Vale para corrigir
+                        agora; o conserto definitivo é no ERP.
+                      </div>
+                      {(form.sit_folha === 'A' || form.sit_folha === 'F') && !form.afast_ini_ano && (
+                        <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 3, maxWidth: 260, lineHeight: 1.45 }}>
+                          Só muda a etiqueta: o <b>custo</b> de quem está afastado depende de
+                          "Afastado desde", abaixo.
+                        </div>
+                      )}
+                    </div>
                     <div><span style={S.flbl}>Admissão <span style={{ color: 'var(--muted)' }}>(tempo de casa)</span></span>
                       <input type="date" style={{ ...S.finp, width: 150 }} value={form.admissao}
                         onChange={e => setForm((f: any) => ({ ...f, admissao: e.target.value }))} />
