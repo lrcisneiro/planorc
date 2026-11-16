@@ -62,3 +62,44 @@ UNION ALL
 SELECT 'a duplicata de impostos (decisão da controladoria)',
        (SELECT coalesce(string_agg(codigo || ' = ' || descricao, ' · '), 'nenhuma')
           FROM conta_orcamentaria WHERE descricao ILIKE '%mpostos s/%aturamento%');
+
+-- ============================================================
+-- 2ª PASSADA — o que a 1ª não pegou
+--
+-- A conferência "master e linha concordam?" denunciou oito divergências. Seis
+-- são legítimas (a linha da DRE pode ter nome de exibição diferente da conta
+-- master), mas duas eram erro de verdade — e nenhuma estava na lista da TI,
+-- porque não aparecem na DRE dele:
+--     "Recelita Liquida"  → troca de letra, no master da Receita Líquida
+--     "Liquida" / "Comissao" → acentos que a 1ª passada não cobriu, porque eu
+--                              só havia listado "Liquido" e "Comissoes"
+--
+-- ⚠ A LIÇÃO É SOBRE A LISTA, não sobre as palavras: corrigir por lista de
+-- termos conhecidos só alcança o que alguém já viu. Achar o resto exigiu
+-- varrer por PADRÃO (palavra portuguesa provavelmente sem acento), e é assim
+-- que se deve procurar da próxima vez.
+-- ============================================================
+
+UPDATE conta_orcamentaria SET descricao =
+       replace(replace(replace(descricao, 'Recelita', 'Receita'), 'Liquida', 'Líquida'), 'omissao', 'omissão')
+ WHERE descricao LIKE '%Recelita%' OR descricao LIKE '%Liquida%' OR descricao LIKE '%omissao%';
+
+UPDATE relatorio_linha SET descricao =
+       replace(replace(replace(descricao, 'Recelita', 'Receita'), 'Liquida', 'Líquida'), 'omissao', 'omissão')
+ WHERE descricao LIKE '%Recelita%' OR descricao LIKE '%Liquida%' OR descricao LIKE '%omissao%';
+
+-- ---------------- conferência da 2ª passada ----------------
+SELECT 'sobrou palavra sem acento?' AS secao,
+       (SELECT CASE WHEN count(*) = 0 THEN 'nenhuma — correto'
+                    ELSE string_agg(DISTINCT descricao, ' | ') END
+          FROM (SELECT descricao FROM conta_orcamentaria
+                UNION ALL SELECT descricao FROM relatorio_linha
+                UNION ALL SELECT descricao FROM centro_custo) x
+         WHERE descricao ~* '\m(liquida|recelita|comissao|servico|manutencao|provisao)\M') AS resultado
+UNION ALL
+-- ⚠ Não apaga nada: "teste" num cadastro pode ter lançamento atrás.
+SELECT 'cadastros que parecem rascunho (NÃO apagados)',
+       (SELECT coalesce(string_agg(DISTINCT descricao, ' · '), 'nenhum')
+          FROM (SELECT descricao FROM conta_orcamentaria
+                UNION ALL SELECT descricao FROM relatorio_linha) y
+         WHERE descricao ~* '\mteste\M');
