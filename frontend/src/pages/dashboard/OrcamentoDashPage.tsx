@@ -81,13 +81,24 @@ const arr = (v: any): string[] | null => (Array.isArray(v) ? v : null)
 //                     expressão. Numa DRE real o EBITDA costuma ser INDICADOR.
 //   · SOMAR_FILHOS  → as filhas diretas. É a definição do tipo.
 //   · demais        → não há como derivar; a pessoa escolhe.
+// ⚠⚠ LINHA DESATIVADA NÃO É COMPONENTE. O motor a exclui da soma do pai e
+// trata referência a ela como ZERO (`lib/engine.ts`), então o TOTAL do
+// resultado não a contém — mas a ponte a somava como barra, e o resíduo
+// absorvia a diferença. Na DRE Gerencial deu para ver a olho nu:
+//     Titulos baixados para PDD   +565.003
+//     não explicado               −565.003
+// a mesma cifra com o sinal trocado. E o pior era não dar para consertar na
+// tela: `linhasConciliaveis` já esconde desativada do seletor, então a linha
+// entrava por aqui e ficava marcada sem checkbox para desmarcar.
+const vivas = (linhas: LinhaRel[]) => linhas.filter(x => !x.desativada)
+
 function componentesDe(l: LinhaRel | undefined, linhas: LinhaRel[]): string[] {
   if (!l) return []
   if ((l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR') && l.expressao) {
     const cods = new Set(Array.from(l.expressao.matchAll(/\[([^\]]+)\]/g), m => m[1]))
-    return linhas.filter(x => cods.has(x.codigo)).map(x => x.id)
+    return vivas(linhas).filter(x => cods.has(x.codigo)).map(x => x.id)
   }
-  if (l.tipo_linha === 'SOMAR_FILHOS') return linhas.filter(x => x.pai_id === l.id).map(x => x.id)
+  if (l.tipo_linha === 'SOMAR_FILHOS') return vivas(linhas).filter(x => x.pai_id === l.id).map(x => x.id)
   return []
 }
 
@@ -1266,7 +1277,12 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
   const ini = resId ? v(comp, resId) : 0
   const fim = resId ? v(base, resId) : 0
 
-  const itens = cfg.sel.filter((id: string) => id !== resId)
+  // ⚠ Limpa também a seleção JÁ SALVA. Corrigir só `componentesDe` deixaria o
+  // defeito vivo em todo preset montado antes — e esse é o caso que importa,
+  // porque é o que as pessoas abrem todo dia.
+  const desativadas = useMemo(
+    () => new Set(linhas.filter((l: LinhaRel) => l.desativada).map((l: LinhaRel) => l.id)), [linhas])
+  const itens = cfg.sel.filter((id: string) => id !== resId && !desativadas.has(id))
     .map((id: string) => ({ id, nome: nome(id), d: v(base, id) - v(comp, id) }))
     .filter((x: any) => Math.abs(x.d) > 0.005)
     .sort((a: any, b: any) => Math.abs(b.d) - Math.abs(a.d))
@@ -1337,7 +1353,9 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
           {Math.abs(residuo) > Math.abs(fim - ini) * 0.15 && (
             <div style={{ fontSize: 12, color: 'var(--orange)', marginBottom: 10 }}>
               ⚠ {fmt(Math.abs(residuo))} ({Math.abs(residuo / ((fim - ini) || 1) * 100).toFixed(0)}% da variação) não é explicado
-              pelos componentes. Provavelmente há <strong>subtotal junto com componente</strong> na seleção, ou falta um componente.
+              pelos componentes. Causas, da mais comum para a menos: há <strong>subtotal junto com componente</strong> na
+              seleção (conta duas vezes), falta um componente, ou um dos componentes está <strong>desativado</strong> na
+              estrutura — o total do resultado não o inclui, então ele sobra.
             </div>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(340px, 1fr) minmax(290px, 400px)', gap: 20, alignItems: 'start' }}>

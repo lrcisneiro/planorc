@@ -896,6 +896,20 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   **versão `bloqueada` fica de fora**, porque retrato do que foi aprovado não se reescreve.
   ⚠ Folha e apontamento **realizados** nunca são apagados — o valor foi pago.
 
+  ⚠⚠ **Linha DESATIVADA não é componente de ponte (nov/2026).** `relatorio_linha.desativada`
+  exibe o valor tachado e o tira do cálculo: `SOMAR_FILHOS` pula a linha e referência a ela em
+  fórmula vale **zero** (`lib/engine.ts`). Então o TOTAL do resultado não a contém — mas a ponte
+  do *Orçamento — análise* a somava como barra, porque `componentesDe()` devolvia os filhos do
+  subtotal sem olhar a marca. O resíduo absorvia a diferença, e dava para ver a olho nu:
+  *Titulos baixados para PDD +565.003* contra *não explicado −565.003*, a mesma cifra invertida.
+  ⚠ **E não dava para consertar na tela:** `linhasConciliaveis` já esconde desativada do seletor,
+  então a linha entrava pelo botão *usar os da estrutura* e ficava marcada **sem checkbox para
+  desmarcar**. Hoje `componentesDe` filtra, **e a seleção já salva é limpa no cálculo** — corrigir
+  só a primeira deixaria o defeito vivo em todo preset montado antes, que é justamente o que as
+  pessoas abrem todo dia.
+  ⚠ O aviso de resíduo dizia só "subtotal junto com componente, ou falta um componente" — passou
+  a prever a terceira causa, senão quem bater nela procura duplicata e não acha.
+
   ⚠ **Marcador que aparece em quase toda linha deixa de marcar (nov/2026).** O asterisco do
   custo/mês sinaliza "o custo mudou durante o ano", e a PLR foi incluída na condição com um
   raciocínio correto — o custo/mês mostra dezembro, que não tem parcela, e `custo/mês × 12`
