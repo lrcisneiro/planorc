@@ -58,15 +58,28 @@ ON CONFLICT (tenant_id, codigo) DO UPDATE
       conta_destino_id = EXCLUDED.conta_destino_id,
       ativo = true;
 
--- ⚠ A 230 e a 231 já eram VALOR_FIXO e já estão anexadas a 8 e 33 postos, mas
--- com regime NULO (= vale para todos) e sem conta. Só quem as recebe é
--- prestador; deixá-las abertas faria uma importação de CLT criar benefício
--- onde não há.
+-- ⚠ A 230 e a 231 já eram VALOR_FIXO, mas com regime NULO (= vale para todos).
+-- Só quem as recebe é prestador; deixá-las abertas faria uma importação de CLT
+-- criar benefício onde não há.
+--
+-- ⚠⚠ E A CONTA DA 230 ESTAVA ERRADA — `20101 Salários e Ordenados`, enquanto o
+-- realizado lança a verba em `20301 Terceiros Internos` nas 89 linhas que
+-- existem. Comissão de prestador não é salário. Orçado numa conta e realizado
+-- em outra é divergência permanente na conciliação, dos dois lados ao mesmo
+-- tempo: falta em Terceiros, sobra em Salários.
+-- ⚠ A primeira versão deste seed escreveu `coalesce(conta_destino_id, …)` e
+-- **preservou o erro** — coalesce guarda o que existe, e o que existia estava
+-- errado. Quando o destino é conhecido pelo dado (todas as dez caem em 20301
+-- no realizado), a atribuição é direta; coalesce é para o que não se sabe.
+--
+-- ⚠ CONSEQUÊNCIA A OLHAR: no próximo Aplicar, R$ 36.841,21/mês — R$ 442.094,52
+-- no ano — saem de *Salários e Ordenados* e entram em *Terceiros Internos*. A
+-- DRE muda de forma sem mudar de total.
 UPDATE verba_folha SET regime = 'BR-PRESTADOR',
-       conta_destino_id = coalesce(conta_destino_id,
-         (SELECT id FROM conta_orcamentaria WHERE codigo='20301' AND tenant_id=verba_folha.tenant_id)),
-       categoria = coalesce(categoria, 'BENEFICIOS')
- WHERE codigo IN ('230','231') AND coalesce(regime,'') = '';
+       conta_destino_id = (SELECT id FROM conta_orcamentaria
+                            WHERE codigo='20301' AND tenant_id=verba_folha.tenant_id),
+       categoria = 'BENEFICIOS'
+ WHERE codigo IN ('230','231');
 
 -- ---------------- conferência ----------------
 SELECT 'verbas do prestador prontas para orçar' AS secao,
