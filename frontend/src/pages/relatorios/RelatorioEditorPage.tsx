@@ -43,7 +43,7 @@ type Linha = LinhaCalc & {
   visivel_dashboard: boolean    // só exibição (não afeta cálculo)
   visivel_relatorio: boolean    // só exibição (não afeta cálculo)
   redutora: boolean             // RECEITA que reduz a receita (imposto) → separa bruta/líquida
-  filtro_escopo: EscopoCC | null   // filtro de CC próprio da linha (sobrepõe a tela); só com nao_soma
+  filtro_escopo: EscopoCC | null   // filtro de CC próprio da linha (ESTREITA o da tela, não sobrepõe); só com nao_soma
   _depth: number
 }
 type EscopoCC = { cc?: string[]; area?: string[]; divisao?: string[]; bu?: string[] }
@@ -738,8 +738,13 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       for (const l of escLinhas) {
         const e = l.filtro_escopo!
         // escopo próprio da linha (ex.: "margem de serviço") cruzado com o escopo VER do usuário
-        const cc = aplicaEscopo(effectiveCcFilter(ccs as any, e.cc || [], e.area || [], e.divisao || [], e.bu || []), ccs as any, 'centro_custo')
+        let cc = aplicaEscopo(effectiveCcFilter(ccs as any, e.cc || [], e.area || [], e.divisao || [], e.bu || []), ccs as any, 'centro_custo')
         if (!cc) continue   // escopo não restringe → segue o global
+        // ⚠⚠ ...e com o FILTRO DA TELA. O escopo da linha ESTREITA, nunca
+        // alarga: ver o comentário longo em lib/relatorioTotais.ts. Lista
+        // vazia é resultado legítimo (nenhum CC do escopo está no filtro) e
+        // vira linha zerada — não "sem filtro".
+        if (ccFilter) cc = cc.filter(id => ccFilter.includes(id))
         const sig = JSON.stringify([...cc].sort())
         if (!grupos.has(sig)) grupos.set(sig, cc)
         escSigNext[l.id] = sig
@@ -750,6 +755,13 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         for (const cen of cenariosAtivos) tEsc.push((async () => {
           const rawSc: RawValues = {}
           const setMaster = (master: string, pk: string, cell: { valor?: number; expressao?: string }) => { for (const lid of (masterToLines[master] || [])) (rawSc[lid] ||= {})[pk] = cell }
+          // Interseção vazia: a linha não tem nenhum CC dentro do filtro, logo
+          // vale zero. Sai sem chamar RPC — `p_ccs: []` dependeria de o SQL
+          // ler array vazio como "nenhum" e não como "todos", e essa é uma
+          // aposta que não precisa ser feita. O raw segue vazio e as chaves de
+          // `cicloMode` abaixo continuam sendo gravadas, senão a linha cairia
+          // de volta no global, que é exatamente o defeito que se corrige aqui.
+          if (ccList.length) {
           if (ehReal(cen)) {
             if (isBalanco) {
               for (const y of anosDoCen(cen)) {
@@ -767,6 +779,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: empresaFiltro, p_anos: anosCen, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccList, p_slot: moedaView })
             if (error) throw new Error(error.message)
             for (const r of data || []) setMaster(r.linha_id, `${cicloMode ? refAno : r.ano}-${r.mes}`, (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 })
+          }
           }
           rawScopedNext[`${cen}::${sig}`] = rawSc
           // Overlay (ciclo): o REALIZADO vira pseudo-cenários REALIZADO@ano nas colunas.

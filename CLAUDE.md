@@ -383,6 +383,23 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 
 **1. Dados — quem vê/orça quais dimensões.** Hook `useUserAccess` (`hooks/useUserAccess.ts`) lê `user_acesso_regra` e expõe `canSee` (escopo `VER`), `canEdit` (escopo `ORCAR`, com fallback para `VER`), `filterList`/`filterEdit`, e `isAdmin`. Regra por dimensão = allow-list (`valor_ids`; vazio = tudo) menos `negados`. **Admin ignora todo o escopo de dados** (`canSee`/`canEdit` retornam `true`). O escopo é cruzado com os filtros de tela por interseção (`aplicaEscopo` no editor; `escopoFiltro` em `DashFiltros.tsx`, usado por todos os dashboards). Linhas INDICADOR com `filtro_escopo` próprio também são cruzadas com o escopo do usuário (no editor e em `lib/relatorioTotais.ts`, via `ccPermitidos`).
 
+> ⚠⚠ **`filtro_escopo` de linha ESTREITA, nunca alarga (nov/2026).** O editor
+> documentava "sobrepõe a tela", e sobrepor significava *ignorar o filtro de CC*:
+> filtrando um CC sem movimento, a DRE inteira zerava e a *Folha apoio* seguia
+> exibindo o consolidado da empresa, com "% Estrutura" 100%. Relatório filtrado
+> mostrando número não filtrado, calado. Achado na homologação do gerente de TI
+> (item A-04), que só enxergava o CC 141.
+> O caso que parecia justificar a sobreposição — a fórmula `margem ÷ folha
+> DIRETA` — na verdade a **desmente**: sobrepondo, o numerador vem filtrado e o
+> denominador não, e a razão não significa mais nada. Hoje o escopo da linha é
+> cruzado com `ccPermitidos` **e** com o `ccFilter` da tela, nos dois lugares que
+> repetem a lógica (`lib/relatorioTotais.ts` e `RelatorioEditorPage`); os quatro
+> dashboards herdam de graça, porque já passavam `ccFilter`.
+> ⚠ Interseção vazia é **linha zerada**, não "sem filtro" — e sai sem chamar a
+> RPC, porque `p_ccs: []` dependeria de o SQL ler array vazio como "nenhum" e
+> não como "todos". ⚠ Empresa e filial **nunca** tiveram o defeito: as duas
+> cargas sempre passaram `p_empresas`/`p_filiais`. Era só o CC.
+
 **2. Funções/menus — o que aparece.** Catálogo único em `lib/capacidades.ts` (`CAPACIDADES`: `key`, `label`, `categoria ∈ Funções|Menu`, `padrao` por papel). Hook `useCapacidades` resolve `can(key)` com precedência **override por usuário (`user_acesso_funcao`) > padrão do papel > liberado (se não catalogado)**. Menus (`NAV_GROUPS` em `App.tsx`) e botões de ação (`orcar`/`estrutura`) são gateados por `can(...)`. Blindagem: admin nunca perde `menu.config`.
 
 **3. Funcionalidades do tenant — o que EXISTE nesta instalação.** Pergunta diferente das duas acima, que são sobre *quem pode*. `lib/tenantFlags.ts` lê colunas booleanas de `tenant` (hoje `usa_apontamento`) e o hook `useTenantFlags()` as entrega com cache em `localStorage`, para a navegação não piscar esperando um boolean. Ligadas em **Configurações → Funcionalidades**; mexer na flag exige `limparCacheFlags()`. Use para mecanismo específico de um negócio — apontar hora em projeto, p.ex. — que em outro tenant não deve nem aparecer como tela vazia.

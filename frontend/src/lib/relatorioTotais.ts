@@ -71,6 +71,18 @@ export async function totaisRelatorio(o: Opts): Promise<Record<string, number>> 
     let cc = effectiveCcFilter(ccs, e.cc || [], e.area || [], e.divisao || [], e.bu || [])
     // F2: cruza o escopo próprio da linha com o que o usuário pode VER
     if (o.ccPermitidos) cc = cc === null ? [...o.ccPermitidos] : cc.filter(id => o.ccPermitidos!.includes(id))
+    // ⚠⚠ E COM O FILTRO DA TELA. O escopo da linha existe para ESTREITÁ-LA
+    // abaixo do que a tela mostra ("esta linha é só das áreas 1 e 4"), nunca
+    // para alargá-la acima. Sem este cruzamento ele alargava: filtrando um CC
+    // sem movimento, a DRE inteira zerava e a "Folha apoio" seguia exibindo o
+    // consolidado da empresa, com "% Estrutura" 100% — um relatório filtrado
+    // mostrando número não filtrado, e nada na tela dizendo isso.
+    // ⚠ Reverte o "sobrepõe a tela" que estava escrito no editor. O caso que
+    // parecia justificar a sobreposição — a fórmula `margem ÷ folha DIRETA` —
+    // na verdade a desmente: sobrepondo, o numerador vem filtrado e o
+    // denominador não, e a razão deixa de significar qualquer coisa. Cruzando,
+    // os dois andam juntos e a razão continua de pé em qualquer recorte.
+    if (ccFilter) cc = cc === null ? [...ccFilter] : cc.filter(id => ccFilter.includes(id))
     if (cc === null) continue                       // sem restrição → segue o global
     if (cc.length === 0) { out[l.id] = 0; continue } // usuário não acessa nenhum CC do escopo da linha
     const sig = JSON.stringify([...cc].sort())
