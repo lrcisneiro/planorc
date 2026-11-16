@@ -896,6 +896,32 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   **versão `bloqueada` fica de fora**, porque retrato do que foi aprovado não se reescreve.
   ⚠ Folha e apontamento **realizados** nunca são apagados — o valor foi pago.
 
+  **Verbas variáveis do prestador (nov/2026).** O custo do prestador tem **dez** verbas além do
+  par `222+228`, e nenhuma chegava ao orçado: cinco estavam como `INFORMATIVA` (que
+  `verbasDoRegime` descarta) e três nem existiam no catálogo. São **R$ 483 mil/mês**, R$ 5,8 mi
+  no ano. Hoje são `VALOR_FIXO`, regime `BR-PRESTADOR`, conta `20301 Terceiros Internos` — o
+  mesmo item em que o realizado as lança.
+  ⚠⚠ **A `418 Garantia de horas` é a que mais importa, e não pelo valor.** Nas 35 pessoas que a
+  recebem, **só a `222` oscila 120% entre meses; `222+418` oscila 36%** — a garantia é
+  exatamente o que torna o custo previsível, porque quem fatura pouco num mês recebe a diferença
+  por ela. Orçar só a `222` é orçar a parte que varia e ignorar a que estabiliza.
+  ⚠ **O valor é média mensal, não o mês escolhido** (`scripts/media_prestadores.py`, lê o `srd`,
+  que tem 35 competências contra 4 importadas). Isso corrige um defeito silencioso: o conversor
+  pegava UMA competência por verba, e quem não recebeu naquele mês vinha com coluna em branco —
+  e o importador, que apaga o que o arquivo cita, **removia o benefício**. A `235` tem 36 pessoas
+  no ano e **1 em setembro**: importar por setembro apagava 35.
+  ⚠⚠ **PENDÊNCIA ACEITA (Ricardo disse "não precisa", nov/26):** `VERBAS_BENEFICIO` no conversor
+  ainda lista `230` e `231`, então **a carga mensal as sobrescreve com o valor de um mês** e
+  desfaz a média nessas duas — as outras oito ficam intactas, porque não são colunas do arquivo.
+  Quem estranhar comissão/bônus "voltando ao valor antigo" está vendo isto, não um defeito novo.
+  ⚠ **`236` fica sem ninguém de propósito:** os 12 que a recebem estão demitidos, uma competência
+  cada. É encargo de rescisão de prestador — provisioná-la no cadastro orçaria a saída de quem
+  não está saindo.
+  ⚠ **`coalesce` guarda o erro que o seed existe para corrigir.** A `230` apontava para
+  `20101 Salários e Ordenados` com o realizado em `20301`; escrevi
+  `coalesce(conta_destino_id, …)` "por cautela" e preservei o defeito. Quando o destino é
+  conhecido pelo dado, a atribuição é direta — `coalesce` é para o que não se sabe.
+
   ⚠ **A chave do RH é SEMPRE `(filial, matrícula)`** — confirmado pelo Ricardo em nov/2026, e
   vale para `srd`, folha e cadastro de posto. A matrícula **sozinha** não identifica em nenhum
   dos dois sentidos: a `900008` pertence a 7 CPFs (v3_149) e a `900012` aparece em 5 filiais
