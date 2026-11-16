@@ -1,65 +1,30 @@
 -- ============================================================
--- SEED — limpa o orçado do posto excluído (matrícula 800002) e religa a folha
+-- SEED — reaponta a folha PAGA do Ronaldo para o posto que existe
 --
--- ⚠⚠ DUAS CORREÇÕES MINHAS, nesta ordem:
--- 1. A primeira versão deste arquivo CRIAVA um posto para o Ronaldo, e teria
---    criado uma DUPLICATA: ele já é `2001-900101`, mesma empresa·filial·CC
---    (05·2001·310), mesmo salário (88.317,53), cargo DIRETOR DE SERVIÇOS, e
---    está no orçado de 2027 com R$ 1.118.099,93. Eu afirmei que faltava
---    R$ 1,1 mi no orçamento — não falta.
---    O erro: procurei o posto pela matrícula da FOLHA. A pessoa tem duas —
---    `800002` (série de pró-labore, usada na folha) e `900101` (série de
---    prestador, no cadastro). "Não achei por esta chave" nunca é o mesmo que
---    "não existe", e o nome, que eu não consultei, respondia de primeira.
--- 2. O posto antigo foi EXCLUÍDO pelo Ricardo — e a exclusão deixou o orçado
---    dele para trás. É o que este seed limpa.
+-- Rode DEPOIS de excluir a versão `OrçadoPosto`. É a única coisa que sobra.
 --
--- O QUE O POSTO EXCLUÍDO DEIXOU:
---     fat_orcado   72 linhas · R$ 900.000,00 · versão OrçadoPosto · ano 2026
---     fat_folha    12 linhas · R$ 900.000,00 · tipo ORCADO        · ano 2026
--- Orçamento de um posto que não existe mais, sem dono e sem rastro: `fat_orcado`
--- nem tem `posto_id` (a origem vive em `dims->>'posto'`, texto e sem FK) e em
--- `fat_folha` o `posto_id` é `ON DELETE SET NULL`.
--- ⚠ Pior do que sobrar: `dims->>'posto'` é o CÓDIGO. Um posto novo com o mesmo
--- código adotaria essas linhas caladamente.
+-- POR QUE É SÓ ISTO: todas as FKs para `versao_orcamento` são `ON DELETE
+-- CASCADE`, então excluir a versão leva junto o orçado do posto excluído —
+-- 72 linhas em `fat_orcado` e 12 em `fat_folha`, R$ 900.000,00 de cada lado.
+-- O que NÃO vai junto são as 3 linhas de folha REALIZADA (ago–out/2026,
+-- R$ 264.952,59): elas têm `versao_id` NULO, porque o pago não pertence a
+-- versão de orçamento (regra da v3_163). Ficariam órfãs para sempre.
 --
--- O QUE FICA, E POR QUÊ:
---     fat_folha  3 linhas REALIZADO · R$ 264.952,59 · ago–out/2026
--- Isso é folha PAGA, vinda do ERP — não é orçado e não se apaga. Só reaponta
--- para `2001-900101`, que é a mesma pessoa na mesma cadeira: o posto atual só
--- tem orçado de 2027, então sem isto o histórico de 2026 dele fica sem dono e
--- a conciliação por posto segue cega nos R$ 264.952,59.
+-- ⚠ É A MESMA PESSOA, com DUAS MATRÍCULAS: `800002` na folha (série de
+-- pró-labore) e `900101` no cadastro do posto (série de prestador) — mesmo
+-- nome, mesma empresa·filial·CC (05·2001·310), mesmo salário (88.317,53).
+-- A chave `(filial, matrícula)` da v3_188 não as une, e foi por isso que
+-- concluí que ele não tinha posto. Tinha.
 --
--- ⚠ CONSEQUÊNCIA A OLHAR: o orçado de 2026 (`OrçadoPosto`) cai R$ 900.000,00.
--- É o que se pediu — orçado de posto excluído é fantasma —, mas é um número
--- que alguém pode estar usando como fechado. Se for para manter 2026 como
--- está, não rode a parte do DELETE.
+-- O posto `2001-900101` só tem orçado de 2027, então sem este reaponte o
+-- histórico de 2026 dele fica sem dono e a conciliação por posto segue cega
+-- nos R$ 264.952,59.
 --
--- A tela também foi corrigida: excluir posto passa a apagar o orçado dele e a
--- dizer quanto vai junto. Versão BLOQUEADA fica de fora — retrato não se
--- reescreve.
+-- ⚠ NENHUM VALOR MUDA: escreve `posto_id` e mais nada.
 --
 -- Re-executável. Termina em SELECT.
 -- ============================================================
 
--- ── 1. o orçado que sobrou do posto excluído ─────────────────────────────
-DELETE FROM fat_orcado f
- USING versao_orcamento v
- WHERE v.id = f.versao_id
-   AND f.origem = 'POSTO'
-   AND f.dims->>'matricula' = '800002'
-   AND coalesce(v.bloqueada, false) = false;
-
-DELETE FROM fat_folha f
- USING posto p
- WHERE f.tipo = 'ORCADO'
-   AND f.posto_id IS NULL
-   AND p.codigo = '2001-900101'
-   AND f.tenant_id = p.tenant_id
-   AND f.filial_id = p.filial_id
-   AND lpad(nullif(trim(f.matricula), ''), 6, '0') = '800002';
-
--- ── 2. a folha PAGA reaponta para o posto que existe ─────────────────────
 UPDATE fat_folha f SET posto_id = p.id
   FROM posto p
  WHERE p.codigo = '2001-900101'
@@ -69,27 +34,26 @@ UPDATE fat_folha f SET posto_id = p.id
    AND lpad(nullif(trim(f.matricula), ''), 6, '0') = '800002';
 
 -- ---------------- conferência ----------------
-SELECT 'fat_orcado · sobras da matrícula 800002' AS secao,
-       (SELECT CASE WHEN count(*) = 0 THEN 'nenhuma — correto'
-                    ELSE count(*)::text || ' linha(s) · R$ ' || round(sum(-valor),2)::text END
-          FROM fat_orcado WHERE origem='POSTO' AND dims->>'matricula'='800002') AS resultado
+SELECT 'folha agora ligada ao posto 2001-900101' AS secao,
+       (SELECT count(*)::text || ' linha(s) · matrícula(s) ' || string_agg(DISTINCT f.matricula, ', ')
+               || ' · R$ ' || round(sum(f.valor),2)::text
+          FROM fat_folha f JOIN posto p ON p.id = f.posto_id WHERE p.codigo = '2001-900101') AS resultado
 UNION ALL
-SELECT 'fat_folha · ainda órfã (deve ser zero)',
+SELECT 'fat_folha ainda órfã (deve ser zero)',
        (SELECT CASE WHEN count(*) = 0 THEN 'nenhuma — correto'
                     ELSE count(*)::text || ' linha(s): ' || string_agg(DISTINCT coalesce(nome,'?'), ', ') END
           FROM fat_folha WHERE posto_id IS NULL)
 UNION ALL
-SELECT 'realizado de 2026 que voltou a ter dono',
-       (SELECT coalesce(count(*)::text || ' linha(s) · R$ ' || round(sum(f.valor),2)::text, '0')
-          FROM fat_folha f JOIN posto p ON p.id=f.posto_id
-         WHERE p.codigo='2001-900101' AND f.tipo='REALIZADO')
+SELECT 'versão OrçadoPosto ainda existe?',
+       (SELECT CASE WHEN count(*) = 0 THEN 'já excluída — correto'
+                    ELSE '⚠ ainda existe: o orçado do posto excluído só sai com ela' END
+          FROM versao_orcamento WHERE codigo = 'OrçadoPosto')
 UNION ALL
-SELECT 'orçado 2026 (OrçadoPosto) depois da limpeza',
-       (SELECT 'R$ ' || round(sum(-valor),2)::text FROM fat_orcado
-         WHERE origem='POSTO' AND ano=2026
-           AND versao_id=(SELECT id FROM versao_orcamento WHERE codigo='OrçadoPosto'))
+SELECT 'sobra de orçado da matrícula 800002',
+       (SELECT CASE WHEN count(*) = 0 THEN 'nenhuma — correto'
+                    ELSE count(*)::text || ' linha(s) · R$ ' || round(sum(-valor),2)::text END
+          FROM fat_orcado WHERE origem='POSTO' AND dims->>'matricula'='800002')
 UNION ALL
-SELECT 'o Ronaldo continua com UM posto só?',
-       (SELECT CASE WHEN count(*)=1 THEN 'correto — ' || max(codigo)
-                    ELSE '⛔ ' || count(*)::text || ' postos' END
-          FROM posto WHERE upper(nome) LIKE '%RONALDO BRUNO%');
+SELECT 'orçamento MANUAL de 2026 intacto?',
+       (SELECT count(*)::text || ' linha(s) na versão Orçado2026'
+          FROM fat_orcado WHERE ano=2026 AND origem='MANUAL');
