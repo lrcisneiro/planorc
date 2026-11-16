@@ -1077,6 +1077,18 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `fat_orcado` precisa das duas conversões, não só da de exibição** — só a de exibição grava o
   sinal trocado, e o erro aparece meses depois no relatório.
 
+- ⚠⚠ **Na PONTE, o sinal cru se lê ao contrário — e avisar em texto não basta** (nov/2026).
+  A ponte usa o sinal econômico cru por necessidade (ver a exceção abaixo), então despesa que
+  **cresce** aparece **negativa**: ela piora o resultado. Mas o resto do sistema exibe despesa
+  **positiva** (`fatorExibicao`), e o painel ainda se chama "DESPESAS" — a pessoa lê com a
+  convenção certa em todo lugar menos ali. A tela já trazia o aviso em texto e **o próprio autor
+  da regra leu errado**: viu "Marketing −1.379.414" como "gastou menos", quando o gasto subiu
+  R$ 1,38 mi. Hoje cada linha de **natureza DESPESA** (própria ou herdada) traz **↑ gasto** /
+  **↓ gasto** ao lado do número, e a coluna chama-se *efeito no resultado*, não *variação*.
+  ⚠ Só em despesa: em receita o sinal se lê direto, e "↑ receita" seria ruído.
+  **A lição vale além desta tela:** quando a convenção local contraria a do resto do produto,
+  explicar no cabeçalho não resolve — tem de estar **na linha**, junto do número que engana.
+
 - **Cor de variação = bom ou ruim, nunca o sinal do número.** Verde/vermelho num Δ é uma
   afirmação semântica, e o sinal sozinho erra metade das linhas: despesa que cai aparece
   negativa e é melhora. O critério sai do **mesmo lugar que a exibição** — `fatorExibicao`

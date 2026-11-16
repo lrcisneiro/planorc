@@ -1282,6 +1282,27 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
   // porque é o que as pessoas abrem todo dia.
   const desativadas = useMemo(
     () => new Set(linhas.filter((l: LinhaRel) => l.desativada).map((l: LinhaRel) => l.id)), [linhas])
+
+  // ⚠⚠ O SINAL CRU DA PONTE SE LÊ AO CONTRÁRIO NUMA SEÇÃO DE DESPESA, e o
+  // aviso em texto não resolveu: o próprio autor da regra leu "Marketing
+  // −1.379.414" como "gastou menos", quando o gasto SUBIU 1,38 mi. A ponte
+  // mostra o EFEITO NO RESULTADO — despesa que cresce piora o resultado, logo
+  // barra negativa —, mas o resto do sistema exibe despesa positiva
+  // (`fatorExibicao`), e o painel ainda se chama "DESPESAS". A pessoa lê com a
+  // convenção do resto da tela, que é a certa em todo lugar menos aqui.
+  // O sinal NÃO pode mudar: sem ele a ponte deixa de fechar (está no CLAUDE.md
+  // como exceção deliberada). O que muda é dizer em palavras o que o sinal
+  // significa, na própria linha — "↑ gasto" ao lado de um número negativo
+  // acaba com a ambiguidade sem tocar na aritmética.
+  const natDaLinha = useMemo(() => {
+    const byId: Record<string, LinhaRel> = Object.fromEntries(linhas.map((l: LinhaRel) => [l.id, l]))
+    const nat = (id: string | null): string | null => {
+      if (!id) return null
+      const l = byId[id]; if (!l) return null
+      return (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : nat(l.pai_id)
+    }
+    return nat
+  }, [linhas])
   const itens = cfg.sel.filter((id: string) => id !== resId && !desativadas.has(id))
     .map((id: string) => ({ id, nome: nome(id), d: v(base, id) - v(comp, id) }))
     .filter((x: any) => Math.abs(x.d) > 0.005)
@@ -1322,8 +1343,10 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
           <div style={S.secD}>
             Decompõe a variação de <strong>uma</strong> linha de resultado. Os componentes precisam
             ser <strong>independentes</strong> — subtotal junto com componente conta duas vezes, e o
-            resíduo denuncia. Os componentes saem da <strong>própria estrutura do relatório</strong> — a fórmula da linha, ou as filhas de um subtotal. Aqui a despesa aparece <strong>negativa</strong>: a barra mostra o efeito
-            no resultado, não a convenção de exibição do resto da tela.
+            resíduo denuncia. Os componentes saem da <strong>própria estrutura do relatório</strong> — a fórmula da linha, ou as filhas de um subtotal. ⚠ Aqui a despesa aparece <strong>negativa quando CRESCE</strong> — a
+            barra mostra o efeito no <strong>resultado</strong>, não a convenção do resto da tela, onde despesa é
+            positiva. Por isso as linhas de despesa trazem <strong>↑ gasto</strong> ou <strong>↓ gasto</strong> ao
+            lado do número.
           </div></div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }} data-noexport>
           <select value={resId ?? ''} onChange={e => {
@@ -1379,13 +1402,22 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
               </svg>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr><th style={{ ...S.th, textAlign: 'left' }}>{nome(resId)}</th><th style={S.th}>variação</th></tr></thead>
+              <thead><tr><th style={{ ...S.th, textAlign: 'left' }}>{nome(resId)}</th><th style={S.th} title="Quanto cada componente move o RESULTADO. Despesa que cresce aparece negativa, porque piora o resultado.">efeito no resultado</th></tr></thead>
               <tbody>
                 <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--muted)' }}>{rotuloComp}</td><td style={S.td}>{fmt(ini)}</td></tr>
-                {passos.map((b: any) => (
+                {passos.map((b: any) => {
+                  // Só em linha de DESPESA: em receita o sinal já se lê direto
+                  // (+ é mais receita), e repetir "↑ receita" seria ruído.
+                  const desp = b.id !== '__resid' && natDaLinha(b.id) === 'DESPESA'
+                  return (
                   <tr key={b.id}><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: b.id === '__resid' ? 'var(--orange)' : undefined }}>{b.nome}</td>
-                    <td style={{ ...S.td, color: b.id === '__resid' ? 'var(--orange)' : b.d >= 0 ? 'var(--green)' : 'var(--red)' }}>{b.d >= 0 ? '+' : ''}{fmt(b.d)}</td></tr>
-                ))}
+                    <td style={{ ...S.td, color: b.id === '__resid' ? 'var(--orange)' : b.d >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                      {b.d >= 0 ? '+' : ''}{fmt(b.d)}
+                      {desp && <span style={{ marginLeft: 6, fontSize: 10.5, fontFamily: 'inherit', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        {b.d < 0 ? '↑ gasto' : '↓ gasto'}
+                      </span>}
+                    </td></tr>
+                )})}
                 <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontWeight: 700 }}>{rotuloBase}</td>
                   <td style={{ ...S.td, fontWeight: 700 }}>{fmt(fim)}</td></tr>
               </tbody>
