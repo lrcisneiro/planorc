@@ -874,6 +874,7 @@ function ContasTab() {
 
 // ─── FuncionariosTab ──────────────────────────────────────────
 function FuncionariosTab() {
+  const capFunc = useCapacidades()
   const [data, setData] = useState<any[]>([])
   const [filiais, setFiliais] = useState<any[]>([])
   const [ccs, setCcs] = useState<any[]>([])
@@ -995,13 +996,22 @@ function FuncionariosTab() {
       />
       {/* Importador próprio, separado do "Importar Excel" genérico: este casa a
           pessoa com os postos por (filial, matrícula) e traz o CPF, que é o que
-          faz o headcount contar gente em vez de matrícula. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '10px 0 0', flexWrap: 'wrap' }}>
-        <ImportarFuncionarios onFim={load} />
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-          Traz o CPF e liga cada pessoa aos postos dela. Mostra a prévia antes de gravar.
-        </span>
-      </div>
+          faz o headcount contar gente em vez de matrícula.
+          ⚠⚠ ESTAVA FORA DA PORTA. A barra genérica logo acima já exigia
+          `cadastros.importar`, e este ficou solto embaixo dela — visível e
+          funcional para quem não pode importar. É MAIS grave que o genérico,
+          não menos: traz CPF (coluna com `SELECT` revogado desde a v3_150) e
+          reescreve `posto.funcionario_id` em lote.
+          ⚠ A lição: importador novo herda o LUGAR na tela, nunca a permissão.
+          Toda vez que um nasce ao lado de outro, o gate tem de ser repetido. */}
+      {capFunc.can('cadastros.importar') && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '10px 0 0', flexWrap: 'wrap' }}>
+          <ImportarFuncionarios onFim={load} />
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+            Traz o CPF e liga cada pessoa aos postos dela. Mostra a prévia antes de gravar.
+          </span>
+        </div>
+      )}
       {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
       {info && <div style={S.info}>{info}</div>}
       <table style={S.table}>

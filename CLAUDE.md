@@ -760,6 +760,21 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > separados, e em silêncio** — conflito resolvido não é erro. Ao carregar catálogo que convive com
 > outro, conferir depois quem mudou de lado.
 
+> ⚠⚠ **Auditoria das importações (nov/2026) — 1 de 15 estava solta.** Varri os 15 arquivos com
+> `type="file"` contra as 14 capacidades da categoria *Importações*. Resultado: 13 gateados,
+> 1 legado não roteado (`LancamentosPage`) e **um furo real — `ImportarFuncionarios`**, o
+> importador de CPF, renderizado **logo abaixo** da barra genérica que já exigia
+> `cadastros.importar` e **fora** dela. Visível e funcional para quem não pode importar — e é o
+> mais sensível dos dois: traz CPF (coluna com `SELECT` revogado na v3_150) e reescreve
+> `posto.funcionario_id` em lote.
+> **A lição é o padrão do erro:** importador novo herda o LUGAR na tela, nunca a permissão.
+> Toda vez que um nasce ao lado de outro, o gate tem de ser repetido.
+> ⚠ **O padrão correto do app é gatear o BOTÃO, não o `<input type="file">`** — o input fica
+> escondido e sem gatilho. Vale conferir junto que o modal de importação não abre por outro
+> caminho: em `RealizadoDadosPage` e `FormularioEditorPage` o `setImportOpen(true)`/`setImp({…})`
+> aparece **uma vez só**, dentro da porta. Auditoria que olha só a proximidade do `can()` no
+> arquivo não prova nada.
+
 > **Convenção — incluir uma funcionalidade nova no controle de acesso:** (1) adicionar uma entrada em `CAPACIDADES` (chave + label + categoria + `padrao` por papel); (2) gatear o elemento na tela com `can('chave')`. A seção "Funções e menus" em Configurações itera o catálogo, então a nova capacidade aparece sozinha com os controles Herdar/Liberar/Negar; `user_acesso_funcao` guarda por chave de texto, sem migration. Enquanto não catalogada, `can()` devolve `true` (não esconde nada por engano). Dimensão de **dados** nova é outro caminho: cadastro de `dimensao`.
 
 ## Legado em transição
