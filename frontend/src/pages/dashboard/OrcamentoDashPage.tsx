@@ -1213,6 +1213,33 @@ function SelLinhas({ cfg, setCfg, linhas, limiar }: { cfg: SecCfg; setCfg: (c: S
   const ehIndic = (l: any) => l.tipo_linha === 'INDICADOR' || l.tipo_linha === 'FORMULA'
   const arvLinhas = useMemo(() => arv.filter((l: any) => !ehIndic(l)), [arv])
   const arvIndic = useMemo(() => arv.filter(ehIndic), [arv])
+
+  // ── SEÇÕES: "só esta" × "as filhas", e nunca as duas ─────────────────────
+  // ⚠⚠ É O PAR QUE IMPORTA, não o atalho. Marcar a subárvore inteira pouparia
+  // cliques e QUEBRARIA A PONTE por construção: subtotal junto com filha conta
+  // a mesma variação duas vezes — é o primeiro aviso do texto da seção. Por
+  // isso as duas ações são mutuamente excludentes: "só esta" tira os
+  // descendentes, "as filhas" tira o pai.
+  // ⚠ "as filhas" são as FILHAS DIRETAS, e tira os netos junto: filha + neta
+  // tem o mesmo problema um nível abaixo.
+  const filhasDe = useMemo(() => {
+    const m: Record<string, string[]> = {}
+    for (const l of arv as any[]) if (l.pai_id) (m[l.pai_id] ||= []).push(l.id)
+    return m
+  }, [arv])
+  const descendentes = (id: string): string[] => {
+    const out: string[] = []
+    const vai = (x: string) => { for (const f of (filhasDe[x] || [])) { out.push(f); vai(f) } }
+    vai(id); return out
+  }
+  const soEsta = (id: string) => {
+    const fora = new Set(descendentes(id))
+    mudar({ ...c, sel: [...new Set([...c.sel.filter(x => !fora.has(x)), id])] })
+  }
+  const asFilhas = (id: string) => {
+    const fora = new Set([id, ...descendentes(id)])
+    mudar({ ...c, sel: [...new Set([...c.sel.filter(x => !fora.has(x)), ...(filhasDe[id] || [])])] })
+  }
   return (
     <div style={{ position: 'relative' }} data-noexport>
       <button onClick={() => aberto ? aplicar() : abrir()}
@@ -1292,6 +1319,18 @@ function SelLinhas({ cfg, setCfg, linhas, limiar }: { cfg: SecCfg; setCfg: (c: S
                         {/* ⚠ O % é o que mais engana: some com reais e ninguém vê. */}
                         {l.formato === 'PERCENTUAL' && <span style={{ marginLeft: 5, fontSize: 9.5, fontWeight: 700, color: 'var(--orange)', border: '1px solid var(--orange)', borderRadius: 3, padding: '0 3px' }} title="é percentual — não soma com valores em reais">%</span>}
                       </span>
+                      {!g.ind && (filhasDe[l.id] || []).length > 0 && (
+                        <>
+                          <span style={{ flex: 1 }} />
+                          <span onClick={e => { e.preventDefault(); soEsta(l.id) }}
+                            title="Marca só o subtotal e tira as filhas — a visão de topo"
+                            style={{ fontSize: 10, color: 'var(--violet)', whiteSpace: 'nowrap', cursor: 'pointer' }}>só esta</span>
+                          <span style={{ fontSize: 10, color: 'var(--border-strong)' }}>·</span>
+                          <span onClick={e => { e.preventDefault(); asFilhas(l.id) }}
+                            title={`Marca as ${(filhasDe[l.id] || []).length} filhas e tira o subtotal — o detalhe que decompõe`}
+                            style={{ fontSize: 10, color: 'var(--violet)', whiteSpace: 'nowrap', cursor: 'pointer' }}>as {(filhasDe[l.id] || []).length} filhas</span>
+                        </>
+                      )}
                     </label>
                   ))}
                 </Fragment>

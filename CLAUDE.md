@@ -1077,6 +1077,18 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `fat_orcado` precisa das duas conversões, não só da de exibição** — só a de exibição grava o
   sinal trocado, e o erro aparece meses depois no relatório.
 
+- ⚠⚠ **Seções no seletor: "só esta" × "as filhas", e NUNCA as duas (nov/2026).** O atalho óbvio
+  — marcar a subárvore inteira de uma seção — pouparia cliques e **quebraria a ponte por
+  construção**: subtotal junto com filha conta a mesma variação duas vezes, que é o primeiro
+  aviso do texto da própria seção. Por isso as duas ações são **mutuamente excludentes**: *só
+  esta* tira os descendentes, *as filhas* tira o pai. E *as filhas* são as **diretas**, tirando
+  os netos junto — filha + neta tem o mesmo problema um nível abaixo.
+  É o mesmo par do botão **Seções** do relatório, e a razão de existir é a mesma: a escolha útil
+  não é "marcar tudo", é **em que nível olhar**.
+  ⚠ **Indicador e fórmula ficam em grupo separado**, e percentual leva selo. Eram 142 linhas de
+  relatório misturadas com 27 indicadores na DRE Gerencial: marcar *% EBITDA* junto com
+  *Marketing* soma pontos percentuais com reais, na ponte e na ordenação da variação.
+
 - **Seletor de linhas do *Orçamento — análise*: "todas", "nenhuma" e "sem limiar" (nov/2026).**
   Analisar o resultado inteiro era marcar 32 caixas na mão, uma a uma — e quem desiste no meio
   fica com uma análise que **parece completa e não é**. ⚠ "Marcar todas" usa a lista já filtrada
