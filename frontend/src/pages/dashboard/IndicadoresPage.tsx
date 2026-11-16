@@ -7,7 +7,7 @@ import { formatValor } from '../../lib/engine'
 import { totaisRelatorio } from '../../lib/relatorioTotais'
 import type { RLData } from '../../lib/relatorioTotais'
 import { ArrowLeft, RefreshCw, TrendingUp, TrendingDown, ListChecks } from 'lucide-react'
-import { escopoFiltro, FiltrosButton, PeriodoButton, ModalPanel, Checklist, effectiveCcFilter, SalvarCardButton, useCardPreset, useMoedaView, MoedaSelect, ExportarButton } from './DashFiltros'
+import { Checklist, effectiveCcFilter, escopoFiltro, ExportarButton, FiltrosButton, ModalPanel, MoedaSelect, PeriodoButton, PillsDim, SalvarCardButton, useCardPreset, useMoedaView } from './DashFiltros'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { ChipMeta } from './IndicCard'
 import { carregarMetas, resolverMeta, resumoMeta } from '../../lib/indicadorMeta'
@@ -151,6 +151,15 @@ export default function IndicadoresPage() {
         <button style={S.btn} onClick={load}><RefreshCw size={13} /></button>
         <SalvarCardButton base="/dashboards/indicadores" cor="var(--cyan)" cardId={cardId} getFiltros={() => ({ relId, versaoId, ano, ateMes, sel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel })} />
         <ExportarButton alvo={dashRef} nome="indicadores" titulo={`Indicadores${cardNome ? ` · ${cardNome}` : ''}`} legenda={`${ano} · Jan–${MESES[ateMes - 1]}`} />
+      </div>
+
+      {/* Atalho das duas perguntas do dia a dia. Escreve no MESMO estado do
+          modal de Filtros, então a contagem do botão acompanha. */}
+      <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <PillsDim ccs={acessoDash.filterList('centro_custo', ccs as any) as any}
+          codKey="area_cod" nomeKey="area_nome" titulo="Área" sel={areaSel} setSel={setAreaSel} />
+        <PillsDim ccs={acessoDash.filterList('centro_custo', ccs as any) as any}
+          codKey="divisao_cod" nomeKey="divisao_nome" titulo="Divisão" sel={divisaoSel} setSel={setDivisaoSel} />
       </div>
 
       {pickOpen && (

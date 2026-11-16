@@ -6,7 +6,7 @@ import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { computeCenario, computeTotais } from '../../lib/engine'
 import type { LinhaCalc, RawValues, Periodo } from '../../lib/engine'
 import { ArrowLeft, RefreshCw, TrendingUp, TrendingDown, ListChecks } from 'lucide-react'
-import { escopoFiltro, FiltrosButton, PeriodoButton, effectiveCcFilter, SalvarCardButton, useCardPreset, useMoedaView, MoedaSelect, ExportarButton, ModalPanel, Checklist } from './DashFiltros'
+import { Checklist, effectiveCcFilter, escopoFiltro, ExportarButton, FiltrosButton, ModalPanel, MoedaSelect, PeriodoButton, PillsDim, SalvarCardButton, useCardPreset, useMoedaView } from './DashFiltros'
 import { totaisRelatorio } from '../../lib/relatorioTotais'
 import type { RLData } from '../../lib/relatorioTotais'
 import IndicCard from './IndicCard'
@@ -203,6 +203,15 @@ export default function ExecutivoPage() {
         <SalvarCardButton base="/dashboards/executivo" cor="var(--orange)" cardId={cardId} getFiltros={() => ({ relId, versaoId, ano, ateMes, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel })} />
         {indicCards.length > 0 && <button style={S.btn} onClick={() => setPickIndic(true)} title="Escolher quais indicadores do relatório exibir como cards"><ListChecks size={13} /> Indicadores{indicSel.length ? ` (${indicSel.length})` : ''}</button>}
         <ExportarButton alvo={dashRef} nome="visao-executiva" titulo={`Visão executiva${cardNome ? ` · ${cardNome}` : ''}`} legenda={`${ano} · Jan–${MESES[ateMes - 1]}`} />
+      </div>
+
+      {/* Atalho das duas perguntas do dia a dia. Escreve no MESMO estado do
+          modal de Filtros, então a contagem do botão acompanha. */}
+      <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <PillsDim ccs={acessoDash.filterList('centro_custo', ccs as any) as any}
+          codKey="area_cod" nomeKey="area_nome" titulo="Área" sel={areaSel} setSel={setAreaSel} />
+        <PillsDim ccs={acessoDash.filterList('centro_custo', ccs as any) as any}
+          codKey="divisao_cod" nomeKey="divisao_nome" titulo="Divisão" sel={divisaoSel} setSel={setDivisaoSel} />
       </div>
 
       {erro && <div style={{ background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.35)', color: 'var(--red)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>{erro}</div>}

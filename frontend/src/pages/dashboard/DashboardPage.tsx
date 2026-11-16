@@ -17,7 +17,7 @@ import IndicCard from './IndicCard'
 import type { IC } from './IndicCard'
 import { carregarMetas, resolverMeta } from '../../lib/indicadorMeta'
 import type { IndicadorMeta } from '../../lib/indicadorMeta'
-import { escopoFiltro, effectiveCcFilter, FiltrosButton, PeriodoButton, SalvarCardButton, useCardPreset, ModalPanel, Checklist, useMoedaView, MoedaSelect, ExportarButton } from './DashFiltros'
+import { Checklist, effectiveCcFilter, escopoFiltro, ExportarButton, FiltrosButton, ModalPanel, MoedaSelect, PeriodoButton, PillsDim, SalvarCardButton, useCardPreset, useMoedaView } from './DashFiltros'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { ListChecks } from 'lucide-react'
 
@@ -629,6 +629,15 @@ export default function DashboardPage() {
         <ExportarButton alvo={dashRef} nome="dre-acompanhamento" titulo={`DRE — Acompanhamento${cardNome ? ` · ${cardNome}` : ''}`} legenda={`${escopoNome} · ${anosOrd.join(', ')} · ${mesesSel.length === 12 ? 'todos os meses' : `${mesesSel.length} meses`}`} />
         {indicCards.length > 0 && <button style={S.btn} onClick={() => setPickIndic(true)} title="Escolher quais indicadores exibir"><ListChecks size={13} /> Indicadores{indicSel.length ? ` (${indicSel.length})` : ''}</button>}
         {loading && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Carregando…</span>}
+      </div>
+
+      {/* Atalho das duas perguntas do dia a dia. Escreve no MESMO estado do
+          modal de Filtros, então a contagem do botão acompanha. */}
+      <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <PillsDim ccs={acessoDash.filterList('centro_custo', ccs as any) as any}
+          codKey="area_cod" nomeKey="area_nome" titulo="Área" sel={areaSel} setSel={setAreaSel} />
+        <PillsDim ccs={acessoDash.filterList('centro_custo', ccs as any) as any}
+          codKey="divisao_cod" nomeKey="divisao_nome" titulo="Divisão" sel={divisaoSel} setSel={setDivisaoSel} />
       </div>
       {pickIndic && (
         <ModalPanel titulo="Indicadores a exibir" onClose={() => setPickIndic(false)} width="min(520px, calc(100vw - 40px))">
