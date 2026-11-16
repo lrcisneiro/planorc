@@ -549,9 +549,11 @@ export default function OrcamentoDashPage() {
 
       {/* Atalho da pergunta mais frequente. Escreve no MESMO estado do modal,
           então a contagem do botão "Filtros" acompanha e não há duas verdades. */}
-      <div style={{ marginBottom: 14 }}>
+      <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
         <PillsDim ccs={ccsVisiveis} codKey="area_cod" nomeKey="area_nome" titulo="Área"
           sel={areaSel} setSel={setAreaSel} />
+        <PillsDim ccs={ccsVisiveis} codKey="divisao_cod" nomeKey="divisao_nome" titulo="Divisão"
+          sel={divisaoSel} setSel={setDivisaoSel} />
       </div>
 
       {projContamina && (
