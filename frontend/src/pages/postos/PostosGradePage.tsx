@@ -644,8 +644,24 @@ export default function PostosGradePage() {
             pvRows.push({ tenant_id: TENANT_ID, posto_id: pid, verba_id: verbaByCod.get(col.trim().toUpperCase()), valor: val })
           }
         }
+        // ⚠⚠ O DELETE É RECORTADO PELAS COLUNAS DO ARQUIVO. Antes apagava
+        // `posto_verba` INTEIRO dos postos do arquivo e reinseria só o que as
+        // colunas traziam — então um arquivo com a coluna da PLR e sem as de
+        // benefício zerava VA/VR, assistência médica e multibenefícios de todo
+        // mundo, sem erro e sem linha no resumo. Mesmo defeito que o rateio
+        // tinha, e a mesma regra: o arquivo só manda nas verbas sobre as quais
+        // ele DIZ alguma coisa; nas outras, não toca.
+        // Tirar um benefício continua possível — na tela do posto, onde
+        // remover é um ato, ou mandando a coluna com valor zero.
         const pids = [...idByCod.values()]
-        if (pids.length) await supabase.from('posto_verba').delete().in('posto_id', pids)   // re-sincroniza os benefícios dos postos do arquivo
+        const verbasDoArquivo = benefCols.map(c => verbaByCod.get(c.trim().toUpperCase())).filter(Boolean) as string[]
+        if (pids.length && verbasDoArquivo.length) {
+          for (let i = 0; i < pids.length; i += 150) {
+            const { error } = await supabase.from('posto_verba').delete()
+              .in('posto_id', pids.slice(i, i + 150)).in('verba_id', verbasDoArquivo)
+            if (error) { setErro('Aviso — benefícios (limpeza): ' + error.message); break }
+          }
+        }
         if (pvRows.length) { const { error: pvErr } = await supabase.from('posto_verba').upsert(pvRows, { onConflict: 'posto_id,verba_id' }); if (pvErr) setErro('Aviso — benefícios: ' + pvErr.message) }
         benefCriados = pvRows.length
       }

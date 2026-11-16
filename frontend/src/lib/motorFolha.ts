@@ -3,6 +3,8 @@
 // Ref.: docs/DESIGN_posto_trabalho.md (motor de cálculo).
 
 export type TipoCalculo = 'BASE' | 'PCT_BASE' | 'PCT_VERBA' | 'PROVISAO_1_12' | 'VALOR_FIXO' | 'INFORMATIVA'
+  // PLR e afins: valor por pessoa que cai só nos meses do calendário da verba.
+  | 'PARCELAS'
   // Rescisão (v3_118) — disparam SÓ no mês do fim de vigência. Cada uma é uma
   // FORMA DE QUANTIDADE diferente, que é o motivo de serem tipos e não um
   // parâmetro: o aviso prévio cresce com o tempo de casa, o 13º/férias são
@@ -19,6 +21,7 @@ export type VerbaRegra = {
   conta_destino_id: string | null
   incide_encargos: boolean          // entra na base de PCT_BASE/PROVISAO?
   mantem_afastado?: boolean         // VALOR_FIXO: continua devido no mês afastado? (v3_117)
+  calendario?: string | null        // PARCELAS: 'mes:pct;mes:pct' (ex.: '3:50;6:50')
   regime: string | null             // null = vale p/ todos os regimes
   pais?: string | null              // país da regra; null = compartilhada (vale p/ todos os países)
   ordem: number | null
@@ -76,6 +79,9 @@ const CATEGORIA: Record<TipoCalculo, Categoria> = {
   BASE: 'Salário', PCT_BASE: 'Encargos', PCT_VERBA: 'Encargos',
   PROVISAO_1_12: 'Provisões', VALOR_FIXO: 'Benefícios', INFORMATIVA: 'Salário',
   RESC_AVISO: 'Rescisão', RESC_PROP: 'Rescisão', RESC_SALDO_FGTS: 'Rescisão',
+  // PLR é remuneração, não benefício: entra em Salário. A `categoria` da verba
+  // sobrescreve isto se o tenant quiser outra leitura.
+  PARCELAS: 'Salário',
 }
 const CAT_COD: Record<string, Categoria> = { SALARIO: 'Salário', ENCARGOS: 'Encargos', PROVISOES: 'Provisões', BENEFICIOS: 'Benefícios', RESCISAO: 'Rescisão' }
 const categoriaDe = (v: VerbaRegra): Categoria => (v.categoria && CAT_COD[v.categoria]) || CATEGORIA[v.tipo_calculo]
@@ -124,7 +130,19 @@ type RescCtx = { base: number; mesesAno: number; mesesCasa: number }
 
 // custo de UM mês: aplica a cascata e devolve o valor por verba (id -> valor).
 // `valoresFixos` = valores por posto das verbas VALOR_FIXO (benefícios); ausente = a pessoa não tem.
-function custoMes(regVerbas: VerbaRegra[], base: number, valoresFixos: Record<string, number>, afastado = false, resc: RescCtx | null = null): Record<string, number> {
+// Calendário de PARCELAS: 'mes:pct;mes:pct' → quanto daquele valor cai no mês.
+// Texto ilegível devolve 0 em vez de explodir: a verba rende zero e aparece na
+// conferência, o que é melhor que derrubar o cálculo do quadro inteiro.
+export function fatorParcela(calendario: string | null | undefined, mes: number): number {
+  if (!calendario) return 0
+  for (const parte of String(calendario).split(';')) {
+    const [m, pct] = parte.split(':')
+    if (Number(m) === mes) return (Number(pct) || 0) / 100
+  }
+  return 0
+}
+
+function custoMes(regVerbas: VerbaRegra[], base: number, valoresFixos: Record<string, number>, afastado = false, resc: RescCtx | null = null, mes = 0): Record<string, number> {
   const valores: Record<string, number> = {}
   const idPorCod: Record<string, string> = Object.fromEntries(regVerbas.map(v => [v.codigo, v.id]))
   const somaRefs = (ref: string | null) => (ref || '').split(',').map(s => s.trim()).filter(Boolean)
@@ -141,6 +159,10 @@ function custoMes(regVerbas: VerbaRegra[], base: number, valoresFixos: Record<st
       // VALOR_FIXO é o único que não segue a base — no mês afastado ele só
       // continua se a verba disser que continua (plano de saúde sim, VT não).
       case 'VALOR_FIXO': val = (afastado && v.mantem_afastado === false) ? 0 : (valoresFixos[v.id] ?? 0); break
+      // PARCELAS (PLR): o valor por pessoa é ANUAL e cai só nos meses do
+      // calendário da verba — zero nos demais, como as RESC_*. Afastado não
+      // zera: a PLR é do ano trabalhado, não do mês em que se recebe.
+      case 'PARCELAS': val = (valoresFixos[v.id] ?? 0) * fatorParcela(v.calendario, mes); break
       // Rescisão: zero em todo mês que não é o da saída. É por isso que um
       // `PCT_VERBA` que referencie estas (FGTS sobre o aviso e o 13º) não precisa
       // saber nada de rescisão — ele rende 8% de zero nos outros meses.
@@ -211,7 +233,7 @@ export function calcularPosto(
     const resc = mes === mesFimVigencia
       ? { base: baseSal, mesesAno: mesesVigentes, mesesCasa: mesesCasaAte(mes) }
       : null
-    const valores = custoMes(regVerbas, base, valoresFixos, afastado, resc)
+    const valores = custoMes(regVerbas, base, valoresFixos, afastado, resc, mes)
     for (const id in valores) {
       if (!valores[id]) continue
       anoMap.set(id, (anoMap.get(id) || 0) + valores[id]);
@@ -224,7 +246,7 @@ export function calcularPosto(
     // mês. Ela sai no total do ano e no `rescisaoAno`, separada. Rodar a cascata
     // duas vezes no mês da saída resolve também o PCT_VERBA que a referencia.
     if (resc) {
-      const semResc = custoMes(regVerbas, base, valoresFixos, afastado, null)
+      const semResc = custoMes(regVerbas, base, valoresFixos, afastado, null, mes)
       const soma = (o: Record<string, number>) => Object.values(o).reduce((a, b) => a + b, 0)
       rescisaoAno = soma(valores) - soma(semResc)
       ultimo = semResc
