@@ -49,7 +49,7 @@ WITH par AS (
   -- que ninguém descobre, porque o número continua fechando no total.
   SELECT p.tenant_id, p.filial_id,
          lpad(nullif(trim(p.matricula), ''), 6, '0') AS mat,
-         min(p.id) AS posto_id
+         (array_agg(p.id))[1] AS posto_id
     FROM posto p
    WHERE p.filial_id IS NOT NULL AND nullif(trim(p.matricula), '') IS NOT NULL
    GROUP BY 1, 2, 3
@@ -69,7 +69,7 @@ UPDATE fat_folha f SET posto_id = par.posto_id
 WITH par AS (
   SELECT p.tenant_id, p.filial_id,
          lpad(nullif(trim(p.matricula), ''), 6, '0') AS mat,
-         min(p.id) AS posto_id
+         (array_agg(p.id))[1] AS posto_id
     FROM posto p
    WHERE p.filial_id IS NOT NULL AND nullif(trim(p.matricula), '') IS NOT NULL
    GROUP BY 1, 2, 3
