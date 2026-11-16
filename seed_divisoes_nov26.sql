@@ -22,10 +22,17 @@
 --    Base tem 1. Não é "a divisão zero": é um valor que sobrou. Vai a NULO,
 --    como os 23 CCs administrativos, que legitimamente não têm divisão.
 --
--- ⚠⚠ O CENTRO DE CUSTO 200 NÃO É LIXO, e isto aqui NÃO o aposenta. Ele tem
--- **58 postos** e **28.593 linhas de realizado** até out/2026. Só a marca de
--- divisão sai. Quem for "limpar o legado" depois precisa saber disso antes de
--- apagar qualquer coisa.
+-- ⚠⚠ ESTE SEED NÃO APOSENTA O CC 200 — só tira a marca de divisão. Mas vale
+-- registrar o que a conferência mostrou, porque o número bruto engana:
+--     58 postos, dos quais **56 são DEMITIDOS**; os 2 "ativos" têm salário 0
+--     realizado  2022: 7,46 mi · 2024: 19,26 mi · 2025: 23,65 mi
+--                2026: **−482 mil em 165 linhas** — estornos, não movimento
+-- Eu havia escrito aqui que "o CC não é lixo, tem 58 postos e 28 mil linhas":
+-- verdade e impressão errada ao mesmo tempo. **O volume é todo passado.** O CC
+-- morreu entre 2025 e 2026.
+-- ⚠ Ainda assim NÃO se apaga: 28 mil linhas de razão de 2022 a 2025 pendem
+-- dele, e sem o CC a DRE daqueles anos perde o recorte. Aposentar aqui é
+-- marcar inativo no cadastro, nunca remover.
 --
 -- ⚠ Tirar a divisão NÃO tira o CC de nenhum filtro: `effectiveCcFilter` só
 -- usa `divisao_cod` quando há divisão selecionada. Sem seleção, o 200 continua
