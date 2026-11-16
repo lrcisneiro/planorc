@@ -1882,21 +1882,51 @@ export default function PostosGradePage() {
               </div>}
 
               {editavel && (() => {
-                const benefVerbas = verbas.filter(v => v.tipo_calculo === 'VALOR_FIXO' && paisAplica(v.pais, empPais.get(drill.empresa_id) ?? null) && regimeAplica(v.regime, drill.regime))
-                if (!benefVerbas.length) return null
+                // ⚠ `PARCELAS` entra aqui junto com `VALOR_FIXO`: as duas guardam
+                // valor por pessoa em `posto_verba`, e este painel é o único
+                // lugar onde esse valor se edita. Filtrar só por VALOR_FIXO
+                // deixava a PLR sem porta de entrada — ela aparecia no catálogo
+                // de verbas e em lugar nenhum da tela do posto.
+                const cabe = (v: any) => paisAplica(v.pais, empPais.get(drill.empresa_id) ?? null) && regimeAplica(v.regime, drill.regime)
+                const benefVerbas = verbas.filter(v => v.tipo_calculo === 'VALOR_FIXO' && cabe(v))
+                const parcVerbas  = verbas.filter(v => v.tipo_calculo === 'PARCELAS' && cabe(v))
+                if (!benefVerbas.length && !parcVerbas.length) return null
+                // ⚠⚠ A UNIDADE É DIFERENTE e precisa estar escrita ao lado do
+                // campo: benefício é valor MENSAL, parcelado é o total do ANO.
+                // Um rótulo só, dizendo "mensal", faria alguém digitar o valor
+                // de um mês de PLR e orçar um doze avos do que vai pagar.
+                const meses = (cal?: string | null) => (cal || '').split(';')
+                  .map(x => Number(x.split(':')[0])).filter(m => m >= 1 && m <= 12)
+                  .map(m => MESES_NUM[m - 1]).join(' e ')
+                const campo = (v: any) => (
+                  <Fragment key={v.id}>
+                    <span style={{ fontSize: 12.5 }}>
+                      <span style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{v.codigo}</span> {v.descricao}
+                      {v.tipo_calculo === 'PARCELAS' && (
+                        <span style={{ color: 'var(--muted)', marginLeft: 6, fontSize: 11 }}>
+                          — total do ANO{meses(v.calendario) ? `, pago em ${meses(v.calendario)}` : ''}
+                        </span>
+                      )}
+                    </span>
+                    <input style={{ ...S.inp, width: '100%' }} placeholder="0,00"
+                      defaultValue={postoVerbas[drill.id]?.[v.id] ? inp2(postoVerbas[drill.id][v.id]) : ''}
+                      onBlur={e => { const x = parseNum(e.target.value); salvarBenef(drill.id, v.id, isNaN(x) ? 0 : x) }} />
+                  </Fragment>
+                )
                 return (
                   <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>Benefícios deste posto <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— valor mensal por pessoa (vazio = não tem)</span></div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px', gap: '4px 12px', alignItems: 'center' }}>
-                      {benefVerbas.map(v => (
-                        <Fragment key={v.id}>
-                          <span style={{ fontSize: 12.5 }}><span style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{v.codigo}</span> {v.descricao}</span>
-                          <input style={{ ...S.inp, width: '100%' }} placeholder="0,00"
-                            defaultValue={postoVerbas[drill.id]?.[v.id] ? inp2(postoVerbas[drill.id][v.id]) : ''}
-                            onBlur={e => { const x = parseNum(e.target.value); salvarBenef(drill.id, v.id, isNaN(x) ? 0 : x) }} />
-                        </Fragment>
-                      ))}
-                    </div>
+                    {benefVerbas.length > 0 && <>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>Benefícios deste posto <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— valor mensal por pessoa (vazio = não tem)</span></div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px', gap: '4px 12px', alignItems: 'center' }}>
+                        {benefVerbas.map(campo)}
+                      </div>
+                    </>}
+                    {parcVerbas.length > 0 && <>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', margin: benefVerbas.length ? '16px 0 8px' : '0 0 8px' }}>Pago em parcelas <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— valor do ANO por pessoa; o motor divide pelos meses do calendário da verba</span></div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px', gap: '4px 12px', alignItems: 'center' }}>
+                        {parcVerbas.map(campo)}
+                      </div>
+                    </>}
                   </div>
                 )
               })()}

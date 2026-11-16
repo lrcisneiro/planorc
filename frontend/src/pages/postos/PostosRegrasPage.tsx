@@ -54,6 +54,9 @@ const TIPO_CALCULO: { value: string; label: string }[] = [
   { value: 'RESC_AVISO',      label: 'Rescisão · aviso prévio (30d+3d/ano)' },
   { value: 'RESC_PROP',       label: 'Rescisão · proporcional aos meses' },
   { value: 'RESC_SALDO_FGTS', label: 'Rescisão · % × tempo de casa' },
+  // PLR e afins (v3_187): valor ANUAL por pessoa, dividido pelos meses do
+  // calendário da verba. Zero nos demais meses, como as rescisórias.
+  { value: 'PARCELAS',        label: 'Parcelas no ano (PLR)' },
 ]
 const REGIME_OPTS: { value: string; label: string }[] = [
   { value: 'BR-CLT',       label: 'BR · CLT' },
@@ -345,6 +348,12 @@ function VerbasTab({ editavel }: { editavel: boolean }) {
       { key: 'descricao',        label: 'Descrição',        kind: 'text',  required: true, importSample: 'Salário base' },
       { key: 'tipo_calculo',     label: 'Tipo de cálculo',  kind: 'select', options: TIPO_CALCULO, width: 160, importSample: 'BASE' },
       { key: 'parametro',        label: '% / fator / valor', kind: 'num',  width: 120, importSample: '' },
+      // ⚠ Só para PARCELAS. Formato `mes:pct;mes:pct` — '3:50;6:50' é metade
+      // em março e metade em junho. A Lei 10.101/2000 permite no máximo DUAS
+      // parcelas no ano civil, com pelo menos um trimestre entre elas: violar
+      // isso descaracteriza a PLR e a transforma em salário, com INSS
+      // retroativo. O banco confere só o FORMATO (v3_187); o resto é olho.
+      { key: 'calendario',       label: 'Parcelas (mês:%)',  kind: 'text',  width: 150, mono: true, importSample: '3:50;6:50' },
       { key: 'verba_ref',        label: 'Verbas ref. (base do %)', kind: 'self_multi', width: 200, importHeader: 'verba_ref', importSample: '' },
       { key: 'conta_destino_id', label: 'Conta destino',    kind: 'select', lookup: 'conta', width: 220, importHeader: 'conta_destino', importSample: '' },
       { key: 'incide_encargos',  label: 'Base p/ encargos', kind: 'check', width: 100, importSample: 'sim' },
