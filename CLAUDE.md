@@ -896,6 +896,12 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   **versão `bloqueada` fica de fora**, porque retrato do que foi aprovado não se reescreve.
   ⚠ Folha e apontamento **realizados** nunca são apagados — o valor foi pago.
 
+  ⚠ **A chave do RH é SEMPRE `(filial, matrícula)`** — confirmado pelo Ricardo em nov/2026, e
+  vale para `srd`, folha e cadastro de posto. A matrícula **sozinha** não identifica em nenhum
+  dos dois sentidos: a `900008` pertence a 7 CPFs (v3_149) e a `900012` aparece em 5 filiais
+  somando ~R$ 100 mil/mês, que são pessoas diferentes, não uma. Ao agregar qualquer coisa vinda
+  do RH, agregue pelo par — somar por matrícula funde gente.
+
   ⚠⚠ **Uma pessoa pode ter DUAS matrículas, e a chave achar só uma.** O Ronaldo é `800002` na
   folha (série de pró-labore) e `900101` no cadastro do posto (série de prestador). Procurando
   por `(filial, matrícula)` eu concluí que ele não tinha posto, afirmei que faltava R$ 1,1 mi no
