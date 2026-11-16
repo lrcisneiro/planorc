@@ -1077,6 +1077,16 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `fat_orcado` precisa das duas conversões, não só da de exibição** — só a de exibição grava o
   sinal trocado, e o erro aparece meses depois no relatório.
 
+- **Seletor de linhas do *Orçamento — análise*: "todas", "nenhuma" e "sem limiar" (nov/2026).**
+  Analisar o resultado inteiro era marcar 32 caixas na mão, uma a uma — e quem desiste no meio
+  fica com uma análise que **parece completa e não é**. ⚠ "Marcar todas" usa a lista já filtrada
+  (`linhasConciliaveis`: tem master e não está desativada), então marca o que faz sentido
+  comparar, não tudo o que existe.
+  ⚠ **O limiar duplo fica** — percentual E % do total, com E. "40% numa conta de R$ 800 é ruído;
+  3% na folha é a maior conversa do orçamento": só o percentual enche a tela, só o valor esconde
+  a conta pequena que dobrou. O que faltava não era remover um filtro, era **desligá-lo num
+  clique**: `0` nos dois campos já mostrava tudo, e não havia como descobrir isso olhando.
+
 - ⚠⚠ **Na PONTE, o sinal cru se lê ao contrário — e avisar em texto não basta** (nov/2026).
   A ponte usa o sinal econômico cru por necessidade (ver a exceção abaixo), então despesa que
   **cresce** aparece **negativa**: ela piora o resultado. Mas o resto do sistema exibe despesa

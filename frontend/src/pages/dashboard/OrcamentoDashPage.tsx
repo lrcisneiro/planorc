@@ -1213,19 +1213,46 @@ function SelLinhas({ cfg, setCfg, linhas, limiar }: { cfg: SecCfg; setCfg: (c: S
           <div style={{ position: 'absolute', top: 32, right: 0, zIndex: 41, width: 360, background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 10, padding: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.4)' }}>
             {limiar && (
               <div style={{ display: 'flex', gap: 10, marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid var(--border)' }}>
-                <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }}>variação ≥
-                  <input type="number" value={c.pct} onChange={e => mudar({ ...c, pct: Number(e.target.value) })}
+                <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }} title="0 = sem filtro">variação ≥
+                  <input type="number" min={0} value={c.pct} onChange={e => mudar({ ...c, pct: Number(e.target.value) })}
                     style={{ width: '100%', marginTop: 3, padding: '4px 6px', border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--bg)', color: 'var(--text)' }} /> %
                 </label>
                 {/* Auto-escalar: limiar fixo em R$ está errado em alguma seção
                     por definição — receita e despesa de viagem não cabem no
                     mesmo número. */}
-                <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }}>e ≥ % do total
-                  <input type="number" step="0.1" value={c.minPctTotal} onChange={e => mudar({ ...c, minPctTotal: Number(e.target.value) })}
+                <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }} title="0 = sem filtro">e ≥ % do total
+                  <input type="number" step="0.1" min={0} value={c.minPctTotal} onChange={e => mudar({ ...c, minPctTotal: Number(e.target.value) })}
                     style={{ width: '100%', marginTop: 3, padding: '4px 6px', border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--bg)', color: 'var(--text)' }} />
                 </label>
               </div>
             )}
+            {/* ⚠ "Analisar o resultado inteiro" era marcar 32 caixas na mão, uma a
+                uma — e quem desiste no meio fica com uma análise que parece
+                completa e não é. `arv` já é a lista FILTRADA (conciliáveis, sem
+                desativadas), então "todas" marca o que faz sentido comparar, não
+                tudo o que existe. */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+              <button onClick={() => mudar({ ...c, sel: arv.map((l: any) => l.id) })}
+                style={{ padding: '3px 9px', fontSize: 11.5, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'transparent', color: 'var(--violet)', cursor: 'pointer' }}>
+                Marcar todas ({arv.length})
+              </button>
+              <button onClick={() => mudar({ ...c, sel: [] })}
+                style={{ padding: '3px 9px', fontSize: 11.5, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'transparent', color: 'var(--muted)', cursor: 'pointer' }}>
+                Nenhuma
+              </button>
+              {limiar && (c.pct > 0 || c.minPctTotal > 0) && (
+                <>
+                  <div style={{ flex: 1 }} />
+                  {/* O limiar já se desliga pondo 0 nos dois campos — só não
+                      havia como descobrir isso olhando a tela. */}
+                  <button onClick={() => mudar({ ...c, pct: 0, minPctTotal: 0 })}
+                    title="Zera os dois limiares: toda linha marcada aparece, sem filtro de relevância"
+                    style={{ padding: '3px 9px', fontSize: 11.5, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'transparent', color: 'var(--violet)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    sem limiar
+                  </button>
+                </>
+              )}
+            </div>
             <div style={{ maxHeight: 260, overflowY: 'auto' }}>
               {arv.map((l: any) => (
                 <label key={l.id} style={{ display: 'flex', gap: 7, alignItems: 'flex-start', padding: '3px 4px', fontSize: 12.5, cursor: 'pointer', color: 'var(--text)' }}>
