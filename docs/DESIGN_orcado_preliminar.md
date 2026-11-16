@@ -106,7 +106,7 @@ limpeza; o que falta é o hábito.
 
 | | |
 |---|---|
-| **P1** | ✅ 13/nov/2026 — Aplicar com destino + modo "como se tudo passasse"; trava no banco (`v3_185`) |
+| **P1** | ✅ 13/nov/2026 — Aplicar com destino + modo "como se tudo passasse". A trava ficou **de tela**: a `v3_185` tentou levá-la ao banco e a `v3_186` a desfez (ver 5.1) |
 | **P2** | ❌ **DESCARTADA** (13/nov/2026) — botão único que criaria versão + visão |
 | **P3** | ❌ **DESCARTADA** (13/nov/2026) — rótulo de preliminar nas telas |
 
@@ -128,18 +128,36 @@ por quem não participou da simulação.
 controladoria abrir o preliminar sem saber o que é** — aí o rótulo deixa de ser
 conveniência. A coluna `papel` da F7 continua sendo o lugar certo.
 
-## 5.1 Nota da P1 — por que o gatilho é `SECURITY DEFINER`
+## 5.1 A trava ficou de TELA — e por quê (v3_185 → v3_186)
 
-Ele lê `versao_orcamento` e `posto_versao` para decidir se barra. As duas têm
-RLS, e `versao_orcamento` recorta por **versão** desde a `v3_137`. Como
-`INVOKER`, a conferência enxergaria só o que o chamador enxerga: quem tivesse
-recorte de versão não veria as decisões, o `EXISTS` daria falso e a trava
-**deixaria passar** — justamente para quem tem menos privilégio. Como `DEFINER`
-ele pergunta ao banco inteiro e responde o mesmo para todo mundo.
+A P1 tentou mover para o banco a regra "cenário de posto só vira dinheiro
+depois de aprovado", citando a `v3_174` (autoridade que existe na função e
+falta na tabela). **Durou três dias.**
 
-É a mesma razão de `eh_dono_card()` na `v3_154` e de `posto_v` na `v3_142`:
-quando a decisão é de AUTORIDADE, ela não pode depender do que o chamador
-alcança.
+⚠⚠ **O Aplicar tem dois modos que gravam exatamente as mesmas colunas:**
+
+| modo | o que grava | precisa de carimbo? |
+|---|---|---|
+| CADASTRO | o quadro mestre — nenhuma decisão dentro | não |
+| CENÁRIO | as decisões da versão | **sim** |
+
+Da tabela `fat_orcado` os dois são **indistinguíveis**: mesma `origem = 'POSTO'`,
+mesmas colunas, mesmo formato. O gatilho usou o único sinal que alcançava — *"a
+versão de destino TEM decisões"* — e isso é outra pergunta. Passou a recusar o
+Aplicar do CADASTRO na baseline só porque existia um cenário em negociação
+noutro canto. Apareceu em 16/nov, ao reaplicar o quadro depois de um ajuste de
+RATEIO: nada de cenário envolvido, e o Aplicar recusado.
+
+**Não dá para melhorar o predicado.** O que distingue os modos é a INTENÇÃO de
+quem chamou, e intenção não está na linha gravada. Ela só chegaria ao banco se
+o Aplicar inteiro virasse uma RPC que recebesse o modo — e aí a trava é da
+função, não da tabela. É o caminho se um dia isso voltar à mesa.
+
+**A lição não é "não leve regra para o banco".** É: *a tabela só pode fazer
+valer o que está escrito na linha.* Quando a regra depende de quem chamou e
+por quê, a guarda tem de estar onde essa informação existe — e dizer, sem
+rodeio, que é de tela. Uma guarda que recusa a operação errada é pior que
+nenhuma: ela ensina a desconfiar do sistema.
 
 ## 6. Fora de escopo
 
