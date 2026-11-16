@@ -219,10 +219,21 @@ def data_iso(v: str) -> str:
 # nome e só avisa no rodapé o que não encontrar. Renomear a regra na tela
 # desamarra o rateio de todos os postos daquele código — aconteceu em set/2026
 # com 72 postos, e o sintoma só aparece no Aplicar, lá na frente.
+# ⚠⚠ ESTA TABELA É O QUE MANTÉM O RATEIO VIVO. A importação de postos
+# RE-SINCRONIZA `posto_rateio`: apaga o dos postos do arquivo e recria pela
+# coluna `RATEIO`. Então CC que não estiver aqui tem o rateio APAGADO na carga
+# seguinte, em silêncio — não basta cadastrar na tela nem rodar um seed.
+# Vários códigos separados por `;` viram CASCATA, na ordem escrita.
 RATEIO_POR_CC = {}
 for _cc in ('111', '141', '411', '210', '310'): RATEIO_POR_CC[_cc] = 'RATEMP01'
 for _cc in ('121', '122', '123', '131', '132', '133'): RATEIO_POR_CC[_cc] = 'RATEMP02'
 RATEIO_POR_CC['317'] = 'RATEMP03'
+# Marketing (nov/2026): empresa primeiro, o que sobra por centro de custo. A
+# ORDEM é a cascata — invertê-la muda o resultado. Hoje só o 524 tem gente; os
+# demais 5xx entram porque a regra é do CC, não de quem está nele.
+for _cc in ('511', '512', '513', '514', '515', '516', '517', '518',
+            '521', '522', '523', '524', '525', '526', '527', '528'):
+    RATEIO_POR_CC[_cc] = 'RATEMP01;RATCC04'
 
 def rateio_por_cc(cc: str) -> str:
     return RATEIO_POR_CC.get((cc or '').strip(), '')
