@@ -828,11 +828,17 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   as decisões de cenário de posto **foram embora**. E o que o arquivo do RH não traz não volta:
   `area_func_id` (350 → 2) e os 6 postos de sócios (`matricula 8000xx`), que são cadastro só do
   Planorc.
-  **Religar é exato** quando preciso: `(filial_id, matrícula)` é único em `posto` e cobre 100% da
-  folha; o apontamento casa por `recurso_cod`, que tem 12 códigos repetidos, então só o
-  inequívoco. **O conserto de verdade é o modo não apagar**: upsert por código e depois remover
-  só os ausentes — assim o id sobrevive e nada se desliga. Para a carga mensal o modo é
-  **Adicionar/atualizar**.
+  **Religado na `v3_188`** por `(filial_id, matrícula)`, que é único em `posto`: 45.009 linhas de
+  folha e 13.908 de apontamento, **zero ambíguas**. Sobraram 15 do pró-labore cujo posto não
+  voltou do arquivo e 401 de terceiros, que não têm posto nem devem ter.
+  **E o modo deixou de apagar (nov/2026).** *Substituir escopo* virou **Sincronizar com o
+  arquivo**: o upsert vem primeiro (o id sobrevive, e com ele a área funcional e os ajustes de
+  grade, porque o upsert só escreve as colunas do payload) e só depois removem-se os postos do
+  escopo **ausentes do arquivo**.
+  ⚠ **Vaga sem matrícula nunca é removida**: o arquivo do RH não pode contê-la, então "não está
+  no arquivo" não é evidência sobre ela. ⚠ E a confirmação **lista os ausentes pelo nome** — os
+  6 sócios (matrícula `8000xx`) caem ali todo mês, e com o nome à vista a pessoa reconhece e
+  cancela; com "12 postos serão removidos" ela confirma e descobre depois.
 
   ⚠⚠ **`UPSERT` com `salario_base` é negado; `UPDATE` não** (v3_179). `INSERT` e `UPDATE` na
   coluna estão concedidos — falta o **`SELECT`**, revogado na v3_143 — e

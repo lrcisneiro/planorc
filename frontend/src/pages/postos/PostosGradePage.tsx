@@ -564,70 +564,72 @@ export default function PostosGradePage() {
           : 'Nenhuma linha resolvida — confira se os códigos de empresa existem nos cadastros.'); return
       }
       let apagados = 0
+      let removerIds: string[] = []
       if (modo === 'substituir') {
         const empIds = [...new Set(payload.map(p => p.empresa_id))]
         const cods = empIds.map(id => empresas.find(e => e.id === id)?.codigo || id)
-        // "substituir" só apaga DENTRO do escopo editável do usuário: se ele é limitado
-        // por filial/CC, o delete é restrito a essas filiais/CCs (não toca no que ele não
-        // pode editar). Admin/irrestrito: apaga por empresa como antes.
+        // O escopo só alcança o que o usuário pode EDITAR: limitado por filial/CC,
+        // a remoção se restringe a essas filiais/CCs. Admin/irrestrito: a empresa inteira.
         const editFil = filiais.filter(f => acesso.canEditPessoas('filial', f.id)).map(f => f.id)
         const editCc = ccs.filter(c => acesso.canEditPessoas('centro_custo', c.id)).map(c => c.id)
         const scopedFil = editFil.length < filiais.length, scopedCc = editCc.length < ccs.length
-        const alvo = scopedFil || scopedCc ? 'os postos do seu escopo' : 'TODOS os postos'
-        // ⚠ Listar o que o arquivo do RH NÃO traz de volta. "Ajustes manuais
-        // serão perdidos" é vago demais para quem só quer atualizar o mês —
-        // área funcional foi atribuída a mão em 350 postos e sumiu numa carga
-        // de rotina, porque a frase não dizia o nome dela.
-        const comArea = postos.filter(p => (p as any).area_func_id).length
-        // ⚠⚠ OS PONTEIROS. `fat_folha.posto_id` e `fat_apontamento.posto_id` são
-        // `ON DELETE SET NULL`: apagar o posto não apaga valor nenhum, só
-        // desliga a folha e as horas DELE — em silêncio, sem erro, e as telas
-        // por competência continuam somando certo, então ninguém percebe. Em
-        // 05/nov isso desligou 42 mil linhas e a conciliação por posto parou de
-        // enxergar; só foi achado numa homologação, cinco dias depois.
-        // Conta-se aqui, na hora, porque número genérico não assusta.
-        const alvoIds = postos.filter(p =>
-          empIds.includes(p.empresa_id)
-          && (!scopedFil || (p.filial_id && editFil.includes(p.filial_id)))
-          && (!scopedCc || (p.cc_id && editCc.includes(p.cc_id)))).map(p => p.id)
-        const contar = async (tabela: string) => {
-          let n = 0
-          for (let i = 0; i < alvoIds.length; i += 150) {
-            const { count } = await supabase.from(tabela).select('id', { count: 'exact', head: true })
-              .in('posto_id', alvoIds.slice(i, i + 150))
-            n += count || 0
+
+        // ⚠⚠ ATUALIZA E REMOVE OS AUSENTES — não apaga e recria.
+        // Apagar e recriar dava ids NOVOS, e `fat_folha.posto_id` /
+        // `fat_apontamento.posto_id` são `ON DELETE SET NULL`: em 05/nov/2026
+        // uma carga de rotina desligou 59 mil linhas de fato sem apagar um
+        // único valor e sem erro nenhum, porque as telas por competência
+        // continuam somando certo. Fazendo o upsert PRIMEIRO, quem está no
+        // arquivo mantém o id — e mantém junto tudo que o arquivo não traz
+        // (área funcional, ajustes de grade), porque o upsert só escreve as
+        // colunas do payload.
+        const noEscopo = await pageAll<any>(() => {
+          let q = supabase.from('posto_v').select('id,codigo,matricula,nome').in('empresa_id', empIds)
+          if (scopedFil) q = q.in('filial_id', editFil)
+          if (scopedCc) q = q.in('cc_id', editCc)
+          return q
+        })
+        const codsArq = new Set(payload.map(p => p.codigo))
+        const fora = noEscopo.filter(p => !codsArq.has(p.codigo))
+        // ⚠ VAGA NUNCA É REMOVIDA. Posto sem matrícula é cadastro só do
+        // Planorc — o arquivo do RH não pode conter, então "não está no
+        // arquivo" não é evidência de nada sobre ela. Quem quer tirar uma
+        // vaga tira na grade, que é um clique e é explícito.
+        const vagas = fora.filter(p => !(p.matricula || '').trim())
+        const ausentes = fora.filter(p => (p.matricula || '').trim())
+        removerIds = ausentes.map(p => p.id)
+
+        if (removerIds.length) {
+          // Só os que de fato saem perdem ponteiro — número pequeno e
+          // verdadeiro, em vez do total da tabela, que assustava sem informar.
+          const contar = async (tabela: string) => {
+            let n = 0
+            for (let i = 0; i < removerIds.length; i += 150) {
+              const { count } = await supabase.from(tabela).select('id', { count: 'exact', head: true })
+                .in('posto_id', removerIds.slice(i, i + 150))
+              n += count || 0
+            }
+            return n
           }
-          return n
+          const [nFolha, nApont] = await Promise.all([contar('fat_folha'), contar('fat_apontamento')])
+          // ⚠ LISTAR OS NOMES, não só contar. Os 6 sócios (matrícula 8000xx)
+          // e quem foi cadastrado à mão não estão no arquivo do RH e caem
+          // aqui todo mês. Com o nome à vista a pessoa reconhece e cancela;
+          // com "12 postos serão removidos" ela confirma e descobre depois.
+          const nomes = ausentes.slice(0, 12).map(p => `  · ${p.codigo} ${p.nome || ''}`.trimEnd()).join('\n')
+          if (!confirm(
+            `SUBSTITUIR nas empresas ${cods.join(', ')}:\n` +
+            `  ${payload.length} posto(s) do arquivo serão atualizados (id preservado)\n` +
+            `  ${removerIds.length} posto(s) NÃO estão no arquivo e serão REMOVIDOS\n\n` +
+            `${nomes}${ausentes.length > 12 ? `\n  … e mais ${ausentes.length - 12}` : ''}\n\n` +
+            (vagas.length ? `${vagas.length} vaga(s) sem matrícula ficam — o arquivo do RH não as contém.\n\n` : '') +
+            (nFolha || nApont
+              ? `Os removidos desligam o vínculo (sem apagar valor):\n` +
+                `  · ${nFolha.toLocaleString('pt-BR')} linha(s) de folha\n` +
+                `  · ${nApont.toLocaleString('pt-BR')} linha(s) de apontamento\n\n`
+              : '') +
+            `Continuar?`)) return
         }
-        const [nFolha, nApont] = await Promise.all([contar('fat_folha'), contar('fat_apontamento')])
-        if (!confirm(
-          `SUBSTITUIR: APAGA ${alvo} nas empresas ${cods.join(', ')} e recria a partir do arquivo.\n\n` +
-          `O arquivo do RH NÃO traz de volta:\n` +
-          `  · área funcional (hoje em ${comArea} posto(s)) — atribuída à mão, sem backup\n` +
-          `  · vagas planejadas, que não existem no RH\n` +
-          `  · qualquer ajuste feito na grade\n\n` +
-          (nFolha || nApont
-            ? `E DESLIGA O VÍNCULO, sem apagar valor nenhum:\n` +
-              `  · ${nFolha.toLocaleString('pt-BR')} linha(s) de folha realizada\n` +
-              `  · ${nApont.toLocaleString('pt-BR')} linha(s) de apontamento\n` +
-              `A conciliação por posto para de enxergar essas linhas e NADA avisa — as telas por competência continuam certas.\n\n`
-            : '') +
-          `Para a carga mensal o modo certo é "Adicionar/atualizar", que atualiza sem apagar.\n\n` +
-          `Continuar mesmo assim?`)) return
-        let dq = supabase.from('posto').delete({ count: 'exact' }).in('empresa_id', empIds)
-        if (scopedFil) dq = dq.in('filial_id', editFil)
-        if (scopedCc) dq = dq.in('cc_id', editCc)
-        // ⚠ CONTAR ANTES, pela VIEW. `delete({count:'exact'})` em `posto`
-        // devolve nulo — contar exige SELECT na tabela, e `posto` só tem
-        // SELECT por coluna desde a v3_143. O resultado era a tela dizer
-        // "0 apagados" depois de apagar 568, que é pior que não dizer nada.
-        let cq = supabase.from('posto_v').select('id', { count: 'exact', head: true }).in('empresa_id', empIds)
-        if (scopedFil) cq = cq.in('filial_id', editFil)
-        if (scopedCc) cq = cq.in('cc_id', editCc)
-        const { count: antes } = await cq
-        const { error: delErr } = await dq
-        if (delErr) { setErro('Erro ao limpar o escopo: ' + delErr.message); return }
-        apagados = antes || 0
       }
       // ⚠ `salario_base` NÃO PODE IR NO UPSERT (v3_179). A v3_143 revogou o
       // `SELECT` dessa coluna, e `ON CONFLICT DO UPDATE SET x = excluded.x`
@@ -638,6 +640,14 @@ export default function PostosGradePage() {
       const semAux = (p: any) => { const { _sal, ...resto } = p; return resto }
       const { error } = await supabase.from('posto').upsert(payload.map(semAux), { onConflict: 'tenant_id,codigo' })
       if (error) { setErro('Erro no import: ' + error.message); return }
+
+      // Remoção só agora: se o upsert falhar, nada foi tirado. Por id, em
+      // lotes — `not.in` com 500 códigos na URL estoura o limite do servidor.
+      for (let i = 0; i < removerIds.length; i += 150) {
+        const { error: eDel } = await supabase.from('posto').delete().in('id', removerIds.slice(i, i + 150))
+        if (eDel) { setErro(`Postos gravados, mas a remoção dos ausentes falhou: ${eDel.message}`); return }
+        apagados += removerIds.slice(i, i + 150).length
+      }
 
       const salarios = payload.filter(p => p._sal != null).map(p => ({ codigo: p.codigo, salario: p._sal }))
       const semSalario = payload.length - salarios.length
@@ -1658,9 +1668,9 @@ export default function PostosGradePage() {
         <div style={{ ...S.bar, margin: '0 0 16px' }}>
           <div style={S.fld}><span style={S.lbl}>Importar do RH</span>
             <div style={{ display: 'flex', gap: 6 }}>
-              <select style={S.sel} value={modo} onChange={e => setModo(e.target.value as any)} title="Adicionar/atualizar: upsert (não apaga). Substituir escopo: apaga os postos das empresas do arquivo e recarrega.">
+              <select style={S.sel} value={modo} onChange={e => setModo(e.target.value as any)} title="Adicionar/atualizar: atualiza quem está no arquivo e não remove ninguém. Sincronizar com o arquivo: também REMOVE os postos do escopo que não estão nele (vagas sem matrícula ficam). Nos dois, o id do posto é preservado.">
                 <option value="upsert">Adicionar/atualizar</option>
-                <option value="substituir">Substituir escopo</option>
+                <option value="substituir">Sincronizar com o arquivo</option>
               </select>
               <button style={S.btn} disabled={importando} onClick={() => fileRef.current?.click()}><Upload size={14} /> {importando ? 'Importando…' : 'Importar postos (RH)'}</button>
             </div>
@@ -1727,7 +1737,7 @@ export default function PostosGradePage() {
       )}
       {importInfo && (
         <div style={S.info}><CheckCircle2 size={16} style={{ color: 'var(--green)', flexShrink: 0, marginTop: 1 }} />
-          <div><b>{importInfo.gravados} postos</b> importados{importInfo.cargosNovos ? ` · ${importInfo.cargosNovos} cargos criados` : ''}{importInfo.modo === 'substituir' ? ` · ${importInfo.apagados} apagados (substituir escopo)` : ''}.
+          <div><b>{importInfo.gravados} postos</b> importados{importInfo.cargosNovos ? ` · ${importInfo.cargosNovos} cargos criados` : ''}{importInfo.modo === 'substituir' ? (importInfo.apagados ? ` · ${importInfo.apagados} removido(s) por não estarem no arquivo` : ' · nenhum removido') : ''}.
             <div style={{ color: importInfo.benefColunas ? 'var(--text-mid)' : 'var(--orange)' }}>{importInfo.benefColunas
               ? `${importInfo.beneficios} valores de benefício por posto (posto_verba) atualizados, em ${importInfo.benefColunas} verba(s) da folha.`
               : '⚠ Nenhuma coluna do arquivo casou com verba do catálogo — benefícios NÃO atualizados. Cadastre as verbas (D49, A76, D50, A15, A51…) em Estrutura → Verbas e reimporte.'}</div>
