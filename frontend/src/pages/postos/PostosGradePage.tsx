@@ -645,10 +645,14 @@ export default function PostosGradePage() {
       if (rateioCol) {
         const regraByNome = new Map(rateioCods.map(c => [String(c.nome).trim().toUpperCase(), c.id]))
         const prRows: any[] = []
+        // ⚠ Só os postos que o arquivo DIZ alguma coisa sobre rateio. É o que
+        // separa "substituir" de "apagar".
+        const pidsComRateio: string[] = []
         for (const r of rows) {
           const pid = idByCod.get(r.posto_codigo); if (!pid) continue
           const toks = String(r[rateioCol] || '').split(/[;,]/).map(t => t.trim()).filter(Boolean)
           if (!toks.length) continue
+          pidsComRateio.push(pid)
           let ordem = 0; let anexou = false
           for (const t of toks) {
             const rid = regraByNome.get(t.toUpperCase())
@@ -657,8 +661,21 @@ export default function PostosGradePage() {
           }
           if (anexou) rateioPostos++
         }
-        const pids2 = [...idByCod.values()]
-        if (pids2.length) await supabase.from('posto_rateio').delete().in('posto_id', pids2)   // re-sincroniza o rateio dos postos do arquivo
+        // ⚠⚠ CÉLULA VAZIA NÃO É "SEM RATEIO", É "O ARQUIVO NÃO SABE". Antes o
+        // delete ia em TODOS os postos do arquivo e só então reinseria os que
+        // tinham token — então todo rateio reclassificado à mão sumia na carga
+        // seguinte, sem erro e sem linha no resumo. É a pergunta da v3_163
+        // ("nulo é lacuna ou significado?") aplicada a uma coluna de arquivo:
+        // aqui é LACUNA, porque o de-para por CC do converter cobre uma parte
+        // dos centros de custo e cala sobre o resto.
+        // Quem precisa TIRAR um rateio tira na tela, que é onde a remoção é um
+        // ato e não um efeito colateral.
+        if (pidsComRateio.length) {
+          for (let i = 0; i < pidsComRateio.length; i += 150) {
+            const { error } = await supabase.from('posto_rateio').delete().in('posto_id', pidsComRateio.slice(i, i + 150))
+            if (error) { setErro('Aviso — rateio (limpeza): ' + error.message); break }
+          }
+        }
         if (prRows.length) { const { error: prErr } = await supabase.from('posto_rateio').upsert(prRows, { onConflict: 'tenant_id,posto_id,regra_id' }); if (prErr) setErro('Aviso — rateio: ' + prErr.message) }
       }
 
@@ -1601,7 +1618,14 @@ export default function PostosGradePage() {
             <div style={{ color: importInfo.benefColunas ? 'var(--text-mid)' : 'var(--orange)' }}>{importInfo.benefColunas
               ? `${importInfo.beneficios} valores de benefício por posto (posto_verba) atualizados, em ${importInfo.benefColunas} verba(s) da folha.`
               : '⚠ Nenhuma coluna do arquivo casou com verba do catálogo — benefícios NÃO atualizados. Cadastre as verbas (D49, A76, D50, A15, A51…) em Estrutura → Verbas e reimporte.'}</div>
-            {importInfo.rateioCol && <div style={{ color: 'var(--text-mid)' }}>{importInfo.rateioPostos} posto(s) com rateio anexado (posto_rateio) pela coluna RATEIO.</div>}
+            {/* Dizer o que foi PRESERVADO, não só o que foi gravado: sem essa
+                metade, "substituí 21" e "apaguei os outros" leem igual. Mesma
+                razão da linha dos salários preservados. */}
+            {importInfo.rateioCol && <div style={{ color: 'var(--text-mid)' }}>
+              {importInfo.rateioPostos} posto(s) com rateio <b>substituído</b> pela coluna RATEIO.
+              {importInfo.gravados - importInfo.rateioPostos > 0 && <> Nos outros {importInfo.gravados - importInfo.rateioPostos} a
+              coluna veio vazia e o rateio atual foi <b>mantido</b> — inclusive o que foi reclassificado à mão.</>}
+            </div>}
             {/* Quanto do quadro ainda fala a língua do catálogo aposentado. Sem
                 esta linha, o número só aparece em Cadastros → Cargos, onde ninguém
                 vai olhar depois de uma importação que disse "importados". */}
