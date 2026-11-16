@@ -274,7 +274,7 @@ export default function PostosGradePage() {
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
       pageAll(() => supabase.from('cargo').select('id,codigo,nome,sub_cod,ativo').order('nome')).then(data => ({ data })),
       carregarVersoes('id,codigo,ano,descricao,bloqueada,aprovado_em,aprovado_por,aprovacao_nota,origem_versao_id').then(data => ({ data })),
-      supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,verba_ref,conta_destino_id,incide_encargos,mantem_afastado,regime,pais,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
+      supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,calendario,verba_ref,conta_destino_id,incide_encargos,mantem_afastado,regime,pais,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
       supabase.from('sindicato').select('id,codigo,mes_database'),
       supabase.from('rateio_regra').select('id,nome,dimensao').eq('ativo', true).order('nome'),
       supabase.from('rateio_destino').select('regra_id,empresa_id,cc_id,pct'),
@@ -631,7 +631,14 @@ export default function PostosGradePage() {
       }
 
       // benefícios por posto: colunas do arquivo que casam com códigos de verba (VALOR_FIXO) → posto_verba
-      const verbaByCod = new Map(verbas.map(v => [String(v.codigo).trim().toUpperCase(), v.id]))
+      // ⚠ RELÊ O CATÁLOGO AQUI, não usa o do carregamento da tela. Verba
+      // cadastrada DEPOIS que a página abriu — por seed ou por outra aba — não
+      // está no estado, e a coluna correspondente do arquivo é ignorada em
+      // silêncio: o resumo diz "7 verbas" em vez de 8 e ninguém sabe qual
+      // faltou. Foi o que houve com a PLR em 17/nov.
+      const { data: verbasAgora } = await supabase.from('verba_folha')
+        .select('id,codigo').eq('ativo', true)
+      const verbaByCod = new Map((verbasAgora || verbas).map((v: any) => [String(v.codigo).trim().toUpperCase(), v.id]))
       const benefCols = Object.keys(rows[0] || {}).filter(c => verbaByCod.has(c.trim().toUpperCase()))
       let benefCriados = 0
       if (benefCols.length) {
@@ -670,7 +677,29 @@ export default function PostosGradePage() {
       const rateioCol = Object.keys(rows[0] || {}).find(c => c.trim().toUpperCase() === 'RATEIO')
       let rateioPostos = 0; const rateioNaoAchados = new Set<string>()
       if (rateioCol) {
-        const regraByNome = new Map(rateioCods.map(c => [String(c.nome).trim().toUpperCase(), c.id]))
+        // ⚠⚠ A REGRA SE CHAMA "RATEMP01 - Empresa Padrão Geral" E O ARQUIVO
+        // MANDA "RATEMP01". Casar pelo nome inteiro não acha nada — e o
+        // sintoma é mudo: "0 postos com rateio substituído", com os códigos
+        // listados como não encontrados. Aconteceu na carga de 17/nov.
+        // Então o mapa aceita as duas formas: o nome completo e o CÓDIGO, que
+        // é o pedaço antes do primeiro hífen. ⚠ Separador sem espaços existe
+        // no cadastro ('RATCC02-Serviço Base Novos'), e há regra sem hífen
+        // nenhum ('RATCCBASENOVOS'), onde o nome inteiro é o código.
+        // ⚠ Código ambíguo entre duas regras NÃO entra: o primeiro venceria em
+        // silêncio, que é a armadilha do `ON CONFLICT` da v3_157.
+        const regraByNome = new Map<string, string>()
+        const codsVistos = new Map<string, number>()
+        for (const c of rateioCods) {
+          const nome = String(c.nome).trim().toUpperCase()
+          regraByNome.set(nome, c.id)
+          const cod = nome.split('-')[0].trim()
+          codsVistos.set(cod, (codsVistos.get(cod) || 0) + 1)
+        }
+        for (const c of rateioCods) {
+          const nome = String(c.nome).trim().toUpperCase()
+          const cod = nome.split('-')[0].trim()
+          if (cod && cod !== nome && codsVistos.get(cod) === 1) regraByNome.set(cod, c.id)
+        }
         const prRows: any[] = []
         // ⚠ Só os postos que o arquivo DIZ alguma coisa sobre rateio. É o que
         // separa "substituir" de "apagar".
@@ -679,14 +708,20 @@ export default function PostosGradePage() {
           const pid = idByCod.get(r.posto_codigo); if (!pid) continue
           const toks = String(r[rateioCol] || '').split(/[;,]/).map(t => t.trim()).filter(Boolean)
           if (!toks.length) continue
-          pidsComRateio.push(pid)
           let ordem = 0; let anexou = false
           for (const t of toks) {
             const rid = regraByNome.get(t.toUpperCase())
             if (!rid) { rateioNaoAchados.add(t); continue }
             ordem++; prRows.push({ tenant_id: TENANT_ID, posto_id: pid, regra_id: rid, ordem }); anexou = true
           }
-          if (anexou) rateioPostos++
+          // ⚠⚠ SÓ APAGA QUEM VAI RECEBER. O delete dependia de "o arquivo traz
+          // token" e a inserção depende de "o token ACHOU regra" — e as duas
+          // coisas se separaram na carga de 17/nov, quando nenhum código casou
+          // (as regras chamam-se "RATEMP01 - ..." e o arquivo manda
+          // "RATEMP01"): 114 postos tiveram o rateio apagado e nada entrou no
+          // lugar. Apagar com base numa intenção que pode falhar é o mesmo
+          // erro de quem deleta antes de saber se o insert vai passar.
+          if (anexou) { pidsComRateio.push(pid); rateioPostos++ }
         }
         // ⚠⚠ CÉLULA VAZIA NÃO É "SEM RATEIO", É "O ARQUIVO NÃO SABE". Antes o
         // delete ia em TODOS os postos do arquivo e só então reinseria os que
