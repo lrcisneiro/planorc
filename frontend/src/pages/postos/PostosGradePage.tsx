@@ -219,7 +219,18 @@ export default function PostosGradePage() {
   const [cenForm, setCenForm] = useState<{ posto: Posto; ov: PostoVersao | null } | null>(null)
   // Quatro estados em vez de "demitido sim/não": o toggle antigo deixava
   // afastado e em férias contando como ativo no headcount, no FTE e no custo.
-  const [sits, setSits] = useLocalPref<Situacao[]>('planorc_postos_situacoes', ['ativo'])
+  // ⚠ O PADRÃO É TUDO MENOS DEMITIDO. Só `['ativo']` escondia quem está de
+  // FÉRIAS e AFASTADO — e os dois CONTINUAM CUSTANDO: o afastado mantém as
+  // verbas marcadas como devidas, e férias a empresa paga (a provisão 1/12 do
+  // motor cobre). Quem abria a tela via um quadro menor que o real e não tinha
+  // como saber por quê — foi assim que um gerente não achou um posto que lhe
+  // tinham liberado (16/nov).
+  // ⚠ A CHAVE MUDOU DE NOME de propósito. `useLocalPref` só usa o padrão quando
+  // não há valor salvo, e quem já abriu a tela tem `['ativo']` gravado — trocar
+  // só o padrão não alcançaria ninguém que já usou. Com a chave nova todos
+  // recebem o padrão novo uma vez; quem tinha um recorte próprio o refaz, e
+  // dali em diante ele é lembrado como antes.
+  const [sits, setSits] = useLocalPref<Situacao[]>('planorc_postos_situacoes_v2', ['ativo', 'afastado', 'ferias'])
   const [erro, setErro] = useState<string | null>(null)
   const [importInfo, setImportInfo] = useState<{ gravados: number; apagados: number; modo: string; semEmp: string[]; semFil: string[]; semCc: string[]; foraEscopo: number; cargosNovos: number; cargoDesativado: number; beneficios: number; benefColunas: number; rateioPostos: number; rateioCol: boolean; rateioNaoAchados: string[]; afastados: number; cargoAmbiguo: number; semSalario: number; salarioFora: number; areasNaoAchadas: string[]; codsNaoAchados: string[]; comAreaFunc: number; demitidos: number } | null>(null)
   const [importando, setImportando] = useState(false)

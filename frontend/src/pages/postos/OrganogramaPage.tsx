@@ -588,7 +588,18 @@ export default function OrganogramaPage() {
   const [cargoSel, setCargoSel] = useLocalPref<string[]>('planorc_organograma_cargos', [])
   const [cargoModo, setCargoModo] = useLocalPref<'incluir' | 'ocultar'>('planorc_organograma_cargomodo', 'ocultar')
   const [cargoAberto, setCargoAberto] = useState(false)
-  const [sits, setSits] = useLocalPref<Situacao[]>('planorc_organograma_situacoes', ['ativo'])
+  // ⚠ O PADRÃO É TUDO MENOS DEMITIDO. Só `['ativo']` escondia quem está de
+  // FÉRIAS e AFASTADO — e os dois CONTINUAM CUSTANDO: o afastado mantém as
+  // verbas marcadas como devidas, e férias a empresa paga (a provisão 1/12 do
+  // motor cobre). Quem abria a tela via um quadro menor que o real e não tinha
+  // como saber por quê — foi assim que um gerente não achou um posto que lhe
+  // tinham liberado (16/nov).
+  // ⚠ A CHAVE MUDOU DE NOME de propósito. `useLocalPref` só usa o padrão quando
+  // não há valor salvo, e quem já abriu a tela tem `['ativo']` gravado — trocar
+  // só o padrão não alcançaria ninguém que já usou. Com a chave nova todos
+  // recebem o padrão novo uma vez; quem tinha um recorte próprio o refaz, e
+  // dali em diante ele é lembrado como antes.
+  const [sits, setSits] = useLocalPref<Situacao[]>('planorc_organograma_situacoes_v2', ['ativo', 'afastado', 'ferias'])
   const [abertos, setAbertos] = useState<Set<string>>(new Set())
   const [sel, setSel] = useState<string | null>(null)
   const [modo, setModo] = useState<'ver' | 'atribuir' | 'gestor'>('ver')
