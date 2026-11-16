@@ -13,7 +13,7 @@ import type { LinhaCalc, RawValues, Computed, Periodo, TipoLinha, Formato, CellR
 import { taxaOrcada, materializa } from '../../lib/cambio'
 import type { VersaoTaxaRow } from '../../lib/cambio'
 import FormulaCellInput from './FormulaCellInput'
-import { effectiveCcFilter, FiltrosButton, PeriodoButton, Checklist, opcoesAttr, SalvarCardButton, useCardPreset } from '../dashboard/DashFiltros'
+import { Checklist, effectiveCcFilter, FiltrosButton, opcoesAttr, PeriodoButton, PillsDim, SalvarCardButton, useCardPreset } from '../dashboard/DashFiltros'
 import { PeriodPicker } from '../dashboard/PeriodPicker'
 import type { CC as CCItem } from '../dashboard/DashFiltros'
 import { ConciliacaoFolhaModal } from '../postos/ConciliacaoFolhaModal'
@@ -1771,6 +1771,14 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             e já existe na grade de Orçar (/orcar-grade/:id), que é a tela de
             escrita; o de Linhas foi para Estrutura, onde a árvore é construída. */}
         {saving && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Salvando...</span>}
+      </div>
+
+      {/* Atalho das duas perguntas do dia a dia — mesmo estado do modal. */}
+      <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <PillsDim ccs={acesso.filterList('centro_custo', ccs as any) as any}
+          codKey="area_cod" nomeKey="area_nome" titulo="Área" sel={areaSel} setSel={setAreaSel} />
+        <PillsDim ccs={acesso.filterList('centro_custo', ccs as any) as any}
+          codKey="divisao_cod" nomeKey="divisao_nome" titulo="Divisão" sel={divisaoSel} setSel={setDivisaoSel} />
       </div>
 
 

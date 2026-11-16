@@ -6,7 +6,7 @@ import { pageAll } from '../../lib/pageAll'
 import { carregarVersoes } from '../../lib/escopoDados'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useLocalPref } from '../../lib/uiPrefs'
-import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
+import { effectiveCcFilter, escopoFiltro, FiltrosButton, PillsDim } from '../dashboard/DashFiltros'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import DrillCombinacoes from './DrillCombinacoes'
 import NovoCenario from './NovoCenario'
@@ -479,6 +479,14 @@ export default function OrcarLinhaPage() {
               </button></div>
           )}
         </>)}
+      </div>
+
+      {/* Atalho das duas perguntas do dia a dia — mesmo estado do modal. */}
+      <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <PillsDim ccs={acesso.filterList('centro_custo', ccs as any) as any}
+          codKey="area_cod" nomeKey="area_nome" titulo="Área" sel={areaSel} setSel={setAreaSel} />
+        <PillsDim ccs={acesso.filterList('centro_custo', ccs as any) as any}
+          codKey="divisao_cod" nomeKey="divisao_nome" titulo="Divisão" sel={divisaoSel} setSel={setDivisaoSel} />
       </div>
 
       {/* A barra do cenário: contra qual baseline, quanto falta decidir e o
