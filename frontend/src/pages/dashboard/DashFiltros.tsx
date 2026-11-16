@@ -128,10 +128,14 @@ export function escopoFiltro(f: string[] | null, todos: { id: string }[], dim: s
 // componente recebe a dimensão por parâmetro justamente para a segunda tela
 // ser uma linha.
 //
-// ⚠ ESCOLHA ÚNICA, não múltipla, e é deliberado: o atalho responde "como fica
-// SÓ o Comercial?". Quem precisa de duas áreas ao mesmo tempo tem o modal, que
-// continua inteiro — e as duas vias escrevem no MESMO estado, então nunca
-// discordam. Clicar na pílula já marcada desliga e volta a "Todas".
+// ⚠ TOGGLE: cada pílula liga e desliga por conta, várias ao mesmo tempo. A
+// primeira versão era escolha única ("como fica SÓ o Comercial?") e estava
+// errada para o uso real — comparar Comercial + Serviços é tão comum quanto
+// olhar um. Como escreve no MESMO estado do modal, as duas vias nunca
+// discordam: marcar aqui aparece lá e vice-versa.
+// ⚠ "Todas" = lista VAZIA, não "todas marcadas". Marcar as cinco dá o mesmo
+// resultado (`effectiveCcFilter` ignora seleção que cobre tudo), mas vazio é o
+// estado canônico — e é o que o botão "Limpar" do modal produz.
 //
 // ⚠ Some sozinho quando não há o que escolher (menos de 2 valores): atalho com
 // uma opção só é enfeite que ocupa a linha mais visível da tela.
@@ -152,18 +156,15 @@ export function PillsDim({ ccs, codKey, nomeKey, titulo, sel, setSel }: {
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }} data-noexport>
       <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 2 }}>{titulo}</span>
       <button style={pill(sel.length === 0)} onClick={() => setSel([])}>Todas</button>
-      {items.map(i => (
-        <button key={i.id} style={pill(sel.length === 1 && sel[0] === i.id)}
-          title={`${i.codigo} · ${i.descricao}`}
-          onClick={() => setSel(sel.length === 1 && sel[0] === i.id ? [] : [i.id])}>
-          {i.descricao}
-        </button>
-      ))}
-      {sel.length > 1 && (
-        // O modal permite várias; a pílula não tem como mostrar isso sem
-        // mentir, então DIZ em vez de fingir que nada está filtrado.
-        <span style={{ fontSize: 11, color: 'var(--violet)' }}>{sel.length} selecionadas (pelo filtro)</span>
-      )}
+      {items.map(i => {
+        const on = sel.includes(i.id)
+        return (
+          <button key={i.id} style={pill(on)} title={`${i.codigo} · ${i.descricao}`}
+            onClick={() => setSel(on ? sel.filter(x => x !== i.id) : [...sel, i.id])}>
+            {i.descricao}
+          </button>
+        )
+      })}
     </div>
   )
 }

@@ -1083,10 +1083,12 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ **Mora em `DashFiltros`, não na tela** — são ~10 dashboards lendo dali, e copiar as pílulas
   em cada um é o jeito de elas divergirem (uma ganha "Todas", outra não; uma ordena por código,
   outra por nome). Recebe a dimensão por parâmetro, então a segunda tela é **uma linha**.
-  ⚠ **Escolha única, de propósito:** o atalho responde *"como fica SÓ o Comercial?"*. Quem precisa
-  de duas áreas usa o modal, que continua inteiro — e **as duas vias escrevem no mesmo estado**,
-  então a contagem do botão *Filtros* acompanha e não há duas verdades. Com mais de uma marcada
-  pelo modal, a barra **diz** "N selecionadas (pelo filtro)" em vez de fingir que nada filtra.
+  ⚠ **Toggle, várias ao mesmo tempo.** Nasceu escolha única (*"como fica SÓ o Comercial?"*) e
+  estava errado para o uso real — comparar Comercial + Serviços é tão comum quanto olhar um.
+  **As duas vias escrevem no mesmo estado**, então marcar na pílula aparece no modal e a contagem
+  do botão *Filtros* acompanha: não há duas verdades. ⚠ *Todas* é a lista **vazia**, não "todas
+  marcadas" — marcar as cinco dá o mesmo resultado (`effectiveCcFilter` ignora seleção que cobre
+  tudo), mas vazio é o estado canônico e é o que o *Limpar* do modal produz.
   ⚠ Some sozinho abaixo de 2 valores: atalho com uma opção é enfeite ocupando a linha mais
   visível da tela.
 
