@@ -1077,6 +1077,19 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `fat_orcado` precisa das duas conversões, não só da de exibição** — só a de exibição grava o
   sinal trocado, e o erro aparece meses depois no relatório.
 
+- **Atalho de dimensão: `PillsDim` em `DashFiltros.tsx` (nov/2026).** "Por área" e "por divisão"
+  são as perguntas do dia a dia, e chegar nelas custava cinco gestos: abrir o modal, achar a
+  coluna certa entre seis, marcar, aplicar, fechar. As pílulas filtram num clique.
+  ⚠ **Mora em `DashFiltros`, não na tela** — são ~10 dashboards lendo dali, e copiar as pílulas
+  em cada um é o jeito de elas divergirem (uma ganha "Todas", outra não; uma ordena por código,
+  outra por nome). Recebe a dimensão por parâmetro, então a segunda tela é **uma linha**.
+  ⚠ **Escolha única, de propósito:** o atalho responde *"como fica SÓ o Comercial?"*. Quem precisa
+  de duas áreas usa o modal, que continua inteiro — e **as duas vias escrevem no mesmo estado**,
+  então a contagem do botão *Filtros* acompanha e não há duas verdades. Com mais de uma marcada
+  pelo modal, a barra **diz** "N selecionadas (pelo filtro)" em vez de fingir que nada filtra.
+  ⚠ Some sozinho abaixo de 2 valores: atalho com uma opção é enfeite ocupando a linha mais
+  visível da tela.
+
 - ⚠⚠ **Seções no seletor: "só esta" × "as filhas", e NUNCA as duas (nov/2026).** O atalho óbvio
   — marcar a subárvore inteira de uma seção — pouparia cliques e **quebraria a ponte por
   construção**: subtotal junto com filha conta a mesma variação duas vezes, que é o primeiro

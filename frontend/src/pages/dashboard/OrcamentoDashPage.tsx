@@ -20,7 +20,7 @@ import { useUserAccess } from '../../hooks/useUserAccess'
 import { totaisRelatorio } from '../../lib/relatorioTotais'
 import { COLS_LINHA, emArvore, fatorExibicao, linhasConciliaveis, type LinhaRel } from '../../lib/refRelatorio'
 import {
-  ExportarButton, FiltrosButton, SalvarCardButton, useCardPreset,
+  ExportarButton, FiltrosButton, PillsDim, SalvarCardButton, useCardPreset,
   effectiveCcFilter, escopoFiltro, type CC,
 } from './DashFiltros'
 import { ChevronLeft, AlertTriangle, Info, Download, ChevronUp, ChevronDown, ListChecks } from 'lucide-react'
@@ -529,6 +529,13 @@ export default function OrcamentoDashPage() {
           empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel}
           ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel}
           divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
+      </div>
+
+      {/* Atalho da pergunta mais frequente. Escreve no MESMO estado do modal,
+          então a contagem do botão "Filtros" acompanha e não há duas verdades. */}
+      <div style={{ marginBottom: 14 }}>
+        <PillsDim ccs={ccs} codKey="area_cod" nomeKey="area_nome" titulo="Área"
+          sel={areaSel} setSel={setAreaSel} />
       </div>
 
       {projContamina && (

@@ -117,6 +117,57 @@ export function escopoFiltro(f: string[] | null, todos: { id: string }[], dim: s
 }
 
 // Botão "Filtros" com popover Empresa/Filial/CC + Área/Divisão/BU (multi-seleção). Vazio = todas.
+// ── ATALHO DE DIMENSÃO — pílulas que filtram num clique ───────────────────
+// POR QUE EXISTE: "por área" e "por divisão" são as duas perguntas do dia a
+// dia, e chegar nelas custava abrir o modal, achar a coluna certa entre seis,
+// marcar, aplicar e fechar. Cinco gestos para a pergunta mais frequente.
+//
+// ⚠ MORA AQUI, não na tela. São ~10 dashboards lendo `DashFiltros`, e a
+// alternativa — copiar as pílulas em cada um — é o jeito de elas divergirem:
+// uma ganha "Todas", outra não, uma ordena por código, outra por nome. O
+// componente recebe a dimensão por parâmetro justamente para a segunda tela
+// ser uma linha.
+//
+// ⚠ ESCOLHA ÚNICA, não múltipla, e é deliberado: o atalho responde "como fica
+// SÓ o Comercial?". Quem precisa de duas áreas ao mesmo tempo tem o modal, que
+// continua inteiro — e as duas vias escrevem no MESMO estado, então nunca
+// discordam. Clicar na pílula já marcada desliga e volta a "Todas".
+//
+// ⚠ Some sozinho quando não há o que escolher (menos de 2 valores): atalho com
+// uma opção só é enfeite que ocupa a linha mais visível da tela.
+export function PillsDim({ ccs, codKey, nomeKey, titulo, sel, setSel }: {
+  ccs: CC[]; codKey: keyof CC; nomeKey: keyof CC; titulo: string
+  sel: string[]; setSel: (v: string[]) => void
+}) {
+  const items = opcoesAttr(ccs, codKey, nomeKey)
+  if (items.length < 2) return null
+  const pill = (ativo: boolean): CSSProperties => ({
+    padding: '4px 11px', fontSize: 12, borderRadius: 999, cursor: 'pointer', whiteSpace: 'nowrap',
+    border: '1px solid ' + (ativo ? 'var(--violet)' : 'var(--border-strong)'),
+    background: ativo ? 'rgba(139,92,246,0.16)' : 'transparent',
+    color: ativo ? 'var(--violet)' : 'var(--text-mid)',
+    fontWeight: ativo ? 600 : 400,
+  })
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }} data-noexport>
+      <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 2 }}>{titulo}</span>
+      <button style={pill(sel.length === 0)} onClick={() => setSel([])}>Todas</button>
+      {items.map(i => (
+        <button key={i.id} style={pill(sel.length === 1 && sel[0] === i.id)}
+          title={`${i.codigo} · ${i.descricao}`}
+          onClick={() => setSel(sel.length === 1 && sel[0] === i.id ? [] : [i.id])}>
+          {i.descricao}
+        </button>
+      ))}
+      {sel.length > 1 && (
+        // O modal permite várias; a pílula não tem como mostrar isso sem
+        // mentir, então DIZ em vez de fingir que nada está filtrado.
+        <span style={{ fontSize: 11, color: 'var(--violet)' }}>{sel.length} selecionadas (pelo filtro)</span>
+      )}
+    </div>
+  )
+}
+
 export function FiltrosButton({ empresas, filiais, ccs, empresaSel, setEmpresaSel, filialSel, setFilialSel, ccSel, setCcSel, areaSel, setAreaSel, divisaoSel, setDivisaoSel, buSel, setBuSel }: {
   empresas: Item[]; filiais: Item[]; ccs: CC[]
   empresaSel: string[]; setEmpresaSel: (v: string[]) => void
