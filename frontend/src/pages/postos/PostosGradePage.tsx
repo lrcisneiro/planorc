@@ -1091,8 +1091,48 @@ export default function PostosGradePage() {
     setOverlays(m => { const n = new Map(m); n.delete(postoId); return n })
   }
 
+  // ⚠⚠ APAGAR O POSTO NÃO APAGAVA O ORÇADO QUE ELE GEROU. `fat_orcado` nem tem
+  // `posto_id` — a origem fica em `dims->>'posto'`, que é texto e não tem FK —,
+  // e em `fat_folha` o `posto_id` é `ON DELETE SET NULL`. O resultado era um
+  // posto inexistente seguir custando no orçamento, sem dono e sem rastro:
+  // achado num pró-labore que deixou R$ 900.000 em 2026 depois de excluído.
+  // ⚠ E o `dims->>'posto'` é o CÓDIGO: criar outro posto com o mesmo código
+  // adotava as linhas órfãs do antigo, em silêncio.
+  //
+  // ⚠ Versão BLOQUEADA fica de fora, de propósito: ela é um retrato do que foi
+  // aprovado, e naquele momento o posto existia. Reescrever o passado para
+  // arrumar o presente é pior que a sobra — a sobra ao menos se vê.
   const excluir = async (id: string, cod: string) => {
-    if (!confirm(`Excluir o posto ${cod}?`)) return
+    const vBloq = new Set(versoes.filter((v: any) => v.bloqueada).map((v: any) => v.id))
+    const { data: orc } = await supabase.from('fat_orcado')
+      .select('id,ano,valor,versao_id').eq('origem', 'POSTO').eq('dims->>posto', cod)
+    const limpar = (orc || []).filter((r: any) => !vBloq.has(r.versao_id))
+    const congelado = (orc || []).length - limpar.length
+    const { data: folhaOrc } = await supabase.from('fat_folha')
+      .select('id,versao_id').eq('tipo', 'ORCADO').eq('posto_id', id)
+    const folhaLimpar = (folhaOrc || []).filter((r: any) => !vBloq.has(r.versao_id))
+    const totOrc = limpar.reduce((s: number, r: any) => s + Math.abs(Number(r.valor) || 0), 0)
+    const anos = [...new Set(limpar.map((r: any) => r.ano))].sort().join(', ')
+
+    if (!confirm(
+      `Excluir o posto ${cod}?\n\n` +
+      (limpar.length
+        ? `Sai junto o orçado que ele gerou: ${limpar.length} linha(s) em ${anos}, ` +
+          `R$ ${totOrc.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.\n` +
+          `Sem isso o posto some da tela e continua custando no orçamento.\n\n`
+        : 'Ele não gerou orçado em nenhuma versão aberta.\n\n') +
+      (congelado ? `${congelado} linha(s) em versão BLOQUEADA ficam — versão fechada é retrato, não se reescreve.\n\n` : '') +
+      `A folha e o apontamento realizados NÃO são apagados: o valor foi pago. ` +
+      `Eles só perdem o vínculo com este posto.`)) return
+
+    for (let i = 0; i < limpar.length; i += 200) {
+      const { error } = await supabase.from('fat_orcado').delete().in('id', limpar.slice(i, i + 200).map((r: any) => r.id))
+      if (error) { setErro('Erro ao limpar o orçado do posto: ' + error.message); return }
+    }
+    for (let i = 0; i < folhaLimpar.length; i += 200) {
+      const { error } = await supabase.from('fat_folha').delete().in('id', folhaLimpar.slice(i, i + 200).map((r: any) => r.id))
+      if (error) { setErro('Erro ao limpar a folha orçada do posto: ' + error.message); return }
+    }
     const { error } = await supabase.from('posto').delete().eq('id', id)
     if (error) { setErro(error.message); return }
     setPostos(ps => ps.filter(p => p.id !== id))

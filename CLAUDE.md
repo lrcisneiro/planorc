@@ -888,6 +888,21 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `situacao` do arquivo é gravada como as outras opcionais (presente grava, ausente não toca) e
   o resumo diz quantos demitidos entraram.
 
+  ⚠⚠ **Excluir o posto NÃO apagava o orçado dele** (nov/2026). `fat_orcado` não tem `posto_id`
+  — a origem vive em `dims->>'posto'`, que é **texto e sem FK** — e em `fat_folha` o `posto_id` é
+  `ON DELETE SET NULL`. Um pró-labore excluído seguiu custando **R$ 900.000 em 2026**, sem dono
+  e sem rastro. ⚠ E `dims->>'posto'` é o **CÓDIGO**: posto novo com o mesmo código adotava as
+  linhas órfãs do antigo, calado. Hoje a exclusão limpa as duas tabelas e diz quanto vai junto;
+  **versão `bloqueada` fica de fora**, porque retrato do que foi aprovado não se reescreve.
+  ⚠ Folha e apontamento **realizados** nunca são apagados — o valor foi pago.
+
+  ⚠⚠ **Uma pessoa pode ter DUAS matrículas, e a chave achar só uma.** O Ronaldo é `800002` na
+  folha (série de pró-labore) e `900101` no cadastro do posto (série de prestador). Procurando
+  por `(filial, matrícula)` eu concluí que ele não tinha posto, afirmei que faltava R$ 1,1 mi no
+  orçamento e escrevi um seed que teria criado **duplicata** — ele estava lá, com o mesmo nome,
+  a mesma empresa·filial·CC e o mesmo salário. **"Não achei por esta chave" não é "não existe"**:
+  ao concluir ausência a partir de uma chave, confira pelo nome antes de criar cadastro.
+
   ⚠⚠ **Competência errada não dá erro, e some atrás de outro defeito** (v3_189). A folha de
   **maio/2026** estava gravada também em **2027-01** — 5.008 linhas, R$ 4,36 mi, importada em
   28/jul/2026, a única competência de folha **sem lote**. Prova: 1.460 dos 1.461 pares
