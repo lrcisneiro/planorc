@@ -752,6 +752,23 @@ export default function PostosGradePage() {
 
   // ── Aplicar no orçado (step 5): grava fat_orcado (origem POSTO) do quadro ativo da versão ──
   const [aplicando, setAplicando] = useState(false)
+  // ⚠ O CATÁLOGO DE VERBAS É RELIDO AO VOLTAR PARA A ABA. Ele é carregado na
+  // abertura da tela e tudo depende dele: o motor calcula com ele, o painel do
+  // posto desenha os campos com ele, o importador casa colunas com ele. Verba
+  // criada DEPOIS — por seed, por outra aba, por outra pessoa — não existia
+  // para a página até alguém recarregar, e o sintoma é mudo: o campo
+  // simplesmente não está lá. Aconteceu com a PLR em 17/nov, duas vezes.
+  // Mesmo padrão do cache de escopo em `escopoDados.ts`, e pela mesma razão:
+  // invalidar só para quem edita não alcança quem está com a tela aberta.
+  useEffect(() => {
+    const reler = async () => {
+      const { data } = await supabase.from('verba_folha')
+        .select('id,codigo,descricao,tipo_calculo,parametro,calendario,verba_ref,conta_destino_id,incide_encargos,mantem_afastado,regime,pais,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false })
+      if (data) setVerbas(data as VerbaRegra[])
+    }
+    window.addEventListener('focus', reler)
+    return () => window.removeEventListener('focus', reler)
+  }, [])
   // Diálogo do Aplicar: o `confirm()` não comporta um seletor, e as duas
   // perguntas que ele passa a fazer — ONDE pousa e COMO resolve — são
   // escolhas, não um "ok".
