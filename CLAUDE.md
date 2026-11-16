@@ -888,6 +888,17 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `situacao` do arquivo é gravada como as outras opcionais (presente grava, ausente não toca) e
   o resumo diz quantos demitidos entraram.
 
+  ⚠⚠ **Competência errada não dá erro, e some atrás de outro defeito** (v3_189). A folha de
+  **maio/2026** estava gravada também em **2027-01** — 5.008 linhas, R$ 4,36 mi, importada em
+  28/jul/2026, a única competência de folha **sem lote**. Prova: 1.460 dos 1.461 pares
+  (matrícula, verba) idênticos aos de 2026-05, **zero** pares exclusivos, e o único divergente
+  com um "3" digitado na frente (31.468,71 contra 1.468,71) — rastro de teste do importador.
+  Ficou meses invisível porque 22 mil linhas estavam órfãs de posto: a tela as mostrava como
+  "sem posto", não como maio. Achada pelo gerente de TI, que só perguntou *"isto é simulação?"*.
+  ⚠ A guarda da migration é a **data de importação**, não o ano/mês: em jan/2027 a folha de
+  verdade ocupa essa competência, e apagar "2027-01" sem mais nada seria bomba-relógio para
+  quem reexecutasse a migration depois.
+
   **A fonte da situação vem da FOLHA, com dedução como reserva** (v3_152). `RA_SITFOLH` — uma letra:
   `D` demitido, `A` afastado, `F` férias, vazio trabalhando — chega na *Relação de Funcionários* e
   a importação carimba em **`posto.sit_folha`**. Guardada no **posto** e não na pessoa porque a
