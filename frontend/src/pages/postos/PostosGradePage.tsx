@@ -579,12 +579,39 @@ export default function PostosGradePage() {
         // área funcional foi atribuída a mão em 350 postos e sumiu numa carga
         // de rotina, porque a frase não dizia o nome dela.
         const comArea = postos.filter(p => (p as any).area_func_id).length
+        // ⚠⚠ OS PONTEIROS. `fat_folha.posto_id` e `fat_apontamento.posto_id` são
+        // `ON DELETE SET NULL`: apagar o posto não apaga valor nenhum, só
+        // desliga a folha e as horas DELE — em silêncio, sem erro, e as telas
+        // por competência continuam somando certo, então ninguém percebe. Em
+        // 05/nov isso desligou 42 mil linhas e a conciliação por posto parou de
+        // enxergar; só foi achado numa homologação, cinco dias depois.
+        // Conta-se aqui, na hora, porque número genérico não assusta.
+        const alvoIds = postos.filter(p =>
+          empIds.includes(p.empresa_id)
+          && (!scopedFil || (p.filial_id && editFil.includes(p.filial_id)))
+          && (!scopedCc || (p.cc_id && editCc.includes(p.cc_id)))).map(p => p.id)
+        const contar = async (tabela: string) => {
+          let n = 0
+          for (let i = 0; i < alvoIds.length; i += 150) {
+            const { count } = await supabase.from(tabela).select('id', { count: 'exact', head: true })
+              .in('posto_id', alvoIds.slice(i, i + 150))
+            n += count || 0
+          }
+          return n
+        }
+        const [nFolha, nApont] = await Promise.all([contar('fat_folha'), contar('fat_apontamento')])
         if (!confirm(
           `SUBSTITUIR: APAGA ${alvo} nas empresas ${cods.join(', ')} e recria a partir do arquivo.\n\n` +
           `O arquivo do RH NÃO traz de volta:\n` +
           `  · área funcional (hoje em ${comArea} posto(s)) — atribuída à mão, sem backup\n` +
           `  · vagas planejadas, que não existem no RH\n` +
           `  · qualquer ajuste feito na grade\n\n` +
+          (nFolha || nApont
+            ? `E DESLIGA O VÍNCULO, sem apagar valor nenhum:\n` +
+              `  · ${nFolha.toLocaleString('pt-BR')} linha(s) de folha realizada\n` +
+              `  · ${nApont.toLocaleString('pt-BR')} linha(s) de apontamento\n` +
+              `A conciliação por posto para de enxergar essas linhas e NADA avisa — as telas por competência continuam certas.\n\n`
+            : '') +
           `Para a carga mensal o modo certo é "Adicionar/atualizar", que atualiza sem apagar.\n\n` +
           `Continuar mesmo assim?`)) return
         let dq = supabase.from('posto').delete({ count: 'exact' }).in('empresa_id', empIds)
