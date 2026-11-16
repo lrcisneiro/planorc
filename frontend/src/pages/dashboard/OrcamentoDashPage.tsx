@@ -297,6 +297,21 @@ export default function OrcamentoDashPage() {
 
   const filialFilter = useMemo(() => escopoFiltro(filialSel.length ? filialSel : null, filiais, 'filial', acesso.canSee), [filialSel, filiais, acesso])
   const ccFilter = useMemo(() => escopoFiltro(effectiveCcFilter(ccs, ccSel, areaSel, divisaoSel, buSel), ccs, 'centro_custo', acesso.canSee), [ccs, ccSel, areaSel, divisaoSel, buSel, acesso])
+
+  // ⚠⚠ O QUE SE OFERECE NA TELA É OUTRA PERGUNTA DO QUE O QUE SE ENTREGA.
+  // O DADO já estava protegido em duas camadas — `escopoFiltro` cruza o filtro
+  // da tela com o escopo VER, e o RLS recorta `fat_orcado` por CC desde a
+  // v3_129 —, então clicar numa área sem acesso devolve vazio, não o dado
+  // alheio. O que vazava era a EXISTÊNCIA: a pílula "Diretoria" aparecia para
+  // quem não alcança nenhum CC dela, com o nome da área, e dava um botão que
+  // não faz nada.
+  // ⚠ `ccsVisiveis` é DERIVADO e não substitui `ccs`: `escopoFiltro` compara
+  // `permitidos.length >= todos.length` para decidir se há restrição — passando
+  // a lista já filtrada como `todos`, a comparação daria sempre "sem restrição"
+  // e o escopo PARARIA de ser aplicado. A lista crua alimenta o cálculo; a
+  // recortada, a interface.
+  // (Indicadores, CAGR e Executivo já faziam isto; esta tela tinha ficado para trás.)
+  const ccsVisiveis = useMemo(() => acesso.filterList('centro_custo', ccs as any) as CC[], [ccs, acesso])
   const empFiltradas = useMemo(() => empresaSel.filter(id => acesso.canSee('empresa', id)), [empresaSel, acesso])
 
   // ⚠ Os dois lados compartilham a versão da projeção: os meses projetados
@@ -525,7 +540,8 @@ export default function OrcamentoDashPage() {
             </select></div>
         )}
 
-        <FiltrosButton empresas={empresas} filiais={filiais} ccs={ccs}
+        <FiltrosButton empresas={acesso.filterList('empresa', empresas)}
+          filiais={acesso.filterList('filial', filiais)} ccs={ccsVisiveis}
           empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel}
           ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel}
           divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
@@ -534,7 +550,7 @@ export default function OrcamentoDashPage() {
       {/* Atalho da pergunta mais frequente. Escreve no MESMO estado do modal,
           então a contagem do botão "Filtros" acompanha e não há duas verdades. */}
       <div style={{ marginBottom: 14 }}>
-        <PillsDim ccs={ccs} codKey="area_cod" nomeKey="area_nome" titulo="Área"
+        <PillsDim ccs={ccsVisiveis} codKey="area_cod" nomeKey="area_nome" titulo="Área"
           sel={areaSel} setSel={setAreaSel} />
       </div>
 

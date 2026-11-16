@@ -1077,6 +1077,19 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `fat_orcado` precisa das duas conversões, não só da de exibição** — só a de exibição grava o
   sinal trocado, e o erro aparece meses depois no relatório.
 
+- ⚠⚠ **O que se OFERECE na tela é outra pergunta do que o que se ENTREGA.** O dado de CC já tem
+  duas camadas — `escopoFiltro`/`aplicaEscopo` cruzam o filtro da tela com o escopo VER, e o RLS
+  recorta `fat_orcado` por CC desde a v3_129 —, então clicar numa área sem acesso devolve
+  **vazio**, nunca o dado alheio. O que vazava era a **EXISTÊNCIA**: a pílula "Diretoria"
+  aparecia com o nome da área para quem não alcança nenhum CC dela, e dava um botão que não faz
+  nada. Auditei as 13 telas que montam `FiltrosButton`: **só o `OrcamentoDashPage` passava a
+  lista crua** — as outras já usavam `filterList`/`filterPessoas`. É a pendência do F2 ("esconder
+  opções fora de escopo nos dropdowns"), agora fechada nas telas.
+  ⚠⚠ **A lista recortada é DERIVADA e não substitui a crua.** `escopoFiltro` decide se há
+  restrição comparando `permitidos.length >= todos.length` — passando a lista já filtrada como
+  `todos`, a comparação daria sempre "sem restrição" e **o escopo pararia de ser aplicado**. A
+  crua alimenta o cálculo; a recortada, a interface.
+
 - **Atalho de dimensão: `PillsDim` em `DashFiltros.tsx` (nov/2026).** "Por área" e "por divisão"
   são as perguntas do dia a dia, e chegar nelas custava cinco gestos: abrir o modal, achar a
   coluna certa entre seis, marcar, aplicar, fechar. As pílulas filtram num clique.
