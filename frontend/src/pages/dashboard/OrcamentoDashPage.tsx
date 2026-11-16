@@ -12,7 +12,7 @@
 // Chassi reaproveitado de DashFiltros (filtros, período, preset, exportação) —
 // importado, não reescrito.
 // ============================================================
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
@@ -1200,6 +1200,19 @@ function SelLinhas({ cfg, setCfg, linhas, limiar }: { cfg: SecCfg; setCfg: (c: S
 
   const ok = useMemo(() => new Set(linhasConciliaveis(linhas).map((l: any) => l.id)), [linhas])
   const arv = useMemo(() => emArvore(linhas as any).filter((l: any) => ok.has(l.id)), [linhas, ok])
+  // ⚠⚠ INDICADOR E FÓRMULA NÃO SÃO LINHA DE ORÇAMENTO, e misturá-los na mesma
+  // lista não é só desarrumação. Na DRE Gerencial são 142 linhas de relatório
+  // (analíticas e subtotais) contra 27 indicadores — e entre os indicadores há
+  // PERCENTUAIS. Marcar "% EBITDA" junto com "Marketing" numa ponte soma
+  // pontos percentuais com reais; na tabela de variação, ordena um Δ de −7,5
+  // pontos junto de um Δ de R$ 1,38 milhão. São grandezas diferentes na mesma
+  // coluna.
+  // ⚠ Separar também conserta o "marcar todas": marcar tudo numa lista única
+  // levaria os percentuais junto, e o botão que existe para poupar trabalho
+  // passaria a criar um erro.
+  const ehIndic = (l: any) => l.tipo_linha === 'INDICADOR' || l.tipo_linha === 'FORMULA'
+  const arvLinhas = useMemo(() => arv.filter((l: any) => !ehIndic(l)), [arv])
+  const arvIndic = useMemo(() => arv.filter(ehIndic), [arv])
   return (
     <div style={{ position: 'relative' }} data-noexport>
       <button onClick={() => aberto ? aplicar() : abrir()}
@@ -1232,9 +1245,10 @@ function SelLinhas({ cfg, setCfg, linhas, limiar }: { cfg: SecCfg; setCfg: (c: S
                 desativadas), então "todas" marca o que faz sentido comparar, não
                 tudo o que existe. */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
-              <button onClick={() => mudar({ ...c, sel: arv.map((l: any) => l.id) })}
+              <button onClick={() => mudar({ ...c, sel: arvLinhas.map((l: any) => l.id) })}
+                title="Só as linhas do relatório — indicadores e percentuais ficam de fora, porque não somam com reais"
                 style={{ padding: '3px 9px', fontSize: 11.5, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'transparent', color: 'var(--violet)', cursor: 'pointer' }}>
-                Marcar todas ({arv.length})
+                Marcar as {arvLinhas.length} linhas
               </button>
               <button onClick={() => mudar({ ...c, sel: [] })}
                 style={{ padding: '3px 9px', fontSize: 11.5, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'transparent', color: 'var(--muted)', cursor: 'pointer' }}>
@@ -1254,12 +1268,33 @@ function SelLinhas({ cfg, setCfg, linhas, limiar }: { cfg: SecCfg; setCfg: (c: S
               )}
             </div>
             <div style={{ maxHeight: 260, overflowY: 'auto' }}>
-              {arv.map((l: any) => (
-                <label key={l.id} style={{ display: 'flex', gap: 7, alignItems: 'flex-start', padding: '3px 4px', fontSize: 12.5, cursor: 'pointer', color: 'var(--text)' }}>
-                  <input type="checkbox" checked={c.sel.includes(l.id)} style={{ marginTop: 2, flexShrink: 0 }}
-                    onChange={() => mudar({ ...c, sel: c.sel.includes(l.id) ? c.sel.filter(x => x !== l.id) : [...c.sel, l.id] })} />
-                  <span style={{ paddingLeft: l.prof * 13, fontWeight: l.prof === 0 ? 600 : 400 }}>{l.descricao}</span>
-                </label>
+              {[{ t: 'LINHAS DO RELATÓRIO', ls: arvLinhas, ind: false },
+                { t: 'INDICADORES E FÓRMULAS', ls: arvIndic, ind: true }].map(g => g.ls.length === 0 ? null : (
+                <Fragment key={g.t}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0 4px', position: 'sticky', top: 0, background: 'var(--panel)', zIndex: 1 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'var(--muted)' }}>{g.t}</span>
+                    <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                    <span style={{ fontSize: 10.5, color: 'var(--violet)', cursor: 'pointer' }}
+                      onClick={() => {
+                        const ids = g.ls.map((l: any) => l.id)
+                        const todos = ids.every((i: string) => c.sel.includes(i))
+                        mudar({ ...c, sel: todos ? c.sel.filter(x => !ids.includes(x)) : [...new Set([...c.sel, ...ids])] })
+                      }}>
+                      {g.ls.every((l: any) => c.sel.includes(l.id)) ? 'desmarcar' : `marcar ${g.ls.length}`}
+                    </span>
+                  </div>
+                  {g.ls.map((l: any) => (
+                    <label key={l.id} style={{ display: 'flex', gap: 7, alignItems: 'flex-start', padding: '3px 4px', fontSize: 12.5, cursor: 'pointer', color: 'var(--text)' }}>
+                      <input type="checkbox" checked={c.sel.includes(l.id)} style={{ marginTop: 2, flexShrink: 0 }}
+                        onChange={() => mudar({ ...c, sel: c.sel.includes(l.id) ? c.sel.filter(x => x !== l.id) : [...c.sel, l.id] })} />
+                      <span style={{ paddingLeft: (g.ind ? 0 : l.prof * 13), fontWeight: !g.ind && l.prof === 0 ? 600 : 400 }}>
+                        {l.descricao}
+                        {/* ⚠ O % é o que mais engana: some com reais e ninguém vê. */}
+                        {l.formato === 'PERCENTUAL' && <span style={{ marginLeft: 5, fontSize: 9.5, fontWeight: 700, color: 'var(--orange)', border: '1px solid var(--orange)', borderRadius: 3, padding: '0 3px' }} title="é percentual — não soma com valores em reais">%</span>}
+                      </span>
+                    </label>
+                  ))}
+                </Fragment>
               ))}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
