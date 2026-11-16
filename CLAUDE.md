@@ -896,6 +896,16 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   **versão `bloqueada` fica de fora**, porque retrato do que foi aprovado não se reescreve.
   ⚠ Folha e apontamento **realizados** nunca são apagados — o valor foi pago.
 
+  ⚠ **Marcador que aparece em quase toda linha deixa de marcar (nov/2026).** O asterisco do
+  custo/mês sinaliza "o custo mudou durante o ano", e a PLR foi incluída na condição com um
+  raciocínio correto — o custo/mês mostra dezembro, que não tem parcela, e `custo/mês × 12`
+  ficava abaixo do anual parecendo erro de conta. O efeito saiu errado: cadastrada a PLR para
+  todo o quadro CLT, **94 dos 95 asteriscos passaram a ser dela** e sobrou **um** de causa real.
+  A explicação desceu para o rodapé, que é o lugar de um fato constante; o asterisco voltou a
+  sinalizar a **exceção deste posto** (reajuste próprio, afastamento, rescisão). **Ao incluir
+  uma causa nova num marcador, conte quantas linhas passam a tê-lo** — a condição certa com
+  alcance errado é pior que a ausência, porque esconde o caso que importa.
+
   **Verbas variáveis do prestador (nov/2026).** O custo do prestador tem **dez** verbas além do
   par `222+228`, e nenhuma chegava ao orçado: cinco estavam como `INFORMATIVA` (que
   `verbasDoRegime` descarta) e três nem existiam no catálogo. São **R$ 483 mil/mês**, R$ 5,8 mi

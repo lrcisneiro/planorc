@@ -1474,13 +1474,18 @@ export default function PostosGradePage() {
     // Afastamento parcial e rescisão fazem o custo mudar no meio do ano igual ao
     // reajuste, e pelo mesmo motivo merecem o asterisco. Afastada o ano todo não
     // entra: aí custoMes × meses volta a bater com o anual.
-    // ⚠ PLR entra na mesma família, e sem ela o asterisco NÃO apareceria: a
-    // condição exige uma das três causas, e PLR não é nenhuma delas. O
-    // custo/mês mostra o último mês vigente — dezembro, que não tem parcela —,
-    // então `custo/mês × 12` fica abaixo do anual e parece erro de conta. Quem
-    // tem verba de PARCELAS com valor é justamente quem precisa do aviso.
-    const temParcela = verbas.some(v => v.tipo_calculo === 'PARCELAS' && !!(postoVerbas[p.id] || {})[v.id])
-    const mudaNoAno = !!custoMes && (!!p.reajuste_mes || mesesAfast > 0 || rescAno > 0 || temParcela)
+    // ⚠⚠ PLR SAIU DA CONDIÇÃO (nov/2026) — e a razão é a própria contagem.
+    // Ela entrou aqui porque o custo/mês mostra dezembro, que não tem parcela,
+    // e `custo/mês × 12` ficava abaixo do anual parecendo erro de conta. O
+    // raciocínio estava certo e o efeito saiu errado: depois que a PLR foi
+    // cadastrada para todo o quadro CLT, **94 dos 95 asteriscos passaram a ser
+    // dela**, e sobrou UM de causa real. Marcador que está em quase toda linha
+    // não marca nada — vira ruído e esconde o caso que importa.
+    // A explicação não se perde: ela desceu para o rodapé, onde vale para
+    // todos de uma vez, que é o lugar de um fato constante. O asterisco volta
+    // a sinalizar o que é EXCEÇÃO deste posto: reajuste próprio, afastamento
+    // ou rescisão.
+    const mudaNoAno = !!custoMes && (!!p.reajuste_mes || mesesAfast > 0 || rescAno > 0)
       && Math.abs(custoMes * mesesVig - custoAno) > 0.01
     const fa = afast(p)
     const v = vig(p)
@@ -1928,7 +1933,8 @@ export default function PostosGradePage() {
         </div>
       </div>
       <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>¹ {temMotor ? 'Custo com encargos/provisões/benefícios pelo motor (clique no valor p/ ver a memória). Rateio entra no step 4.' : 'Custo base (salário × FTE) — cadastre as verbas em Estrutura para o custo com encargos.'}
-        <br /><span style={{ color: 'var(--orange)' }}>*</span> o custo mudou durante o ano (reajuste, afastamento, rescisão ou verba paga em parcelas, como a PLR): a coluna mostra o <b>último mês</b>, não a média — por isso ela × 12 não dá o custo ano, que já soma mês a mês.</p>
+        <br /><span style={{ color: 'var(--orange)' }}>*</span> o custo mudou durante o ano (reajuste, afastamento ou rescisão): a coluna mostra o <b>último mês</b>, não a média — por isso ela × 12 não dá o custo ano, que já soma mês a mês.
+        <br />Verbas pagas em parcelas, como a <b>PLR</b>, também ficam fora do custo/mês — elas caem só nos meses do calendário da verba e estão somadas no <b>custo ano</b>.</p>
 
       {drill && (() => {
         const r = custos.get(drill.id)
