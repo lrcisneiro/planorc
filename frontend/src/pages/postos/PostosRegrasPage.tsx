@@ -60,6 +60,11 @@ const TIPO_CALCULO: { value: string; label: string }[] = [
 ]
 const REGIME_OPTS: { value: string; label: string }[] = [
   { value: 'BR-CLT',       label: 'BR · CLT' },
+  // Estágio não é CLT com desconto: a Lei 11.788 diz que não há vínculo
+  // empregatício, logo nenhum encargo trabalhista é devido. O que o regime tem
+  // de próprio é curto — bolsa, recesso de 30 dias (sem o 1/3) e o seguro de
+  // acidentes, que é obrigatório. Ver docs/DESIGN_estagio.md.
+  { value: 'BR-ESTAGIO',   label: 'BR · Estágio' },
   { value: 'BR-PRESTADOR', label: 'BR · Prestador' },
   { value: 'BR-PROLABORE', label: 'BR · Pró-labore' },
   { value: 'PY-IPS',       label: 'PY · IPS (rel. dependência)' },

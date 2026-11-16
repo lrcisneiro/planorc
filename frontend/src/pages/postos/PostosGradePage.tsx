@@ -78,7 +78,7 @@ const parseNum = (s: string): number => {
   return parseFloat(r)
 }
 const milAno = (v: number) => v >= 1e6 ? `R$ ${(v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} mi` : `R$ ${money(v)}`
-const REGIMES = ['BR-CLT', 'BR-PRESTADOR', 'BR-PROLABORE', 'PY-IPS', 'PY-CONTRATO']
+const REGIMES = ['BR-CLT', 'BR-ESTAGIO', 'BR-PRESTADOR', 'BR-PROLABORE', 'PY-IPS', 'PY-CONTRATO']
 // sindicato por empresa (regra Ricardo): 06→MS, 08/YY/ZZ→PR, demais→SP. O import atribui (persiste no reimport).
 const sindCodPorEmp = (empCod: string) => empCod === '06' ? 'SINDPDMS' : ['08', 'YY', 'ZZ'].includes(empCod) ? 'SINDPDPR' : 'SINDPDSP'
 // nome curto do ocupante: ver lib/nomePessoa.ts
@@ -137,8 +137,9 @@ const tagRegime = (r: string | null): CSSProperties =>
   : r === 'BR-PROLABORE' ? tag('rgba(139,92,246,0.12)', 'var(--violet)', 'rgba(139,92,246,0.4)')
   : r === 'PY-IPS' ? tag('rgba(52,211,153,0.12)', 'var(--green)', 'rgba(52,211,153,0.4)')
   : r === 'PY-CONTRATO' ? tag('rgba(34,211,238,0.12)', 'var(--cyan)', 'rgba(34,211,238,0.4)')
+  : r === 'BR-ESTAGIO' ? tag('rgba(52,211,153,0.12)', 'var(--green)', 'rgba(52,211,153,0.4)')
   : T.sind
-const REGIMES_LABEL: Record<string, string> = { 'BR-CLT': 'BR · CLT', 'BR-PRESTADOR': 'BR · Prestador', 'BR-PROLABORE': 'BR · Pró-labore', 'PY-IPS': 'PY · IPS', 'PY-CONTRATO': 'PY · Contrato' }
+const REGIMES_LABEL: Record<string, string> = { 'BR-CLT': 'BR · CLT', 'BR-ESTAGIO': 'BR · Estágio', 'BR-PRESTADOR': 'BR · Prestador', 'BR-PROLABORE': 'BR · Pró-labore', 'PY-IPS': 'PY · IPS', 'PY-CONTRATO': 'PY · Contrato' }
 
 type Posto = {
   id: string; codigo: string; nome: string | null; matricula: string | null; regime: string | null; ativo?: boolean

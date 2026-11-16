@@ -137,6 +137,7 @@ def parse_bk_funcionario(bk: str):
 # export — e não vai vir (decisão do DP, nov/2026).
 VERBA_PRESTADOR = {'222', '228'}   # horas faturáveis + prestação de serviços
 VERBA_CLT       = {'B39'}          # salário base (verba de referência)
+VERBA_ESTAGIO   = {'075'}          # bolsa-auxílio — o ERP já paga em código próprio
 
 
 def regime_pela_verba(srd_regimes: dict, filial: str, mat: str) -> str:
@@ -148,9 +149,25 @@ def regime_pela_verba(srd_regimes: dict, filial: str, mat: str) -> str:
     # para CLT fica com os dois carimbos para sempre, e um teste de presença
     # devolveria o regime antigo. Há um caso assim hoje (PJ até 202511, CLT
     # desde 202610).
-    if v['prest'] and v['clt']:
-        return 'PRESTADOR' if v['prest'] > v['clt'] else 'CLT'
-    return 'PRESTADOR' if v['prest'] else 'CLT'
+    #
+    # ⚠⚠ B39 NÃO É EXCLUSIVO DO CLT. Medido no srd de nov/26: os 19 estagiários
+    # têm 075 E B39 na MESMA competência — o ERP guarda a bolsa como salário de
+    # referência também. Um argmax ingênuo empataria e deixaria a ordem da lista
+    # (ou a ordem alfabética do nome do regime) decidir, em silêncio e sempre
+    # para o mesmo lado.
+    #
+    # A regra é de precedência, não de recência: quem tem 075 é estagiário,
+    # A MENOS QUE o B39 continue DEPOIS de a bolsa parar — que é a efetivação.
+    # Há um caso real: a Beatriz Orestes foi estagiária até 202510 e hoje tem
+    # outro posto como CLT.
+    est, clt, prest = (v.get('est') or ''), (v.get('clt') or ''), (v.get('prest') or '')
+    if prest and prest > max(est, clt):
+        return 'PRESTADOR'
+    if est:
+        return 'CLT' if clt > est else 'ESTAGIO'
+    if clt:
+        return 'CLT'
+    return 'PRESTADOR' if prest else ''
 
 
 def carregar_regimes(path: str) -> dict:
@@ -169,13 +186,14 @@ def carregar_regimes(path: str) -> dict:
     with open(path, newline='', encoding='latin-1') as f:
         for r in csv.DictReader(f):
             v = apos_ultimo_pipe(r.get('BK_SRV', ''))
-            tipo = 'prest' if v in VERBA_PRESTADOR else 'clt' if v in VERBA_CLT else ''
+            tipo = ('prest' if v in VERBA_PRESTADOR else 'clt' if v in VERBA_CLT
+                    else 'est' if v in VERBA_ESTAGIO else '')
             if not tipo:
                 continue
             k = (apos_ultimo_pipe(r.get('BK_FILIAL', '')),
                  apos_ultimo_pipe(r.get('BK_SRA', '')).zfill(6))
             comp = apos_ultimo_pipe(r.get('DTCOMPET', ''))[:6]
-            d = out.setdefault(k, {'prest': '', 'clt': ''})
+            d = out.setdefault(k, {'prest': '', 'clt': '', 'est': ''})
             if comp > d[tipo]:
                 d[tipo] = comp
     return out
@@ -187,8 +205,11 @@ def regime_por(mat: str, cargo: str, srd_regimes: dict = {}, filial: str = '') -
     1. cargo "SOCIO" → PROLABORE. ⚠ CONTINUA COM PRIORIDADE SOBRE A VERBA: o
        pró-labore também é pago por B39, então a verba sozinha transformaria os
        17 postos de sócios em CLT. Medido antes de mexer.
-    2. a verba do movimento (222/228 = PJ · B39 = CLT) — evidência, não
-       convenção. É o que resolve quem tem a matrícula fora da faixa: um
+    2. a verba do movimento (222/228 = PJ · B39 = CLT · 075 = ESTÁGIO) —
+       evidência, não convenção. ⚠ O estágio SÓ se resolve aqui: a matrícula do
+       estagiário é da faixa 0 e a reserva o devolveria como CLT, que é
+       exatamente o defeito que este degrau existe para não deixar acontecer —
+       o motor cobraria dele 60% de encargos que a Lei 11.788 diz não existir. É o que resolve quem tem a matrícula fora da faixa: um
        prestador numerado como `090041` virava CLT e saía sem salário, porque o
        script de salário procura B39 para CLT e um PJ não tem B39.
     3. a matrícula (0 = CLT, 9 = PRESTADOR) vira a RESERVA, não a regra. Ela

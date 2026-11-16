@@ -1,6 +1,7 @@
 # Estágio — regime próprio (BR-ESTAGIO)
 
-> Status: **desenho**, nov/2026. Não implementado.
+> Status: **implementado**, 17/nov/2026 — `seed_regime_estagio_nov26.sql` + 4 linhas de
+> tela + o conversor. Decisões do Ricardo registradas na seção *Em aberto*.
 > Pedido do Ricardo: "tem funcionários que são estagiário. É outro modelo e você
 > está calculando como CLT."
 
@@ -154,30 +155,60 @@ também deveria herdar**, não só o que precisa de verba nova.
    que volta a viver quando alguém reclassifica o posto meses depois.
 3. Anexar `A15E` / `A52E` / `A60E` com os valores reais.
 
+## O que o dado ensinou na implementação
+
+**São 19 pessoas com a verba 075, não 3.** Dezessete estão demitidas — é a
+rotatividade normal do estágio, 2024 a 2026. As ativas são duas (Amanda Karen e
+Luiza), mais a vaga `2005-VG01`.
+
+⚠⚠ **`B39` NÃO É EXCLUSIVO DO CLT.** Os 19 estagiários têm `075` **e** `B39` na
+**mesma competência** — o Protheus guarda a bolsa como salário de referência
+também. O `regime_pela_verba()` comparava "a competência mais recente" entre os
+tipos, e com três regimes isso vira empate em 100% dos casos de estágio: o
+desempate caía na ordem da lista, em silêncio e sempre para o mesmo lado. A
+regra certa não é de recência, é de **precedência**: quem tem `075` é
+estagiário, **a menos que** o `B39` continue *depois* de a bolsa parar — que é a
+efetivação.
+
+**E a efetivação existe no dado.** A Beatriz Orestes foi estagiária até out/25
+(posto `2002-000026`, hoje demitido) e tem um posto CLT ativo desde nov/25
+(`2102-000083`). O caso que eu havia listado como "limite conhecido — não é
+orçável" já estava resolvido na prática, do jeito que eu disse que funcionaria:
+dois postos, um terminando e outro começando.
+
+⚠ **O cargo não identifica o estagiário.** O posto de estágio da Beatriz tem
+cargo `ASSISTENTE ADMINISTRATIVO`. É por isso que o seed corrige só os **ativos**
+(onde cargo e verba concordam) e o histórico fica para a importação, que agora
+deriva o regime da folha. **A origem sabe** — mesma lição do regime do Rafael e
+da v3_163.
+
 ## Em aberto — precisa do Ricardo ou do RH
 
-1. **A empresa paga vale-transporte aos estagiários?** É obrigatório no estágio
-   não obrigatório (art. 12) e **não pode ser descontado**, mas não aparece na
-   folha deles — o que pode significar que não se paga, que se paga por fora da
-   folha, ou que os estágios são obrigatórios (curricular).
-2. **Há agente de integração (CIEE, IEL)?** Se há, a taxa é custo da empresa e
-   hoje não está em lugar nenhum do orçado.
-3. **Quem paga o seguro de acidentes pessoais, e quanto?** É obrigatório.
-4. **O que é a verba `643`?** R$ 350,00 para um estagiário em out/26, e ela
-   **não existe no catálogo** `verba_folha`. A `624` ("diferença de prêmio")
-   também é R$ 350,00 para o outro — parecem ser as duas pontas de um mesmo
-   acerto com a `D50`.
-5. **Os 15 postos `ESTAGIARIO(A)` inativos** têm salário zero e nenhum histórico
-   de folha ligado. São cadastro velho? Podem ser inativados de vez.
-6. **Duas pessoas com bolsa 075 perderam o vínculo com o posto** (Amanda Beatriz
-   Lontra e Beatriz Bezerra) — vítimas do "Substituir escopo" de 05/nov.
+Respondidas em 17/nov:
+
+1. **Vale-transporte**: não há linha própria a acrescentar. A `643` **é** o
+   auxílio-transporte e já passa pelo cartão (`D50`), que os estagiários
+   recebem — criar verba nova contaria o mesmo dinheiro duas vezes.
+2. **Agente de integração**: não há.
+3. **Seguro de acidentes**: pago pela empresa, **R$ 60,00 por ano** → 5,00/mês
+   no `VALOR_FIXO`. ⚠ Se os 60 forem mensais, é um número no cadastro do posto.
+4. **A verba `643` é o auxílio-transporte.** Catalogada como `INFORMATIVA`, só
+   para a conciliação parar de ver código desconhecido.
+5. **A verba do estagiário é a `075`** — confirmado pelo Ricardo, e é a base do
+   regime e o carimbo que o conversor procura.
+
+Fica em aberto, e é cadastro, não desenho:
+
+- **Duas pessoas com bolsa 075 perderam o vínculo com o posto** (Amanda Beatriz
+  Lontra e Beatriz Bezerra) — vítimas do "Substituir escopo" de 05/nov.
 
 ## Limites conhecidos, declarados
 
-⚠ **A conversão estágio → CLT não é orçável hoje.** É o evento que mais muda o
+⚠ **A conversão estágio → CLT não é orçável como evento.** É o que mais muda o
 número (o custo salta ~60% mais benefícios) e o modelo não sabe dizer "vira CLT
-em março". Hoje se resolve com dois postos, um terminando e outro começando —
-funciona, dá o número certo, e é manual. Mecanizar isso é outro trabalho.
+em março". Resolve-se com dois postos, um terminando e outro começando — é o que
+já se faz na prática (ver a Beatriz Orestes acima), dá o número certo, e é
+manual. Mecanizar é outro trabalho.
 
 ⚠ **O teto de 2 anos não é verificado.** Posto de estágio sem fim de vigência é
 orçado para sempre, e a lei diz que não pode. Uma validação na tela (avisar
