@@ -424,7 +424,6 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
                 <th style={{ ...th, textAlign: 'left', minWidth: 320 }}>Empresa · Filial · Centro de custo</th>
                 {MES.map(m => <th key={m} style={th}>{m}</th>)}
                 <th style={{ ...th, color: 'var(--text)' }}>Ano</th>
-                <th style={th} />
               </tr></thead>
               <tbody>
                 {combs.map((c, i) => {
@@ -436,6 +435,21 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
                     <Fragment key={k + i}>
                     <tr>
                       <td style={{ ...td, textAlign: 'left' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                        {/* Largura fixa mesmo vazio: sem ela os nomes dançam de
+                            linha para linha conforme haja ou não botão. */}
+                        <span style={{ width: 15, flexShrink: 0 }}>
+                          {nova
+                            ? <button onClick={() => setCombs(v => v.filter((_, j) => j !== i))}
+                                title="Tirar esta combinação da lista"
+                                style={{ background: 'none', border: 'none', padding: 0, color: 'var(--muted)', cursor: 'pointer', display: 'block' }}><Trash2 size={13} /></button>
+                            : pode && !!tot && (
+                              <button onClick={() => setConfirmar({ alvo: [c], label:
+                                  `${empCod[c.empresa_id] || '?'} · ${c.cc_id ? ccCod[c.cc_id] : 'sem CC'}` })}
+                                title="Apagar os 12 meses desta combinação"
+                                style={{ background: 'none', border: 'none', padding: 0, color: 'var(--muted)', cursor: 'pointer', display: 'block' }}><Eraser size={13} /></button>
+                            )}
+                        </span>
                         {nova ? (
                           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                             <select value={c.empresa_id} onChange={e => trocar(i, { empresa_id: e.target.value, filial_id: null })}
@@ -461,6 +475,7 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
                             {' · '}{c.cc_id ? ccCod[c.cc_id] : <i style={{ color: 'var(--orange)' }}>sem CC (consolidado)</i>}
                           </span>
                         )}
+                        </div>
                       </td>
                       {Array.from({ length: 12 }, (_, j) => j + 1).map(m => {
                         const v = linhaCel[m]
@@ -506,18 +521,6 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
                         )
                       })}
                       <td style={{ ...td, fontWeight: 700, color: tot ? 'var(--text)' : 'var(--faint)' }}>{tot ? mostrar(tot) : '—'}</td>
-                      <td style={td}>
-                        {nova
-                          ? <button onClick={() => setCombs(v => v.filter((_, j) => j !== i))}
-                              title="Tirar esta combinação da lista"
-                              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}><Trash2 size={13} /></button>
-                          : pode && !!tot && (
-                            <button onClick={() => setConfirmar({ alvo: [c], label:
-                                `${empCod[c.empresa_id] || '?'} · ${c.cc_id ? ccCod[c.cc_id] : 'sem CC'}` })}
-                              title="Apagar os 12 meses desta combinação"
-                              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}><Eraser size={13} /></button>
-                          )}
-                      </td>
                     </tr>
                     {comp && comp.k === k && (() => {
                       const cl = linhaCel[comp.mes]; if (!cl) return null
@@ -583,7 +586,6 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
                       {totalMes(m) ? mostrar(totalMes(m)) : '—'}</td>
                   ))}
                   <td style={{ ...td, fontWeight: 700 }}>{mostrar(totalAno)}</td>
-                  <td style={td} />
                 </tr>
               </tbody>
             </table>
