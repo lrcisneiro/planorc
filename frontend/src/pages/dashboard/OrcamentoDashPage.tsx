@@ -1628,7 +1628,7 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
   const fmt = (n: number) => Math.round(n).toLocaleString('pt-BR')
   const pct = (n: number) => `${n.toFixed(1)}%`
 
-  const { areas, regimes, totPess, totDesp, totGente } = useMemo(() => {
+  const { areas, regimes, multiReg, totPess, totDesp, totGente } = useMemo(() => {
     const pes = linhas.filter((l: any) => l.tipo === 'PESSOA')
     const des = linhas.filter((l: any) => l.tipo === 'DESPESA')
     const porArea = new Map<string, { nome: string; custo: number; gente: Set<string>; desp: number }>()
@@ -1647,8 +1647,14 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
     const areas = [...porArea.values()].map(a => ({ ...a, pessoas: a.gente.size })).sort((a, b) => b.custo - a.custo)
     const regimes = [...porReg.entries()].map(([k, v]) => ({ regime: k, custo: v.custo, pessoas: v.gente.size }))
       .sort((a, b) => b.custo - a.custo)
+    // Quantas pessoas aparecem em MAIS DE UM regime — medido: 6, todas
+    // prestador + pró-labore. É por elas que a coluna de % passa de 100%, e a
+    // tela diz isso em vez de normalizar pela soma e esconder o fato.
+    const regDe = new Map<string, Set<string>>()
+    for (const l of pes) { let g = regDe.get(l.pessoa); if (!g) { g = new Set(); regDe.set(l.pessoa, g) } g.add(l.regime) }
+    const multiReg = [...regDe.values()].filter(g => g.size > 1).length
     return {
-      areas, regimes,
+      areas, regimes, multiReg,
       // ⚠ Pessoa distinta no TOTAL, não soma das áreas: se um dia alguém tiver
       // custo em duas áreas, somar os subtotais a contaria duas vezes.
       totPess: new Set(pes.map((l: any) => l.pessoa)).size,
@@ -1723,6 +1729,7 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
           <thead><tr>
             <th style={{ ...S.th, textAlign: 'left' }}>área</th>
             <th style={{ ...S.th, width: 180 }}>pessoas</th>
+            <th style={S.th}>% das pessoas</th>
             <th style={S.th}>custo médio</th><th style={S.th}>pessoal</th>
           </tr></thead>
           <tbody>
@@ -1734,11 +1741,17 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
                     {barra(a.pessoas, maxP, 'var(--blue)')}
                     <span style={{ minWidth: 32 }}>{a.pessoas}</span>
                   </div></td>
+                {/* O par com a coluna "pessoal" é o ponto: área com 57% da gente
+                    e 56% do custo é equilibrada; 13% da gente com 27% do custo
+                    não é — e sem o percentual de pessoas essa leitura exige
+                    dividir de cabeça. */}
+                <td style={S.td}>{pct(a.pessoas / (totPess || 1) * 100)}</td>
                 <td style={S.td}>{a.pessoas ? fmt(a.custo / a.pessoas) : '—'}</td>
                 <td style={{ ...S.td, color: 'var(--muted)' }}>{fmt(a.custo)}</td>
               </tr>))}
             <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontWeight: 700 }}>total</td>
               <td style={{ ...S.td, fontWeight: 700 }}>{totPess}</td>
+              <td style={{ ...S.td, fontWeight: 700 }}>{pct(100)}</td>
               <td style={{ ...S.td, fontWeight: 700 }}>{fmt(totGente / (totPess || 1))}</td>
               <td style={{ ...S.td, color: 'var(--muted)' }}>{fmt(totGente)}</td></tr>
           </tbody>
@@ -1750,6 +1763,11 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
         <div style={S.secH}><div>
           <div style={S.secT}>Pessoas e custo por regime</div>
           <div style={S.secD}>
+            {multiReg > 0 && <>
+              ⚠ <strong>{multiReg} pessoa(s) têm dois regimes</strong> (prestador e pró-labore), então contam nos
+              dois e a coluna <strong>% das pessoas</strong> passa de 100%. O denominador é o total de pessoas
+              distintas, o mesmo do quadro acima.<br />
+            </>}
             ⚠ A coluna <strong>por pessoa</strong> levanta uma pergunta e não a responde: a diferença entre regimes
             pode ser preço de contratação ou <strong>mistura de senioridade</strong> — um consultor sênior PJ contra
             um auxiliar CLT. Quem responde é a pirâmide de cargos, não este quadro.
@@ -1757,13 +1775,21 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>
             <th style={{ ...S.th, textAlign: 'left' }}>regime</th><th style={S.th}>pessoas</th>
-            <th style={{ ...S.th, width: 170 }}>custo</th><th style={S.th}>% do pessoal</th><th style={S.th}>por pessoa</th>
+            <th style={S.th}>% das pessoas</th>
+            <th style={{ ...S.th, width: 170 }}>custo</th><th style={S.th}>% do custo</th><th style={S.th}>por pessoa</th>
           </tr></thead>
           <tbody>
             {regimes.map(r => (
               <tr key={r.regime}>
                 <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit' }}>{r.regime}</td>
                 <td style={S.td}>{r.pessoas}</td>
+                {/* ⚠ O denominador é o total de pessoas DISTINTAS (o mesmo do
+                    resto da tela), não a soma da coluna. Quem tem dois regimes
+                    conta nos dois, então o total passa de 100% — e isso é
+                    informação, não defeito: normalizar pela soma esconderia
+                    que existem pessoas em dois regimes. A nota acima diz
+                    quantas são. */}
+                <td style={S.td}>{pct(r.pessoas / (totPess || 1) * 100)}</td>
                 <td style={S.td}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
                     {barra(r.custo, Math.max(...regimes.map(x => x.custo), 1), 'var(--green)')}
