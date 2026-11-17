@@ -17,7 +17,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { useUserAccess } from '../../hooks/useUserAccess'
-import { totaisRelatorio } from '../../lib/relatorioTotais'
+import { totaisRelatorioMes } from '../../lib/relatorioTotais'
 import { COLS_LINHA, emArvore, fatorExibicao, linhasConciliaveis, type LinhaRel } from '../../lib/refRelatorio'
 import {
   ExportarButton, FiltrosButton, PillsDim, SalvarCardButton, useCardPreset,
@@ -373,8 +373,21 @@ export default function OrcamentoDashPage() {
     setCarregando(true); setErro(null)
     try {
       const base = { linhas, ccs, empresas: empFiltradas, filialFilter, ccFilter, ccPermitidos: null as string[] | null }
-      const chamar = (cen: string, anos: number[], ms: number[]) =>
-        ms.length ? totaisRelatorio({ ...base, cen, anos, meses: ms }) : Promise.resolve({} as Record<string, number>)
+      // ⚠⚠ CACHE DE UMA CARGA SÓ. A tela pedia a MESMA leitura mais de uma vez:
+      // com "Orçado × Orçado" e sem projeção, `serie(vComp)` e o `oa` da
+      // acurácia são a mesma chamada, letra por letra — e cada uma custa
+      // 1 + 5 RPCs sob RLS (a DRE Gerencial tem 5 grupos de escopo próprio),
+      // a ~1 s cada. Guardar a PROMESSA, e não o resultado, é o que faz o
+      // segundo pedido entrar de carona num voo já levantado.
+      const voos = new Map<string, Promise<{ total: Record<string, number>; mes: Record<string, number[]> }>>()
+      const chamarMes = (cen: string, anos: number[], ms: number[]) => {
+        if (!ms.length) return Promise.resolve({ total: {} as Record<string, number>, mes: {} as Record<string, number[]> })
+        const k = `${cen}|${anos.join(',')}|${ms.join(',')}`
+        let p = voos.get(k)
+        if (!p) { p = totaisRelatorioMes({ ...base, cen, anos, meses: ms }); voos.set(k, p) }
+        return p
+      }
+      const chamar = async (cen: string, anos: number[], ms: number[]) => (await chamarMes(cen, anos, ms)).total
 
       // Uma SÉRIE = o período pedido, mais a projeção dos meses seguintes até
       // dezembro. A projeção se compõe de outra leitura com faixa de meses
@@ -399,19 +412,22 @@ export default function OrcamentoDashPage() {
         return out
       }
 
-      const [b, c, oa, ra, mens] = await Promise.all([
+      const [b, c, oa, ra, det] = await Promise.all([
         serie(vBase, anoBase!),
         modo === 'ORC' ? serie(vComp, anoComp!) : serie('REALIZADO', anoComp!),
         // acurácia: orçado × realizado do ano comparado, sempre no período
         chamar(vComp, [anoComp!], meses),
         chamar('REALIZADO', [anoComp!], meses),
-        // mensal da base: alimenta o detector de "linha reta"
-        Promise.all(meses.map(m => chamar(vBase, [anoBase!], [m]))),
+        // ⚠ O mensal da base (detector de "linha reta") NÃO custa mais nada: é
+        // a mesma leitura que `serie(vBase)` já faz, e o cache a entrega.
+        // Antes eram 10 invocações — 60 RPCs — para rebuscar mês a mês o que a
+        // primeira resposta já trazia, porque `relatorio_orcado_agg` devolve
+        // `mes` na linha e o detalhe era descartado.
+        chamarMes(vBase, [anoBase!], meses),
       ])
 
       const comp = c
-      const mensalBase: Record<string, number[]> = {}
-      mens.forEach((mm, i) => { for (const k in mm) (mensalBase[k] = mensalBase[k] || Array(meses.length).fill(0))[i] = mm[k] })
+      const mensalBase = det.mes
 
       setDados({ base: b, comp, orcAnt: oa, realAnt: ra, mensalBase })
 

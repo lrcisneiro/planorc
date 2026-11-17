@@ -25,10 +25,25 @@ type Opts = {
 
 // Retorna { [lineId]: total } sobre anos×meses, com as linhas escopadas recalculadas no seu CC.
 export async function totaisRelatorio(o: Opts): Promise<Record<string, number>> {
+  return (await totaisRelatorioMes(o)).total
+}
+
+/** O mesmo cálculo, devolvendo TAMBÉM o valor de cada período separado.
+ *
+ *  ⚠⚠ EXISTE PARA MATAR N CHAMADAS. `relatorio_orcado_agg` já devolve `mes` na
+ *  linha — o detalhe mensal SEMPRE esteve na resposta e era descartado aqui.
+ *  O dashboard de Orçamento então pedia mês a mês: 10 invocações a mais, cada
+ *  uma com 1 + 5 chamadas de RPC sob RLS a ~1 s. Era a maior parte dos 40 s de
+ *  abertura da tela.
+ *
+ *  ⚠ O valor mensal não é idêntico ao de uma chamada com `meses: [m]`, e é
+ *  MELHOR: as fórmulas são avaliadas com o período inteiro em mãos, então
+ *  `=ANTERIOR()` resolve. Isolado num mês só, ela não tinha de onde resolver. */
+export async function totaisRelatorioMes(o: Opts): Promise<{ total: Record<string, number>; mes: Record<string, number[]> }> {
   const { linhas, ccs, cen, empresas, anos, meses, filialFilter, ccFilter } = o
   const slot = o.slot ?? 1
   const masterIds = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
-  if (!masterIds.length || !empresas.length || !anos.length || !meses.length) return {}
+  if (!masterIds.length || !empresas.length || !anos.length || !meses.length) return { total: {}, mes: {} }
 
   const rlOfMaster: Record<string, string> = {}
   linhas.forEach(l => { if (l.linha_orc_id && !l.nao_soma) rlOfMaster[l.linha_orc_id] = l.id })
@@ -93,11 +108,30 @@ export async function totaisRelatorio(o: Opts): Promise<Record<string, number>> 
   const escopados = new Set<string>()
   const totEsc: Record<string, number> = {}   // total PRÓPRIO da linha, recalculado no escopo dela
   const valEsc: Record<string, Record<string, number>> = {}   // valor por período, p/ injetar no global
-  for (const g of grupos.values()) {
-    const rawSc = await loadRaw(g.cc, true)
+  // ⚠ AS LEITURAS VÃO JUNTAS. Eram sequenciais — um `await` por grupo e mais
+  // um para o global —, e com os 5 grupos de escopo da DRE Gerencial isso é
+  // SEIS idas ao banco em fila, a ~1 s cada sob RLS: 6 s de espera onde o
+  // trabalho real é 1 s. Nenhuma depende da outra; só a FUSÃO delas tem ordem
+  // (o valor escopado entra no raw global), e essa continua abaixo.
+  const gruposArr = [...grupos.values()]
+  const [rawsSc, rawGlobal] = await Promise.all([
+    Promise.all(gruposArr.map(g => loadRaw(g.cc, true))),
+    loadRaw(ccFilter, false),
+  ])
+
+  const mesEsc: Record<string, number[]> = {}
+  for (let gi = 0; gi < gruposArr.length; gi++) {
+    const g = gruposArr[gi]
+    const rawSc = rawsSc[gi]
     const cenSc = computeCenario(calc, rawSc, periodos)
     const tSc = computeTotais(calc, cenSc, periodos)
-    for (const id of g.ids) { escopados.add(id); totEsc[id] = tSc[id]; valEsc[id] = cenSc[id] || {} }
+    // Um total por período, no cenário da própria linha — em memória, sem ir
+    // ao banco de novo: o cenário já tem todos os períodos calculados.
+    const perSc = periodos.map(pp => computeTotais(calc, cenSc, [pp]))
+    for (const id of g.ids) {
+      escopados.add(id); totEsc[id] = tSc[id]; valEsc[id] = cenSc[id] || {}
+      mesEsc[id] = perSc.map(t => t[id] ?? 0)
+    }
   }
 
   // No cenário global a linha escopada entra como ANALÍTICA lendo o valor já
@@ -107,14 +141,23 @@ export async function totaisRelatorio(o: Opts): Promise<Record<string, number>> 
     ? calc.map(l => escopados.has(l.id) ? { ...l, tipo_linha: 'ANALITICA' } : l)
     : calc
 
-  const rawG = await loadRaw(ccFilter, false)
+  const rawG = rawGlobal
   for (const id of escopados) {
     const porPeriodo = valEsc[id] || {}
     const dest = (rawG[id] ||= {})
     for (const pk in porPeriodo) dest[pk] = { valor: porPeriodo[pk] }
   }
 
-  const totG = computeTotais(calcGlobal, computeCenario(calcGlobal, rawG, periodos), periodos)
+  const cenG = computeCenario(calcGlobal, rawG, periodos)
+  const totG = computeTotais(calcGlobal, cenG, periodos)
+
+  const mesG: Record<string, number[]> = {}
+  periodos.forEach((pp, i) => {
+    const t = computeTotais(calcGlobal, cenG, [pp])
+    for (const id in t) (mesG[id] ||= Array(periodos.length).fill(0))[i] = t[id]
+  })
+  for (const id in out) mesG[id] = Array(periodos.length).fill(0)   // escopo vazio = zero em todo mês
+
   // o total da própria linha escopada vem do cenário dela (percentual se recalcula, não se soma)
-  return { ...totG, ...totEsc, ...out }
+  return { total: { ...totG, ...totEsc, ...out }, mes: { ...mesG, ...mesEsc } }
 }

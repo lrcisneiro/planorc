@@ -1272,6 +1272,25 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ Asserção de prova afirma o **mínimo** necessário. `prova_escopo_pessoas.sql` exigiu que uma
   dimensão de escopo abrisse tudo e levou 568 de 570 — o sistema estava certo, a asserção errada,
   e meia hora foi gasta investigando o código que funcionava.
+- ⚠⚠ **A tela levava 40 s em 84 chamadas, e 66 delas eram supérfluas** (*Orçamento — análise*,
+  nov/2026). Medido: uma `relatorio_orcado_agg` personificada custa **~990 ms**, a DRE Gerencial
+  tem **5 grupos de `filtro_escopo` distintos**, e `totaisRelatorio` faz **1 + 5** idas ao banco —
+  **em fila**. A carga invocava `totaisRelatorio` **14 vezes**. Três defeitos somados:
+  **1. O detalhe mensal já vinha na resposta e era jogado fora.** `relatorio_orcado_agg` devolve
+  `TABLE(linha_id, ano, **mes**, valor, …)`, e a tela pedia mês a mês (`meses.map(...)`) para
+  reconstruir o que a primeira chamada trouxe: **10 invocações, 60 RPCs**. Hoje
+  `totaisRelatorioMes` devolve `{ total, mes }` e o mensal sai de graça.
+  ⚠ O valor mensal passa a ser avaliado com o período inteiro em mãos, então `=ANTERIOR()`
+  resolve — é diferente da chamada isolada por mês, e **melhor**.
+  **2. A mesma leitura era pedida duas vezes.** Com *Orçado × Orçado* sem projeção,
+  `serie(vComp)` e o `oa` da acurácia são idênticos. Um cache **de promessas** (não de
+  resultados) por carga faz o segundo pedido entrar de carona no voo já levantado.
+  **3. As 6 leituras de cada invocação eram sequenciais** e nenhuma depende da outra — só a
+  **fusão** tem ordem. Em paralelo, 6 s de espera viram ~1 s.
+  **84 → 18 chamadas**, e as 6 de cada uma agora concorrentes.
+  ⚠ A regra: **antes de otimizar a consulta, conte quantas vezes ela é feita.** A RPC aqui estava
+  razoável; o problema era a tela pedi-la 84 vezes.
+
 - ⚠⚠ **Medir como DONO não mede a tela — o RLS é o custo** (v3_192, nov/2026). A perna de
   despesa de `analise_pessoas_agg` levava **36 ms** no meu usuário e **~2,5 s** personificando
   quem usa; a função inteira, **3,4 s**, contra um `statement_timeout` de **8 s** no
