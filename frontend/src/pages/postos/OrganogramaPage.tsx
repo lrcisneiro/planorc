@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { PostosPills } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { pageAll } from '../../lib/pageAll'
-import { pessoaChave } from '../../lib/pessoaChave'
+import { resolverPessoas } from '../../lib/pessoaChave'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { situacaoPosto, SeletorSituacao, corSit, tagSit, type Situacao } from '../../lib/situacaoPosto'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro, ModalPanel, Checklist } from '../dashboard/DashFiltros'
@@ -658,10 +658,13 @@ export default function OrganogramaPage() {
   }, [postos, sits, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, cargoSel, cargoModo,
       empresas, filiais, ccs, acesso])
 
-  // Headcount: a regra de "quem é uma pessoa" mora em `pessoaChave` — a mesma
-  // que a grade usa, senão os dois números discordam. Não é matrícula: ela é
-  // por empresa, e quem tem pró-labore em várias virava várias pessoas.
-  const chave = pessoaChave
+  // Headcount: a regra de "quem é uma pessoa" mora em `resolverPessoas` — a
+  // mesma que a grade usa, senão os dois números discordam. Não é matrícula:
+  // ela é por empresa, e quem tem pró-labore em várias virava várias pessoas.
+  // ⚠ Resolvida sobre a LISTA INTEIRA (`postos`, não o recorte filtrado): o
+  // posto que ensina o `funcionario_id` de um nome pode estar fora do filtro,
+  // e aí o recorte voltaria a partir a pessoa em duas.
+  const chave = useMemo(() => resolverPessoas(postos), [postos])
 
   // Por qual coluna o nó agrupa. Vive aqui, e não dentro do useMemo, porque o
   // painel lateral precisa da MESMA resposta — ele testava `cc_id` fixo, e na
@@ -838,7 +841,7 @@ export default function OrganogramaPage() {
   const agrupado = useMemo(() => {
     const g: Record<string, { chave: string; nome: string; postos: Posto[]; fte: number }> = {}
     for (const p of pessoasSel) {
-      const k = pessoaChave(p)
+      const k = chave(p)
       const e = (g[k] ||= { chave: k, nome: p.nome || 'vaga planejada', postos: [], fte: 0 })
       e.postos.push(p); e.fte += Number(p.fte) || 0
     }
@@ -857,7 +860,7 @@ export default function OrganogramaPage() {
         : e.postos.every(x => situacaoPosto(x) === 'demitido') ? 'demitido' : 'ativo'
       return { ...e, aqui, sit, detalhe: [cargos_.join(' · '), regimes.join('/'), areas_.join(' · ')].filter(Boolean).join(' · ') }
     }).sort((a, b) => Number(b.aqui) - Number(a.aqui) || a.nome.localeCompare(b.nome))
-  }, [pessoasSel, cargos, noSel, rotuloNo, campoFonte])
+  }, [pessoasSel, cargos, noSel, rotuloNo, campoFonte, chave])
 
   const cargosOrdenados = useMemo(() => {
     const n: Record<string, number> = {}

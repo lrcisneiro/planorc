@@ -17,7 +17,7 @@ import { usePostoCtx } from '../../lib/postoCtx'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
 import { slugCargo as slug } from '../../lib/slugCargo'
-import { pessoaChave } from '../../lib/pessoaChave'
+import { resolverPessoas } from '../../lib/pessoaChave'
 import { situacaoPosto, SeletorSituacao, type Situacao } from '../../lib/situacaoPosto'
 import { resolvePosto, camposAlterados, overlayVazio, CAMPOS_CENARIO } from '../../lib/postoVersao'
 import CenarioDiffModal from './CenarioDiffModal'
@@ -1430,7 +1430,10 @@ export default function PostosGradePage() {
     // são pagamentos reais; para QUADRO, não — "45 pessoas" seria falso se
     // algumas aparecem duas vezes. Conta por matrícula; sem matrícula (vaga
     // planejada ou cadastro incompleto) cada posto é um, que é o mais seguro.
-    const pessoas = new Set(filtrados.map(pessoaChave)).size
+    // ⚠ `resolverPessoas` e não `pessoaChave`: a chave tem de ser resolvida
+    // sobre a LISTA, senão posto sem `funcionario_id` conta como outra pessoa.
+    const chavePessoa = resolverPessoas(filtrados)
+    const pessoas = new Set(filtrados.map(chavePessoa)).size
     const fte = filtrados.reduce((s, p) => s + (Number(p.fte) || 0), 0)
     const ano = filtrados.reduce((s, p) => s + custoAnoP(p), 0)
     const cat = Object.fromEntries(CATEGORIAS.map(c => [c, 0])) as Record<string, number>

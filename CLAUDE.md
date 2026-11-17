@@ -1062,6 +1062,20 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ **Férias não é dedutível** de nada — era por isso que afastado passava por ativo antes. O
   filtro da tela é por situação (4 estados, multi-seleção), não mais "só ativos / com demitidos".
 
+  ⚠⚠ **MISTURAR TIPO DE CHAVE PARTE A PESSOA EM DUAS** (nov/2026). `pessoaChave` prefere
+  `funcionario_id` e cai no nome — seguro enquanto a coluna estava **vazia em 100%**, inseguro
+  desde que a `v3_149` passou a populá-la. Medido no **CC 411**: 13 postos, **5 pessoas**, a tela
+  dizia **8**. Dez postos tinham id (chave = uuid), três não (chave = texto), e eram os `SOCIO_0x`.
+  ⚠ **Acertar o NOME não resolve:** `LUIS RICARDO CISNEIRO` e `EMERSON WAGNER` já batiam letra
+  por letra e contavam dobrado — uuid e texto nunca se encontram. Depois de o cadastro ser
+  igualado, a regra antiga **ainda dava 8**; a nova dá 5.
+  **`resolverPessoas(lista)`** resolve sobre o CONJUNTO: quem tem id ensina o id a quem só tem
+  nome. Dois ids com o mesmo nome são homônimos de verdade e **não** colapsam.
+  ⚠ No Organograma ela é construída sobre a lista **inteira**, não sobre o recorte filtrado: o
+  posto que ensina o id pode estar fora do filtro.
+  ⚠ **O orçado guarda o nome de quando o Aplicar rodou** (`dims->>'nome'`), então a aba *Análise
+  Pessoas* segue com as duas grafias até o próximo Aplicar — ela não lê `posto`.
+
   ⚠ **Headcount não é matrícula distinta** (`lib/pessoaChave.ts`, nov/2026). `matricula` é por
   **empresa**: quem tem pró-labore em mais de uma empresa do grupo ganha uma em cada, e contar
   matrícula transformava 2 diretores em "7 pessoas" no CC 411. O identificador certo seria
