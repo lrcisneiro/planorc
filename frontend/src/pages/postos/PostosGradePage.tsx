@@ -359,6 +359,22 @@ export default function PostosGradePage() {
   const postosEf = useMemo(() =>
     modoCenario ? postos.map(p => resolvePosto(p, overlays.get(p.id))) : postos,
     [postos, overlays, modoCenario])
+  // ⚠ Quem o CENÁRIO cortou — e não quem o cadastro desligou. A diferença só
+  // existe comparando o mestre com o resolvido: `ativo === false` no resolvido
+  // pode ter vindo dos dois lados, e tratá-los igual escondia o corte entre os
+  // demitidos de verdade, sem caminho de volta.
+  const cortadosCenario = useMemo(() => {
+    const s = new Set<string>()
+    if (!modoCenario) return s
+    for (const p of postos) {
+      if (p.ativo === false) continue                       // já vinha desligado do cadastro
+      if (resolvePosto(p, overlays.get(p.id)).ativo === false) s.add(p.id)
+    }
+    return s
+  }, [postos, overlays, modoCenario])
+  const sitDe = useMemo(() => (p: any) =>
+    (p?.id && cortadosCenario.has(p.id)) ? ('cortado' as Situacao) : situacaoPosto(p), [cortadosCenario])
+
   const alterados = useMemo(() => {
     const m = new Map<string, CampoCenario[]>()
     if (!modoCenario) return m
@@ -1230,13 +1246,13 @@ export default function PostosGradePage() {
     return postosEf.filter(p =>
       (!semSal || Number(p.salario_base) > 0) &&
       (!soAlteradas || alterados.has(p.id)) &&
-      sits.includes(situacaoPosto(p)) &&
+      sits.includes(sitDe(p)) &&
       (!sEmp || sEmp.has(p.empresa_id)) &&
       (!sFil || (p.filial_id != null && sFil.has(p.filial_id))) &&
       (!sCc || (p.cc_id != null && sCc.has(p.cc_id))) &&
       (!regimeSel || p.regime === regimeSel) && match(p)
     )
-  }, [postosEf, semSal, soAlteradas, alterados, sits, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, regimeSel, busca, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
+  }, [postosEf, semSal, soAlteradas, alterados, sits, sitDe, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, regimeSel, busca, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
 
   // ⚠ O contador conta o que ESTE filtro esconde, não "todo posto com salário
   // zero": aplica os demais recortes da tela e só então tira o salário da
@@ -1247,9 +1263,9 @@ export default function PostosGradePage() {
     const vis = new Set(filtrados.map((p: any) => p.id))
     return postosEf.filter(p =>
       !vis.has(p.id) && !(Number(p.salario_base) > 0) &&
-      sits.includes(situacaoPosto(p)) &&
+      sits.includes(sitDe(p)) &&
       (!soAlteradas || alterados.has(p.id))).length
-  }, [semSal, filtrados, postosEf, sits, soAlteradas, alterados])
+  }, [semSal, filtrados, postosEf, sits, sitDe, soAlteradas, alterados])
 
   // ⚠⚠ O RECORTE PARA O COMPARATIVO SAI DOS POSTOS-MESTRE, não de `filtrados`.
   // `filtrados` deriva de `postosEf`, que no modo cenário já vem RESOLVIDO pelo
@@ -1714,7 +1730,7 @@ export default function PostosGradePage() {
         </div>
         <div style={S.fld}>
           <span style={S.lbl} title="Quem fica fora do headcount, do FTE e do custo.">Situação</span>
-          <SeletorSituacao sel={sits} setSel={setSits} universo={postosEf} compacto />
+          <SeletorSituacao sel={sits} setSel={setSits} universo={postosEf} classificar={sitDe} compacto />
         </div>
         <div style={{ flex: 1 }} />
         {podeCadastro && <button style={{ ...S.btn, opacity: modoCenario ? 0.45 : 1, cursor: modoCenario ? 'not-allowed' : 'pointer' }}

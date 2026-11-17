@@ -955,6 +955,21 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   valor veio, para a defasagem não ficar implícita. Medido em out/26: o pagamento PJ oscila
   **1% na mediana** entre meses (só 15 de 194 passam de 20%), então usar o mês é estável.
 
+  ⚠⚠ **CORTADO NO CENÁRIO NÃO É DEMITIDO — e a conflação tirava a volta atrás** (nov/2026).
+  *Cortar neste cenário* grava `ativo = false` no overlay, e `situacaoPosto()` lê `ativo === false`
+  como **demitido**: o posto caía no balde *Demitidos*, que vem **desmarcado**, sumia da grade e
+  **não havia como descortar**. Quem acabara de decidir o corte procurava a pessoa entre 245
+  demitidos de verdade (o contador foi de 243 → 245, que eram exatamente os dois cortados).
+  Hoje há o estado **`cortado`**, com `soCenario: true` — o botão só aparece onde existe alguém
+  assim, então o modo Cadastro não ganha pílula permanentemente zerada.
+  ⚠ `situacaoPosto` **não** sabe de onde veio o `ativo = false`; quem distingue é a grade,
+  comparando o **mestre** com o **resolvido**, e passa a classificação ao seletor
+  (`classificar`). A etiqueta da linha já dizia CORTADO × DEMITIDO — era só o **filtro** que
+  não sabia.
+  ⚠ `cortado` fica **fora da seleção padrão**, de propósito: posto cortado não está no quadro e
+  não deve entrar no headcount nem no custo. O que faltava não era mostrá-lo, era **dizer onde
+  ele foi parar**.
+
   **Situação do posto** — regra e seletor em **`lib/situacaoPosto.tsx`**, usados por *Postos*,
   *Memória de cálculo* e *Organograma*. ⚠⚠ **Não usar em tela por COMPETÊNCIA** (Folha realizada,
   Apontamento, Conciliação): `sit_folha` é um retrato do momento da importação, sobrescrito na

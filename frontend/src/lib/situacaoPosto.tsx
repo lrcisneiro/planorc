@@ -22,13 +22,21 @@ import type { CSSProperties } from 'react'
 // Vale para "como está o quadro HOJE": Postos, Memória de cálculo, Organograma.
 // ============================================================
 
-export type Situacao = 'ativo' | 'afastado' | 'ferias' | 'demitido'
+export type Situacao = 'ativo' | 'afastado' | 'ferias' | 'demitido' | 'cortado'
 
-export const SITUACOES: { k: Situacao; rot: string; cor: string; rgb: string }[] = [
+export const SITUACOES: { k: Situacao; rot: string; cor: string; rgb: string; soCenario?: boolean }[] = [
   { k: 'ativo',    rot: 'Ativos',    cor: 'var(--green)',  rgb: '34,197,94' },
   { k: 'afastado', rot: 'Afastados', cor: 'var(--orange)', rgb: '251,146,60' },
   { k: 'ferias',   rot: 'Férias',    cor: 'var(--blue)',   rgb: '59,130,246' },
   { k: 'demitido', rot: 'Demitidos', cor: 'var(--red)',    rgb: '239,68,68' },
+  // ⚠⚠ CORTADO NO CENÁRIO NÃO É DEMITIDO. "Cortar neste cenário" grava
+  // `ativo = false` no overlay, e `situacaoPosto` lê isso como demitido — então
+  // o posto caía no balde *Demitidos*, que vem desmarcado, **sumia da tela e
+  // não havia como descortar**. Quem decidiu o corte há dois minutos procurava
+  // a pessoa entre 245 demitidos de verdade.
+  // Estado próprio, com `soCenario`: o botão só aparece onde existe alguém
+  // assim, então no modo Cadastro ele nem ocupa espaço.
+  { k: 'cortado',  rot: 'Cortados',  cor: 'var(--orange)', rgb: '251,146,60', soCenario: true },
 ]
 
 export const corSit = (s: Situacao): CSSProperties => {
@@ -65,15 +73,23 @@ export function situacaoPosto(p: PostoSit): Situacao {
 
 /** Seletor multi-estado. `universo` serve só para a contagem de cada botão —
  *  ver quantos existem antes de marcar evita marcar à toa. */
-export function SeletorSituacao({ sel, setSel, universo, compacto }: {
+export function SeletorSituacao({ sel, setSel, universo, compacto, classificar }: {
   sel: Situacao[]; setSel: (f: (v: Situacao[]) => Situacao[]) => void
   universo?: PostoSit[]; compacto?: boolean
+  /** Como ler a situação de cada posto. A grade passa a sua, que sabe
+   *  distinguir o corte do CENÁRIO do desligamento do CADASTRO — `situacaoPosto`
+   *  sozinha não tem como saber de onde veio o `ativo = false`. */
+  classificar?: (p: PostoSit) => Situacao
 }) {
+  const sitDe = classificar || situacaoPosto
   return (
     <div style={{ display: 'flex', gap: 2, border: '1px solid var(--border-strong)', borderRadius: 8, overflow: 'hidden' }}>
       {SITUACOES.map(({ k, rot, cor }) => {
         const on = sel.includes(k)
-        const n = universo?.filter(p => situacaoPosto(p) === k).length
+        const n = universo?.filter(p => sitDe(p) === k).length
+        // Estado que só existe em cenário some quando não há ninguém nele —
+        // botão permanentemente zerado é ruído em toda sessão.
+        if (SITUACOES.find(x => x.k === k)?.soCenario && !n) return null
         return (
           <button key={k} title={n != null ? `${n} posto(s)` : undefined}
             onClick={() => setSel(v => v.includes(k) ? v.filter(x => x !== k) : [...v, k])}
