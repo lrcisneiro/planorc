@@ -11,14 +11,33 @@ Medido na versão `Orçado2027`, origem POSTO para pessoal, com a receita vinda
 dos formulários. **"Administrativo" = CSC = todo CC que começa com 1** — as
 duas definições dão o mesmo conjunto, conferido nos dois sentidos.
 
-| área | pessoas | pessoal | % da área | % do pessoal | custo/pessoa | receita |
-|---|---|---|---|---|---|---|
-| Serviços | 173 | 32,19 mi | 82,0% | 59,2% | 186 mil | 70,20 mi |
-| Comercial | 76 | 15,71 mi | 89,4% | 28,9% | 207 mil | 52,95 mi |
-| **CSC (Adm)** | **40** | **4,85 mi** | **43,0%** | **8,9%** | **121 mil** | 1,11 mi |
-| Marketing | 10 | 0,98 mi | 21,9% | 1,8% | 98 mil | — |
-| Diretoria | **6** | 0,65 mi | 19,5% | 1,2% | 109 mil | 0,19 mi |
-| **total** | **305** | **54,38 mi** | **71,6%** | | **178 mil** | **124,44 mi** |
+| área | pessoas | pessoal | % da área | % do pessoal | **% da despesa** | custo/pessoa | receita |
+|---|---|---|---|---|---|---|---|
+| Serviços | 173 | 32,19 mi | 82,0% | 59,2% | **43,0%** | 186 mil | 70,20 mi |
+| Comercial | 76 | 15,71 mi | 89,4% | 28,9% | **21,0%** | 207 mil | 52,95 mi |
+| **CSC (Adm)** | **40** | **4,85 mi** | **43,0%** | **8,9%** | **6,5%** | **121 mil** | 1,11 mi |
+| Marketing | 10 | 0,98 mi | 21,9% | 1,8% | **1,3%** | 98 mil | — |
+| Diretoria | **6** | 0,65 mi | 19,5% | 1,2% | **0,9%** | 109 mil | 0,19 mi |
+| **total** | **305** | **54,38 mi** | | | **72,6%** | **178 mil** | **124,44 mi** |
+
+**DESPESA = SÓ A OPERACIONAL** (bloco `2` do plano, R$ 74.899.050) — decisão do
+Ricardo, 17/nov. ⚠ Ficam **de fora** três coisas que pareciam candidatas:
+· o **resultado financeiro** (bloco `3`: juros, IOF, tarifas — R$ 998 mil), que
+  não é operacional;
+· os **impostos sobre faturamento** (`13001`, R$ 7,14 mi), que moram no bloco da
+  receita porque são **dedução da receita bruta**, não despesa;
+· a **receita** inteira, claro.
+Com o denominador errado a conta dá 71,6% ou 65,5% em vez de 72,6% — diferença
+pequena no total e suficiente para ninguém conseguir reproduzir o número depois.
+
+**72,6% da despesa operacional é gente.** É o número que dimensiona todo o
+resto: a telefonia do CC 141 que a homologação levantou (R$ 156 mil/ano) é 0,2%.
+
+⚠⚠ **AS TRÊS PORCENTAGENS SOMAM COISAS DIFERENTES, e isso é armadilha de
+gráfico:** "% da área" não soma nada (cada uma tem seu denominador), "% do
+pessoal" soma 100% e "% da despesa" soma 72,6%. Juntas e sem rótulo, alguém
+soma a coluna errada. **Mostrar no máximo duas por vez**, sempre com o
+denominador escrito.
 
 ⚠⚠ **A UNIDADE DESTA TELA É A PESSOA. "Posto" não aparece em gráfico nenhum**
 (decisão do Ricardo, 17/nov) — porque posto duplica: o pró-labore é pago **por
