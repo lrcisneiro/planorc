@@ -373,7 +373,7 @@ export default function CenarioDiffModal(props: any) {
                 <div style={S.kv}>{linhas.length}</div>
                 {nRecusadas > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                   {valem.length} entra(m) · {nRecusadas} recusada(s)</div>}</div>
-              <div style={S.kpi}><div style={S.kl}>Encarece</div>
+              <div style={S.kpi}><div style={S.kl}>Aumento de custo</div>
                 <div style={{ ...S.kv, color: 'var(--red)' }}>{sobe ? `+${mil(sobe)}` : '—'}</div></div>
               <div style={S.kpi}><div style={S.kl}>Economiza</div>
                 <div style={{ ...S.kv, color: 'var(--green)' }}>{desce ? mil(desce) : '—'}</div></div>
