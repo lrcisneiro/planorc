@@ -193,9 +193,11 @@ const replica: Wizard = {
       ajuda: 'O realizado do ano em curso para no mês de corte; daí até dezembro é projeção.',
       opcoes: [
         { valor: 'VAZIO',    rotulo: 'não projetar — ficam vazios (viram zero no orçado)' },
-        { valor: 'MEDIA3',   rotulo: 'projetar pela média dos 3 últimos meses' },
-        { valor: 'MEDIAPER', rotulo: 'projetar pela média de todo o período' },
-        { valor: 'ULTIMO',   rotulo: 'projetar repetindo o último mês' },
+        // O divisor vai no rótulo porque é exatamente o que surpreendia: mês
+        // sem movimento não tem linha, e parecia não contar.
+        { valor: 'MEDIA3',   rotulo: 'projetar pela média dos 3 últimos meses (divide por 3)' },
+        { valor: 'MEDIAPER', rotulo: 'projetar pela média do período (divide por todos os meses até o corte)' },
+        { valor: 'ULTIMO',   rotulo: 'projetar repetindo o mês de corte' },
       ] },
   ],
   async preparar(p) {
@@ -245,12 +247,18 @@ const replica: Wizard = {
     if (metodo !== 'VAZIO') {
       const r = completarCauda(dados, corte, metodo)
       dados = r.linhas
-      const como = metodo === 'MEDIA3' ? 'pela média dos 3 últimos meses'
-                 : metodo === 'MEDIAPER' ? 'pela média de todo o período'
-                 : 'repetindo o último mês'
+      const como = metodo === 'MEDIA3' ? `pela média dos meses ${Math.max(1, corte - 2)}–${corte} (dividindo por ${corte - Math.max(1, corte - 2) + 1})`
+                 : metodo === 'MEDIAPER' ? `pela média dos meses 1–${corte} (dividindo por ${corte})`
+                 : `repetindo o mês ${corte}`
       if (r.estimados) avisos.push(
         `${r.estimados} célula(s) dos meses ${corte + 1}–12 foram ESTIMADAS ${como} de cada escopo — ` +
         'projeção não é fato, confira antes de aplicar.')
+      // ⚠ Mês sem movimento não tem linha, e entra na média como ZERO. Sem este
+      // aviso, o escopo que some da projeção parece dado perdido.
+      if (r.zerados) avisos.push(
+        `${r.zerados} escopo(s) não projetam nada: a janela usada para a média está vazia neles. ` +
+        'Mês sem movimento conta como zero — é por isso que a média pode ficar bem abaixo do que ' +
+        'os meses faturados sugerem.')
     } else if (corte < 12) {
       avisos.push(
         `Os meses ${corte + 1}–12 ficam VAZIOS, e célula vazia vale zero no orçado.`)

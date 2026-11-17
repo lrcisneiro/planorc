@@ -1289,6 +1289,19 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   é convenção do chamador — eram 60 chamadas e a maioria não ordenava; convenção voltaria a
   faltar na próxima. Quando não consegue ordenar (view sem `id`, coluna sem `GRANT`), segue sem
   ordem mas **reclama no console** em vez de devolver aproximação calada.
+- ⚠⚠ **Mês sem movimento NÃO existe no fato, e média que o ignora infla** (wizard de réplica,
+  nov/2026). `completarCauda` montava a janela com as N últimas **LINHAS** e dividia pela
+  quantidade delas. Como ausência é zero (a regra do resto do produto), três defeitos de uma vez:
+  **MEDIA3** pegava "as 3 últimas linhas", que podiam ser jan·mai·set; **MEDIAPER** dividia pelos
+  meses *com* valor — conta faturada em 3 dos 12 meses projetava **4× o ritmo real** (13.210,15
+  onde o certo é 3.302,54); e **ULTIMO** pegava "a última linha", virando o mês **anterior** ao de
+  corte sempre que o de corte não tinha movimento — "o mês até" virava "o mês até − 1", calado.
+  Hoje a janela é por **número de mês** e o divisor é o **tamanho dela**.
+  ⚠ **O dashboard de Orçamento sempre fez certo** (`meses.slice(-3)`, `mesFim`). O wizard dizia
+  seguir "os mesmos métodos" e os reimplementava — comentário afirmando paridade não é paridade.
+  ⚠ Escopo com janela vazia projeta **zero**, que é a resposta certa, e vai contado num aviso:
+  sumir da projeção sem explicação parece dado perdido.
+
 - **Paginação obrigatória:** o PostgREST corta em **1000 linhas por chamada, sem erro**. Todo `.select()` numa tabela que cresce com o negócio (fatos `fat_*`, plano de contas `conta_contabil`/`conta_orcamentaria`, junções `posto_verba`/`posto_rateio`, dropdowns de competência distinct) DEVE usar o helper `pageAll()` de `frontend/src/lib/pageAll.ts`. Dispensam: `.single()`/`.maybeSingle()`, `.in(ids.slice(...))` já em lotes, e catálogos naturalmente pequenos (empresa, filial, versão, sindicato). Sintoma de esquecer: "sumiu gente/conta" que só aparece quando a base passa de 1000.
 
 ## Como rodar

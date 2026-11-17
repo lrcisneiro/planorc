@@ -72,11 +72,28 @@ export type MetodoCauda = 'VAZIO' | 'MEDIA3' | 'MEDIAPER' | 'ULTIMO'
  *   MEDIA3    o ritmo recente        (sensível a inflexão, cego a sazonalidade)
  *   MEDIAPER  o ritmo do ano todo    (estável, dilui pico e vale)
  *   ULTIMO    "daqui para frente é assim"  (o mais agressivo dos três)
+ *
+ * ⚠⚠ A JANELA É POR NÚMERO DE MÊS, E O DIVISOR É O TAMANHO DELA — não o número
+ * de meses que têm linha. Mês sem movimento **não existe** em `fat_realizado`
+ * (ausência é zero, a mesma regra do resto do produto), e as duas versões
+ * anteriores liam isso como "mês que não conta":
+ *   · MEDIA3 pegava "as 3 últimas LINHAS", que podiam ser jan, mai e set, e
+ *     dividia por 3 só por coincidência — com 2 linhas, dividia por 2;
+ *   · MEDIAPER dividia pelos meses COM valor: uma conta faturada em 3 dos 12
+ *     meses projetava a média desses 3 como se fosse o ritmo do ano, inflando
+ *     o orçado em 4×;
+ *   · ULTIMO pegava "a última linha", que vira o mês ANTERIOR ao de corte
+ *     sempre que o de corte não tem movimento — foi assim que "o mês até"
+ *     virou "o mês até − 1" sem nada na tela dizer.
+ * Nenhum dos três dava erro: devolviam um número plausível e maior.
+ * ⚠ O dashboard de Orçamento sempre fez certo (`meses.slice(-3)` e `mesFim`).
+ * Esta função dizia seguir "os mesmos métodos" e reimplementava os dois.
  */
 export function completarCauda(
   linhas: Leitura[], ultimoFechado: number, metodo: MetodoCauda = 'MEDIA3',
-): { linhas: Leitura[]; estimados: number } {
-  if (!linhas.length || ultimoFechado >= 12 || metodo === 'VAZIO') return { linhas, estimados: 0 }
+): { linhas: Leitura[]; estimados: number; zerados: number } {
+  if (!linhas.length || ultimoFechado >= 12 || metodo === 'VAZIO')
+    return { linhas, estimados: 0, zerados: 0 }
 
   const grupos = new Map<string, Leitura[]>()
   for (const l of linhas) {
@@ -85,18 +102,25 @@ export function completarCauda(
     if (!grupos.has(g)) grupos.set(g, arr)
     arr.push(l)
   }
+
+  // A janela, em números de mês. O divisor é quantos meses ela tem.
+  const ini = metodo === 'MEDIA3' ? Math.max(1, ultimoFechado - 2)
+            : metodo === 'ULTIMO' ? ultimoFechado
+            : 1                                        // MEDIAPER: o período todo
+  const divisor = ultimoFechado - ini + 1
+
   const extra: Leitura[] = []
+  let zerados = 0
   for (const g of grupos.values()) {
-    const porMes = [...g].sort((a, b) => b.m - a.m)
-    const usa = metodo === 'MEDIA3' ? porMes.slice(0, 3)
-              : metodo === 'ULTIMO' ? porMes.slice(0, 1)
-              : porMes                                   // MEDIAPER
-    if (!usa.length) continue
-    const v = Math.round((usa.reduce((s, x) => s + x.v, 0) / usa.length) * 100) / 100
-    if (!v) continue
+    const soma = g.reduce((s, x) => (x.m >= ini && x.m <= ultimoFechado ? s + x.v : s), 0)
+    const v = Math.round((soma / divisor) * 100) / 100
+    // Escopo cuja janela está vazia projeta ZERO — e isso é a resposta certa,
+    // não uma lacuna: ele não faturou ali. Fica contado para a tela poder
+    // dizer, porque "sumiu da projeção" sem explicação parece defeito.
+    if (!v) { zerados++; continue }
     const tem = new Set(g.map(x => x.m))
     for (let m = ultimoFechado + 1; m <= 12; m++)
       if (!tem.has(m)) extra.push({ ...g[0], m, v })
   }
-  return { linhas: [...linhas, ...extra], estimados: extra.length }
+  return { linhas: [...linhas, ...extra], estimados: extra.length, zerados }
 }
