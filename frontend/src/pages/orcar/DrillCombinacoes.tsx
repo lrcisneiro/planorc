@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, Fragment } from 'react'
-import { X, Plus, Trash2, ChevronsRight, Lock } from 'lucide-react'
+import { X, Plus, Trash2, ChevronsRight, Lock, Eraser } from 'lucide-react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
 import { useUserAccess } from '../../hooks/useUserAccess'
@@ -68,6 +68,10 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
   // Célula em foco. Precisa ser estado (e não só o DOM) porque o botão de
   // replicar some junto com o foco: ele é renderizado SÓ na célula ativa.
   const [foco, setFoco] = useState<{ k: string; mes: number; txt: string } | null>(null)
+  // Zerar em lote pede confirmação À VISTA, com a conta feita: apagar é
+  // irreversível e aqui alcança dezenas de células de uma vez.
+  const [confirmar, setConfirmar] = useState<{ alvo: Comb[]; label: string } | null>(null)
+  const [zerando, setZerando] = useState(false)
 
   const master = linha.linha_orc_id as string
   const bloqueada = !!versao.bloqueada
@@ -247,6 +251,60 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
     } catch (e: any) { setErro(e?.message || String(e)) }
   }
 
+  // ============================================================
+  // ZERAR EM LOTE — uma combinação inteira, ou todas as da tela.
+  //
+  // ⚠ Aqui "zerar" é APAGAR: `fat_orcado` não guarda zero, guarda ausência (o
+  // rodapé já dizia isso para a célula; em lote a diferença pesa muito mais).
+  // Não há desfazer, então a conta vem antes do botão e o que fica de fora é
+  // nomeado — "zerei e sobrou valor" sem explicação parece defeito da tela.
+  // ============================================================
+
+  /** O que um zerar alcança — e o que não alcança, com o porquê. */
+  const alvoZerar = (alvo: Comb[]) => {
+    const ids: string[] = []
+    let valor = 0, geradas = 0, semEscopo = 0
+    for (const c of alvo) {
+      const pode = podeCelula(c)
+      const linhaCel = cel[chave(c)] || {}
+      for (const cl of Object.values(linhaCel)) {
+        if (!cl.itens.length) continue
+        if (!pode) { semEscopo++; continue }
+        // ⚠ MESMA REGRA DA DIGITAÇÃO (`editavelCel`), de propósito: célula com
+        // valor de posto/formulário não se mexe por aqui. E ainda que se
+        // apagasse só o ajuste manual dela, ela NÃO ficaria zerada — a tela
+        // diria "zerado" sobre uma célula com valor. Fica de fora e é contada.
+        if (!editavelCel(cl)) { geradas++; continue }
+        ids.push(cl.itens[0].id); valor += cl.total
+      }
+    }
+    return { ids, valor, geradas, semEscopo }
+  }
+
+  const zerar = async (alvo: Comb[]) => {
+    const { ids } = alvoZerar(alvo)
+    if (!ids.length) return
+    setErro(''); setZerando(true)
+    try {
+      // Em lotes: o DELETE vai na URL do PostgREST, e algumas centenas de uuid
+      // já a estouram — o erro seria um 414 sem relação aparente com a ação.
+      for (let i = 0; i < ids.length; i += 200) {
+        const lote = ids.slice(i, i + 200)
+        const { data, error } = await supabase.from('fat_orcado').delete().in('id', lote).select('id')
+        if (error) throw new Error(error.message)
+        // ⚠ DELETE barrado por RLS NÃO DÁ ERRO: filtra as linhas, apaga zero e
+        // volta sucesso. Comparar o que voltou com o que se pediu é a única
+        // maneira de saber que apagou — e o aviso diz o que já foi, porque
+        // metade apagada é o estado real, não um rollback.
+        if ((data?.length || 0) !== lote.length)
+          throw new Error(`Apagadas ${data?.length || 0} de ${lote.length} células deste lote — o resto está fora do seu escopo de edição. O que já foi apagado continua apagado.`)
+      }
+      setMudou(true); setConfirmar(null); setComp(null)
+      await carregar()
+    } catch (e: any) { setErro(e?.message || String(e)) }
+    finally { setZerando(false) }
+  }
+
   const novaComb = () => {
     const emp = empresas[0]
     if (!emp) return
@@ -297,11 +355,59 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
               {bloqueada && <b style={{ color: 'var(--orange)' }}> · versão bloqueada, só leitura</b>}
             </div>
           </div>
+          {podeOrcar && combs.some(c => Object.keys(cel[chave(c)] || {}).length > 0) && (
+            <button onClick={() => setConfirmar({ alvo: combs, label: `todas as ${combs.length} combinações` })}
+              title="Apagar os valores de todas as combinações listadas"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none',
+                       border: '1px solid var(--border-strong)', borderRadius: 8, padding: '6px 10px',
+                       fontSize: 12.5, cursor: 'pointer', color: 'var(--text-mid)' }}>
+              <Eraser size={13} /> Zerar células
+            </button>
+          )}
           <button onClick={() => onFechar(mudou)} style={{ background: 'none', border: '1px solid var(--border-strong)', borderRadius: 8, padding: '6px 8px', cursor: 'pointer', color: 'var(--muted)' }}><X size={14} /></button>
         </div>
 
         <div style={{ overflow: 'auto', padding: '14px 20px 20px' }}>
           {erro && <div style={{ fontSize: 12.5, color: 'var(--red)', background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.4)', borderRadius: 8, padding: '9px 12px', marginBottom: 12 }}>{erro}</div>}
+
+          {confirmar && (() => {
+            const a = alvoZerar(confirmar.alvo)
+            const bt: React.CSSProperties = { padding: '6px 12px', fontSize: 12.5, borderRadius: 7, cursor: 'pointer' }
+            return (
+              <div style={{ fontSize: 12.5, color: 'var(--text)', background: 'rgba(248,113,113,0.08)',
+                            border: '1px solid rgba(248,113,113,0.45)', borderRadius: 8,
+                            padding: '11px 13px', marginBottom: 12, lineHeight: 1.65 }}>
+                <b>Zerar {confirmar.label}?</b> Apaga <b>{a.ids.length} célula(s)</b> somando{' '}
+                <b>{mostrar(a.valor)}</b> — valores apagados <b>não voltam</b>.
+                {/* ⚠ Com filtro ativo "todas" quer dizer menos do que parece. É o
+                    mesmo mal-entendido que já causou a divergência do drill. */}
+                {(filialIds || ccIds) && (
+                  <div style={{ color: 'var(--violet)', marginTop: 4 }}>
+                    Só o que está <b>dentro do filtro da tela</b> — o que o filtro esconde não é tocado.
+                  </div>
+                )}
+                {(a.geradas > 0 || a.semEscopo > 0) && (
+                  <div style={{ color: 'var(--muted)', marginTop: 4 }}>
+                    Ficam como estão:{' '}
+                    {a.geradas > 0 && <>{a.geradas} com valor de <b>posto/formulário</b> (muda-se na origem)</>}
+                    {a.geradas > 0 && a.semEscopo > 0 && ' · '}
+                    {a.semEscopo > 0 && <>{a.semEscopo} fora do seu escopo de edição</>}.
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <button onClick={() => zerar(confirmar.alvo)} disabled={zerando || !a.ids.length}
+                    style={{ ...bt, background: 'var(--red)', color: '#fff', border: 'none',
+                             opacity: zerando || !a.ids.length ? 0.55 : 1 }}>
+                    {zerando ? 'Apagando…' : `Apagar ${a.ids.length} célula(s)`}
+                  </button>
+                  <button onClick={() => setConfirmar(null)} disabled={zerando}
+                    style={{ ...bt, background: 'none', color: 'var(--text-mid)', border: '1px solid var(--border-strong)' }}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )
+          })()}
 
           {temConsolidado && temDetalhe && (
             <div style={{ fontSize: 12.5, color: 'var(--orange)', background: 'rgba(251,146,60,0.10)',
@@ -401,8 +507,16 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
                       })}
                       <td style={{ ...td, fontWeight: 700, color: tot ? 'var(--text)' : 'var(--faint)' }}>{tot ? mostrar(tot) : '—'}</td>
                       <td style={td}>
-                        {nova && <button onClick={() => setCombs(v => v.filter((_, j) => j !== i))}
-                          style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}><Trash2 size={13} /></button>}
+                        {nova
+                          ? <button onClick={() => setCombs(v => v.filter((_, j) => j !== i))}
+                              title="Tirar esta combinação da lista"
+                              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}><Trash2 size={13} /></button>
+                          : pode && !!tot && (
+                            <button onClick={() => setConfirmar({ alvo: [c], label:
+                                `${empCod[c.empresa_id] || '?'} · ${c.cc_id ? ccCod[c.cc_id] : 'sem CC'}` })}
+                              title="Apagar os 12 meses desta combinação"
+                              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}><Eraser size={13} /></button>
+                          )}
                       </td>
                     </tr>
                     {comp && comp.k === k && (() => {
@@ -490,6 +604,8 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
             {' '}Valor vindo de <b>formulário</b> ou <b>posto</b> fica mais claro e, se editado aqui,
             passa a ser manual — e a próxima aplicação daquela origem pode sobrescrever.
             {' '}Com a célula em foco, <b>Ctrl+Enter</b> (ou o <b>»</b>) repete o valor até dezembro.
+            {' '}A <b>borracha</b> apaga os 12 meses de uma combinação, e <b>Zerar células</b> apaga
+            os de todas as listadas — as duas pedem confirmação com a conta feita.
           </p>
         </div>
       </div>

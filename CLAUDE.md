@@ -82,6 +82,17 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > ⚠ **Não criar capacidade para "poder editar o gerado"** — seria reintroduzir exatamente o
 > caminho que quebra o Aplicar. O que separa quem pode é o *mecanismo*, não um interruptor.
 
+> ⚠ **Zerar em lote é APAGAR em lote** (nov/2026). A borracha (uma combinação) e *Zerar células*
+> (todas as listadas) existem porque limpar uma linha residual custava dezenas de células uma a
+> uma — mas `fat_orcado` não guarda zero, guarda **ausência**, então não há desfazer. Por isso a
+> conta vem **antes** (quantas células, quanto somam) e o que fica de fora é **nomeado**: célula
+> de posto/formulário (mesma regra de `editavelCel` — apagar só o ajuste manual dela deixaria a
+> tela dizendo "zerado" sobre célula com valor) e célula fora do escopo. E, com filtro ativo,
+> "todas" quer dizer **menos do que parece** — o aviso diz isso.
+> ⚠ **`DELETE` barrado por RLS também não dá erro** — como o `UPDATE`: filtra as linhas, apaga
+> zero e volta sucesso. O lote compara o que voltou com o que pediu; divergiu, para e avisa **o
+> que já foi apagado continua apagado**, porque é o estado real.
+
 > ⚠ **Esta é a única tela onde o GRÃO MISTO aparece** — somando tudo, linha com consolidado *e*
 > detalhe no mesmo mês infla. São **122 grupos** hoje. Ela denuncia (aviso no topo, ⚠ na linha, as
 > duas pontas no drill) em vez de deixar o número mentir; na grade é invisível, porque cada grão
