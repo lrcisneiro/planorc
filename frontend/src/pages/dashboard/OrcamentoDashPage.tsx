@@ -1683,7 +1683,7 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
         <div style={S.secH}><div>
           <div style={S.secT}>Quanto de cada área é gente</div>
           <div style={S.secD}>
-            {rotulo} · {ano}. <strong>{pct(totGente / (totDesp || 1))}</strong> da despesa operacional da empresa é
+            {rotulo} · {ano}. <strong>{pct(totGente / (totDesp || 1) * 100)}</strong> da despesa operacional da empresa é
             pessoal — {fmt(totGente)} de {fmt(totDesp)}.
             {' '}⚠ A barra compara cada área com a <strong>própria despesa</strong>: áreas que <em>são</em> gente
             (Serviços, Comercial) chegam perto de 90% por natureza, não por eficiência.
@@ -1691,7 +1691,9 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>
             <th style={{ ...S.th, textAlign: 'left' }}>área</th>
-            <th style={S.th}>pessoal</th><th style={S.th}>despesa da área</th>
+            <th style={S.th}>pessoal</th>
+            <th style={S.th} title="pessoal da área ÷ pessoal de TODA a empresa">% do pessoal</th>
+            <th style={S.th}>despesa da área</th>
             <th style={{ ...S.th, width: 150 }}>% da própria área</th>
             <th style={S.th} title="pessoal da área ÷ despesa operacional da EMPRESA">% da despesa</th>
           </tr></thead>
@@ -1700,6 +1702,10 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
               <tr key={a.nome}>
                 <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit' }}>{a.nome}</td>
                 <td style={S.td}>{fmt(a.custo)}</td>
+                {/* Quanto da FOLHA da empresa está nesta área — pergunta
+                    diferente de "% da despesa" (que divide pela despesa total)
+                    e de "% da própria área" (que divide pela despesa dela). */}
+                <td style={S.td}>{pct(a.custo / (totGente || 1) * 100)}</td>
                 <td style={{ ...S.td, color: 'var(--muted)' }}>{fmt(a.desp)}</td>
                 <td style={S.td}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
@@ -1710,6 +1716,7 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
               </tr>))}
             <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontWeight: 700 }}>total</td>
               <td style={{ ...S.td, fontWeight: 700 }}>{fmt(totGente)}</td>
+              <td style={{ ...S.td, fontWeight: 700 }}>{pct(100)}</td>
               <td style={{ ...S.td, color: 'var(--muted)' }}>{fmt(totDesp)}</td>
               <td style={S.td} /><td style={{ ...S.td, fontWeight: 700 }}>{pct(totGente / (totDesp || 1) * 100)}</td></tr>
           </tbody>
