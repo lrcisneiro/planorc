@@ -9,7 +9,7 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 
 // SheetJS carregado via CDN no index.html
 declare const XLSX: any
-import { Plus, Trash2, Check, X, Upload, AlertCircle, Download, FileDown, Pencil, Copy, CopyPlus, Link2 } from 'lucide-react'
+import { Plus, Trash2, Check, X, Upload, AlertCircle, Download, FileDown, Pencil, Copy, CopyPlus, Link2, Lock, LockOpen } from 'lucide-react'
 import { CargosTab } from './CargosTab'
 import { AreasFuncionaisTab } from './AreasFuncionaisTab'
 import { ImportarFuncionarios } from './ImportarFuncionarios'
@@ -1173,6 +1173,25 @@ function VerbasTab() {
 
 // ─── VersoesTab (cenários de orçamento) ───────────────────────
 function VersoesTab() {
+  const capVer = useCapacidades()
+  // ⚠ Fechar/reabrir passa por RPC, nunca por `update` na coluna: desde a
+  // v3_190 o `UPDATE` de `bloqueada` está REVOGADO para `authenticated`, então
+  // um PATCH daqui falharia — e é esse o ponto. A autoridade vive no banco
+  // (`pode_bloquear_versao`), e esta tela só oferece o gesto.
+  const [trancando, setTrancando] = useState<any | null>(null)
+  const [motivo, setMotivo] = useState('')
+  const [trabalhando, setTrabalhando] = useState(false)
+  const aplicarTranca = async () => {
+    if (!trancando) return
+    const fechar = !trancando.bloqueada
+    setTrabalhando(true)
+    const { data, error } = await supabase.rpc(fechar ? 'bloquear_versao' : 'reabrir_versao',
+      { p_versao: trancando.id, p_motivo: motivo.trim() || null })
+    setTrabalhando(false)
+    const msg = error ? error.message : String(data ?? '')
+    if (error || msg.startsWith('⛔')) { alert(msg); return }
+    setTrancando(null); setMotivo(''); load()
+  }
   const [data, setData] = useState<any[]>([])
   const [adding, setAdding] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
@@ -1263,7 +1282,7 @@ function VersoesTab() {
       {erro && <div style={S.erro}><AlertCircle size={15} />{erro}</div>}
       <table style={S.table}>
         <thead><tr>
-          <th style={S.th}>Código</th><th style={S.th}>Descrição</th><th style={S.th}>Ano</th><th style={S.th}></th>
+          <th style={S.th}>Código</th><th style={S.th}>Descrição</th><th style={S.th}>Ano</th><th style={S.th}>Estado</th><th style={S.th}></th>
         </tr></thead>
         <tbody>
           {adding && <AddRow cols={VS_COLS} onSave={save} onCancel={() => setAdding(false)} />}
@@ -1275,7 +1294,20 @@ function VersoesTab() {
               <td style={S.tdMono}>{v.codigo}</td>
               <td style={S.td}>{v.descricao}</td>
               <td style={S.td}>{v.ano}</td>
-              <td style={{ ...S.td, width: 100, whiteSpace: 'nowrap' }}>
+              <td style={S.td}>
+                {v.bloqueada
+                  ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: 'var(--orange)', border: '1px solid var(--orange)', borderRadius: 5, padding: '1px 6px' }}
+                      title="Versão fechada: o Aplicar e a edição de células são recusados pelo banco, não só pela tela">FECHADA</span>
+                  : <span style={{ fontSize: 11, color: 'var(--muted)' }}>aberta</span>}
+              </td>
+              <td style={{ ...S.td, width: 130, whiteSpace: 'nowrap' }}>
+                {capVer.can('versao.bloquear') && (
+                  <button style={{ ...S.btnDel, color: v.bloqueada ? 'var(--orange)' : 'var(--muted)' }}
+                    title={v.bloqueada ? 'Reabrir esta versão (exige motivo)' : 'Fechar: vira a meta do ano e o Aplicar para de rodar'}
+                    onClick={() => { setTrancando(v); setMotivo('') }}>
+                    {v.bloqueada ? <LockOpen size={14} /> : <Lock size={14} />}
+                  </button>
+                )}
                 <button style={{ ...S.btnDel, color: 'var(--violet)' }} title="Duplicar esta versão num cenário novo (leva orçado, câmbio, dissídio, drivers e as decisões de folha)"
                   onClick={() => { setCopia({ origem: v, modo: 'duplicar' }); setNovaVersao({ codigo: `${v.codigo}_B`, descricao: `${v.descricao} — cenário B`, ano: String(v.ano ?? '') }); setCopiaCompleta(true); setCopiaResumo(null); setErro(null) }}><CopyPlus size={14} /></button>
                 <button style={{ ...S.btnDel, color: 'var(--blue)' }} title="Copiar de outra versão PARA esta" onClick={() => { setCopia({ destino: v, modo: 'para' }); setCopiaOrigem(''); setCopiaSubst(true); setCopiaCompleta(true); setCopiaResumo(null); setErro(null) }}><Copy size={14} /></button>
@@ -1286,6 +1318,46 @@ function VersoesTab() {
           ))}
         </tbody>
       </table>
+
+      {/* ⚠ O modal não é formalidade: FECHAR é "não mexo mais", e REABRIR é mexer
+          no alvo depois que o ano começou a ser medido contra ele. Por isso o
+          texto muda e o motivo só é exigido numa das duas direções — a mesma
+          regra que o banco aplica em `reabrir_versao`. */}
+      {trancando && (
+        <div style={S.overlay} onClick={() => !trabalhando && setTrancando(null)}>
+          <div style={S.modal} onClick={e => e.stopPropagation()}>
+            <div style={S.mTitle}>
+              {trancando.bloqueada ? <>Reabrir <span style={{ color: 'var(--orange)' }}>{trancando.codigo}</span></>
+                                   : <>Fechar <span style={{ color: 'var(--violet)' }}>{trancando.codigo}</span></>}
+            </div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-mid)', lineHeight: 1.5, marginBottom: 12 }}>
+              {trancando.bloqueada ? (
+                <>Esta versão volta a aceitar <b>Aplicar</b> e edição de células. ⚠ Ela já é a <b>meta</b> contra a
+                  qual o realizado vem sendo medido — mexer nela muda o desvio de meses que já foram lidos.
+                  O motivo fica registrado no histórico da versão.</>
+              ) : (
+                <>Depois de fechada, o <b>Aplicar do quadro</b>, a grade de orçar e a importação passam a ser
+                  recusados — pelo <b>banco</b>, não só pela tela. É o que transforma este orçado na meta do ano.
+                  Para simular cenários, duplique a versão.</>
+              )}
+            </div>
+            <div style={S.field}>
+              <label style={S.label}>Motivo {trancando.bloqueada ? '(obrigatório)' : '(opcional)'}</label>
+              <input style={S.input} value={motivo} autoFocus
+                placeholder={trancando.bloqueada ? 'por que a meta precisa mudar?' : 'ex.: orçamento aprovado em reunião de 20/12'}
+                onChange={e => setMotivo(e.target.value)} />
+            </div>
+            <div style={S.mFooter}>
+              <button style={S.btnImp} disabled={trabalhando} onClick={() => setTrancando(null)}>Cancelar</button>
+              <button style={S.btnAdd}
+                disabled={trabalhando || (trancando.bloqueada && !motivo.trim())}
+                onClick={aplicarTranca}>
+                {trabalhando ? 'Gravando…' : (trancando.bloqueada ? 'Reabrir' : 'Fechar versão')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {copia && (
         <div style={S.overlay} onClick={() => !copiando && setCopia(null)}>

@@ -404,6 +404,30 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 
 **3. Funcionalidades do tenant — o que EXISTE nesta instalação.** Pergunta diferente das duas acima, que são sobre *quem pode*. `lib/tenantFlags.ts` lê colunas booleanas de `tenant` (hoje `usa_apontamento`) e o hook `useTenantFlags()` as entrega com cache em `localStorage`, para a navegação não piscar esperando um boolean. Ligadas em **Configurações → Funcionalidades**; mexer na flag exige `limparCacheFlags()`. Use para mecanismo específico de um negócio — apontar hora em projeto, p.ex. — que em outro tenant não deve nem aparecer como tela vazia.
 
+> ⚠⚠ **Fechar a versão é o que transforma o orçado em META (v3_190).** Decisão do Ricardo em
+> 17/nov: aplicado o orçamento final, a versão **fecha** e o realizado passa a ser medido contra
+> ela; simulação vai em outra versão (o `_B` que a tela de duplicar já cria).
+> **O produto tinha a coluna `bloqueada` e nada para ligá-la** — nenhuma tela escrevia `true`,
+> só `false` na criação. E ela **não trancava nada**: as 4 políticas de `fat_orcado` não a citam,
+> e o `UPDATE` em `versao_orcamento` só exigia `pode_escrever()` (admin **ou member**). Qualquer
+> member fechava, reabria e escrevia numa versão fechada pela API; as telas respeitavam, o banco
+> não. **ACS-02 e v3_174 de novo.**
+> Fechado em quatro camadas, porque o furo tinha quatro: `pode_bloquear_versao()` (a autoridade),
+> `bloquear_versao`/`reabrir_versao` (os atos), `versao_bloqueio` (o histórico, escrito só pelas
+> RPCs) e **três gatilhos de COMANDO em `fat_orcado`** — de linha, um Aplicar de 16.500 linhas
+> faria 16.500 consultas.
+> ⚠ **Admin por padrão, member por liberação:** `pode_bloquear_versao()` é `eh_admin() OR
+> override`, lendo `user_acesso_funcao` — então liberar em Configurações vale **no banco**. É a
+> **terceira repetição deliberada** do catálogo em SQL (depois de `pode_ver_folha` e
+> `pode_aprovar_cenario`): mudar o `padrao` de `versao.bloquear` exige mudar o SQL junto.
+> ⚠⚠ **Reabrir exige motivo, fechar não.** Fechar é "não mexo mais"; reabrir é mexer no alvo
+> **depois que o ano começou a ser medido contra ele** — sem o motivo, o desvio de março vira
+> outro número em abril sem explicação.
+> ⚠ **A RPC não fechava a porta sozinha:** `REVOKE UPDATE` na tabela e `GRANT` coluna a coluna,
+> deixando `bloqueada`, `aprovado_*`, `mesclado_*` e `semeado_em` de fora — todas são carimbo de
+> decisão, e decisão se escreve por RPC, nunca por PATCH. (Revoke de coluna só vale depois de
+> tirar o GRANT da tabela — lição da v3_150.)
+
 > **Apagar o orçado de uma versão (v3_127).** A ação mais destrutiva do produto vive no menu *Importar Baseline* da tela de Orçar, atrás da capacidade `orcado.apagar` (só admin por padrão). Três proteções, e a ordem importa: `orcado_resumo_versao` mostra o que vai sumir (linhas, origens, valor, escopos) **antes** de qualquer confirmação; quem confirma digita o **código da versão**; e `apagar_orcado_versao` **confere a confirmação no servidor** e recusa versão `bloqueada`. Não é senha de propósito — senha prova identidade, e o risco aqui não é um estranho clicando, é a pessoa certa apagando a versão errada. Apaga `fat_orcado` da versão/ano (todas as origens) e os carimbos de `formulario_aplicacao`; **não** apaga `formulario_valor` — quem recomeça as cargas quer reaplicar os formulários, não redigitá-los.
 
 > **Reabrir decisão recusada (v3_167/168).** Responder e reenviar são o **mesmo ato**: o editor da

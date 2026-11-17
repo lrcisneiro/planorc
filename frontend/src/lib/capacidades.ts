@@ -110,6 +110,14 @@ export const CAPACIDADES: Capacidade[] = [
   // versão, é comparável com o cadastro e passa por aprovação.
   { escrita: true, key: 'posto.cadastro.editar', label: 'Editar o cadastro de postos (dado do ERP)', categoria: 'Funções', padrao: { admin: true, member: false, viewer: false } },
   { escrita: true, key: 'posto.cenario.decidir', label: 'Decidir no cenário (cortes, reajustes)',     categoria: 'Funções', padrao: { admin: true, member: true,  viewer: false } },
+  // ⚠ Fechar a versão é o ato que transforma o orçado em META do ano: depois
+  // dele o Aplicar não roda mais e o realizado passa a ser medido contra um
+  // alvo fixo. Reabrir mexe nesse alvo com o ano já em curso, e por isso exige
+  // motivo escrito (`reabrir_versao`, v3_190).
+  // ⚠⚠ ESTA CHAVE É REPETIDA EM SQL (`pode_bloquear_versao()`), a terceira
+  // repetição deliberada do catálogo. Mudar o `padrao` aqui exige mudar o SQL
+  // junto — sem isso a tela esconde e a API libera.
+  { escrita: true, key: 'versao.bloquear',       label: 'Fechar e reabrir versão de orçamento',         categoria: 'Funções', padrao: { admin: true, member: false, viewer: false } },
   { escrita: true, key: 'cenario.aprovar',       label: 'Aprovar cenário (postos e orçamento)',        categoria: 'Funções', padrao: { admin: true, member: false, viewer: false } },
 
   // ── Importações ──
