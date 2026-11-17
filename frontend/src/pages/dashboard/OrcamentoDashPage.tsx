@@ -140,7 +140,8 @@ export default function OrcamentoDashPage() {
   // Duas abas, porque são duas perguntas. "Orçamento" mostra o plano em si —
   // os indicadores da estrutura e a forma dele no ano. "Comparativo" julga o
   // plano contra outro ano. Quem monta quer a primeira; quem aprova, a segunda.
-  const [aba, setAba] = useState<'orcamento' | 'comparativo'>(sv.aba === 'comparativo' ? 'comparativo' : 'orcamento')
+  const [aba, setAba] = useState<'orcamento' | 'comparativo' | 'pessoas'>(
+    sv.aba === 'comparativo' ? 'comparativo' : sv.aba === 'pessoas' ? 'pessoas' : 'orcamento')
   const [secOrc, setSecOrc] = useState<SecCfg>(SEC_PADRAO)
   const [metas, setMetas] = useState<IndicadorMeta[]>([])
   const [indicSel, setIndicSel] = useState<string[]>(arr(sv.indicSel) || [])
@@ -313,6 +314,30 @@ export default function OrcamentoDashPage() {
   // (Indicadores, CAGR e Executivo já faziam isto; esta tela tinha ficado para trás.)
   const ccsVisiveis = useMemo(() => acesso.filterList('centro_custo', ccs as any) as CC[], [ccs, acesso])
   const empFiltradas = useMemo(() => empresaSel.filter(id => acesso.canSee('empresa', id)), [empresaSel, acesso])
+
+  // ── Análise Pessoas: carga PREGUIÇOSA ────────────────────────────────────
+  // ⚠ Só busca quando a aba abre. As outras duas já fazem 6 a 8 chamadas por
+  // recarga, e esta é a terceira — pagar por ela em quem nunca abre a aba é
+  // deixar o dashboard mais lento para a maioria por causa da minoria.
+  const [pess, setPess] = useState<any[] | null>(null)
+  const [carregPess, setCarregPess] = useState(false)
+  useEffect(() => {
+    if (aba !== 'pessoas' || !vBase || !anoBase) { return }
+    let vivo = true
+    setCarregPess(true)
+    supabase.rpc('analise_pessoas_agg', {
+      p_versao: vBase, p_ano: anoBase,
+      p_empresas: empFiltradas.length ? empFiltradas : null,
+      p_filiais: filialFilter, p_ccs: ccFilter,
+    }).then(({ data, error }) => {
+      if (!vivo) return
+      setCarregPess(false)
+      // ⚠ Erro vira lista VAZIA, não `null`: null é "ainda não buscou" e
+      // deixaria a tela em "Calculando…" para sempre.
+      if (error) { setErro(error.message); setPess([]) } else setPess(data || [])
+    })
+    return () => { vivo = false }
+  }, [aba, vBase, anoBase, empFiltradas.join(','), filialFilter?.join(','), ccFilter?.join(',')]) // eslint-disable-line
 
   // ⚠ Os dois lados compartilham a versão da projeção: os meses projetados
   // ficam idênticos POR CONSTRUÇÃO e a variação neles é zero de mentira.
@@ -586,7 +611,7 @@ export default function OrcamentoDashPage() {
           acima — mudar de aba não deve custar remarcar empresa e período. */}
       {relId && (
         <div style={{ display: 'flex', gap: 6, margin: '0 0 16px' }} data-noexport>
-          {([['orcamento', 'Orçamento'], ['comparativo', 'Comparativo']] as const).map(([k, lbl]) => (
+          {([['orcamento', 'Orçamento'], ['comparativo', 'Comparativo'], ['pessoas', 'Análise Pessoas']] as const).map(([k, lbl]) => (
             <button key={k} onClick={() => setAba(k)}
               style={{ padding: '7px 16px', fontSize: 13, fontWeight: aba === k ? 700 : 500, borderRadius: 99, cursor: 'pointer',
                 border: '1px solid ' + (aba === k ? 'var(--violet)' : 'var(--border)'),
@@ -602,6 +627,10 @@ export default function OrcamentoDashPage() {
         </div>
       ) : carregando ? (
         <div style={{ ...S.sec, textAlign: 'center', color: 'var(--muted)', padding: 48 }}>Calculando…</div>
+      ) : aba === 'pessoas' ? (
+        carregPess || !pess
+          ? <div style={{ ...S.sec, textAlign: 'center', color: 'var(--muted)', padding: 48 }}>Calculando…</div>
+          : <VisaoPessoas S={S} linhas={pess} rotulo={versao(vBase)?.codigo ?? ''} ano={anoBase} />
       ) : !dados ? null : aba === 'orcamento' ? (
         <VisaoOrcamento S={S} cfg={secOrc} setCfg={setSecOrc} linhas={linhas} nome={nome} val={val} fac={fac}
           base={dados.base} comp={dados.comp} mensal={dados.mensalBase} meses={meses} MES={MES}
@@ -1552,6 +1581,171 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
         </>
       )}
     </div>
+  )
+}
+
+// ── ANÁLISE PESSOAS ─────────────────────────────────────────
+// Descreve UMA versão: quanto cada área custa de gente, quantas pessoas são e
+// quanto isso pesa. Não compara nada — por isso é aba própria, e não seção da
+// aba que julga o orçamento ou da que decompõe a variação.
+//
+// ⚠⚠ A UNIDADE É A PESSOA, NUNCA O POSTO. Posto duplica: pró-labore é pago por
+// empresa do grupo, e a matrícula é por empresa — a Diretoria tem 11 postos e
+// 6 pessoas. A RPC devolve o grão (área, regime, pessoa) e a contagem aqui é
+// sempre de pessoa distinta.
+//
+// ⚠ Os dados vêm da FOTO (`fat_orcado`), não do cadastro. O cadastro muda a
+// cada importação mensal e os gráficos deixariam de representar o planejamento
+// — foi a pergunta do Ricardo que achou essa inconsistência. Consequência do
+// rótulo: a foto conta **quem custa**, então posto de salário zero não aparece.
+function VisaoPessoas({ S, linhas, rotulo, ano }: any) {
+  const fmt = (n: number) => Math.round(n).toLocaleString('pt-BR')
+  const pct = (n: number) => `${n.toFixed(1)}%`
+
+  const { areas, regimes, totPess, totDesp, totGente } = useMemo(() => {
+    const pes = linhas.filter((l: any) => l.tipo === 'PESSOA')
+    const des = linhas.filter((l: any) => l.tipo === 'DESPESA')
+    const porArea = new Map<string, { nome: string; custo: number; gente: Set<string>; desp: number }>()
+    const get = (nome: string) => {
+      let a = porArea.get(nome)
+      if (!a) { a = { nome, custo: 0, gente: new Set(), desp: 0 }; porArea.set(nome, a) }
+      return a
+    }
+    for (const l of pes) { const a = get(l.area_nome); a.custo += Number(l.valor) || 0; a.gente.add(l.pessoa) }
+    for (const l of des) get(l.area_nome).desp += Number(l.valor) || 0
+    const porReg = new Map<string, { custo: number; gente: Set<string> }>()
+    for (const l of pes) {
+      let r = porReg.get(l.regime); if (!r) { r = { custo: 0, gente: new Set() }; porReg.set(l.regime, r) }
+      r.custo += Number(l.valor) || 0; r.gente.add(l.pessoa)
+    }
+    const areas = [...porArea.values()].map(a => ({ ...a, pessoas: a.gente.size })).sort((a, b) => b.custo - a.custo)
+    const regimes = [...porReg.entries()].map(([k, v]) => ({ regime: k, custo: v.custo, pessoas: v.gente.size }))
+      .sort((a, b) => b.custo - a.custo)
+    return {
+      areas, regimes,
+      // ⚠ Pessoa distinta no TOTAL, não soma das áreas: se um dia alguém tiver
+      // custo em duas áreas, somar os subtotais a contaria duas vezes.
+      totPess: new Set(pes.map((l: any) => l.pessoa)).size,
+      totDesp: des.reduce((t: number, l: any) => t + (Number(l.valor) || 0), 0),
+      totGente: pes.reduce((t: number, l: any) => t + (Number(l.valor) || 0), 0),
+    }
+  }, [linhas])
+
+  if (!areas.length) return <div style={{ ...S.sec, textAlign: 'center', color: 'var(--muted)', padding: 48 }}>
+    Sem orçado de pessoal nesta versão. Rode o <strong>Aplicar no orçado</strong> na tela de Postos.</div>
+
+  const maxP = Math.max(...areas.map(a => a.pessoas), 1)
+  const barra = (v: number, max: number, cor: string) => (
+    <div style={{ height: 8, background: 'var(--bg-soft)', borderRadius: 99, overflow: 'hidden', minWidth: 60 }}>
+      <div style={{ width: `${Math.max(1, v / max * 100)}%`, height: '100%', background: cor, borderRadius: 99 }} />
+    </div>)
+
+  return (
+    <>
+      {/* ── 1 · composição ── */}
+      <div style={S.sec}>
+        <div style={S.secH}><div>
+          <div style={S.secT}>Quanto de cada área é gente</div>
+          <div style={S.secD}>
+            {rotulo} · {ano}. <strong>{pct(totGente / (totDesp || 1))}</strong> da despesa operacional da empresa é
+            pessoal — {fmt(totGente)} de {fmt(totDesp)}.
+            {' '}⚠ A barra compara cada área com a <strong>própria despesa</strong>: áreas que <em>são</em> gente
+            (Serviços, Comercial) chegam perto de 90% por natureza, não por eficiência.
+          </div></div></div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr>
+            <th style={{ ...S.th, textAlign: 'left' }}>área</th>
+            <th style={S.th}>pessoal</th><th style={S.th}>despesa da área</th>
+            <th style={{ ...S.th, width: 150 }}>% da própria área</th>
+            <th style={S.th} title="pessoal da área ÷ despesa operacional da EMPRESA">% da despesa</th>
+          </tr></thead>
+          <tbody>
+            {areas.map(a => (
+              <tr key={a.nome}>
+                <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit' }}>{a.nome}</td>
+                <td style={S.td}>{fmt(a.custo)}</td>
+                <td style={{ ...S.td, color: 'var(--muted)' }}>{fmt(a.desp)}</td>
+                <td style={S.td}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+                    {barra(a.desp ? a.custo / a.desp * 100 : 0, 100, 'var(--violet)')}
+                    <span style={{ minWidth: 48 }}>{a.desp ? pct(a.custo / a.desp * 100) : '—'}</span>
+                  </div></td>
+                <td style={S.td}>{pct(a.custo / (totDesp || 1) * 100)}</td>
+              </tr>))}
+            <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontWeight: 700 }}>total</td>
+              <td style={{ ...S.td, fontWeight: 700 }}>{fmt(totGente)}</td>
+              <td style={{ ...S.td, color: 'var(--muted)' }}>{fmt(totDesp)}</td>
+              <td style={S.td} /><td style={{ ...S.td, fontWeight: 700 }}>{pct(totGente / (totDesp || 1) * 100)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── 2 · pessoas e custo médio ── */}
+      <div style={S.sec}>
+        <div style={S.secH}><div>
+          <div style={S.secT}>Pessoas por área</div>
+          <div style={S.secD}>
+            {totPess} pessoas no orçado. ⚠ O número sozinho engana: o <strong>custo médio</strong> ao lado é o que
+            diz se duas áreas do mesmo tamanho pesam igual. Conta <strong>pessoa</strong>, não posto — pró-labore é
+            pago por empresa e duplicaria.
+          </div></div></div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr>
+            <th style={{ ...S.th, textAlign: 'left' }}>área</th>
+            <th style={{ ...S.th, width: 180 }}>pessoas</th>
+            <th style={S.th}>custo médio</th><th style={S.th}>pessoal</th>
+          </tr></thead>
+          <tbody>
+            {areas.map(a => (
+              <tr key={a.nome}>
+                <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit' }}>{a.nome}</td>
+                <td style={S.td}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+                    {barra(a.pessoas, maxP, 'var(--blue)')}
+                    <span style={{ minWidth: 32 }}>{a.pessoas}</span>
+                  </div></td>
+                <td style={S.td}>{a.pessoas ? fmt(a.custo / a.pessoas) : '—'}</td>
+                <td style={{ ...S.td, color: 'var(--muted)' }}>{fmt(a.custo)}</td>
+              </tr>))}
+            <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontWeight: 700 }}>total</td>
+              <td style={{ ...S.td, fontWeight: 700 }}>{totPess}</td>
+              <td style={{ ...S.td, fontWeight: 700 }}>{fmt(totGente / (totPess || 1))}</td>
+              <td style={{ ...S.td, color: 'var(--muted)' }}>{fmt(totGente)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── 3 · regime ── */}
+      <div style={S.sec}>
+        <div style={S.secH}><div>
+          <div style={S.secT}>Pessoas e custo por regime</div>
+          <div style={S.secD}>
+            ⚠ A coluna <strong>por pessoa</strong> levanta uma pergunta e não a responde: a diferença entre regimes
+            pode ser preço de contratação ou <strong>mistura de senioridade</strong> — um consultor sênior PJ contra
+            um auxiliar CLT. Quem responde é a pirâmide de cargos, não este quadro.
+          </div></div></div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr>
+            <th style={{ ...S.th, textAlign: 'left' }}>regime</th><th style={S.th}>pessoas</th>
+            <th style={{ ...S.th, width: 170 }}>custo</th><th style={S.th}>% do pessoal</th><th style={S.th}>por pessoa</th>
+          </tr></thead>
+          <tbody>
+            {regimes.map(r => (
+              <tr key={r.regime}>
+                <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit' }}>{r.regime}</td>
+                <td style={S.td}>{r.pessoas}</td>
+                <td style={S.td}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+                    {barra(r.custo, Math.max(...regimes.map(x => x.custo), 1), 'var(--green)')}
+                    <span style={{ minWidth: 76 }}>{fmt(r.custo)}</span>
+                  </div></td>
+                <td style={S.td}>{pct(r.custo / (totGente || 1) * 100)}</td>
+                <td style={S.td}>{r.pessoas ? fmt(r.custo / r.pessoas) : '—'}</td>
+              </tr>))}
+          </tbody>
+        </table>
+      </div>
+    </>
   )
 }
 
