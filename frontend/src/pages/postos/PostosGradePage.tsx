@@ -1434,6 +1434,19 @@ export default function PostosGradePage() {
     // sobre a LISTA, senão posto sem `funcionario_id` conta como outra pessoa.
     const chavePessoa = resolverPessoas(filtrados)
     const pessoas = new Set(filtrados.map(chavePessoa)).size
+    // ⚠⚠ ESTA TELA CONTA POR SITUAÇÃO; O ORÇADO SAI POR VIGÊNCIA. Quem não foi
+    // demitido entra aqui mesmo que a vigência tenha acabado no ano passado —
+    // e aí o motor gera zero, o Aplicar não escreve nada, e o dashboard (que
+    // lê o orçado) conta menos gente. Medido em 17/nov: 304 aqui × 302 lá,
+    // exatamente DIJAN DE BARROS (fim 12/2026) e MARCOS ROBERTO BARTH DE LIMA
+    // (fim 11/2026). Nenhum dos dois números está errado — eles respondem
+    // perguntas diferentes, e é a falta de dizer isso que vira "defeito".
+    const custoDe = new Map<string, number>()
+    for (const p of filtrados) {
+      const k = chavePessoa(p)
+      custoDe.set(k, (custoDe.get(k) || 0) + custoAnoP(p))
+    }
+    const semCusto = [...custoDe.values()].filter(v => !v).length
     const fte = filtrados.reduce((s, p) => s + (Number(p.fte) || 0), 0)
     const ano = filtrados.reduce((s, p) => s + custoAnoP(p), 0)
     const cat = Object.fromEntries(CATEGORIAS.map(c => [c, 0])) as Record<string, number>
@@ -1443,7 +1456,7 @@ export default function PostosGradePage() {
     // pessoa por mês" — somá-la ali inflaria o unitário de todo o quadro.
     const resc = filtrados.reduce((s, p) => s + (custos.get(p.id)?.rescisaoAno || 0), 0)
     const saindo = filtrados.filter(p => (custos.get(p.id)?.rescisaoAno || 0) > 0).length
-    return { head, vagas, pessoas, fte, ano, cat, resc, saindo, medioFte: fte ? ((ano - resc) / 12) / fte : 0 }
+    return { head, vagas, pessoas, semCusto, fte, ano, cat, resc, saindo, medioFte: fte ? ((ano - resc) / 12) / fte : 0 }
   }, [filtrados, custos]) // eslint-disable-line
 
   // janela de vigência DENTRO do ano da versão (bate com o motor)
@@ -1868,7 +1881,14 @@ export default function PostosGradePage() {
           <div style={S.kpis}>
             <div style={S.kpi}><div style={S.kpiL}>Postos</div><div style={S.kpiV}>{tot.head}</div><div style={S.kpiH}>{tot.vagas} vaga{tot.vagas === 1 ? '' : 's'} planejada{tot.vagas === 1 ? '' : 's'}</div></div>
             <div style={S.kpi}><div style={S.kpiL}>Headcount</div><div style={S.kpiV}>{tot.pessoas}</div>
-              <div style={S.kpiH}>{tot.head > tot.pessoas ? `${tot.head - tot.pessoas} posto(s) a mais que pessoas` : 'uma pessoa por posto'}</div></div>
+              <div style={S.kpiH}>
+                {tot.head > tot.pessoas ? `${tot.head - tot.pessoas} posto(s) a mais que pessoas` : 'uma pessoa por posto'}
+                {/* Sem esta linha, a diferença para o dashboard parece defeito
+                    — e a pessoa procura erro de contagem onde há vigência. */}
+                {!!tot.semCusto && <><br /><span style={{ color: 'var(--orange)' }}>
+                  {tot.semCusto} sem custo em {anoCalc} — vigência fora do ano, não entram no orçado
+                </span></>}
+              </div></div>
             <div style={S.kpi}><div style={S.kpiL}>FTE total</div><div style={S.kpiV}>{tot.fte.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}</div><div style={S.kpiH}>inclui ½ períodos</div></div>
             <div style={S.kpi}><div style={S.kpiL}>Custo anual {temMotor ? '(c/ encargos)' : '(base)'}</div><div style={S.kpiV}>{semFolha ? oculto : milAno(tot.ano)}</div>
               {/* Só com filtro limpo o delta é comparável: `tot.ano` respeita os

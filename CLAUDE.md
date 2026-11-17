@@ -1062,6 +1062,15 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ **Férias não é dedutível** de nada — era por isso que afastado passava por ativo antes. O
   filtro da tela é por situação (4 estados, multi-seleção), não mais "só ativos / com demitidos".
 
+  ⚠⚠ **Postos conta por SITUAÇÃO; o orçado sai por VIGÊNCIA — e os dois dizem "headcount".**
+  Medido em 17/nov com filtro limpo: **304** na tela de Postos × **302** na aba *Análise Pessoas*.
+  A diferença são exatamente **DIJAN DE BARROS** (vigência até 12/2026) e **MARCOS ROBERTO BARTH
+  DE LIMA** (até 11/2026): não estão demitidos, então a grade os conta, mas o motor gera **zero**
+  em 2027, o Aplicar não escreve nada e o dashboard — que lê `fat_orcado` — não os vê.
+  **Nenhum dos dois números está errado**; eles respondem perguntas diferentes, e é a falta de
+  dizer isso que faz parecer defeito. O KPI de Headcount passou a avisar quantos ficam sem custo
+  no ano da versão.
+
   ⚠⚠ **MISTURAR TIPO DE CHAVE PARTE A PESSOA EM DUAS** (nov/2026). `pessoaChave` prefere
   `funcionario_id` e cai no nome — seguro enquanto a coluna estava **vazia em 100%**, inseguro
   desde que a `v3_149` passou a populá-la. Medido no **CC 411**: 13 postos, **5 pessoas**, a tela
