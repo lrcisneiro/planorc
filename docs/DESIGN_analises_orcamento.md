@@ -61,6 +61,29 @@ cabeça, Comercial R$ 662 mil, e o CSC não gera receita por construção.
 sem dizer "da despesa da própria área" é o tipo de número que vira slide e
 depois vira decisão errada.
 
+## 4 · Headcount e custo por REGIME
+
+Pedido à parte, sem separar o resto da análise.
+
+| regime | postos | pessoas | custo 2027 | % | por pessoa |
+|---|---|---|---|---|---|
+| BR-PRESTADOR | 202 | 202 | 42,62 mi | **78,4%** | 210.980 |
+| BR-CLT | 93 | 93 | 11,09 mi | 20,4% | 119.221 |
+| BR-PROLABORE | 16 | **7** | 0,60 mi | 1,1% | 86.281 |
+| BR-ESTAGIO | 3 | 3 | 0,07 mi | 0,1% | 22.429 |
+
+**O número que salta: 78,4% do custo de pessoal é prestador.** Não é uma
+empresa de CLT com alguns terceiros — é o contrário.
+
+⚠ **E a coluna "por pessoa" levanta uma pergunta, não a responde.** Prestador
+custa R$ 211 mil e CLT custa R$ 119 mil **já com encargos** — 1,77×. Isso pode
+ser preço de regime ou pode ser **mistura de senioridade** (consultor sênior PJ
+contra auxiliar administrativo CLT). O gráfico deve mostrar a diferença e
+**não sugerir a causa**; quem responde é a pirâmide de senioridade.
+
+⚠ O pró-labore é o único com postos ≫ pessoas (16 × 7): é pago **por empresa**
+do grupo. Ali a média por pessoa só faz sentido somando as empresas.
+
 ## O que a pesquisa diz, e o que daqui se aplica
 
 Boas práticas de empresas de serviços profissionais convergem em cinco
@@ -108,6 +131,35 @@ mostra qual linha paga a própria estrutura.
 **Variação de headcount × variação de receita.** Duas séries no mesmo eixo, por
 área. Quadro crescendo mais rápido que receita é o sintoma que antecede a queda
 de margem, e aparece meses antes no orçamento.
+
+## A fonte: foto, não cadastro
+
+⚠⚠ **A pergunta mais importante do desenho, levantada pelo Ricardo:** os
+gráficos leem do cadastro, que é uma foto de HOJE. Mês a mês a importação
+atualiza o quadro, e os gráficos mudariam — **deixando de representar o
+planejamento que se aprovou**.
+
+**A inconsistência estava na minha primeira proposta:** o custo vinha do
+`fat_orcado` (congelado pelo Aplicar) e o headcount eu tirei de `posto` (vivo).
+
+**A regra:** custo **e** headcount saem da **mesma foto** — `fat_orcado`, cujo
+`dims` carrega `posto`, `nome` e `matricula` de quem gerou cada linha. Medido
+hoje, um dia após o Aplicar:
+
+```
+                 foto            cadastro
+  TOTAL     314 postos · 301     321 · 305
+```
+
+⚠ A diferença de hoje **não é deriva ainda**: são 7 postos com salário zero e
+nenhuma verba. Custam nada, o Aplicar não escreve linha e a foto não os vê.
+Muda o rótulo do gráfico: a foto conta **quem custa**, não **quem existe**.
+
+⚠ **E congelar o gráfico não congelava o orçamento** — reaplicar na mesma versão
+substituía tudo sem registro. Resolvido na `v3_190`: fechar a versão trava o
+Aplicar **no banco**, e simulação vai noutra versão. A partir daí o gráfico mede
+um alvo fixo, que é a condição para "acompanhar o realizado contra a meta"
+significar alguma coisa.
 
 ## Decisões que o desenho ainda precisa
 
