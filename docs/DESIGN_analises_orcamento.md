@@ -11,14 +11,24 @@ Medido na versão `Orçado2027`, origem POSTO para pessoal, com a receita vinda
 dos formulários. **"Administrativo" = CSC = todo CC que começa com 1** — as
 duas definições dão o mesmo conjunto, conferido nos dois sentidos.
 
-| área | HC | pessoal | % da área | % do pessoal | receita | receita/cabeça |
-|---|---|---|---|---|---|---|
-| Serviços | 175 | 32,19 mi | 82,0% | 59,2% | 70,20 mi | 401 mil |
-| Comercial | 80 | 15,71 mi | 89,4% | 28,9% | 52,95 mi | 662 mil |
-| **CSC (Adm)** | **44** | **4,85 mi** | **43,0%** | **8,9%** | 1,11 mi | — |
-| Marketing | 11 | 0,98 mi | 21,9% | 1,8% | — | — |
-| Diretoria | 11 | 0,65 mi | 19,5% | 1,2% | 0,19 mi | — |
-| **total** | **321** | **54,38 mi** | **71,6%** | | **124,44 mi** | **388 mil** |
+| área | postos | **pessoas** | pessoal | % da área | % do pessoal | custo/pessoa | receita |
+|---|---|---|---|---|---|---|---|
+| Serviços | 175 | 173 | 32,19 mi | 82,0% | 59,2% | 186 mil | 70,20 mi |
+| Comercial | 80 | 76 | 15,71 mi | 89,4% | 28,9% | 207 mil | 52,95 mi |
+| **CSC (Adm)** | **44** | **40** | **4,85 mi** | **43,0%** | **8,9%** | **121 mil** | 1,11 mi |
+| Marketing | 11 | 10 | 0,98 mi | 21,9% | 1,8% | 98 mil | — |
+| Diretoria | 11 | **6** | 0,65 mi | 19,5% | 1,2% | 109 mil | 0,19 mi |
+| **total** | **321** | **305** | **54,38 mi** | **71,6%** | | **178 mil** | **124,44 mi** |
+
+⚠⚠ **POSTO NÃO É PESSOA, e a primeira versão desta tabela contou errado.** São
+**321 postos para 305 pessoas**. A Diretoria é o caso extremo — **11 postos, 6
+pessoas**: o pró-labore é pago por empresa, e a matrícula é por empresa, então
+quem recebe em mais de uma do grupo ganha um posto em cada (o Marco Aurélio
+aparece 4 vezes). Isto já está no CLAUDE.md, com este CC pelo nome, e existe
+`lib/pessoaChave.ts` exatamente para resolver — eu contei `posto` e repeti o
+erro que o projeto documenta.
+**Todo gráfico de headcount tem de usar `pessoaChave()`**, e a tela deve mostrar
+as duas colunas: postos é o que custa, pessoas é o quadro.
 
 **A resposta direta das perguntas 1 e 2:** o pessoal do Administrativo é **43,0%
 da despesa da própria área** e **8,9% do custo de pessoal da empresa** (ou 6,4%
@@ -37,10 +47,11 @@ elas mede naturezas diferentes, não eficiências diferentes.
 uma barra por área. Responde as perguntas 1 e 2 juntas e torna visível que as
 áreas não são comparáveis pelo mesmo número.
 
-**2 · Headcount por área (barra horizontal)** com o custo médio por cabeça ao
-lado. ⚠ Headcount sozinho engana: 11 pessoas na Diretoria custam R$ 59 mil/ano
-cada, 175 em Serviços custam R$ 184 mil. Sem o custo médio, a barra diz que
-Marketing e Diretoria são iguais.
+**2 · Headcount por área (barra horizontal)** — **pessoas**, não postos, com o
+custo médio ao lado. ⚠ O número sozinho engana duas vezes: pela contagem (11
+postos da Diretoria são 6 pessoas) e pela leitura (10 pessoas em Marketing
+custam R$ 98 mil cada, 173 em Serviços custam R$ 186 mil). Sem o custo médio, a
+barra diz que Marketing e Diretoria são do mesmo tamanho.
 
 **3 · Pessoal × receita por área (dispersão ou barra pareada)** — é o que
 transforma as duas anteriores em julgamento. Serviços gera R$ 401 mil por
@@ -100,11 +111,12 @@ de margem, e aparece meses antes no orçamento.
 
 ## Decisões que o desenho ainda precisa
 
-⚠ **Qual "área" é a área.** `centro_custo.area_nome` tem 5 valores e é recorte
-**comercial**. `area_funcional` tem 37 nós e é o organograma. As perguntas de
-hoje são por CC; as de gente são por área funcional. Misturar as duas numa tela
-é o jeito de ninguém confiar em nenhuma. **Sugiro fixar o CC** nesta tela e
-deixar a área funcional para o Organograma, que já a usa.
+✅ **"Área" NESTA TELA é o centro de custo** (`centro_custo.area_nome`, 5
+valores) — decisão do Ricardo, 17/nov. ⚠ **Não confundir com `area_funcional`**,
+os 37 nós do organograma: aquilo é *onde a pessoa trabalha*, isto é *onde o
+dinheiro cai*. São as "três estruturas, três perguntas" do CLAUDE.md, e misturar
+as duas numa tela é o jeito de ninguém confiar em nenhuma. A área funcional fica
+no Organograma, que já a usa.
 
 ⚠ **O custo por área funcional é calculável**, mas por caminho diferente:
 `fat_orcado.dims->>'posto'` → `posto.area_func_id`. Funciona (testado), e não
