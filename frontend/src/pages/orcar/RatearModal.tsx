@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { X, Split, AlertTriangle } from 'lucide-react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
@@ -34,7 +34,7 @@ type Props = {
   fator: number
   empresas: any[]; filiais: any[]; ccs: any[]
   filialIds: string[] | null; ccIds: string[] | null
-  onFechar: (mudou: boolean) => void
+  onFechar: (mudou: boolean, resumo?: string) => void
 }
 
 const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -60,7 +60,8 @@ function distribuir(total: number, pcts: number[]): number[] {
 export default function RatearModal({ origem, meses, linhaId, versaoId, ano, fator,
                                       empresas, filiais, ccs, filialIds, ccIds, onFechar }: Props) {
   const acesso = useUserAccess()
-  const mostrar = (v: number) => money(v * fator)
+  // `|| 0` mata o ZERO NEGATIVO: 0 × -1 é -0, e o pt-BR o escreve "-0,00".
+  const mostrar = (v: number) => money((v * fator) || 0)
   const [cods, setCods] = useState<any[]>([])
   const [dest, setDest] = useState<Record<string, any[]>>({})
   const [codCc, setCodCc] = useState('')
@@ -68,6 +69,13 @@ export default function RatearModal({ origem, meses, linhaId, versaoId, ano, fat
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
   const [aplicando, setAplicando] = useState(false)
+  // ⚠⚠ GUARDA SÍNCRONA, e `disabled` NÃO basta. `setAplicando(true)` só vale no
+  // próximo render; um segundo clique antes dele vê o botão ainda liberado e
+  // dispara `aplicar` de novo. Foi o que houve em 17/nov: 1.200 viraram 2.400,
+  // porque a segunda passada encontrou os destinos já gravados e SOMOU por cima
+  // — comportamento correto para um rateio deliberado, desastroso para um
+  // clique repetido. Em operação de dinheiro não-idempotente, a trava é um ref.
+  const rodando = useRef(false)
 
   useEffect(() => {
     (async () => {
@@ -132,6 +140,8 @@ export default function RatearModal({ origem, meses, linhaId, versaoId, ano, fat
 
   const aplicar = async () => {
     if (!anexos.length || !pctOk || semAcesso.length) return
+    if (rodando.current) return
+    rodando.current = true
     setErro(''); setAplicando(true)
     try {
       const kOrigem = chave(origem)
@@ -216,8 +226,13 @@ export default function RatearModal({ origem, meses, linhaId, versaoId, ano, fat
           if (error) throw new Error(error.message)
         }
       }
-      onFechar(true)
-    } catch (e: any) { setErro(e?.message || String(e)); setAplicando(false) }
+      // ⚠ O RESUMO VIAJA DE VOLTA porque o drill pode recarregar VAZIO: rateando
+      // para fora do filtro, todo destino some da tabela e a tela fica
+      // indistinguível de uma falha. Foi o que levou ao clique repetido.
+      const fora = foraDoFiltro.length
+      onFechar(true, `Rateado ${mostrar(totalOrigem)} em ${destinos.length} destino(s)`
+        + (fora ? ` — ${fora} ${fora === 1 ? 'está' : 'estão'} fora do filtro da tela e por isso não aparece${fora === 1 ? '' : 'm'} aqui.` : '.'))
+    } catch (e: any) { setErro(e?.message || String(e)); setAplicando(false); rodando.current = false }
   }
 
   const sel: React.CSSProperties = { width: '100%', padding: '7px 9px', fontSize: 12.5, background: 'var(--bg)',

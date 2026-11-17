@@ -113,6 +113,16 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > apagadas: o valor ficaria nos dois lados, dobrando a linha.
 > ⚠ **Ordem: destinos primeiro, origem por último.** A operação não é atômica; falhando no meio,
 > valor duplicado (total dobra, salta aos olhos) é um modo de falha melhor que valor sumido.
+> ⚠⚠ **`disabled` NÃO trava clique repetido, e aqui isso DOBROU o valor** (17/nov, medido:
+> 19:48 gravou 144 células somando 2.400 de uma origem de 1.200; 19:49 o rateio só por empresa
+> gravou os 1.200 certos). `setAplicando(true)` só vale no render seguinte — o segundo clique vê
+> o botão ainda liberado. A trava é um **`useRef` síncrono**. E a causa do segundo clique foi a
+> própria tela: rateando para fora do filtro, **todo destino some e o drill recarrega vazio**,
+> indistinguível de falha. Por isso o modal devolve um **resumo** que o drill exibe — dizer o que
+> foi feito é parte da operação, não enfeite. ⚠ Somar no destino que já tem valor continua certo
+> para um rateio deliberado; o que estava errado era deixar o acidente acontecer.
+> ⚠ `0 × -1` é **−0**, e o pt-BR escreve "−0,00" — total zerado parecia defeito. `|| 0` resolve.
+
 > ⚠ Só combinação **puramente manual** rateia — mover célula de posto/formulário faria o próximo
 > Aplicar reinseri-la na origem, e o valor passaria a existir duas vezes.
 

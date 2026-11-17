@@ -48,7 +48,8 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
   // (`fatorExibicao`). O drill mostrava o valor cru, então a MESMA célula
   // aparecia +19.834,29 numa tela e -19.834,29 na outra. Aqui tudo que entra e
   // sai passa por `fator`, e o sinal deixa de ser assunto de quem digita.
-  const mostrar = (v: number) => money(v * fator)
+  // `|| 0` mata o ZERO NEGATIVO: 0 × -1 é -0, e o pt-BR o escreve "-0,00".
+  const mostrar = (v: number) => money((v * fator) || 0)
   const paraBanco = (n: number | null) => n === null ? null : n * fator
   const acesso = useUserAccess()
   const cap = useCapacidades()
@@ -75,6 +76,9 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
   const [zerando, setZerando] = useState(false)
   // Qual combinação está sendo rateada (o modal é de uma origem por vez).
   const [ratear, setRatear] = useState<Comb | null>(null)
+  // O que o rateio fez, dito na tela de onde ele partiu — ver o comentário no
+  // RatearModal: sem isso o drill recarrega vazio e parece que falhou.
+  const [feito, setFeito] = useState('')
 
   const master = linha.linha_orc_id as string
   const bloqueada = !!versao.bloqueada
@@ -348,7 +352,10 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
         linhaId={master} versaoId={versao.id} ano={ano} fator={fator}
         empresas={empresas} filiais={filiais} ccs={ccs}
         filialIds={filialIds} ccIds={ccIds}
-        onFechar={async (mud) => { setRatear(null); if (mud) { setMudou(true); await carregar() } }} />
+        onFechar={async (mud, resumo) => {
+          setRatear(null)
+          if (mud) { setMudou(true); setFeito(resumo || ''); await carregar() }
+        }} />
     )}
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}
          onClick={() => onFechar(mudou)}>
@@ -381,6 +388,15 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
 
         <div style={{ overflow: 'auto', padding: '14px 20px 20px' }}>
           {erro && <div style={{ fontSize: 12.5, color: 'var(--red)', background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.4)', borderRadius: 8, padding: '9px 12px', marginBottom: 12 }}>{erro}</div>}
+
+          {feito && (
+            <div style={{ fontSize: 12.5, color: 'var(--text)', background: 'rgba(139,92,246,0.10)',
+                          border: '1px solid rgba(139,92,246,0.45)', borderRadius: 8,
+                          padding: '10px 12px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <span style={{ flex: 1, lineHeight: 1.6 }}>{feito}</span>
+              <button onClick={() => setFeito('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 0 }}><X size={13} /></button>
+            </div>
+          )}
 
           {confirmar && (() => {
             const a = alvoZerar(confirmar.alvo)
