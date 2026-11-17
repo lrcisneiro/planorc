@@ -1166,6 +1166,18 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   a conta pequena que dobrou. O que faltava não era remover um filtro, era **desligá-lo num
   clique**: `0` nos dois campos já mostrava tudo, e não havia como descobrir isso olhando.
 
+- ⚠⚠ **O drill filtrava só por EMPRESA, e contradizia a linha que o abriu** (nov/2026). Em
+  produção, com a pílula *Serviços* marcada, a linha *Correio/moto taxi* mostrava **10.465** e o
+  drill dela abria com **14.936,77 em 10 combinações**, metade do CSC. Os dois números vinham da
+  mesma célula e discordavam — e não havia como saber qual era o da linha.
+  `DrillCombinacoes` recebia `empresas` e **não** `filial`/`cc`; hoje recebe `filialIds`/`ccIds`
+  (`null` = sem restrição, mesmo contrato do `effectiveCcFilter`) e o cabeçalho **diz** quando o
+  total está recortado — sem isso quem filtra vê um número menor e procura lançamento que não
+  sumiu. ⚠ Linha **consolidada** (filial/cc nulos) fica de fora quando há filtro, e é o certo:
+  ela não pertence a filial nem CC nenhum, logo não pertence ao recorte.
+  **A regra geral:** toda tela que abre detalhe a partir de um total tem de herdar **o mesmo
+  recorte** — detalhe que não soma o total de onde veio não é detalhe, é outro número.
+
 - ⚠⚠ **Na PONTE, o sinal cru se lê ao contrário — e avisar em texto não basta** (nov/2026).
   A ponte usa o sinal econômico cru por necessidade (ver a exceção abaixo), então despesa que
   **cresce** aparece **negativa**: ela piora o resultado. Mas o resto do sistema exibe despesa

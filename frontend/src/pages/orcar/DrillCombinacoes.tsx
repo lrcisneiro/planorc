@@ -22,7 +22,14 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 // a pessoa perde o trabalho sem entender.
 // ============================================================
 
+// ⚠⚠ `filialIds`/`ccIds` NÃO SÃO OPCIONAIS POR CONVENIÊNCIA — são o conserto de
+// um defeito achado em produção: o drill filtrava só por EMPRESA, então com a
+// pílula "Serviços" marcada a linha mostrava 10.465 e o drill dela abria com
+// 14.936,77 em 10 combinações, metade delas do CSC. O número de trás e o de
+// dentro se contradiziam, e não havia como saber qual era o da linha.
+// `null` = sem restrição naquela dimensão, mesmo contrato do `effectiveCcFilter`.
 type Props = { linha: any; versao: any; ano: number; empresas: any[]; fator?: number
+               filialIds?: string[] | null; ccIds?: string[] | null
                onFechar: (mudou: boolean) => void }
 type Lanc = { id: string; valor: number; origem: string; dims: any }
 type Cel = { total: number; itens: Lanc[] }
@@ -34,7 +41,8 @@ const money = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 
 const parseNum = (s: string) => Number(String(s).replace(/\./g, '').replace(',', '.'))
 const chave = (c: Comb) => `${c.empresa_id}|${c.filial_id || ''}|${c.cc_id || ''}`
 
-export default function DrillCombinacoes({ linha, versao, ano, empresas, fator = 1, onFechar }: Props) {
+export default function DrillCombinacoes({ linha, versao, ano, empresas, fator = 1,
+                                          filialIds = null, ccIds = null, onFechar }: Props) {
   // ⚠ SINAL: o banco guarda despesa NEGATIVA; a tela de linha mostra positiva
   // (`fatorExibicao`). O drill mostrava o valor cru, então a MESMA célula
   // aparecia +19.834,29 numa tela e -19.834,29 na outra. Aqui tudo que entra e
@@ -71,10 +79,19 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
       const [fl, cc, rows] = await Promise.all([
         supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
         supabase.from('centro_custo').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
-        pageAll(() => supabase.from('fat_orcado')
-          .select('id,empresa_id,filial_id,cc_id,mes,valor,origem,dims')
-          .eq('versao_id', versao.id).eq('ano', ano).eq('linha_id', master)
-          .in('empresa_id', empresas.map(e => e.id))),
+        pageAll(() => {
+          let q = supabase.from('fat_orcado')
+            .select('id,empresa_id,filial_id,cc_id,mes,valor,origem,dims')
+            .eq('versao_id', versao.id).eq('ano', ano).eq('linha_id', master)
+            .in('empresa_id', empresas.map(e => e.id))
+          // ⚠ O MESMO recorte da tela de trás, senão os dois totais divergem.
+          // Linha consolidada (filial/cc nulos) fica de fora quando há filtro —
+          // e é o certo: ela não pertence a filial nem a CC nenhum, então não
+          // pertence ao recorte. Sem filtro, entra normalmente.
+          if (filialIds) q = q.in('filial_id', filialIds)
+          if (ccIds) q = q.in('cc_id', ccIds)
+          return q
+        }),
       ])
       setFiliais(fl.data || []); setCcs(cc.data || [])
       const c: Record<string, Record<number, Cel>> = {}
@@ -273,6 +290,10 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
             <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{linha.descricao}</h2>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
               {versao.codigo} · {ano} · {combs.length} combinação(ões) · total {mostrar(totalAno)}
+              {/* ⚠ Dizer que o total é PARCIAL. Sem isto, quem filtra vê um
+                  número menor que o do mês passado e procura lançamento que
+                  não sumiu — só está fora do recorte. */}
+              {(filialIds || ccIds) && <b style={{ color: 'var(--violet)' }}> · recortado pelos filtros da tela</b>}
               {bloqueada && <b style={{ color: 'var(--orange)' }}> · versão bloqueada, só leitura</b>}
             </div>
           </div>
