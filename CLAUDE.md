@@ -1272,6 +1272,18 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ Asserção de prova afirma o **mínimo** necessário. `prova_escopo_pessoas.sql` exigiu que uma
   dimensão de escopo abrisse tudo e levou 568 de 570 — o sistema estava certo, a asserção errada,
   e meia hora foi gasta investigando o código que funcionava.
+- ⚠⚠ **`current_tenant_id()` CRU no `WHERE` da RPC roda por linha — 20× (v3_193).** Mesma
+  consulta, mesmo índice, mesmo plano: **36 ms** como dono com o tenant literal, **1.119 ms**
+  personificado com `tenant_id = current_tenant_id()`, **54 ms** com
+  `tenant_id = (SELECT current_tenant_id())`. São 24.398 chamadas a ~44 µs.
+  ⚠ **A política de RLS já estava certa** (`(SELECT escopo_*())`, InitPlan nos quatro escopos) —
+  quem estava cru era o `WHERE` da própria função. **A armadilha nº 2 da v3_129 todo mundo
+  aprendeu a evitar DENTRO da policy, e ninguém aplicou FORA dela.**
+  ⚠ `STABLE` **não é cache**: promete o mesmo valor durante a instrução, não que o Postgres o
+  reaproveite. Quem faz virar avaliação única é a subconsulta escalar.
+  ⚠ **Ao escrever RPC nova que varra os fatos, `(SELECT current_tenant_id())`.** A v3_193 trata
+  os 11 agregados do caminho de leitura; **~55 outras funções ainda têm a chamada crua.**
+
 - ⚠⚠ **A tela levava 40 s em 84 chamadas, e 66 delas eram supérfluas** (*Orçamento — análise*,
   nov/2026). Medido: uma `relatorio_orcado_agg` personificada custa **~990 ms**, a DRE Gerencial
   tem **5 grupos de `filtro_escopo` distintos**, e `totaisRelatorio` faz **1 + 5** idas ao banco —
