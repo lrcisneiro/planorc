@@ -112,45 +112,41 @@ COMMENT ON FUNCTION analise_pessoas_agg IS
 GRANT EXECUTE ON FUNCTION analise_pessoas_agg(uuid, integer, uuid[], uuid[], uuid[]) TO authenticated;
 
 -- ---------------- conferência ----------------
--- ⚠ 301, não 305: a FOTO conta quem CUSTA, o cadastro conta quem existe. Os 7
--- postos de salário zero não geram linha no Aplicar e ficam de fora. A primeira
--- versão desta asserção cobrava 305 — o número do cadastro — e teria mandado
--- alguém investigar uma função que estava certa. É a lição da
--- `prova_escopo_pessoas.sql`: a asserção afirma o MÍNIMO necessário, e contra a
--- referência certa.
-SELECT 'pessoas distintas na foto (301 — veja a nota)' AS secao,
-       (SELECT count(DISTINCT pessoa)::text
-          FROM analise_pessoas_agg(
-            (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado2027'), 2027,
-            (SELECT array_agg(id) FROM empresa))
-         WHERE tipo = 'PESSOA') AS resultado
+-- ⚠⚠ A FUNÇÃO NÃO PODE SER CHAMADA AQUI. Ela filtra por
+-- `current_tenant_id()`, e **no SQL Editor isso é NULO** — a chamada volta
+-- ZERO linhas, o que parece defeito e não é. (A primeira versão desta
+-- conferência chamava a função e devolveu 0 pessoas e três nulos, exatamente
+-- por isso.) Na tela o JWT carrega o tenant e ela responde normal.
+-- Então o que se confere aqui é (1) que a função existe com a assinatura certa
+-- e (2) os números ESPERADOS, por consulta direta com o tenant explícito — se
+-- eles baterem, a aba tem com o que fechar.
+SELECT 'função criada' AS secao,
+       (SELECT CASE WHEN count(*) = 1
+                    THEN 'sim · ' || pg_get_function_arguments(min(oid))
+                    ELSE '⛔ ' || count(*)::text || ' versões' END
+          FROM pg_proc WHERE proname = 'analise_pessoas_agg') AS resultado
 UNION ALL
-SELECT 'custo de pessoal',
-       (SELECT 'R$ ' || round(sum(valor), 0)::text
-          FROM analise_pessoas_agg(
-            (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado2027'), 2027,
-            (SELECT array_agg(id) FROM empresa))
-         WHERE tipo = 'PESSOA')
+SELECT 'empresa é obrigatória? (era o que estourava o timeout)',
+       (SELECT CASE WHEN pg_get_function_arguments(oid) LIKE '%p_empresas uuid[], p_filiais%'
+                    THEN 'sim — sem DEFAULT NULL' ELSE '⛔ ainda opcional' END
+          FROM pg_proc WHERE proname = 'analise_pessoas_agg')
 UNION ALL
-SELECT 'despesa operacional',
-       (SELECT 'R$ ' || round(sum(valor), 0)::text
-          FROM analise_pessoas_agg(
-            (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado2027'), 2027,
-            (SELECT array_agg(id) FROM empresa))
-         WHERE tipo = 'DESPESA')
+SELECT 'filtra tenant_id? (era o que faltava para o índice)',
+       (SELECT CASE WHEN prosrc LIKE '%tenant_id = current_tenant_id()%'
+                    THEN 'sim' ELSE '⛔ não' END
+          FROM pg_proc WHERE proname = 'analise_pessoas_agg')
 UNION ALL
-SELECT 'pessoal ÷ despesa (deve dar 72,6%)',
-       (SELECT round(sum(valor) FILTER (WHERE tipo='PESSOA')
-                   / nullif(sum(valor) FILTER (WHERE tipo='DESPESA'), 0) * 100, 1)::text || '%'
-          FROM analise_pessoas_agg(
-            (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado2027'), 2027,
-            (SELECT array_agg(id) FROM empresa)))
+SELECT '— esperado na tela: pessoas distintas',
+       (SELECT count(DISTINCT coalesce(nullif(upper(trim(f.dims->>'nome')),''), f.dims->>'posto'))::text
+          FROM fat_orcado f
+         WHERE f.origem='POSTO' AND f.ano=2027
+           AND f.versao_id=(SELECT id FROM versao_orcamento WHERE codigo='Orçado2027'))
 UNION ALL
-SELECT 'alguém com custo em mais de uma área?',
-       (SELECT CASE WHEN count(*) = 0 THEN 'não — a soma por área fecha'
-                    ELSE '⚠ ' || count(*)::text || ' pessoa(s)' END
-          FROM (SELECT pessoa FROM analise_pessoas_agg(
-                  (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado2027'), 2027,
-            (SELECT array_agg(id) FROM empresa))
-                 WHERE tipo = 'PESSOA'
-                 GROUP BY pessoa HAVING count(DISTINCT area_nome) > 1) x);
+SELECT '— esperado na tela: pessoal ÷ despesa operacional',
+       (SELECT round(
+          (SELECT sum(-valor) FROM fat_orcado f WHERE f.origem='POSTO' AND f.ano=2027
+             AND f.versao_id=(SELECT id FROM versao_orcamento WHERE codigo='Orçado2027'))
+        / (SELECT sum(-f.valor) FROM fat_orcado f JOIN conta_orcamentaria co ON co.id=f.linha_id
+            WHERE f.ano=2027 AND co.codigo LIKE '2%'
+              AND f.versao_id=(SELECT id FROM versao_orcamento WHERE codigo='Orçado2027'))
+        * 100, 1)::text || '%');
