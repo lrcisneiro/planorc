@@ -11,24 +11,24 @@ Medido na versão `Orçado2027`, origem POSTO para pessoal, com a receita vinda
 dos formulários. **"Administrativo" = CSC = todo CC que começa com 1** — as
 duas definições dão o mesmo conjunto, conferido nos dois sentidos.
 
-| área | postos | **pessoas** | pessoal | % da área | % do pessoal | custo/pessoa | receita |
-|---|---|---|---|---|---|---|---|
-| Serviços | 175 | 173 | 32,19 mi | 82,0% | 59,2% | 186 mil | 70,20 mi |
-| Comercial | 80 | 76 | 15,71 mi | 89,4% | 28,9% | 207 mil | 52,95 mi |
-| **CSC (Adm)** | **44** | **40** | **4,85 mi** | **43,0%** | **8,9%** | **121 mil** | 1,11 mi |
-| Marketing | 11 | 10 | 0,98 mi | 21,9% | 1,8% | 98 mil | — |
-| Diretoria | 11 | **6** | 0,65 mi | 19,5% | 1,2% | 109 mil | 0,19 mi |
-| **total** | **321** | **305** | **54,38 mi** | **71,6%** | | **178 mil** | **124,44 mi** |
+| área | pessoas | pessoal | % da área | % do pessoal | custo/pessoa | receita |
+|---|---|---|---|---|---|---|
+| Serviços | 173 | 32,19 mi | 82,0% | 59,2% | 186 mil | 70,20 mi |
+| Comercial | 76 | 15,71 mi | 89,4% | 28,9% | 207 mil | 52,95 mi |
+| **CSC (Adm)** | **40** | **4,85 mi** | **43,0%** | **8,9%** | **121 mil** | 1,11 mi |
+| Marketing | 10 | 0,98 mi | 21,9% | 1,8% | 98 mil | — |
+| Diretoria | **6** | 0,65 mi | 19,5% | 1,2% | 109 mil | 0,19 mi |
+| **total** | **305** | **54,38 mi** | **71,6%** | | **178 mil** | **124,44 mi** |
 
-⚠⚠ **POSTO NÃO É PESSOA, e a primeira versão desta tabela contou errado.** São
-**321 postos para 305 pessoas**. A Diretoria é o caso extremo — **11 postos, 6
-pessoas**: o pró-labore é pago por empresa, e a matrícula é por empresa, então
-quem recebe em mais de uma do grupo ganha um posto em cada (o Marco Aurélio
-aparece 4 vezes). Isto já está no CLAUDE.md, com este CC pelo nome, e existe
-`lib/pessoaChave.ts` exatamente para resolver — eu contei `posto` e repeti o
-erro que o projeto documenta.
-**Todo gráfico de headcount tem de usar `pessoaChave()`**, e a tela deve mostrar
-as duas colunas: postos é o que custa, pessoas é o quadro.
+⚠⚠ **A UNIDADE DESTA TELA É A PESSOA. "Posto" não aparece em gráfico nenhum**
+(decisão do Ricardo, 17/nov) — porque posto duplica: o pró-labore é pago **por
+empresa** do grupo, e a matrícula é por empresa, então quem recebe em mais de
+uma ganha um posto em cada. A Diretoria tem **11 postos e 6 pessoas** (o Marco
+Aurélio aparece 4 vezes). A primeira versão desta tabela contou posto e errou —
+e `lib/pessoaChave.ts` existe desde sempre justamente para isso.
+✅ **Conferido que a soma fecha:** nenhuma pessoa tem custo em mais de uma área,
+então `Σ pessoas por área = 305` sem dupla contagem. O custo continua somando
+todos os postos da pessoa, que é o certo — ela custa em cada empresa.
 
 **A resposta direta das perguntas 1 e 2:** o pessoal do Administrativo é **43,0%
 da despesa da própria área** e **8,9% do custo de pessoal da empresa** (ou 6,4%
@@ -47,11 +47,10 @@ elas mede naturezas diferentes, não eficiências diferentes.
 uma barra por área. Responde as perguntas 1 e 2 juntas e torna visível que as
 áreas não são comparáveis pelo mesmo número.
 
-**2 · Headcount por área (barra horizontal)** — **pessoas**, não postos, com o
-custo médio ao lado. ⚠ O número sozinho engana duas vezes: pela contagem (11
-postos da Diretoria são 6 pessoas) e pela leitura (10 pessoas em Marketing
-custam R$ 98 mil cada, 173 em Serviços custam R$ 186 mil). Sem o custo médio, a
-barra diz que Marketing e Diretoria são do mesmo tamanho.
+**2 · Headcount por área (barra horizontal)** — pessoas, com o custo médio ao
+lado. ⚠ O número sozinho engana: 10 pessoas em Marketing custam R$ 98 mil cada
+e 173 em Serviços custam R$ 186 mil. Sem o custo médio, a barra diz que
+Marketing e Diretoria são do mesmo tamanho.
 
 **3 · Pessoal × receita por área (dispersão ou barra pareada)** — é o que
 transforma as duas anteriores em julgamento. Serviços gera R$ 401 mil por
@@ -65,12 +64,12 @@ depois vira decisão errada.
 
 Pedido à parte, sem separar o resto da análise.
 
-| regime | postos | pessoas | custo 2027 | % | por pessoa |
-|---|---|---|---|---|---|
-| BR-PRESTADOR | 202 | 202 | 42,62 mi | **78,4%** | 210.980 |
-| BR-CLT | 93 | 93 | 11,09 mi | 20,4% | 119.221 |
-| BR-PROLABORE | 16 | **7** | 0,60 mi | 1,1% | 86.281 |
-| BR-ESTAGIO | 3 | 3 | 0,07 mi | 0,1% | 22.429 |
+| regime | pessoas | custo 2027 | % | por pessoa |
+|---|---|---|---|---|
+| BR-PRESTADOR | 202 | 42,62 mi | **78,4%** | 210.980 |
+| BR-CLT | 93 | 11,09 mi | 20,4% | 119.221 |
+| BR-PROLABORE | **7** | 0,60 mi | 1,1% | 86.281 |
+| BR-ESTAGIO | 3 | 0,07 mi | 0,1% | 22.429 |
 
 **O número que salta: 78,4% do custo de pessoal é prestador.** Não é uma
 empresa de CLT com alguns terceiros — é o contrário.
@@ -81,8 +80,9 @@ ser preço de regime ou pode ser **mistura de senioridade** (consultor sênior P
 contra auxiliar administrativo CLT). O gráfico deve mostrar a diferença e
 **não sugerir a causa**; quem responde é a pirâmide de senioridade.
 
-⚠ O pró-labore é o único com postos ≫ pessoas (16 × 7): é pago **por empresa**
-do grupo. Ali a média por pessoa só faz sentido somando as empresas.
+⚠ O pró-labore é onde posto e pessoa mais divergem (16 postos, 7 pessoas), e é
+a razão de a tela falar só de pessoas: a média por pessoa ali **só faz sentido
+somando as empresas em que ela recebe**.
 
 ## O que a pesquisa diz, e o que daqui se aplica
 
@@ -147,8 +147,8 @@ planejamento que se aprovou**.
 hoje, um dia após o Aplicar:
 
 ```
-                 foto            cadastro
-  TOTAL     314 postos · 301     321 · 305
+             foto     cadastro
+  TOTAL   301 pessoas  305
 ```
 
 ⚠ A diferença de hoje **não é deriva ainda**: são 7 postos com salário zero e
