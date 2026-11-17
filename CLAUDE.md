@@ -93,6 +93,29 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > zero e volta sucesso. O lote compara o que voltou com o que pediu; divergiu, para e avisa **o
 > que já foi apagado continua apagado**, porque é o estado real.
 
+> **Ratear do drill, pelos códigos já cadastrados (nov/2026).** Lançar um valor e distribuí-lo
+> era digitar a mão em N combinações com a regra de três feita por fora. O botão ao lado da
+> borracha abre os mesmos códigos de *Postos → Rateio* (16, todos somando 100: 8 por CC, 8 por
+> empresa) e **reaproveita `cascataRateio`** — reimplementar a cascata faria o mesmo cadastro
+> render dois resultados. Um código de CC troca o CC e mantém a empresa, um de empresa o
+> contrário; escolher os dois é a cascata (CC, depois EMPRESA), como em `posto_rateio.ordem`.
+> ⚠⚠ **A filial NÃO acompanha o rateio** — fica a da origem mesmo quando a empresa muda. É o
+> precedente medido do Aplicar do posto: anulá-la deixou 8.064 células (R$ 8,4 mi) invisíveis
+> para quem tem escopo de filial, porque a policy de leitura exige `filial_id IS NOT NULL`.
+> ⚠ **Arredondar cada cota e somar NÃO fecha** (100 em três = 99,99). O resíduo vai para a maior
+> cota, mês a mês — determinístico e o total do ano não muda. Provado nos 5 casos, inclusive com
+> valor negativo (despesa) e nos 12 meses acumulados.
+> ⚠ **O que já existe no destino é lido do BANCO, não da tela:** com filtro ativo o drill nem
+> carregou as combinações de destino, e inserir por cima violaria a chave única — com metade do
+> rateio já gravada. Destino com valor manual **recebe a soma**.
+> ⚠ **A empresa de ORIGEM entra nessa consulta mesmo não sendo destino.** Rateando só por empresa
+> para fora, ela some da lista de destinos, e sem ela as linhas de origem não seriam lidas nem
+> apagadas: o valor ficaria nos dois lados, dobrando a linha.
+> ⚠ **Ordem: destinos primeiro, origem por último.** A operação não é atômica; falhando no meio,
+> valor duplicado (total dobra, salta aos olhos) é um modo de falha melhor que valor sumido.
+> ⚠ Só combinação **puramente manual** rateia — mover célula de posto/formulário faria o próximo
+> Aplicar reinseri-la na origem, e o valor passaria a existir duas vezes.
+
 > ⚠ **Esta é a única tela onde o GRÃO MISTO aparece** — somando tudo, linha com consolidado *e*
 > detalhe no mesmo mês infla. São **122 grupos** hoje. Ela denuncia (aviso no topo, ⚠ na linha, as
 > duas pontas no drill) em vez de deixar o número mentir; na grade é invisível, porque cada grão

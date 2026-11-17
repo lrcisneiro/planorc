@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, Fragment } from 'react'
-import { X, Plus, Trash2, ChevronsRight, Lock, Eraser } from 'lucide-react'
+import { X, Plus, Trash2, ChevronsRight, Lock, Eraser, Split } from 'lucide-react'
+import RatearModal from './RatearModal'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
 import { useUserAccess } from '../../hooks/useUserAccess'
@@ -72,6 +73,8 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
   // irreversível e aqui alcança dezenas de células de uma vez.
   const [confirmar, setConfirmar] = useState<{ alvo: Comb[]; label: string } | null>(null)
   const [zerando, setZerando] = useState(false)
+  // Qual combinação está sendo rateada (o modal é de uma origem por vez).
+  const [ratear, setRatear] = useState<Comb | null>(null)
 
   const master = linha.linha_orc_id as string
   const bloqueada = !!versao.bloqueada
@@ -338,6 +341,15 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
   const td: React.CSSProperties = { padding: '4px 8px', borderBottom: '1px solid var(--panel-2)', textAlign: 'right', whiteSpace: 'nowrap' }
 
   return (
+    <>
+    {ratear && (
+      <RatearModal origem={ratear}
+        meses={Object.fromEntries(Object.entries(cel[chave(ratear)] || {}).map(([m, v]) => [Number(m), v.total]))}
+        linhaId={master} versaoId={versao.id} ano={ano} fator={fator}
+        empresas={empresas} filiais={filiais} ccs={ccs}
+        filialIds={filialIds} ccIds={ccIds}
+        onFechar={async (mud) => { setRatear(null); if (mud) { setMudou(true); await carregar() } }} />
+    )}
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}
          onClick={() => onFechar(mudou)}>
       <div onClick={e => e.stopPropagation()}
@@ -438,17 +450,22 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                         {/* Largura fixa mesmo vazio: sem ela os nomes dançam de
                             linha para linha conforme haja ou não botão. */}
-                        <span style={{ width: 15, flexShrink: 0 }}>
+                        <span style={{ width: 15, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 5 }}>
                           {nova
                             ? <button onClick={() => setCombs(v => v.filter((_, j) => j !== i))}
                                 title="Tirar esta combinação da lista"
                                 style={{ background: 'none', border: 'none', padding: 0, color: 'var(--muted)', cursor: 'pointer', display: 'block' }}><Trash2 size={13} /></button>
-                            : pode && alvoZerar([c]).ids.length > 0 && (
+                            : pode && alvoZerar([c]).ids.length > 0 && (<>
                               <button onClick={() => setConfirmar({ alvo: [c], label:
                                   `${empCod[c.empresa_id] || '?'} · ${c.cc_id ? ccCod[c.cc_id] : 'sem CC'}` })}
                                 title="Apagar os 12 meses desta combinação"
                                 style={{ background: 'none', border: 'none', padding: 0, color: 'var(--muted)', cursor: 'pointer', display: 'block' }}><Eraser size={13} /></button>
-                            )}
+                              {alvoZerar([c]).geradas === 0 && (
+                                <button onClick={() => setRatear(c)}
+                                  title="Ratear este valor pelos códigos cadastrados"
+                                  style={{ background: 'none', border: 'none', padding: 0, color: 'var(--muted)', cursor: 'pointer', display: 'block' }}><Split size={13} /></button>
+                              )}
+                            </>)}
                         </span>
                         {nova ? (
                           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
@@ -612,5 +629,6 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
         </div>
       </div>
     </div>
+    </>
   )
 }
