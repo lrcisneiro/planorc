@@ -321,10 +321,16 @@ export default function OrcamentoDashPage() {
   // deixar o dashboard mais lento para a maioria por causa da minoria.
   const [pess, setPess] = useState<any[] | null>(null)
   const [carregPess, setCarregPess] = useState(false)
+  // ⚠ Falha da consulta e ausência de dado são coisas DIFERENTES e davam a
+  // mesma tela: timeout virava "Sem orçado de pessoal nesta versão — rode o
+  // Aplicar", que manda a pessoa aplicar o quadro para resolver um problema
+  // que não é esse. Mensagem que afirma uma causa não verificada custa a
+  // tarde de quem acredita nela.
+  const [erroPess, setErroPess] = useState<string | null>(null)
   useEffect(() => {
     if (aba !== 'pessoas' || !vBase || !anoBase || !empFiltradas.length) { setPess([]); return }
     let vivo = true
-    setCarregPess(true)
+    setCarregPess(true); setErroPess(null)
     supabase.rpc('analise_pessoas_agg', {
       p_versao: vBase, p_ano: anoBase,
       // ⚠ Empresa é OBRIGATÓRIA na RPC (v3_191): o `IS NULL OR` impedia o uso do
@@ -337,7 +343,8 @@ export default function OrcamentoDashPage() {
       setCarregPess(false)
       // ⚠ Erro vira lista VAZIA, não `null`: null é "ainda não buscou" e
       // deixaria a tela em "Calculando…" para sempre.
-      if (error) { setErro(error.message); setPess([]) } else setPess(data || [])
+      if (error) { setErro(error.message); setErroPess(error.message); setPess([]) }
+      else { setErroPess(null); setPess(data || []) }
     })
     return () => { vivo = false }
   }, [aba, vBase, anoBase, empFiltradas.join(','), filialFilter?.join(','), ccFilter?.join(',')]) // eslint-disable-line
@@ -633,7 +640,7 @@ export default function OrcamentoDashPage() {
       ) : aba === 'pessoas' ? (
         carregPess || !pess
           ? <div style={{ ...S.sec, textAlign: 'center', color: 'var(--muted)', padding: 48 }}>Calculando…</div>
-          : <VisaoPessoas S={S} linhas={pess} rotulo={versao(vBase)?.codigo ?? ''} ano={anoBase} />
+          : <VisaoPessoas S={S} linhas={pess} erro={erroPess} rotulo={versao(vBase)?.codigo ?? ''} ano={anoBase} />
       ) : !dados ? null : aba === 'orcamento' ? (
         <VisaoOrcamento S={S} cfg={secOrc} setCfg={setSecOrc} linhas={linhas} nome={nome} val={val} fac={fac}
           base={dados.base} comp={dados.comp} mensal={dados.mensalBase} meses={meses} MES={MES}
@@ -1601,7 +1608,7 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
 // cada importação mensal e os gráficos deixariam de representar o planejamento
 // — foi a pergunta do Ricardo que achou essa inconsistência. Consequência do
 // rótulo: a foto conta **quem custa**, então posto de salário zero não aparece.
-function VisaoPessoas({ S, linhas, rotulo, ano }: any) {
+function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
   const fmt = (n: number) => Math.round(n).toLocaleString('pt-BR')
   const pct = (n: number) => `${n.toFixed(1)}%`
 
@@ -1633,6 +1640,10 @@ function VisaoPessoas({ S, linhas, rotulo, ano }: any) {
       totGente: pes.reduce((t: number, l: any) => t + (Number(l.valor) || 0), 0),
     }
   }, [linhas])
+
+  if (erro) return <div style={{ ...S.sec, textAlign: 'center', color: 'var(--muted)', padding: 48, lineHeight: 1.7 }}>
+    <strong style={{ color: 'var(--orange)' }}>A consulta não terminou</strong> — <i>{String(erro)}</i>.
+    <br />Não é ausência de dado: nada foi lido. Estreite o período ou os filtros e tente de novo.</div>
 
   if (!areas.length) return <div style={{ ...S.sec, textAlign: 'center', color: 'var(--muted)', padding: 48 }}>
     Sem orçado de pessoal nesta versão. Rode o <strong>Aplicar no orçado</strong> na tela de Postos.</div>

@@ -1272,6 +1272,22 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ Asserção de prova afirma o **mínimo** necessário. `prova_escopo_pessoas.sql` exigiu que uma
   dimensão de escopo abrisse tudo e levou 568 de 570 — o sistema estava certo, a asserção errada,
   e meia hora foi gasta investigando o código que funcionava.
+- ⚠⚠ **Medir como DONO não mede a tela — o RLS é o custo** (v3_192, nov/2026). A perna de
+  despesa de `analise_pessoas_agg` levava **36 ms** no meu usuário e **~2,5 s** personificando
+  quem usa; a função inteira, **3,4 s**, contra um `statement_timeout` de **8 s** no
+  `authenticated`, numa tela que já faz 6 a 8 chamadas — daí o *canceling statement due to
+  statement timeout*. Toda medição de desempenho vai com
+  `set_config('request.jwt.claims',…)` + `SET ROLE authenticated`.
+  **A causa, no plano:** `LEFT JOIN centro_custo` virava **nested loop de 17.712 iterações** numa
+  tabela de **85 linhas** (53 mil buffers), cada uma reavaliando `current_tenant_id()` no filtro
+  da política de `centro_custo` — a armadilha nº 2 da v3_129 vista de fora. **Agregar o fato
+  ANTES de juntar** (por `cc_id`) derruba para ~600 e ~85 grupos: **3.386 ms → 139 ms, 24×**, com
+  as duas versões devolvendo **314 linhas, mesmas somas, zero linhas divergentes**.
+  ⚠ Quando o join existe só para RESOLVER UM ATRIBUTO do agrupamento, ele pertence depois do
+  `GROUP BY`, não dentro dele.
+  ⚠ **E falha de consulta não é ausência de dado.** O erro virava lista vazia e a aba dizia
+  "Sem orçado de pessoal — rode o Aplicar", mandando resolver um problema que não era esse.
+
 - **Verificação mede efeito, não intenção.** `SELECT` sobre `pg_policy` confirma que a política
   existe; não confirma que ela filtra. Conferência de acesso **personifica e conta**:
   `set_config('request.jwt.claims', …)` + `SET LOCAL ROLE authenticated` — sem trocar de papel, o
