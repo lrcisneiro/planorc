@@ -32,14 +32,30 @@
 -- e a diferença entre os denominadores é de 72,6% para 65,5%, pequena o
 -- bastante para ninguém notar e grande o bastante para ninguém reproduzir.
 --
+-- ⚠⚠ DUAS LINHAS DE `WHERE` DECIDEM 46× DE DESEMPENHO, e a primeira versão
+-- desta função não tinha nenhuma das duas — ela estourava o `statement timeout`
+-- na tela. Medido: a mesma consulta roda em **80 ms solta** e **3.698 ms dentro
+-- da função**.
+--   1. `tenant_id = current_tenant_id()` — o índice útil é
+--      `(tenant_id, versao_id, ano)`, e sem a **chave líder** ele não serve.
+--   2. `empresa_id = ANY(p_empresas)` SEM o `IS NULL OR` — o padrão
+--      `(p IS NULL OR col = ANY(p))` impede o uso de índice em qualquer caso,
+--      porque o predicado depende de um parâmetro que pode ser nulo. Por isso
+--      a empresa virou **obrigatória**, como em `relatorio_orcado_agg`; filial
+--      e CC seguem opcionais, que é como a RPC que já funciona faz.
+-- ⚠ O engano foi medir como DONO: pelo CLI eu ignoro RLS e as duas metades
+-- pareciam rápidas. O que estava lento era a **função com parâmetros**, e só
+-- chamá-la de verdade mostrou isso. Medir a peça não é medir o conjunto.
+--
 -- Re-executável. Termina em SELECT.
 -- ============================================================
 
 DROP FUNCTION IF EXISTS analise_pessoas_agg(uuid, integer, uuid[], uuid[], uuid[]);
+DROP FUNCTION IF EXISTS teste_agg(uuid, integer, uuid[], uuid[], uuid[]);
 CREATE FUNCTION analise_pessoas_agg(
   p_versao   uuid,
   p_ano      integer,
-  p_empresas uuid[]   DEFAULT NULL,
+  p_empresas uuid[],              -- obrigatório: ver a nota de desempenho acima
   p_filiais  uuid[]   DEFAULT NULL,
   p_ccs      uuid[]   DEFAULT NULL
 ) RETURNS TABLE (
@@ -63,10 +79,11 @@ CREATE FUNCTION analise_pessoas_agg(
     FROM fat_orcado f
     LEFT JOIN centro_custo cc ON cc.id = f.cc_id
     LEFT JOIN posto p ON p.codigo = f.dims->>'posto' AND p.tenant_id = f.tenant_id
-   WHERE f.origem = 'POSTO' AND f.ano = p_ano AND f.versao_id = p_versao
-     AND (p_empresas IS NULL OR f.empresa_id = ANY (p_empresas))
-     AND (p_filiais  IS NULL OR f.filial_id  = ANY (p_filiais))
-     AND (p_ccs      IS NULL OR f.cc_id      = ANY (p_ccs))
+   WHERE f.tenant_id = current_tenant_id()
+     AND f.versao_id = p_versao AND f.ano = p_ano AND f.origem = 'POSTO'
+     AND f.empresa_id = ANY (p_empresas)
+     AND (p_filiais IS NULL OR f.filial_id = ANY (p_filiais))
+     AND (p_ccs     IS NULL OR f.cc_id     = ANY (p_ccs))
    GROUP BY 1, 2, 3, 4, 5
 
   UNION ALL
@@ -80,11 +97,12 @@ CREATE FUNCTION analise_pessoas_agg(
     FROM fat_orcado f
     JOIN conta_orcamentaria co ON co.id = f.linha_id
     LEFT JOIN centro_custo cc ON cc.id = f.cc_id
-   WHERE f.ano = p_ano AND f.versao_id = p_versao
+   WHERE f.tenant_id = current_tenant_id()
+     AND f.versao_id = p_versao AND f.ano = p_ano
      AND co.codigo LIKE '2%'
-     AND (p_empresas IS NULL OR f.empresa_id = ANY (p_empresas))
-     AND (p_filiais  IS NULL OR f.filial_id  = ANY (p_filiais))
-     AND (p_ccs      IS NULL OR f.cc_id      = ANY (p_ccs))
+     AND f.empresa_id = ANY (p_empresas)
+     AND (p_filiais IS NULL OR f.filial_id = ANY (p_filiais))
+     AND (p_ccs     IS NULL OR f.cc_id     = ANY (p_ccs))
    GROUP BY 1, 2, 3
 $$;
 
@@ -103,31 +121,36 @@ GRANT EXECUTE ON FUNCTION analise_pessoas_agg(uuid, integer, uuid[], uuid[], uui
 SELECT 'pessoas distintas na foto (301 — veja a nota)' AS secao,
        (SELECT count(DISTINCT pessoa)::text
           FROM analise_pessoas_agg(
-            (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado2027'), 2027)
+            (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado2027'), 2027,
+            (SELECT array_agg(id) FROM empresa))
          WHERE tipo = 'PESSOA') AS resultado
 UNION ALL
 SELECT 'custo de pessoal',
        (SELECT 'R$ ' || round(sum(valor), 0)::text
           FROM analise_pessoas_agg(
-            (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado2027'), 2027)
+            (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado2027'), 2027,
+            (SELECT array_agg(id) FROM empresa))
          WHERE tipo = 'PESSOA')
 UNION ALL
 SELECT 'despesa operacional',
        (SELECT 'R$ ' || round(sum(valor), 0)::text
           FROM analise_pessoas_agg(
-            (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado2027'), 2027)
+            (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado2027'), 2027,
+            (SELECT array_agg(id) FROM empresa))
          WHERE tipo = 'DESPESA')
 UNION ALL
 SELECT 'pessoal ÷ despesa (deve dar 72,6%)',
        (SELECT round(sum(valor) FILTER (WHERE tipo='PESSOA')
                    / nullif(sum(valor) FILTER (WHERE tipo='DESPESA'), 0) * 100, 1)::text || '%'
           FROM analise_pessoas_agg(
-            (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado2027'), 2027))
+            (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado2027'), 2027,
+            (SELECT array_agg(id) FROM empresa)))
 UNION ALL
 SELECT 'alguém com custo em mais de uma área?',
        (SELECT CASE WHEN count(*) = 0 THEN 'não — a soma por área fecha'
                     ELSE '⚠ ' || count(*)::text || ' pessoa(s)' END
           FROM (SELECT pessoa FROM analise_pessoas_agg(
-                  (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado2027'), 2027)
+                  (SELECT id FROM versao_orcamento WHERE codigo = 'Orçado2027'), 2027,
+            (SELECT array_agg(id) FROM empresa))
                  WHERE tipo = 'PESSOA'
                  GROUP BY pessoa HAVING count(DISTINCT area_nome) > 1) x);

@@ -322,12 +322,15 @@ export default function OrcamentoDashPage() {
   const [pess, setPess] = useState<any[] | null>(null)
   const [carregPess, setCarregPess] = useState(false)
   useEffect(() => {
-    if (aba !== 'pessoas' || !vBase || !anoBase) { return }
+    if (aba !== 'pessoas' || !vBase || !anoBase || !empFiltradas.length) { setPess([]); return }
     let vivo = true
     setCarregPess(true)
     supabase.rpc('analise_pessoas_agg', {
       p_versao: vBase, p_ano: anoBase,
-      p_empresas: empFiltradas.length ? empFiltradas : null,
+      // ⚠ Empresa é OBRIGATÓRIA na RPC (v3_191): o `IS NULL OR` impedia o uso do
+      // índice e levava a função a 3,7 s — estourava o timeout. Sem empresa
+      // selecionada não há o que somar, então sai antes de chamar.
+      p_empresas: empFiltradas,
       p_filiais: filialFilter, p_ccs: ccFilter,
     }).then(({ data, error }) => {
       if (!vivo) return
