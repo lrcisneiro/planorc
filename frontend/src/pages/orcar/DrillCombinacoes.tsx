@@ -355,7 +355,7 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
               {bloqueada && <b style={{ color: 'var(--orange)' }}> · versão bloqueada, só leitura</b>}
             </div>
           </div>
-          {podeOrcar && combs.some(c => Object.keys(cel[chave(c)] || {}).length > 0) && (
+          {podeOrcar && alvoZerar(combs).ids.length > 0 && (
             <button onClick={() => setConfirmar({ alvo: combs, label: `todas as ${combs.length} combinações` })}
               title="Apagar os valores de todas as combinações listadas"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none',
@@ -443,7 +443,7 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
                             ? <button onClick={() => setCombs(v => v.filter((_, j) => j !== i))}
                                 title="Tirar esta combinação da lista"
                                 style={{ background: 'none', border: 'none', padding: 0, color: 'var(--muted)', cursor: 'pointer', display: 'block' }}><Trash2 size={13} /></button>
-                            : pode && !!tot && (
+                            : pode && alvoZerar([c]).ids.length > 0 && (
                               <button onClick={() => setConfirmar({ alvo: [c], label:
                                   `${empCod[c.empresa_id] || '?'} · ${c.cc_id ? ccCod[c.cc_id] : 'sem CC'}` })}
                                 title="Apagar os 12 meses desta combinação"
