@@ -1356,8 +1356,16 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   aprendeu a evitar DENTRO da policy, e ninguém aplicou FORA dela.**
   ⚠ `STABLE` **não é cache**: promete o mesmo valor durante a instrução, não que o Postgres o
   reaproveite. Quem faz virar avaliação única é a subconsulta escalar.
-  ⚠ **Ao escrever RPC nova que varra os fatos, `(SELECT current_tenant_id())`.** A v3_193 trata
-  os 11 agregados do caminho de leitura; **~55 outras funções ainda têm a chamada crua.**
+  ⚠ **Ao escrever RPC nova que varra os fatos, `(SELECT current_tenant_id())`.** A v3_193 tratou
+  os 11 agregados de leitura e a **v3_194 fechou as 54 restantes** (43 reescritas; as outras 11
+  já usavam `DECLARE t uuid := current_tenant_id()`, que calcula uma vez e é a forma ótima).
+  Medido depois: `conciliacao_pessoas_folha(2026,9)` **920 ms → 41 ms**.
+  ⚠ **Em plpgsql, `:=` também casa com um regex de `=` descuidado.** `[^(]` antes do `=` aceita
+  o `:`, então a conferência da v3_194 leu **atribuição** como chamada crua e reportou 11
+  funções pendentes que nunca foram problema. A troca já as ignorava (`([^:])=`); mentia só o
+  relatório. Use `[^(:]`.
+  ⚠ **`conciliacao_clt(2026,9)` segue em 1,7 s** depois da troca — ali o custo é outro, ainda
+  não diagnosticado.
 
 - ⚠⚠ **A tela levava 40 s em 84 chamadas, e 66 delas eram supérfluas** (*Orçamento — análise*,
   nov/2026). Medido: uma `relatorio_orcado_agg` personificada custa **~990 ms**, a DRE Gerencial

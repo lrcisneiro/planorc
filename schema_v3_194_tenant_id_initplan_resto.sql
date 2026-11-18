@@ -32,6 +32,15 @@
 -- `CREATE OR REPLACE` preserva ACL e `COMMENT ON`; a assinatura vem de
 -- `pg_get_functiondef`, então volatilidade e SECURITY também seguem iguais.
 --
+-- ⚠⚠ A CONFERÊNCIA PRECISA EXCLUIR `:=` TAMBÉM. A primeira versão usava
+-- `[^(]` antes do `=`, e `[^(]` aceita `:` — então **atribuição de plpgsql era
+-- lida como chamada crua**. A execução reportou 11 funções "pendentes"
+-- (`apagar_orcado_versao`, `copiar_versao`, `importar_funcionarios`…) que na
+-- verdade fazem `DECLARE t uuid := current_tenant_id()`: calculam UMA vez numa
+-- variável, que é a forma ótima — melhor ainda que o InitPlan. A troca já as
+-- ignorava corretamente (`([^:])=`); era só o relatório que mentia.
+-- Corrigido para `[^(:]` nos dois lugares.
+--
 -- Não muda resultado nenhum. Re-executável. Termina em SELECT.
 -- ============================================================
 
@@ -50,7 +59,7 @@ BEGIN
     SELECT p.oid, p.proname, pg_get_functiondef(p.oid) AS def
       FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
      WHERE ns.nspname = 'public'
-       AND p.prosrc ~ '[^(][[:space:]]*=[[:space:]]*current_tenant_id\(\)'
+       AND p.prosrc ~ '[^(:][[:space:]]*=[[:space:]]*current_tenant_id\(\)'
        AND p.prosrc !~ 'SELECT current_tenant_id'
   LOOP
     nova := regexp_replace(f.def, '([^:])=[[:space:]]*current_tenant_id\(\)',
@@ -81,7 +90,7 @@ SELECT 'ainda com chamada CRUA' AS secao,
        coalesce(string_agg(p.proname, ' · ' ORDER BY p.proname), 'nenhuma — ok') AS resultado
   FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
  WHERE ns.nspname = 'public'
-   AND p.prosrc ~ '[^(][[:space:]]*=[[:space:]]*current_tenant_id\(\)'
+   AND p.prosrc ~ '[^(:][[:space:]]*=[[:space:]]*current_tenant_id\(\)'
    AND p.prosrc !~ 'SELECT current_tenant_id'
 UNION ALL
 SELECT 'funções com InitPlan agora',
