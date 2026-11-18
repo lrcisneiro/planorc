@@ -1147,6 +1147,13 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   recorta — e aparecem como *"sem acesso ao cadastro de origem"*, nunca em branco nem zero.
   Sem isso o defeito só morderia quem não é admin, e quem desenvolve é admin.
   **Zero migration, zero mudança de RLS** — o acesso continua vindo do cadastro.
+  ⚠⚠ **Efeito que GRAVA estado não depende de identidade de objeto.** O `useMemo` do recorte
+  levava `acesso.canSeePessoas` nas dependências — e `useUserAccess` recria essa função a cada
+  render. Resultado: objeto novo → efeito dispara → `setState` → render → objeto novo. **Laço
+  infinito**, cujo sintoma é o *"lendo o orçado…"* piscando para sempre e a tela parecendo
+  lenta quando está em ciclo. (O `filtrados` original usava `acesso.loading` justamente por
+  isso; o defeito nasceu ao extrair o bloco.) Hoje o efeito depende de uma **chave primitiva**
+  com o CONTEÚDO do recorte — identidade nova não reinicia leitura nenhuma.
 
   ⚠⚠ **Postos conta por SITUAÇÃO; o orçado sai por VIGÊNCIA — e os dois dizem "headcount".**
   Medido em 17/nov com filtro limpo: **304** na tela de Postos × **302** na aba *Análise Pessoas*.

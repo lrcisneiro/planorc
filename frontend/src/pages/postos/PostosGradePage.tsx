@@ -1254,7 +1254,7 @@ export default function PostosGradePage() {
     const filF = escopoFiltro((filialSel.length && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSeePessoas)
     const ccF = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSeePessoas)
     return { sEmp: empF ? new Set(empF) : null, sFil: filF ? new Set(filF) : null, sCc: ccF ? new Set(ccF) : null }
-  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs, acesso.canSeePessoas, acesso.loading]) // eslint-disable-line
+  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
 
   const filtrados = useMemo(() => {
     const { sEmp, sFil, sCc } = escopos
@@ -1432,6 +1432,17 @@ export default function PostosGradePage() {
   const [verRateio, setVerRateio] = useLocalPref<boolean>('planorc_postos_ver_rateio', false)
   const [chegRaw, setChegRaw] = useState<any[]>([])
   const [chegCarreg, setChegCarreg] = useState(false)
+  // ⚠⚠ CHAVE PRIMITIVA, não o objeto. Um efeito que GRAVA estado não pode
+  // depender de identidade de objeto: basta uma dependência instável acima
+  // (foi `acesso.canSeePessoas`, função nova a cada render) para virar laço —
+  // lê, grava, re-renderiza, lê de novo. O sintoma é o "lendo o orçado…"
+  // piscando para sempre, e a tela parece lenta quando na verdade está em
+  // ciclo. Comparando o CONTEÚDO do recorte, identidade nova não reinicia nada.
+  const escopoKey = useMemo(() => JSON.stringify([
+    escopos.sEmp ? [...escopos.sEmp].sort() : null,
+    escopos.sFil ? [...escopos.sFil].sort() : null,
+    escopos.sCc ? [...escopos.sCc].sort() : null,
+  ]), [escopos])
   useEffect(() => {
     const { sEmp, sFil, sCc } = escopos
     // Sem recorte nenhum, todo posto já está na lista: não há "de fora".
@@ -1468,7 +1479,7 @@ export default function PostosGradePage() {
       finally { if (vivo) setChegCarreg(false) }
     })()
     return () => { vivo = false }
-  }, [verRateio, versaoSel, anoCalc, escopos])
+  }, [verRateio, versaoSel, anoCalc, escopoKey]) // eslint-disable-line
 
   // A subtração vive aqui, e não no carregamento: `filtrados` muda com busca e
   // situação sem que o fato precise ser relido.
