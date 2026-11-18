@@ -1262,6 +1262,15 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   CC entram num nó próprio: omiti-los mostraria um quadro menor que o real.
   A aba e a pill só aparecem com `tenant.usa_apontamento` ligado em Configurações → Funcionalidades (`lib/tenantFlags.ts`): apontar hora em projeto é específico de quem opera por projeto.
 - **F6** — presets "Meus Relatórios" com `owner_id`. ⬜
+- **Ver como** — testar o acesso de outra pessoa sem pedir a senha dela. Desenhado em
+  `docs/DESIGN_ver_como.md` (18/nov), **não iniciado**. Cabeçalho `x-ver-como` + `uid_efetivo()`
+  num ponto só — **19 funções chamam `auth.uid()`** e todo o RLS deriva delas. Descartados:
+  fingir no frontend (a tela mostraria o recorte dela e a consulta devolveria o seu — ACS-02 de
+  novo) e emitir token da pessoa (cria credencial, mexe no `último acesso` dela, passa por cima
+  do MFA). **Somente leitura por construção:** `pode_escrever()` falso impersonando cobre
+  **165 das 185** políticas de escrita; as 20 de fundação levam a negativa explícita.
+  ⚠ `auditoria_quem` **não** é impersonada e `eh_admin()` **é** — sem a segunda, admin segue
+  ignorando o escopo e o teste mente na direção perigosa. ⬜
 - **F8 — Nível de detalhe por usuário — ❌ DESCARTADO (03/nov/2026), não reabrir sem motivo novo.**
   A ideia era uma coluna editorial na linha (`essencial | analítico | apoio`) + preferência no
   cadastro do usuário, para esconder apoio e indicadores de quem só confere a própria área.
