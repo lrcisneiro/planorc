@@ -1492,8 +1492,12 @@ export default function PostosGradePage() {
           const kd = `${r.empresa_id}|${r.filial_id || ''}|${r.cc_id || ''}`
           if (!e.dest.has(kd)) e.dest.set(kd, Number(r.dims?.rateio_pct ?? 100))
         }
+        // ⚠ Somar frações em ponto flutuante deixa cauda: 46,59 + 0 virava
+        // `46.59000000000001`, e 50,01 virava `50.010000000000005`. Arredonda
+        // aqui, na origem — formatar só na exibição deixaria o número sujo
+        // para quem o usasse em outra conta depois.
         for (const e of m.values())
-          e.pct = [...e.dest.values()].reduce((a: number, b: number) => a + b, 0)
+          e.pct = Math.round([...e.dest.values()].reduce((a: number, b: number) => a + b, 0) * 100) / 100
         setChegRaw([...m.values()])
       } catch { if (vivo) setChegRaw([]) }
       finally { if (vivo) setChegCarreg(false) }
@@ -2165,7 +2169,11 @@ export default function PostosGradePage() {
                           {!po ? <i style={{ color: 'var(--muted)', fontSize: 11 }}>—</i>
                            : semFolha ? oculto : money(Number(po.salario_base) || 0)}
                         </td>
-                        <td style={S.td}>{c.pct != null ? `${c.pct}%` : '100%'}</td>
+                        {/* Sem casas quando é redondo (50%), duas quando não é
+                            (46,59%) — "50,00%" num rateio inteiro é ruído. */}
+                        <td style={S.td}>
+                          {(c.pct ?? 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
+                        </td>
                         <td style={{ ...S.td, fontWeight: 700 }}>{semFolha ? oculto : money(c.ano)}</td>
                       </tr>
                     )
