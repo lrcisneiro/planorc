@@ -35,6 +35,9 @@ export type PostoCalc = {
   pais?: string | null              // país do posto (resolvido da empresa) — filtra as verbas aplicáveis
   ini_ano?: number | null; ini_mes?: number | null
   fim_ano?: number | null; fim_mes?: number | null
+  // Posto desligado (cadastro) ou CORTADO no cenário: não custa nada no ano.
+  // Mesma regra que o Aplicar já usava — ver `vigencia`.
+  ativo?: boolean | null
   // Reajuste INDIVIDUAL (promoção, mérito) — v3_116. Vale a partir de
   // reajuste_mes e COMPÕE com o dissídio do sindicato.
   reajuste_mes?: number | null
@@ -106,7 +109,26 @@ export function verbasDoRegime(verbas: VerbaRegra[], regime: string | null, pais
 }
 
 // janela de meses vigentes do posto dentro do ano
+//
+// ⚠⚠ `ativo === false` FECHA A JANELA. O motor ignorava a coluna, e o Aplicar
+// não (`aplicaveis.filter(p => p.ativo !== false)`, PostosGradePage): quem
+// cortava um posto pela caixinha **Cortar neste cenário** via Δ **0,00** no
+// comparativo — a tela em que a decisão é aprovada — enquanto o Aplicar tirava
+// o custo de verdade. Foram R$ 91.023 em dois postos de pró-labore do Aderson,
+// com o aprovador lendo "não muda nada".
+// ⚠ A caixinha grava só `ativo`, sem mexer na vigência; quem corta pela data de
+// SAÍDA já funcionava, e é por isso que a Maria Fernanda zerava e ele não —
+// mesma intenção, dois caminhos, um deles mudo.
+// ⚠ Medido antes de mexer: dos 574 postos, **243 têm `ativo = false`, todos com
+// `sit_folha = 'D'` e salário zero**, e nenhum deles tem célula no orçado de
+// 2027. Então honrar a coluna aqui não muda nada do cadastro — só alinha o
+// motor ao Aplicar.
+// ⚠ Demissão com custo no ano continua sendo **vigência** (`fim_ano`/`fim_mes`,
+// v3_118), não `ativo`: é ela que paga janeiro a março e a rescisão. Se um dia
+// alguém marcar `ativo = false` em quem ainda trabalha parte do ano, o custo
+// some — e some igual no Aplicar, que é o ponto.
 function vigencia(p: PostoCalc, ano: number): [number, number] {
+  if (p.ativo === false) return [13, 0]        // janela vazia: nenhum mês vigente
   const ini = (p.ini_ano && p.ini_ano > ano) ? 13 : (p.ini_ano === ano ? (p.ini_mes || 1) : 1)
   const fim = (p.fim_ano && p.fim_ano < ano) ? 0 : (p.fim_ano === ano ? (p.fim_mes || 12) : 12)
   return [ini, fim]

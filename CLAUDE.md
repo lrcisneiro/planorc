@@ -955,6 +955,24 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   valor veio, para a defasagem não ficar implícita. Medido em out/26: o pagamento PJ oscila
   **1% na mediana** entre meses (só 15 de 194 passam de 20%), então usar o mês é estável.
 
+  ⚠⚠ **O MOTOR IGNORAVA `ativo` E O APLICAR NÃO — a tela de aprovar mostrava Δ 0,00** (18/nov).
+  `calcularPosto` só olhava vigência; o Aplicar sempre filtrou `p.ativo !== false`. Quem cortava
+  pela caixinha **Cortar neste cenário** (que grava só `ativo`) via o comparativo dizer *cadastro
+  24.626,23 × cenário 24.626,23 · Δ 0,00*, enquanto o Aplicar tirava o custo de verdade —
+  **R$ 91.023 em dois postos de pró-labore**, com o aprovador lendo "não muda nada".
+  ⚠ Cortar pela **data de saída** já funcionava: é por isso que, na mesma tela, a Maria Fernanda
+  zerava e o Aderson não. **Mesma intenção, dois caminhos, um deles mudo** — o pior formato de
+  defeito, porque o contraste fica à vista e parece regra.
+  Hoje `vigencia()` devolve janela **vazia** (`[13, 0]`) para `ativo = false`, e o laço mensal
+  pula tudo: zeros por construção, sem caso especial, e o motor passa a concordar com o Aplicar
+  em toda tela (grade, memória, comparativo).
+  ⚠ Medido antes: dos 574 postos, **243 têm `ativo = false`, TODOS com `sit_folha = 'D'`, salário
+  zero e nenhuma célula no orçado de 2027** — a equivalência `ativo=false ⟺ demitido` é exata
+  (zero postos ativos com `sit_folha='D'`). Risco de regressão: nenhum.
+  ⚠ **Corte por caixinha não gera rescisão**, e está certo: ele diz "este posto não existe neste
+  cenário", não "esta pessoa é desligada em junho". Quem precisa do custo da saída usa a
+  **vigência** (v3_118), que paga os meses trabalhados e a rescisão.
+
   ⚠⚠ **CORTADO NO CENÁRIO NÃO É DEMITIDO — e a conflação tirava a volta atrás** (nov/2026).
   *Cortar neste cenário* grava `ativo = false` no overlay, e `situacaoPosto()` lê `ativo === false`
   como **demitido**: o posto caía no balde *Demitidos*, que vem **desmarcado**, sumia da grade e
