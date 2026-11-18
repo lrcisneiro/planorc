@@ -969,9 +969,14 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ Medido antes: dos 574 postos, **243 têm `ativo = false`, TODOS com `sit_folha = 'D'`, salário
   zero e nenhuma célula no orçado de 2027** — a equivalência `ativo=false ⟺ demitido` é exata
   (zero postos ativos com `sit_folha='D'`). Risco de regressão: nenhum.
+  **Qual dos dois usar** (decisão do Ricardo, 18/nov): a **caixinha** é para quem **não é CLT** —
+  prestador e pró-labore, que encerram contrato sem verba rescisória. A **vigência** é para CLT,
+  onde a saída tem custo: aviso prévio, 13º e férias proporcionais, multa de FGTS.
   ⚠ **Corte por caixinha não gera rescisão**, e está certo: ele diz "este posto não existe neste
-  cenário", não "esta pessoa é desligada em junho". Quem precisa do custo da saída usa a
-  **vigência** (v3_118), que paga os meses trabalhados e a rescisão.
+  cenário", não "esta pessoa é desligada em junho".
+  ⚠ E isso **não é regra nova**: as verbas `RESC_*` já são recortadas por regime (**só
+  `BR-CLT`**, v3_118), então cortar um prestador pela vigência também não geraria rescisão. Os
+  dois caminhos concordam — o que mudava era só o motor enxergar ou não o corte.
 
   ⚠⚠ **CORTADO NO CENÁRIO NÃO É DEMITIDO — e a conflação tirava a volta atrás** (nov/2026).
   *Cortar neste cenário* grava `ativo = false` no overlay, e `situacaoPosto()` lê `ativo === false`
