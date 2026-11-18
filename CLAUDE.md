@@ -111,8 +111,22 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > ⚠ **A empresa de ORIGEM entra nessa consulta mesmo não sendo destino.** Rateando só por empresa
 > para fora, ela some da lista de destinos, e sem ela as linhas de origem não seriam lidas nem
 > apagadas: o valor ficaria nos dois lados, dobrando a linha.
-> ⚠ **Ordem: destinos primeiro, origem por último.** A operação não é atômica; falhando no meio,
-> valor duplicado (total dobra, salta aos olhos) é um modo de falha melhor que valor sumido.
+> **Hoje é ATÔMICO (`ratear_orcado`, v3_195).** Era uma sequência de escritas do navegador: lia o
+> estado dos destinos, apagava a origem, gravava um a um. A ordem fora escolhida para **duplicar**
+> em vez de sumir — errado e visível é melhor que errado e calado, mas continuava errado. Agora é
+> uma chamada, uma transação: ou acontece inteiro ou não acontece.
+> ⚠⚠ **A RPC NÃO recalcula a cascata.** Os destinos chegam prontos de `cascataRateio` — a mesma
+> função do Aplicar do posto. Reimplementá-la em SQL faria o mesmo cadastro render dois
+> resultados conforme a tela. **A função é a transação, não a matemática**; o que ela faz é
+> **conferir o total ao centavo** e recusar a instrução inteira se não bater, que é a invariante
+> que importa (dinheiro não nasce nem some num rateio).
+> ⚠ `SECURITY INVOKER`, para o RLS continuar recortando — DEFINER por conveniência daria o orçado
+> inteiro a qualquer um. E como `UPDATE`/`DELETE` barrados por RLS **não dão erro**, cada comando
+> confere `ROW_COUNT` e levanta exceção, que numa função desfaz tudo.
+> ⚠ A origem com célula de POSTO/FORMULÁRIO é recusada **no banco** também, não só na tela: mover
+> valor gerado faria o próximo Aplicar reinseri-lo na origem.
+> Prova em `prova_ratear_orcado.sql` — escreve em **ano 2099** e desfaz tudo no RAISE final;
+> trabalhar sobre o ano real seria apostar no rollback que se está testando.
 > ⚠⚠ **`disabled` NÃO trava clique repetido, e aqui isso DOBROU o valor** (17/nov, medido:
 > 19:48 gravou 144 células somando 2.400 de uma origem de 1.200; 19:49 o rateio só por empresa
 > gravou os 1.200 certos). `setAplicando(true)` só vale no render seguinte — o segundo clique vê

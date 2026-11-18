@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { X, Split, AlertTriangle } from 'lucide-react'
-import { supabase, TENANT_ID } from '../../lib/supabase'
+import { supabase } from '../../lib/supabase'
 import { pageAll } from '../../lib/pageAll'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { cascataRateio } from '../../lib/rateioFolha'
@@ -144,94 +144,44 @@ export default function RatearModal({ origem, meses, linhaId, versaoId, ano, fat
     rodando.current = true
     setErro(''); setAplicando(true)
     try {
-      const kOrigem = chave(origem)
-      // Valor rateado por destino × mês.
-      const alvo: Record<string, Record<number, number>> = {}
-      for (const m of Object.keys(meses).map(Number)) {
-        const v = meses[m]; if (!v) continue
+      // Valor rateado por destino × mês. A CASCATA E O ARREDONDAMENTO FICAM
+      // AQUI, de propósito: `cascataRateio` é a mesma função do Aplicar do
+      // posto, e recalculá-la no banco faria o mesmo cadastro render dois
+      // resultados. A RPC é a transação, não a matemática — e confere o total.
+      const porDest = new Map<string, { e: string; f: string | null; c: string | null; m: Record<number, number> }>()
+      for (const mStr of Object.keys(meses)) {
+        const m = Number(mStr), v = meses[m]
+        if (!v) continue
         const partes = distribuir(v, destinos.map(d => d.pct))
         destinos.forEach((d, i) => {
           if (!partes[i]) return
-          ;(alvo[chave(d.comb)] ||= {})[m] = r2((alvo[chave(d.comb)]?.[m] || 0) + partes[i])
+          const k = chave(d.comb)
+          let e = porDest.get(k)
+          if (!e) { e = { e: d.comb.empresa_id, f: d.comb.filial_id, c: d.comb.cc_id, m: {} }; porDest.set(k, e) }
+          e.m[m] = r2((e.m[m] || 0) + partes[i])
         })
       }
 
-      // ⚠ O QUE JÁ EXISTE NO DESTINO TEM DE SER LIDO DO BANCO, não da tela: com
-      // filtro ativo o drill nem carregou as combinações de destino, e inserir
-      // por cima de uma célula existente viola a chave única — o erro apareceria
-      // no clique, depois de metade do rateio já ter sido gravada.
-      // ⚠ A ORIGEM ENTRA NA CONSULTA mesmo não sendo destino. Rateando só por
-      // EMPRESA para fora, a empresa de origem some da lista de destinos — e
-      // sem ela aqui as linhas de origem não seriam lidas, logo não seriam
-      // apagadas: o valor ficaria nos dois lugares, dobrando a linha.
-      const empIds = [...new Set([origem.empresa_id, ...destinos.map(d => d.comb.empresa_id)])]
-      const atuais = await pageAll(() => supabase.from('fat_orcado')
-        .select('id,empresa_id,filial_id,cc_id,mes,valor,origem,dims')
-        .eq('versao_id', versaoId).eq('ano', ano).eq('linha_id', linhaId)
-        .in('empresa_id', empIds))
-      const existente: Record<string, Record<number, { id: string; valor: number }>> = {}
-      for (const r of atuais as any[]) {
-        if (r.origem !== 'MANUAL') continue
-        if (r.dims && Object.keys(r.dims).length) continue
-        const k = chave({ empresa_id: r.empresa_id, filial_id: r.filial_id, cc_id: r.cc_id })
-        if (k === kOrigem) continue      // a origem está sendo consumida
-        ;(existente[k] ||= {})[r.mes] = { id: r.id, valor: Number(r.valor) || 0 }
-      }
+      // ⚠⚠ UMA CHAMADA, UMA TRANSAÇÃO. Antes eram N: lia o estado dos destinos,
+      // apagava a origem e gravava um a um pelo navegador. Falhando no meio, o
+      // valor ficava DUPLICADO — a ordem fora escolhida para duplicar em vez de
+      // sumir, porque errado e visível é melhor que errado e calado, mas
+      // continuava errado. Agora ou acontece inteiro ou não acontece.
+      // ⚠ Sumiu junto a leitura prévia dos destinos: quem resolve "já existe?"
+      // é o próprio `UPDATE` lá dentro, sem janela entre ler e gravar.
+      const { data, error } = await supabase.rpc('ratear_orcado', {
+        p_versao: versaoId, p_ano: ano, p_linha: linhaId,
+        p_emp: origem.empresa_id, p_fil: origem.filial_id, p_cc: origem.cc_id,
+        p_destinos: [...porDest.values()],
+      })
+      if (error) throw new Error(error.message)
+      const r = (data || {}) as any
 
-      // ⚠ ORDEM: destinos PRIMEIRO, origem por último. Falhando no meio, o valor
-      // aparece duas vezes (total dobra, salta aos olhos, conserta-se) em vez de
-      // sumir calado — que é o modo de falha caro. Operação não é atômica.
-      const novas: any[] = []
-      for (const k of Object.keys(alvo)) {
-        if (k === kOrigem) continue
-        const d = destinos.find(x => chave(x.comb) === k)!
-        for (const m of Object.keys(alvo[k]).map(Number)) {
-          const add = alvo[k][m]
-          const ex = existente[k]?.[m]
-          if (ex) {
-            const { data, error } = await supabase.from('fat_orcado')
-              .update({ valor: r2(ex.valor + add), expressao: null, origem: 'MANUAL' })
-              .eq('id', ex.id).select('id')
-            if (error) throw new Error(error.message)
-            if (!data?.length) throw new Error('Destino fora do seu escopo de edição — rateio interrompido.')
-          } else {
-            novas.push({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: linhaId,
-                         empresa_id: d.comb.empresa_id, filial_id: d.comb.filial_id, cc_id: d.comb.cc_id,
-                         ano, mes: m, valor: add, expressao: null, origem: 'MANUAL', dims: {} })
-          }
-        }
-      }
-      for (let i = 0; i < novas.length; i += 200) {
-        const { data, error } = await supabase.from('fat_orcado').insert(novas.slice(i, i + 200)).select('id')
-        if (error) throw new Error(error.message)
-        if ((data?.length || 0) !== novas.slice(i, i + 200).length)
-          throw new Error('Nem todas as células de destino foram gravadas — confira antes de repetir.')
-      }
-
-      // A origem: vira a própria cota se for um dos destinos; some se não for.
-      const ids = (atuais as any[]).filter(r =>
-        chave({ empresa_id: r.empresa_id, filial_id: r.filial_id, cc_id: r.cc_id }) === kOrigem
-        && r.origem === 'MANUAL' && (!r.dims || !Object.keys(r.dims).length)).map(r => r.id)
-      const cota = alvo[kOrigem]
-      if (cota) {
-        for (const r of (atuais as any[])) {
-          if (!ids.includes(r.id)) continue
-          const v = cota[r.mes]
-          if (v) await supabase.from('fat_orcado').update({ valor: v }).eq('id', r.id)
-          else await supabase.from('fat_orcado').delete().eq('id', r.id)
-        }
-      } else if (ids.length) {
-        for (let i = 0; i < ids.length; i += 200) {
-          const { error } = await supabase.from('fat_orcado').delete().in('id', ids.slice(i, i + 200)).select('id')
-          if (error) throw new Error(error.message)
-        }
-      }
-      // ⚠ O RESUMO VIAJA DE VOLTA porque o drill pode recarregar VAZIO: rateando
-      // para fora do filtro, todo destino some da tabela e a tela fica
-      // indistinguível de uma falha. Foi o que levou ao clique repetido.
       const fora = foraDoFiltro.length
-      onFechar(true, `Rateado ${mostrar(totalOrigem)} em ${destinos.length} destino(s)`
-        + (fora ? ` — ${fora} ${fora === 1 ? 'está' : 'estão'} fora do filtro da tela e por isso não aparece${fora === 1 ? '' : 'm'} aqui.` : '.'))
+      onFechar(true,
+        `Rateado ${mostrar(totalOrigem)} em ${destinos.length} destino(s) — `
+        + `${r.inseridas ?? 0} célula(s) criada(s) e ${r.atualizadas ?? 0} somada(s) ao que já havia.`
+        + (fora ? ` ⚠ ${fora} destino(s) ${fora === 1 ? 'está' : 'estão'} fora do filtro da tela e não aparece${fora === 1 ? '' : 'm'} aqui.` : ''))
     } catch (e: any) { setErro(e?.message || String(e)); setAplicando(false); rodando.current = false }
   }
 
