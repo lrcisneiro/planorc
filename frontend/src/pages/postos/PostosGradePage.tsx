@@ -1246,11 +1246,18 @@ export default function PostosGradePage() {
             .sort((a, b) => (REGIMES_LABEL[a] || a).localeCompare(REGIMES_LABEL[b] || b, 'pt-BR')),
     [postosEf])
 
-  const filtrados = useMemo(() => {
+  // ⚠ Os conjuntos do filtro saem do `filtrados` para um memo próprio porque o
+  // bloco "chegam por rateio" precisa EXATAMENTE do mesmo recorte — derivar um
+  // segundo seria o jeito de eles divergirem na primeira alteração.
+  const escopos = useMemo(() => {
     const empF = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSeePessoas)
     const filF = escopoFiltro((filialSel.length && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSeePessoas)
     const ccF = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSeePessoas)
-    const sEmp = empF ? new Set(empF) : null, sFil = filF ? new Set(filF) : null, sCc = ccF ? new Set(ccF) : null
+    return { sEmp: empF ? new Set(empF) : null, sFil: filF ? new Set(filF) : null, sCc: ccF ? new Set(ccF) : null }
+  }, [empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs, acesso.canSeePessoas, acesso.loading]) // eslint-disable-line
+
+  const filtrados = useMemo(() => {
+    const { sEmp, sFil, sCc } = escopos
     const q = busca.trim().toLowerCase()
     const match = (p: Posto) => !q || [p.nome, p.matricula, p.cargo?.nome, p.codigo, p.centro_custo?.descricao, p.centro_custo?.codigo]
       .some(x => (x || '').toString().toLowerCase().includes(q))
@@ -1263,7 +1270,7 @@ export default function PostosGradePage() {
       (!sCc || (p.cc_id != null && sCc.has(p.cc_id))) &&
       (!regimeSel || p.regime === regimeSel) && match(p)
     )
-  }, [postosEf, semSal, soAlteradas, alterados, sits, sitDe, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, regimeSel, busca, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
+  }, [postosEf, escopos, semSal, soAlteradas, alterados, sits, sitDe, regimeSel, busca]) // eslint-disable-line
 
   // ⚠ O contador conta o que ESTE filtro esconde, não "todo posto com salário
   // zero": aplica os demais recortes da tela e só então tira o salário da
@@ -1400,6 +1407,80 @@ export default function PostosGradePage() {
       </th>
     )
   }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // CHEGAM POR RATEIO — quem não está lotado aqui, mas cujo custo cai aqui.
+  //
+  // O gerente do CC 514 abria esta tela e via VAZIO com R$ 561 mil no
+  // orçamento dele: 10 pessoas de outras áreas, todas por rateio. E o 214
+  // recebe metade do José Eduardo (R$ 273.810) sem ter ninguém lotado nisso.
+  // Medido: 137 dos 316 postos caem em empresa ou CC que não é o de origem —
+  // R$ 17,5 mi pelo rateio de EMPRESA e R$ 3,6 mi pelo de CC.
+  //
+  // ⚠⚠ NÃO RECALCULA A CASCATA. O Aplicar já carimba `dims.posto_id` em 100%
+  // das células e `rateio_pct` quando é parcial — então o conjunto já está
+  // gravado em `fat_orcado`. Recalcular aqui seria uma segunda fonte de
+  // verdade, e a tela passaria a discordar da DRE no dia em que divergissem.
+  // Lendo o fato, as duas concordam POR CONSTRUÇÃO, que era o defeito original.
+  //
+  // ⚠ UNIÃO, nunca substituição. No CC 224 há 29 lotados e só 26 com célula
+  // lá — três têm o custo inteiro rateado para fora. Listar "quem tem célula
+  // aqui" TIRARIA esses três: ligar um botão para ver mais e ver menos.
+  //
+  // ⚠ Só depois do Aplicar. Rateio cadastrado e não aplicado não aparece — é
+  // coerente com a pergunta ("o que caiu no meu CC"), mas precisa estar dito.
+  const [verRateio, setVerRateio] = useLocalPref<boolean>('planorc_postos_ver_rateio', false)
+  const [chegRaw, setChegRaw] = useState<any[]>([])
+  const [chegCarreg, setChegCarreg] = useState(false)
+  useEffect(() => {
+    const { sEmp, sFil, sCc } = escopos
+    // Sem recorte nenhum, todo posto já está na lista: não há "de fora".
+    if (!verRateio || !versaoSel || !anoCalc || (!sEmp && !sFil && !sCc)) { setChegRaw([]); return }
+    let vivo = true
+    setChegCarreg(true)
+    ;(async () => {
+      try {
+        const rows = await pageAll(() => {
+          let q = supabase.from('fat_orcado')
+            .select('empresa_id,filial_id,cc_id,mes,valor,dims')
+            .eq('versao_id', versaoSel).eq('ano', anoCalc).eq('origem', 'POSTO')
+          if (sEmp) q = q.in('empresa_id', [...sEmp])
+          if (sFil) q = q.in('filial_id', [...sFil])
+          if (sCc) q = q.in('cc_id', [...sCc])
+          return q
+        })
+        if (!vivo) return
+        const m = new Map<string, any>()
+        for (const r of rows as any[]) {
+          const pid = r.dims?.posto_id; if (!pid) continue
+          let e = m.get(pid)
+          if (!e) { e = { pid, nome: r.dims?.nome || '', matricula: r.dims?.matricula || null,
+                          pct: r.dims?.rateio_pct ?? null, ccs: new Set<string>(), emps: new Set<string>(),
+                          ano: 0, porMes: {} as Record<number, number> }; m.set(pid, e) }
+          // Despesa é negativa no banco; a grade mostra custo positivo.
+          const v = -(Number(r.valor) || 0)
+          e.ano += v; e.porMes[r.mes] = (e.porMes[r.mes] || 0) + v
+          if (r.cc_id) e.ccs.add(r.cc_id)
+          if (r.empresa_id) e.emps.add(r.empresa_id)
+        }
+        setChegRaw([...m.values()])
+      } catch { if (vivo) setChegRaw([]) }
+      finally { if (vivo) setChegCarreg(false) }
+    })()
+    return () => { vivo = false }
+  }, [verRateio, versaoSel, anoCalc, escopos])
+
+  // A subtração vive aqui, e não no carregamento: `filtrados` muda com busca e
+  // situação sem que o fato precise ser relido.
+  const chegadas = useMemo(() => {
+    if (!verRateio) return []
+    const aqui = new Set(filtrados.map(p => p.id))
+    const byId = new Map(postos.map(p => [p.id, p]))
+    return chegRaw
+      .filter(c => !aqui.has(c.pid) && c.ano)
+      .map(c => ({ ...c, posto: byId.get(c.pid) || null }))   // null = RLS não deixa ler o cadastro
+      .sort((a, b) => b.ano - a.ano)
+  }, [verRateio, chegRaw, filtrados, postos])
 
   const grupos = useMemo(() => {
     const porCc = agruparPor === 'cc'
@@ -1676,6 +1757,17 @@ export default function PostosGradePage() {
               color: semSal ? 'var(--violet)' : 'var(--text)',
               borderColor: semSal ? 'var(--violet)' : 'var(--border)' }}>
             {semSal ? '✓ ' : ''}ocultar zerados{semSal && ocultosSemSal ? ` (${ocultosSemSal})` : ''}
+          </button>
+        </div>
+        {/* ⚠ Desligado por padrão: a lista de hoje é a referência de todo mundo,
+            e ligar sozinho mudaria o que a pessoa conta sem ela pedir. */}
+        <div style={S.fld}><span style={S.lbl}>Rateio</span>
+          <button onClick={() => setVerRateio(x => !x)}
+            title="Acrescenta quem NÃO está lotado no recorte da tela mas tem custo caindo aqui por rateio. Não entra no headcount nem no custo acima — é dinheiro de posto de outra área."
+            style={{ ...S.sel, cursor: 'pointer', fontWeight: verRateio ? 700 : 500, width: 'auto',
+              color: verRateio ? 'var(--violet)' : 'var(--text)',
+              borderColor: verRateio ? 'var(--violet)' : 'var(--border)' }}>
+            {verRateio ? '✓ ' : ''}considerar rateios{verRateio && chegadas.length ? ` (${chegadas.length})` : ''}
           </button>
         </div>
         {modoCenario && <div style={S.fld}><span style={S.lbl}>Decisões</span>
@@ -1983,6 +2075,77 @@ export default function PostosGradePage() {
           </table>
         </div>
       </div>
+
+      {/* ── chegam por rateio ──────────────────────────────────────────────
+          Tabela PRÓPRIA, fora dos KPIs e do agrupamento: estas pessoas não
+          são do quadro daqui, só o custo delas é. Misturá-las na lista de
+          cima faria "quantos postos tenho?" perder resposta — meia pessoa
+          rateada não é meia pessoa. */}
+      {verRateio && (
+        <div style={{ marginTop: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+            <b style={{ fontSize: 14, color: 'var(--violet)' }}>Chegam por rateio</b>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {chegCarreg ? 'lendo o orçado…'
+               : chegadas.length
+                 ? `${chegadas.length} pessoa(s) de outras áreas · ${milAno(chegadas.reduce((t, c) => t + c.ano, 0))} caindo no recorte desta tela`
+                 : 'ninguém — todo o custo que cai aqui é de posto lotado aqui'}
+            </span>
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, lineHeight: 1.6 }}>
+            <b>Fora</b> do headcount, do FTE e do custo acima — o posto é de outra área e lá já conta.
+            O <b>salário</b> é o integral da pessoa; o <b>custo</b> é só a parte rateada para cá.
+            {' '}Sai do orçado aplicado, então <b>rateio cadastrado e ainda não aplicado não aparece</b>.
+          </p>
+          {!!chegadas.length && (
+            <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 10 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <thead><tr>
+                  <th style={{ ...S.th, textAlign: 'left' }}>Pessoa</th>
+                  <th style={{ ...S.th, textAlign: 'left' }}>Lotada em</th>
+                  <th style={{ ...S.th, textAlign: 'left' }}>Cargo</th>
+                  <th style={S.th}>Salário</th>
+                  <th style={S.th}>%</th>
+                  <th style={S.th}>Custo ano (rateado)</th>
+                </tr></thead>
+                <tbody>
+                  {chegadas.map(c => {
+                    const po = c.posto as any
+                    const ccO = po?.cc_id ? ccs.find((x: any) => x.id === po.cc_id) : null
+                    const empO = po?.empresa_id ? (empresas as any[]).find(e => e.id === po.empresa_id) : null
+                    return (
+                      <tr key={c.pid}>
+                        <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit' }}>
+                          {c.nome || '(sem nome)'}
+                          {c.matricula && <span style={{ color: 'var(--muted)', marginLeft: 6, fontSize: 11 }}>{c.matricula}</span>}
+                        </td>
+                        {/* ⚠ Sem o cadastro de origem no escopo, estes campos NÃO
+                            aparecem em branco nem como zero: dizem que falta
+                            acesso. Zero num campo de dinheiro é uma afirmação,
+                            e seria falsa — a lição do `Number(null) || 0`. */}
+                        <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: po ? 'var(--text-mid)' : 'var(--muted)' }}>
+                          {po ? `${empO?.codigo || '?'} · ${ccO ? ccO.codigo + ' ' + (ccO.descricao || '') : 'sem CC'}`
+                              : <i>sem acesso ao cadastro de origem</i>}
+                        </td>
+                        <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--text-mid)' }}>
+                          {po ? (po.cargo?.nome || '—') : <i style={{ color: 'var(--muted)' }}>—</i>}
+                        </td>
+                        <td style={S.td}>
+                          {!po ? <i style={{ color: 'var(--muted)', fontSize: 11 }}>—</i>
+                           : semFolha ? oculto : money(Number(po.salario_base) || 0)}
+                        </td>
+                        <td style={S.td}>{c.pct != null ? `${c.pct}%` : '100%'}</td>
+                        <td style={{ ...S.td, fontWeight: 700 }}>{semFolha ? oculto : money(c.ano)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>¹ {temMotor ? 'Custo com encargos/provisões/benefícios pelo motor (clique no valor p/ ver a memória). Rateio entra no step 4.' : 'Custo base (salário × FTE) — cadastre as verbas em Estrutura para o custo com encargos.'}
         <br /><span style={{ color: 'var(--orange)' }}>*</span> o custo mudou durante o ano (reajuste, afastamento ou rescisão): a coluna mostra o <b>último mês</b>, não a média — por isso ela × 12 não dá o custo ano, que já soma mês a mês.
         <br />Verbas pagas em parcelas, como a <b>PLR</b>, também ficam fora do custo/mês — elas caem só nos meses do calendário da verba e estão somadas no <b>custo ano</b>.</p>

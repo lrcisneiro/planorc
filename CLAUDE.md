@@ -1128,6 +1128,26 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ **Férias não é dedutível** de nada — era por isso que afastado passava por ativo antes. O
   filtro da tela é por situação (4 estados, multi-seleção), não mais "só ativos / com demitidos".
 
+  **"Considerar rateios" na grade de Postos** (18/nov) — o gerente do **CC 514** abria a tela e
+  via **vazio** com **R$ 561.023** no orçamento dele: 10 pessoas de outras áreas, todas por
+  rateio. O **214** recebe metade do José Eduardo (R$ 273.810) sem ter ninguém lotado nisso.
+  Medido: **137 dos 316 postos** caem em empresa ou CC que não é o de origem — **R$ 17,5 mi pelo
+  rateio de EMPRESA** e R$ 3,6 mi pelo de CC, então o lado da empresa é **5× maior**.
+  ⚠⚠ **Não recalcula a cascata.** O Aplicar carimba `dims.posto_id` em **100%** das células e
+  `rateio_pct` quando é parcial — o conjunto **já está gravado** em `fat_orcado`. Recalcular
+  seria segunda fonte de verdade; lendo o fato, a tela e a DRE concordam **por construção**, que
+  era o defeito original.
+  ⚠⚠ **UNIÃO, nunca substituição.** No CC 224 há **29 lotados e só 26 com célula lá** — três têm
+  o custo inteiro rateado para fora. Listar "quem tem célula aqui" os **tiraria**: ligar um botão
+  para ver mais e ver menos.
+  ⚠ Fora dos KPIs (meia pessoa rateada não é meia pessoa), **não editável** (o cadastro é de
+  outra área), **salário integral** e **custo só da parte rateada**. Só depois do **Aplicar**.
+  ⚠ **A degradação por escopo é VISÍVEL de propósito:** nome, matrícula, % e valor saem de
+  `dims` e funcionam para quem só alcança a célula; cargo e salário exigem o `posto`, que o RLS
+  recorta — e aparecem como *"sem acesso ao cadastro de origem"*, nunca em branco nem zero.
+  Sem isso o defeito só morderia quem não é admin, e quem desenvolve é admin.
+  **Zero migration, zero mudança de RLS** — o acesso continua vindo do cadastro.
+
   ⚠⚠ **Postos conta por SITUAÇÃO; o orçado sai por VIGÊNCIA — e os dois dizem "headcount".**
   Medido em 17/nov com filtro limpo: **304** na tela de Postos × **302** na aba *Análise Pessoas*.
   A diferença são exatamente **DIJAN DE BARROS** (vigência até 12/2026) e **MARCOS ROBERTO BARTH
