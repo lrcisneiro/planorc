@@ -1466,14 +1466,24 @@ export default function PostosGradePage() {
           const pid = r.dims?.posto_id; if (!pid) continue
           let e = m.get(pid)
           if (!e) { e = { pid, nome: r.dims?.nome || '', matricula: r.dims?.matricula || null,
-                          pct: r.dims?.rateio_pct ?? null, ccs: new Set<string>(), emps: new Set<string>(),
+                          dest: new Map<string, number>(), ccs: new Set<string>(), emps: new Set<string>(),
                           ano: 0, porMes: {} as Record<number, number> }; m.set(pid, e) }
           // Despesa é negativa no banco; a grade mostra custo positivo.
           const v = -(Number(r.valor) || 0)
           e.ano += v; e.porMes[r.mes] = (e.porMes[r.mes] || 0) + v
           if (r.cc_id) e.ccs.add(r.cc_id)
           if (r.empresa_id) e.emps.add(r.empresa_id)
+          // ⚠⚠ A % É POR DESTINO, E UMA PESSOA PODE CAIR EM VÁRIOS DELES dentro
+          // do mesmo filtro. Guardar `rateio_pct` da primeira célula lida
+          // mostrava a fatia de UM destino como se fosse a da tela — o mesmo
+          // erro do drill, que exibia o lançamento de uma pessoa como o total
+          // da célula. Aqui se junta por destino (as 12 células do mês
+          // compartilham a mesma %) e somam-se as fatias que caem no recorte.
+          const kd = `${r.empresa_id}|${r.filial_id || ''}|${r.cc_id || ''}`
+          if (!e.dest.has(kd)) e.dest.set(kd, Number(r.dims?.rateio_pct ?? 100))
         }
+        for (const e of m.values())
+          e.pct = [...e.dest.values()].reduce((a: number, b: number) => a + b, 0)
         setChegRaw([...m.values()])
       } catch { if (vivo) setChegRaw([]) }
       finally { if (vivo) setChegCarreg(false) }

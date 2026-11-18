@@ -1142,6 +1142,16 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   para ver mais e ver menos.
   ⚠ Fora dos KPIs (meia pessoa rateada não é meia pessoa), **não editável** (o cadastro é de
   outra área), **salário integral** e **custo só da parte rateada**. Só depois do **Aplicar**.
+  ⚠⚠ **A % é POR DESTINO, e uma pessoa cai em VÁRIOS dentro do mesmo filtro.** Guardar o
+  `rateio_pct` da primeira célula lida mostrava a fatia de **um** destino como se fosse a da
+  tela — mesmo erro do drill, que exibia o lançamento de uma pessoa como o total da célula.
+  Junta-se por destino (as 12 células do mês compartilham a %) e somam-se as fatias que caem
+  no recorte.
+  ⚠ **Provado por personificação antes de liberar acesso:** para `nappi.fernando`, **49 postos**
+  alcançam o escopo dele e ele lê o cadastro de **37** — os outros **12** (José Eduardo, Luis
+  Roberto Mulla, Gisele…) aparecem só com nome, matrícula, % e valor. É exatamente o estado que
+  o teste com admin **nunca** mostra.
+
   ⚠ **A degradação por escopo é VISÍVEL de propósito:** nome, matrícula, % e valor saem de
   `dims` e funcionam para quem só alcança a célula; cargo e salário exigem o `posto`, que o RLS
   recorta — e aparecem como *"sem acesso ao cadastro de origem"*, nunca em branco nem zero.
