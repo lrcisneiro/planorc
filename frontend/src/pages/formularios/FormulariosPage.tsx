@@ -125,7 +125,21 @@ export default function FormulariosPage() {
     setMenu(false); setLinhasRel([])
     const wp = f.wizard_params || {}
     const vals: Record<string, any> = {}
-    for (const pd of w.params) vals[pd.key] = wp[pd.key] ?? (pd.tipo === 'escolha' ? pd.padrao : pd.tipo === 'percentual' ? 0 : pd.tipo === 'linhas' ? [] : '')
+    for (const pd of w.params) {
+      let v = wp[pd.key]
+      // ⚠⚠ O PARÂMETRO NASCEU SINGULAR. A réplica começou com `linha` (um id) e
+      // virou `linhas` (array) quando passou a aceitar várias. Os formulários
+      // gerados antes guardaram a chave ANTIGA, e a restauração procurava só a
+      // nova: voltava com NENHUMA linha marcada, sem dizer nada. Medido nos
+      // `wizard_params` de produção — `REPLICA_LINHA` e `REPLICA_LINHAND` têm
+      // `"linha"`, os de novembro têm `"linhas"`.
+      // ⚠ Não destruía nada: `preparar` recusa a geração sem linha. Mas quem
+      // re-gerava precisava remarcar tudo de cabeça, sem saber o que estava lá.
+      if (v == null && pd.tipo === 'linhas' && wp.linha) v = [wp.linha]
+      // Defesa do mesmo erro vindo de outra direção: chave certa, valor único.
+      if (pd.tipo === 'linhas' && typeof v === 'string') v = v ? [v] : []
+      vals[pd.key] = v ?? (pd.tipo === 'escolha' ? pd.padrao : pd.tipo === 'percentual' ? 0 : pd.tipo === 'linhas' ? [] : '')
+    }
     setWz({ open: true, w, codigo: f.codigo, nome: f.nome, formularioId: f.id,
             versaoId: wp.versao_id ?? versoes[0]?.id ?? '', ano: wp.ano ?? versoes[0]?.ano ?? 0, vals })
     // o relatório guardado precisa repovoar a lista de linhas
