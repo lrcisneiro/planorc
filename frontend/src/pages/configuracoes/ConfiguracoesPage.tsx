@@ -42,7 +42,15 @@ const S = {
     color: r === 'admin' ? 'var(--blue)' : 'var(--text-mid)',
   }),
   overlay: { position: 'fixed' as const, inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
-  modal:   { background: 'var(--panel)', borderRadius: 16, padding: 28, width: 560, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' as const, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' },
+  // Cabeçalho FIXO + corpo rolando — o mesmo desenho de `DashFiltros` e do
+  // Balanço, que já faziam certo. A ação de confirmar não pode depender de a
+  // pessoa rolar até o fim: quem abre para conferir uma linha não chega lá.
+  modal:   { background: 'var(--panel)', borderRadius: 16, width: 560, maxWidth: '95vw', maxHeight: '90vh',
+             display: 'flex' as const, flexDirection: 'column' as const, overflow: 'hidden' as const,
+             boxShadow: '0 20px 60px rgba(0,0,0,0.2)' },
+  modalHead: { display: 'flex' as const, alignItems: 'flex-start' as const, gap: 14, padding: '20px 28px 14px',
+               borderBottom: '1px solid var(--border)', flexShrink: 0 },
+  modalBody: { padding: '18px 28px 24px', overflowY: 'auto' as const },
 }
 
 // ── Modal de configuração de acesso ──────────────────────
@@ -267,12 +275,23 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
   return (
     <div style={S.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={S.modal}>
-        <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
-          Acesso: {user.email}
+        <div style={S.modalHead}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              Acesso: {user.email}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+              Sem restrição = acesso a todos os itens da dimensão.
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button style={S.btn('secondary')} onClick={onClose}>Cancelar</button>
+            <button style={S.btn('primary')} onClick={salvar} disabled={saving || loading}>
+              {saving ? 'Salvando...' : 'Salvar acesso'}
+            </button>
+          </div>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
-          Sem restrição = acesso a todos os itens da dimensão.
-        </div>
+        <div style={S.modalBody}>
 
         {loading ? (
           <p style={{ color: 'var(--muted)', textAlign: 'center', padding: 24 }}>Carregando...</p>
@@ -508,13 +527,7 @@ function ModalAcesso({ user, onClose }: { user: TenantUser; onClose: () => void 
           </>
         )}
 
-        {erro && <div style={{ padding: '8px 12px', borderRadius: 6, background: 'rgba(248,113,113,0.10)', color: 'var(--red)', fontSize: 12, marginBottom: 12 }}>{erro}</div>}
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-          <button style={S.btn('secondary')} onClick={onClose}>Cancelar</button>
-          <button style={S.btn('primary')} onClick={salvar} disabled={saving || loading}>
-            {saving ? 'Salvando...' : 'Salvar acesso'}
-          </button>
+        {erro && <div style={{ padding: '8px 12px', borderRadius: 6, background: 'rgba(248,113,113,0.10)', color: 'var(--red)', fontSize: 12, marginTop: 12 }}>{erro}</div>}
         </div>
       </div>
     </div>
@@ -567,10 +580,21 @@ function ModalConvidarUsuario({ onClose, onSuccess }: { onClose: () => void; onS
   return (
     <div style={S.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ ...S.modal, width: 420 }}>
-        <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>Convidar usuário</div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: emDev ? 10 : 20 }}>
-          Um email de convite será enviado com o link de acesso.
+        <div style={S.modalHead}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--text)' }}>Convidar usuário</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+              Um email de convite será enviado com o link de acesso.
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button style={S.btn('secondary')} onClick={onClose}>Cancelar</button>
+            <button style={S.btn('primary')} onClick={convidar} disabled={loading || !email.trim()}>
+              {loading ? 'Enviando...' : 'Enviar convite'}
+            </button>
+          </div>
         </div>
+        <div style={S.modalBody}>
         {emDev && (
           <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 18, padding: '8px 10px',
             borderRadius: 6, background: 'rgba(251,146,60,0.10)', border: '1px solid rgba(251,146,60,0.35)',
@@ -605,13 +629,7 @@ function ModalConvidarUsuario({ onClose, onSuccess }: { onClose: () => void; onS
           </select>
         </div>
 
-        {erro && <div style={{ padding: '8px 12px', borderRadius: 6, background: 'rgba(248,113,113,0.10)', color: 'var(--red)', fontSize: 12, marginBottom: 12 }}>{erro}</div>}
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button style={S.btn('secondary')} onClick={onClose}>Cancelar</button>
-          <button style={S.btn('primary')} onClick={convidar} disabled={loading || !email.trim()}>
-            {loading ? 'Enviando...' : 'Enviar convite'}
-          </button>
+        {erro && <div style={{ padding: '8px 12px', borderRadius: 6, background: 'rgba(248,113,113,0.10)', color: 'var(--red)', fontSize: 12, marginTop: 12 }}>{erro}</div>}
         </div>
       </div>
     </div>

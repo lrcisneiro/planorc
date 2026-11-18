@@ -162,8 +162,14 @@ const S: Record<string, CSSProperties> = {
   btnGreen:  { padding: '6px 14px', background: 'var(--green)', color: '#ffffff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
   btnGray:   { padding: '6px 10px', background: 'none', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
   overlay:   { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
-  modal:     { background: 'var(--panel)', borderRadius: 14, padding: 24, width: 460, maxHeight: '85vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' },
-  mTitle:    { fontSize: 16, fontWeight: 600, marginBottom: 18, color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  // `position: sticky` em vez de reestruturar o JSX: os dois modais deste
+  // arquivo têm formas diferentes por dentro (um é envolvido por `fieldset`),
+  // e grudar a barra no topo do container que rola dá o mesmo resultado sem
+  // mexer na árvore — menos risco de quebrar o `disabled` do modo leitura.
+  modal:     { background: 'var(--panel)', borderRadius: 14, padding: '0 24px 24px', width: 460, maxHeight: '85vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' },
+  mTitle:    { fontSize: 16, fontWeight: 600, marginBottom: 18, color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+               position: 'sticky' as const, top: 0, zIndex: 2, background: 'var(--panel)',
+               padding: '20px 0 12px', borderBottom: '1px solid var(--border)' },
   field:     { marginBottom: 14 },
   label:     { display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--text-mid)', marginBottom: 6 },
   input:     { width: '100%', padding: '8px 10px', fontSize: 14, border: '1px solid var(--border-strong)', borderRadius: 8, outline: 'none', boxSizing: 'border-box' },
@@ -2521,7 +2527,18 @@ function LinhaModal({ linha, refLinhas, ccs, somenteLeitura, onClose, onSave }: 
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={S.modal} onClick={e => e.stopPropagation()}>
-        <div style={S.mTitle}>{somenteLeitura ? 'Linha (leitura)' : 'Editar linha'} <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} /></div>
+        {/* ⚠ Fora do `fieldset disabled`, então Cancelar volta a funcionar no
+            modo leitura (lá dentro ele também ficava travado, e só o X fechava).
+            E o Salvar some em vez de aparecer desabilitado: botão apagado numa
+            tela de consulta é pergunta sem resposta. */}
+        <div style={S.mTitle}>
+          <span>{somenteLeitura ? 'Linha (leitura)' : 'Editar linha'}</span>
+          <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button style={S.btnSec} onClick={onClose}>{somenteLeitura ? 'Fechar' : 'Cancelar'}</button>
+            {!somenteLeitura && <button style={S.btnPri} onClick={() => onSave(l)}>Salvar</button>}
+            <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} />
+          </span>
+        </div>
         {somenteLeitura && (
           <div style={{ fontSize: 12, color: 'var(--muted)', background: 'var(--bg-soft)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 10px', marginBottom: 10 }}>
             Você pode consultar a definição desta linha, mas não alterá-la.
@@ -2628,10 +2645,6 @@ function LinhaModal({ linha, refLinhas, ccs, somenteLeitura, onClose, onSave }: 
             </div>
           )}
         </div>
-        <div style={S.mFooter}>
-          <button style={S.btnSec} onClick={onClose}>Cancelar</button>
-          <button style={S.btnPri} onClick={() => onSave(l)}>Salvar</button>
-        </div>
         </fieldset>
       </div>
     </div>
@@ -2645,7 +2658,14 @@ function ViewModal({ view, versoes, onClose, onSave }: { view: ViewConfig; verso
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={S.modal} onClick={e => e.stopPropagation()}>
-        <div style={S.mTitle}>{view._synthetic ? 'Nova visão' : 'Editar visão'} <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} /></div>
+        <div style={S.mTitle}>
+          <span>{view._synthetic ? 'Nova visão' : 'Editar visão'}</span>
+          <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button style={S.btnSec} onClick={onClose}>Cancelar</button>
+            <button style={S.btnPri} onClick={() => onSave(v)}>Salvar</button>
+            <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)' }} onClick={onClose} />
+          </span>
+        </div>
         <div style={S.field}>
           <label style={S.label}>Nome</label>
           <input style={S.input} value={v.nome} onChange={e => setV({ ...v, nome: e.target.value })} />
@@ -2680,10 +2700,6 @@ function ViewModal({ view, versoes, onClose, onSave }: { view: ViewConfig; verso
           <label style={S.chk}><input type="checkbox" checked={v.cenarios.includes(REALIZADO)} onChange={() => toggleCen(REALIZADO)} /> Realizado <span style={{ color: 'var(--muted)', fontSize: 11 }}>· do ano do período</span></label>
           <label style={S.chk}><input type="checkbox" checked={v.cenarios.includes(REALIZADO_ANT)} onChange={() => toggleCen(REALIZADO_ANT)} /> Realizado <span style={{ color: 'var(--muted)', fontSize: 11 }}>· do ano ANTERIOR ao do orçamento</span></label>
           <div style={S.help}>Use "ano anterior" para comparar o orçamento novo com o realizado do ano que passou: ele acompanha a versão, então a visão continua certa no ano seguinte sem ser editada.</div>
-        </div>
-        <div style={S.mFooter}>
-          <button style={S.btnSec} onClick={onClose}>Cancelar</button>
-          <button style={S.btnPri} onClick={() => onSave(v)}>Salvar</button>
         </div>
       </div>
     </div>

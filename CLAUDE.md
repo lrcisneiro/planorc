@@ -1391,6 +1391,18 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `fatorExibicao`), senão uma despesa que cresce vira barra verde e o caminho não fecha.
 
 
+- ⚠ **Em modal, a ação de confirmar fica no CABEÇALHO FIXO** (18/nov). O padrão certo já existia
+  em `DashFiltros` e no Balanço — *cabeçalho que não rola + corpo rolando* —, e vários modais
+  faziam o oposto: container com `overflow: auto` e o botão no fim, então quem abria para
+  conferir um campo não via como confirmar. Corrigidos: os dois de **Configurações** (acesso e
+  convite), o **formulário de posto** e os dois do **editor de relatório**.
+  ⚠ **Rodapé FIXO (`flexShrink: 0` + `borderTop`) é aceitável** — `FormulariosPage` faz assim e a
+  ação nunca some. O defeito não é "estar embaixo", é **sair da tela**.
+  ⚠ No editor de linha os botões estavam **dentro do `fieldset disabled`** do modo leitura, então
+  até o Cancelar ficava travado. Ao subir, *Cancelar* volta a funcionar e *Salvar* **some** em vez
+  de aparecer apagado — botão desabilitado numa tela de consulta é pergunta sem resposta.
+  `CadastrosPage` não precisou: sem `maxHeight`, nada rola ali.
+
 - Estilos: mistura de objetos `S` inline e classes Tailwind. Seguir o padrão já presente em cada arquivo.
 - Sem biblioteca de componentes — tudo à mão.
 - Tipos TypeScript locais por arquivo (não há pasta `types/`).

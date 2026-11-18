@@ -112,6 +112,16 @@ const S: Record<string, CSSProperties> = {
   empty: { padding: '44px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 },
   overlay:{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: 20 },
   modal:  { background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, padding: 20, width: 'min(680px, 96vw)', maxHeight: '88vh', overflow: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,0.4)' },
+  // ⚠ Modal com AÇÃO usa estes, não o `modal` acima: lá o conteúdo inteiro
+  // rola, e numa ficha longa o "Salvar" fica no fim de uma rolagem que quem
+  // abriu para conferir um campo nunca faz. Cabeçalho fixo, corpo rolando —
+  // mesmo desenho de `DashFiltros` e do Balanço, que já faziam certo.
+  modalCol:  { background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14,
+               maxHeight: '88vh', display: 'flex' as const, flexDirection: 'column' as const,
+               overflow: 'hidden' as const, boxShadow: '0 24px 60px rgba(0,0,0,0.4)' },
+  modalHead: { display: 'flex' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const,
+               gap: 12, padding: '16px 20px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 },
+  modalBody: { padding: '16px 20px 20px', overflowY: 'auto' as const },
   mth:    { textAlign: 'left', padding: '6px 8px', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3, borderBottom: '1px solid var(--border)' },
   mtd:    { padding: '5px 8px', fontSize: 12.5, borderBottom: '1px solid var(--panel-2)', color: 'var(--text)' },
   finp:   { padding: '7px 9px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg)', color: 'var(--text)', width: '100%', boxSizing: 'border-box' },
@@ -2515,11 +2525,16 @@ export default function PostosGradePage() {
 
       {form && (
         <div style={S.overlay} onClick={() => setForm(null)}>
-          <div style={{ ...S.modal, width: 'min(580px, 96vw)' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ ...S.modalCol, width: 'min(580px, 96vw)' }} onClick={e => e.stopPropagation()}>
+            <div style={S.modalHead}>
               <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{form.id ? `Editar posto ${form.codigo}` : 'Novo posto / vaga'}</div>
-              <button onClick={() => setForm(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                <button style={S.btn} onClick={() => setForm(null)}>Cancelar</button>
+                <button style={S.btnPri2} onClick={salvarPosto}>Salvar</button>
+                <button onClick={() => setForm(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+              </div>
             </div>
+            <div style={S.modalBody}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 14px' }}>
               <div style={{ gridColumn: '1 / -1' }}><span style={S.flbl}>Ocupante <span style={{ color: 'var(--muted)' }}>(vazio = vaga planejada)</span></span>
                 <input style={S.finp} value={form.nome} placeholder="Nome do funcionário; deixe vazio p/ vaga" onChange={e => setForm((f: any) => ({ ...f, nome: e.target.value }))} /></div>
@@ -2771,9 +2786,6 @@ export default function PostosGradePage() {
               ))}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-              <button style={S.btn} onClick={() => setForm(null)}>Cancelar</button>
-              <button style={S.btnPri2} onClick={salvarPosto}>Salvar</button>
             </div>
           </div>
         </div>
