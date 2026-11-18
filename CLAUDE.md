@@ -1311,6 +1311,15 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   **A regra geral:** toda tela que abre detalhe a partir de um total tem de herdar **o mesmo
   recorte** — detalhe que não soma o total de onde veio não é detalhe, é outro número.
 
+- ⚠⚠ **Orçado × Orçado com período PARCIAL engana mais que no realizado** (18/nov). Os dois lados
+  são planos do **ano inteiro**; recortar meses deixa de fora economia que existe e está gravada.
+  Custou uma investigação: o cenário dizia **−591.979** de efeito no ano e o comparativo mostrava
+  **−467.414**. Medido, nada se perdera — os **124.565** que faltavam estavam em **nov+dez**,
+  fora do recorte (`jan–out`), e o Δ de *todas as origens* no ano era exatamente 591.979, o que
+  prova que o Aplicar tocou só os postos. A tela não dizia, e os dois números pareciam discordar.
+  ⚠ O aviso é **só no modo ORC**: no realizado, período parcial é o normal (o ano não acabou) e o
+  mesmo texto viraria ruído em toda sessão.
+
 - ⚠⚠ **Na PONTE, o sinal cru se lê ao contrário — e avisar em texto não basta** (nov/2026).
   A ponte usa o sinal econômico cru por necessidade (ver a exceção abaixo), então despesa que
   **cresce** aparece **negativa**: ela piora o resultado. Mas o resto do sistema exibe despesa

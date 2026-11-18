@@ -583,6 +583,23 @@ export default function OrcamentoDashPage() {
             o resto do ano seguir este ritmo?" é a mesma pergunta comparando
             orçados ou comparando com realizado. Antes isto só aparecia no modo
             Realizado — e sumia sem explicação no outro. */}
+        {/* ⚠⚠ ORÇADO × ORÇADO COM PERÍODO PARCIAL ENGANA MAIS que no realizado:
+            os dois lados são planos do ANO INTEIRO, e recortar meses deixa de
+            fora economia (ou aumento) que existe e está gravada.
+            Custou uma investigação em 18/nov: o cenário dizia −591.979 de
+            efeito no ano e o comparativo mostrava −467.414. Nada se perdera —
+            os R$ 124.565 que faltavam estavam em nov+dez, fora do recorte.
+            A tela não dizia, e os dois números pareciam discordar.
+            ⚠ Só no modo ORC: no realizado, período parcial é o normal (o ano
+            ainda não acabou) e o aviso viraria ruído em toda sessão. */}
+        {modo === 'ORC' && (mesIni > 1 || mesFim < 12) && (
+          <div style={{ flexBasis: '100%', fontSize: 12, color: 'var(--orange)', lineHeight: 1.6 }}>
+            ⚠ Comparando <b>{MES[mesIni - 1]}–{MES[mesFim - 1]}</b> de dois orçamentos que são do
+            ano inteiro: o que mudar fora desse intervalo não aparece aqui. Para o efeito total,
+            use <b>jan–dez</b>.
+          </div>
+        )}
+
         {mesFim < 12 && (
           <div><div style={S.lbl}>Meses seguintes ({MES[mesFim]}–dez)</div>
             <select style={{ ...S.sel, maxWidth: 320 }} value={proj} onChange={e => setProj(e.target.value as Proj)}>
