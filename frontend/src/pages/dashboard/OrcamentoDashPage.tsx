@@ -25,6 +25,7 @@ import {
 } from './DashFiltros'
 import { ChevronLeft, AlertTriangle, Info, Download, ChevronUp, ChevronDown, ListChecks } from 'lucide-react'
 import { ResponsiveBar } from '@nivo/bar'
+import { fmtEixo } from '../../lib/fmtEixo'
 import { ResponsiveLine } from '@nivo/line'
 import { nivoTheme } from '../../lib/nivoTheme'
 import { computeTotais, formatValor, pkey, type Computed, type LinhaCalc, type Periodo } from '../../lib/engine'
@@ -37,6 +38,7 @@ const MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out
 const fmt = (n: number, casas = 0) =>
   (Number.isFinite(n) ? n : 0).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })
 const fmtPct = (n: number) => (Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${n.toFixed(1)}%` : '—')
+
 
 type Modo = 'ORC' | 'REAL'
 // Projeção dos meses DEPOIS do período, até dezembro — anualização. Vale nos
@@ -1065,7 +1067,7 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
               <ResponsiveBar theme={nivoTheme()} data={composicao} keys={['valor']} indexBy="linha"
                 layout="horizontal" margin={{ top: 6, right: 24, bottom: 34, left: 170 }}
                 colors={({ data }: any) => (data.valor >= 0 ? '#2f9e44' : '#e03131')}
-                axisBottom={{ format: (v: any) => fmt(Number(v)) }} enableGridY={false}
+                axisBottom={{ format: (v: any) => fmtEixo(Number(v)), tickValues: 5 }} enableGridY={false}
                 labelSkipWidth={44} label={(d: any) => fmt(Number(d.value))} />
             </div>
           )}
@@ -1094,7 +1096,7 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
               <ResponsiveBar theme={nivoTheme()} data={porEmp} keys={['valor']} indexBy="empresa"
                 layout="horizontal" margin={{ top: 6, right: 24, bottom: 34, left: 150 }}
                 colors={({ data }: any) => (data.valor >= 0 ? '#5f3dc4' : '#e03131')}
-                axisBottom={{ format: (v: any) => fmt(Number(v)) }} enableGridY={false}
+                axisBottom={{ format: (v: any) => fmtEixo(Number(v)), tickValues: 5 }} enableGridY={false}
                 labelSkipWidth={44} label={(d: any) => fmt(Number(d.value))} />
             </div>
           )}
@@ -1137,7 +1139,7 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
             <div style={{ ...cx, height: alt(dados.length) }}>
               <ResponsiveBar theme={nivoTheme()} data={dados} keys={['Orçado']} indexBy={idx}
                 layout="horizontal" margin={{ top: 6, right: 24, bottom: 34, left: 160 }}
-                colors={cor} enableGridY={false} axisBottom={{ format: (v: any) => fmt(Number(v)) }}
+                colors={cor} enableGridY={false} axisBottom={{ format: (v: any) => fmtEixo(Number(v)), tickValues: 5 }}
                 labelSkipWidth={44} label={(d: any) => fmt(Number(d.value))}
                 onClick={(d: any) => {
                   // "Sem CC" e "Sem área" agrupam lançamentos com cc_id NULO —
