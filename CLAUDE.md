@@ -404,6 +404,20 @@ Todas as tabelas têm `tenant_id` e RLS. Base SQL em `schema_v2.sql`; evoluçõe
 > **Ficou meses invisível porque só morde quem não é admin, e quem desenvolve é admin.** Achado
 > no primeiro uso real de um usuário de teste sem privilégio — que é para isso que ele serve.
 
+> **DIRETOR × GERENTE: a diferença é o `PESSOAS` (decisão do Ricardo, 18/nov).**
+> **Diretor** recebe os CCs no `VER` e **nenhuma regra `PESSOAS`** — então ela herda o `VER` e
+> ele enxerga o quadro inteiro das áreas liberadas, **salário incluído** (`posto.salario` é
+> padrão `member = SIM`). Medido na conta de teste: **266 dos 574 postos, R$ 2,95 mi/mês de
+> massa salarial, nenhum valor mascarado**. Foi decidido assim de propósito; os CCs de Diretoria
+> e Adm ficaram de fora.
+> **Gerente** será o oposto e exige o passo que o diretor dispensa: ligar *"Escopo próprio para
+> Pessoas"* e marcar só os CCs do time. ⚠ **Sem esse passo a regra não existe e herda o `VER`** —
+> alargar o `VER` para o DRE abriria as pessoas junto, em silêncio.
+> ⚠ **Tirar o CC do escopo NÃO esconde a existência de quem rateia para dentro dele.** Um posto
+> da Diretoria que rateia para um CC visível aparece em *"Chegam por rateio"* com nome e valor —
+> sem cargo nem salário, porque o cadastro está fora. É a degradação projetada funcionando, mas
+> quem esconde um CC esperando sumir com as pessoas vai se surpreender.
+
 > **Escopo por ASSUNTO: `PESSOAS` (v3_162, nov/2026).** O escopo era por *pessoa*; faltava por
 > *assunto*. Uma gestora de RH orça o próprio centro de custo e responde pelas pessoas da empresa
 > inteira — indizível com um recorte só. Terceiro valor em `user_acesso_regra.escopo`, alcançando
