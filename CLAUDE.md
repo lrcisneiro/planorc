@@ -1358,6 +1358,15 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   *relation does not exist* — ele **não garante sessão única entre comandos**. Por isso a prova
   sempre "dá erro", e a mensagem começa com `✅ PASSOU` ou `⛔ FALHOU`. Junte todas as falhas numa
   mensagem só: parar na primeira faz descobrir três defeitos em três rodadas.
+  ⚠⚠ **Prova que chama RPC precisa PERSONIFICAR, e `EXCEPTION WHEN others` faz teste passar
+  pelo motivo errado** (18/nov). `prova_ratear_orcado.sql` morreu em
+  *current_tenant_id() nulo* — a função lê `auth.uid()`, que sai de `request.jwt.claims`, e no
+  SQL Editor esse claim **não existe**. Pior: o teste da invariante tinha "passado", porque o
+  `WHEN others` capturou justamente esse erro e concluiu que a recusa funcionava.
+  **Toda asserção de recusa confere a MENSAGEM** (`SQLERRM LIKE '%…%'`) — "levantou alguma
+  coisa" não é a asserção que interessa. E a personificação vai de
+  `set_config('request.jwt.claims', …, true)`, local à transação.
+
   ⚠ Asserção de prova afirma o **mínimo** necessário. `prova_escopo_pessoas.sql` exigiu que uma
   dimensão de escopo abrisse tudo e levou 568 de 570 — o sistema estava certo, a asserção errada,
   e meia hora foi gasta investigando o código que funcionava.

@@ -11,9 +11,20 @@
 -- rolando tudo para trás, trabalhar sobre o ano real seria apostar que o
 -- rollback funciona — e é justamente o que se está testando.
 --
+-- ⚠⚠ PRECISA FINGIR UM USUÁRIO. `current_tenant_id()` lê `auth.uid()`, que sai
+-- de `request.jwt.claims` — e no SQL Editor esse claim NÃO EXISTE, então a
+-- função devolve NULO e a RPC recusa a chamada logo na primeira linha. A
+-- primeira versão desta prova morreu assim. `set_config(..., true)` resolve o
+-- tenant e é local à transação.
+--
+-- ⚠⚠ E `EXCEPTION WHEN others` FAZ TESTE PASSAR PELO MOTIVO ERRADO. Na versão
+-- que morreu, o teste da invariante "passou": ele capturou o erro de tenant
+-- nulo e concluiu que a recusa funcionava. Por isso cada recusa aqui confere a
+-- MENSAGEM — "levantou alguma coisa" não é a asserção que interessa.
+--
 -- Roda como DONO (sem RLS), então prova a MECÂNICA: totais, merge, exclusão da
--- origem e a recusa da invariante. O recorte por escopo é do RLS e tem prova
--- própria (`prova_rls_escopo.sql`).
+-- origem e as recusas. O recorte por escopo é do RLS e tem prova própria
+-- (`prova_rls_escopo.sql`).
 -- ============================================================
 
 DO $$
@@ -27,7 +38,17 @@ DECLARE
   n       int;
   soma    numeric;
   recusou boolean := false;
+  msg     text;
+  v_uid   uuid;
 BEGIN
+  SELECT user_id INTO v_uid FROM user_tenant WHERE role='admin' LIMIT 1;
+  IF v_uid IS NULL THEN RAISE EXCEPTION '⛔ FALHOU: nenhum usuário admin para personificar.'; END IF;
+  PERFORM set_config('request.jwt.claims',
+          json_build_object('sub', v_uid::text, 'role', 'authenticated')::text, true);
+  IF current_tenant_id() IS NULL THEN
+    RAISE EXCEPTION '⛔ FALHOU: current_tenant_id() segue nulo depois de personificar.';
+  END IF;
+
   SELECT id INTO v_ver FROM versao_orcamento WHERE tenant_id=t AND bloqueada IS NOT TRUE ORDER BY codigo LIMIT 1;
   SELECT id INTO v_lin FROM conta_orcamentaria WHERE tenant_id=t ORDER BY codigo LIMIT 1;
   SELECT id INTO e1 FROM empresa WHERE tenant_id=t ORDER BY codigo LIMIT 1;
@@ -49,9 +70,12 @@ BEGIN
     PERFORM ratear_orcado(v_ver, 2099, v_lin, e1, NULL, cc1,
       jsonb_build_array(jsonb_build_object('e', e2, 'f', NULL, 'c', cc2,
         'm', jsonb_build_object('1', -50.0))));     -- só 50 de 300
-  EXCEPTION WHEN others THEN recusou := true;
+  EXCEPTION WHEN others THEN recusou := true; msg := SQLERRM;
   END;
-  IF NOT recusou THEN falhas := falhas || 'aceitou rateio que NÃO FECHA (origem 300, destinos 50)'; END IF;
+  IF NOT recusou THEN falhas := falhas || 'aceitou rateio que NÃO FECHA (origem 300, destinos 50)';
+  ELSIF msg NOT LIKE '%não fecha%' THEN
+    falhas := falhas || format('recusou o rateio que não fecha, mas por OUTRO motivo: "%s"', msg);
+  END IF;
 
   -- ── 2 · rateio válido: 1/3 e 2/3 em dois destinos ──
   SELECT ratear_orcado(v_ver, 2099, v_lin, e1, NULL, cc1, jsonb_build_array(
@@ -91,9 +115,12 @@ BEGIN
     PERFORM ratear_orcado(v_ver, 2099, v_lin, e1, NULL, cc1,
       jsonb_build_array(jsonb_build_object('e', e2, 'f', NULL, 'c', cc2,
         'm', jsonb_build_object('6', -10.0))));
-  EXCEPTION WHEN others THEN recusou := true;
+  EXCEPTION WHEN others THEN recusou := true; msg := SQLERRM;
   END;
-  IF NOT recusou THEN falhas := falhas || 'aceitou ratear origem com célula de POSTO'; END IF;
+  IF NOT recusou THEN falhas := falhas || 'aceitou ratear origem com célula de POSTO';
+  ELSIF msg NOT LIKE '%posto ou formul%' THEN
+    falhas := falhas || format('recusou a origem gerada, mas por OUTRO motivo: "%s"', msg);
+  END IF;
 
   IF array_length(falhas,1) IS NULL THEN
     RAISE EXCEPTION '✅ PASSOU — total preservado, origem apagada, destino existente somado, invariante e origem gerada recusadas. (rollback: nada ficou no banco)';
