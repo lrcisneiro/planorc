@@ -175,6 +175,13 @@ export default function PostosGradePage() {
   // ⚠ `orcar` continua sendo o piso: sem ele não se edita nada dos dois lados.
   const podeCadastro = cap.can('orcar') && cap.can('posto.cadastro.editar')
   const podeCenario  = cap.can('orcar') && cap.can('posto.cenario.decidir')
+  // ⚠⚠ DECIDIR e VER são coisas diferentes, e negar o primeiro não escondia o
+  // segundo: o botão `Cenário` era renderizado sempre, e quem tinha *Decidir*
+  // negado entrava em LEITURA — via os cortes planejados.
+  // Para o RH, que edita o cadastro mas não participa da negociação, isso é
+  // justamente o que não pode: a lista de quem a empresa pretende cortar.
+  // Vê quem DECIDE ou quem APROVA; negados os dois, o modo não existe.
+  const veCenario = podeCenario || cap.can('cenario.aprovar')
   // Separadas de `editavel` de propósito: mexer no quadro da sua área é uma
   // coisa; gravar no orçado do grupo e recarregar a base do RH são outras duas.
   // O Aplicar SUBSTITUI todo o orçado de origem POSTO da versão — não é edição,
@@ -210,6 +217,10 @@ export default function PostosGradePage() {
   // guarda as DECISÕES. O modo é explícito de propósito: sem ele, corrigir um
   // salário errado viraria "decisão do cenário" sem ninguém perceber.
   const [modoCenario, setModoCenario] = useState(false)
+  // Rede: capacidade revogada no meio da sessão (ou estado restaurado) não pode
+  // deixar alguém dentro de um modo que a tela já não oferece.
+  useEffect(() => { if (!veCenario && modoCenario) { setModoCenario(false); setSoAlteradas(false) } },
+            [veCenario, modoCenario]) // eslint-disable-line
   const [overlays, setOverlays] = useState<Map<string, PostoVersao>>(new Map())
   const [verDiff, setVerDiff] = useState(false)   // comparativo cadastro × cenário, para aprovação
   const [soAlteradas, setSoAlteradas] = useState(false)
@@ -1642,7 +1653,8 @@ export default function PostosGradePage() {
         <div style={S.fld}><span style={S.lbl}>Editando</span>
           <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}>
             {([[false, 'Cadastro', podeCadastro ? 'O quadro real, válido em todas as versões' : 'Só leitura: o cadastro vem do ERP. Decida no cenário.'],
-               [true, 'Cenário', 'Decisões desta versão (demitir, adiar, promover) — o cadastro não muda']] as const).map(([v, lbl, tit]) => (
+               ...(veCenario ? [[true, 'Cenário', 'Decisões desta versão (demitir, adiar, promover) — o cadastro não muda'] as const] : []),
+              ] as const).map(([v, lbl, tit]) => (
               <button key={String(v)} title={tit} onClick={() => { setModoCenario(v); if (!v) setSoAlteradas(false) }}
                 style={{ padding: '7px 11px', fontSize: 12.5, fontWeight: modoCenario === v ? 700 : 500, cursor: 'pointer', border: 'none',
                   background: modoCenario === v ? (v ? 'rgba(139,92,246,0.18)' : 'var(--panel-2)') : 'transparent',
@@ -1678,7 +1690,7 @@ export default function PostosGradePage() {
         {/* Junto do filtro de decisões, não do Aplicar: os dois falam do que o
             cenário decide — um recorta na grade, o outro abre o comparativo.
             Ao lado do Aplicar parecia etapa de aplicação, e não é: é leitura. */}
-        {modoCenario && alterados.size > 0 && (
+        {veCenario && modoCenario && alterados.size > 0 && (
           <div style={S.fld}><span style={S.lbl}>&nbsp;</span>
             {/* Nasceu "Comparar com o cadastro", quando só comparava. Virou o
                 lugar onde se aprova, recusa, justifica e reenvia — o nome tinha

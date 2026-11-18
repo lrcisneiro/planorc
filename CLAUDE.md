@@ -550,6 +550,20 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > `aprovado_em` fica à vista e quem lê julga. `bloqueada` segue sendo outra coisa: aprovar
 > **libera** o Aplicar, bloquear **congela** a versão depois.
 
+> ⚠⚠ **DECIDIR e VER o cenário eram a mesma coisa — e não são** (18/nov). O botão `Cenário` era
+> renderizado sempre: negar `posto.cenario.decidir` deixava em **leitura**, não escondia. Para o
+> **RH**, que edita o cadastro mas não participa da negociação, é justamente o que não pode — a
+> lista de quem a empresa pretende cortar. Hoje o modo só aparece para quem **decide** ou
+> **aprova** (`veCenario = podeCenario || can('cenario.aprovar')`), com rede para capacidade
+> revogada no meio da sessão. **Sem capacidade nova:** as duas chaves já diziam isso.
+> ⚠ **É esconder a TELA, não o dado** (camada 2 do F2, por desenho): `posto_versao` segue
+> legível pela API para quem tiver o token. Para o RH não alcançar a decisão de jeito nenhum,
+> seria RLS em `posto_versao` — trabalho à parte.
+> **Receita do perfil "RH edita cadastro, não vê cenário":** papel **`member`** (viewer não
+> escreve, `pode_escrever()` barra no banco) · `orcar` herdado (é o **piso** de `podeCadastro`) ·
+> `posto.cadastro.editar` **Liberar** · `posto.cenario.decidir` **Negar** · `cenario.aprovar` e
+> `posto.aplicar` negados · `posto.salario` herdado · escopo de dados `PESSOAS`.
+
 > **Cadastro × cenário: dois privilégios, não um (nov/2026).** `posto.cadastro.editar` (só admin)
 > e `posto.cenario.decidir` (admin+member) separam mexer no **mestre** de decidir na **versão**.
 > ⚠ **O argumento mais forte não é governança:** o cadastro vem do ERP e a próxima importação do
