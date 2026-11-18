@@ -1342,7 +1342,14 @@ export default function PostosGradePage() {
   }, [modoCenario, postos, verbas, dissidio, sindMesBase, anoCalc, temMotor, postoVerbas, empPais])
 
   const custoAnoP = (p: Posto) => custos.get(p.id)?.totalAno ?? (Number(p.salario_base) || 0) * (Number(p.fte) || 1) * 12
+  // O que a tela MOSTRA. Sem o toggle é o custo do posto; com ele, só a parte
+  // que pousa no recorte — e aí os KPIs passam a bater com a DRE do CC.
+  // ⚠ Zero aqui tem DUAS causas e o número é honesto nas duas: ou a pessoa
+  // rateia tudo para fora, ou o quadro ainda não foi aplicado. A primeira é
+  // informação; a segunda vira o aviso do rodapé.
+  const custoAnoVis = (p: Posto) => verRateio ? (rateadoDe.get(p.id) || 0) : custoAnoP(p)
   const custoMesP = (p: Posto) => custos.get(p.id)?.totalMes ?? (Number(p.salario_base) || 0) * (Number(p.fte) || 1)
+  const custoMesVis = (p: Posto) => verRateio ? (rateadoMesDe.get(p.id) || 0) : custoMesP(p)
   const empById = useMemo(() => new Map(empresas.map((e: any) => [e.id, e])), [empresas])
   const ccById = useMemo(() => new Map(ccs.map((c: any) => [c.id, c])), [ccs])
   // código automático do posto: {filial}-{matrícula} ou, sem matrícula (vaga), {filial}-VG{seq}
@@ -1392,8 +1399,8 @@ export default function PostosGradePage() {
         return ini * 100 + fim
       }
       case 'rateio':   return (postoRateios[p.id] || []).length
-      case 'custoMes': return custoMesP(p)
-      case 'custoAno': return custoAnoP(p)
+      case 'custoMes': return custoMesVis(p)
+      case 'custoAno': return custoAnoVis(p)
       default:         return ''
     }
   }
@@ -1507,6 +1514,29 @@ export default function PostosGradePage() {
 
   // A subtração vive aqui, e não no carregamento: `filtrados` muda com busca e
   // situação sem que o fato precise ser relido.
+  // ⚠⚠ Com o toggle LIGADO, a tela inteira responde "o que cai no meu recorte"
+  // — inclusive para quem é LOTADO aqui. Antes só a seção de chegadas era
+  // rateada e a lista de cima vinha integral: somando as duas, o total não era
+  // nem o quadro nem o orçado do CC.
+  // Medido: LUIS R. MULLA é lotado no 224, o motor diz R$ 597.385 e o 224 fica
+  // com **R$ 0** — ele rateia tudo para fora. A tela mostrava os 597 mil.
+  // São 147 dos 331 postos que rateiam para fora, então não é exceção.
+  const rateadoDe = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const c of chegRaw) m.set(c.pid, c.ano)
+    return m
+  }, [chegRaw])
+  // O mês segue a mesma convenção da coluna: o ÚLTIMO mês com valor, não a
+  // média — senão ano e mês contariam histórias diferentes na mesma linha.
+  const rateadoMesDe = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const c of chegRaw) {
+      const ms = Object.keys(c.porMes || {}).map(Number).sort((a, b) => b - a)
+      m.set(c.pid, ms.length ? c.porMes[ms[0]] : 0)
+    }
+    return m
+  }, [chegRaw])
+
   const chegadas = useMemo(() => {
     if (!verRateio) return []
     const aqui = new Set(filtrados.map(p => p.id))
@@ -1519,7 +1549,7 @@ export default function PostosGradePage() {
 
   const grupos = useMemo(() => {
     const porCc = agruparPor === 'cc'
-    const custo = (ps: Posto[]) => ps.reduce((s, p) => s + custoAnoP(p), 0)
+    const custo = (ps: Posto[]) => ps.reduce((s, p) => s + custoAnoVis(p), 0)
     const sinal0 = ordem.dir === 'asc' ? 1 : -1
     // Sem agrupamento: UM grupo com tudo, para a ordenação valer sobre a
     // empresa inteira. Mantém o mesmo formato dos outros para o render não
@@ -1587,11 +1617,11 @@ export default function PostosGradePage() {
     const custoDe = new Map<string, number>()
     for (const p of filtrados) {
       const k = chavePessoa(p)
-      custoDe.set(k, (custoDe.get(k) || 0) + custoAnoP(p))
+      custoDe.set(k, (custoDe.get(k) || 0) + custoAnoP(p))   // vigência: sempre o custo do posto
     }
     const semCusto = [...custoDe.values()].filter(v => !v).length
     const fte = filtrados.reduce((s, p) => s + (Number(p.fte) || 0), 0)
-    const ano = filtrados.reduce((s, p) => s + custoAnoP(p), 0)
+    const ano = filtrados.reduce((s, p) => s + custoAnoVis(p), 0)
     const cat = Object.fromEntries(CATEGORIAS.map(c => [c, 0])) as Record<string, number>
     for (const p of filtrados) { const r = custos.get(p.id); if (r) for (const k in r.porCategoria) cat[k] += (r.porCategoria as any)[k] }
     // Rescisão é EVENTO, não custo corrente: entra no custo anual (é desembolso
@@ -1621,7 +1651,7 @@ export default function PostosGradePage() {
   }
 
   const linhaPosto = (p: Posto) => {
-    const custoMes = custoMesP(p), custoAno = custoAnoP(p)
+    const custoMes = custoMesVis(p), custoAno = custoAnoVis(p)
     // CUSTO/MÊS é o mês REPRESENTATIVO (o último vigente), não a média: ele
     // responde "quanto essa pessoa custa daqui em diante". Quando há reajuste no
     // meio do ano, custoMes × 12 ≠ custoAno — e sem avisar isso parece erro de
@@ -2033,6 +2063,20 @@ export default function PostosGradePage() {
               zerados" para conferir a lista.
             </div>
           )}
+          {verRateio && (
+            <div style={{ fontSize: 12.5, color: 'var(--text)', background: 'rgba(139,92,246,0.10)',
+                          border: '1px solid rgba(139,92,246,0.40)', borderRadius: 10,
+                          padding: '10px 13px', marginBottom: 14, lineHeight: 1.65 }}>
+              <b style={{ color: 'var(--violet)' }}>Custo no recorte.</b> As colunas de custo e os
+              KPIs mostram <b>só a parte que pousa neste filtro</b> — de quem é lotado aqui e rateia
+              para fora, entra apenas o que fica. Por isso estes números batem com a DRE do recorte,
+              e <b>não</b> com o custo das pessoas.
+              {' '}⚠ A <b>memória de cálculo</b> (clique no custo/mês) continua mostrando o custo
+              <b> integral</b> do posto: ela é do posto, não do recorte.
+              {' '}⚠ Custo <b>zero</b> aqui quer dizer que nada daquela pessoa fica neste filtro —
+              ou porque rateia tudo para fora, ou porque o quadro ainda não foi aplicado.
+            </div>
+          )}
           <div style={S.kpis}>
             <div style={S.kpi}><div style={S.kpiL}>Postos</div><div style={S.kpiV}>{tot.head}</div><div style={S.kpiH}>{tot.vagas} vaga{tot.vagas === 1 ? '' : 's'} planejada{tot.vagas === 1 ? '' : 's'}</div></div>
             <div style={S.kpi}><div style={S.kpiL}>Headcount</div><div style={S.kpiV}>{tot.pessoas}</div>
@@ -2128,7 +2172,8 @@ export default function PostosGradePage() {
             </span>
           </div>
           <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, lineHeight: 1.6 }}>
-            <b>Fora</b> do headcount, do FTE e do custo acima — o posto é de outra área e lá já conta.
+            <b>Fora</b> do headcount e do FTE acima — a pessoa é de outra área e lá já conta.
+            O <b>custo</b> destes <b>não</b> está somado nos KPIs.
             O <b>salário</b> é o integral da pessoa; o <b>custo</b> é só a parte rateada para cá.
             {' '}Sai do orçado aplicado, então <b>rateio cadastrado e ainda não aplicado não aparece</b>.
           </p>

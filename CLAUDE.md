@@ -1142,6 +1142,20 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   para ver mais e ver menos.
   ⚠ Fora dos KPIs (meia pessoa rateada não é meia pessoa), **não editável** (o cadastro é de
   outra área), **salário integral** e **custo só da parte rateada**. Só depois do **Aplicar**.
+  ⚠⚠ **Com o toggle LIGADO a tela inteira passa a responder "o que cai no meu recorte"** — não
+  só a seção de chegadas. Antes as duas metades usavam regras diferentes (chegada rateada,
+  lotado integral), e somá-las dava um número que não era nem o quadro nem o orçado do CC.
+  Medido: **LUIS R. MULLA é lotado no 224, o motor diz R$ 597.385 e o 224 fica com R$ 0** — ele
+  rateia tudo para fora, e a tela mostrava os 597 mil. São **147 dos 331** postos que rateiam
+  para fora, então não é exceção.
+  ⚠ **Desligado, nada muda** — nem linha, nem KPI, nem ordenação. `custoAnoVis`/`custoMesVis` só
+  trocam a fonte quando o toggle está ligado; o comportamento de sempre é o certo ali, porque a
+  pergunta é outra ("quanto custa esta pessoa").
+  ⚠ **A memória de cálculo segue integral**, e a tela diz isso: ela é do POSTO, não do recorte.
+  Sem avisar, seria o defeito do drill de novo — o detalhe contradizendo a linha que o abriu.
+  ⚠ **Zero tem duas causas** e o número é honesto nas duas: rateia tudo para fora, ou o quadro
+  ainda não foi aplicado (15 postos ativos sem célula, 4 com salário).
+
   ⚠⚠ **A % é POR DESTINO, e uma pessoa cai em VÁRIOS dentro do mesmo filtro.** Guardar o
   `rateio_pct` da primeira célula lida mostrava a fatia de **um** destino como se fosse a da
   tela — mesmo erro do drill, que exibia o lançamento de uma pessoa como o total da célula.
