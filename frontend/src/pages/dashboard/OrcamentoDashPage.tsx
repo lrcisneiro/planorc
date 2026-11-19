@@ -23,7 +23,7 @@ import {
   ExportarButton, FiltrosButton, PillsDim, SalvarCardButton, useCardPreset,
   effectiveCcFilter, escopoFiltro, type CC,
 } from './DashFiltros'
-import { ChevronLeft, AlertTriangle, Info, Download, ChevronUp, ChevronDown, ListChecks } from 'lucide-react'
+import { ChevronLeft, AlertTriangle, Info, Download, ChevronUp, ChevronDown, ListChecks, ChevronRight, CornerDownRight } from 'lucide-react'
 import { ResponsiveBar } from '@nivo/bar'
 import { fmtEixo } from '../../lib/fmtEixo'
 import { ResponsiveLine } from '@nivo/line'
@@ -1474,6 +1474,53 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
   // componentes dá a variação do resultado. É o que faz a ponte fechar.
   const v = (src: any, id: string) => src?.[id] ?? 0
   const resId = cfg.resultado
+
+  // ── navegar dentro da ponte ───────────────────────────────────────────
+  // ⚠⚠ SUBIR SEGUE O CAMINHO PERCORRIDO, NÃO O `pai_id`. Descendo por SUBTOTAL
+  // os dois coincidem; descendo por FÓRMULA, não: o EBITDA referencia
+  // `Despesas`, que é linha de TOPO (pai nulo) — o ↑ não teria para onde
+  // voltar. São 27 linhas que se decompõem por fórmula, metade dos pontos de
+  // descida, então o caso não é raro.
+  // Por isso a volta é uma TRILHA e não um botão: ela diz onde se está (hoje
+  // só o seletor dizia) e leva a qualquer ancestral num clique.
+  const [trilha, setTrilha] = useState<string[]>([])
+  // ⚠ A trilha NÃO é guardada no card: o card guarda a linha onde se parou, e
+  // reabrir é como entrar pelo seletor. Caminho é do momento, não da análise.
+  const navRef = useRef<string | null>(null)
+  useEffect(() => { if (cfg.resultado !== navRef.current) setTrilha([]) }, [cfg.resultado])
+
+  const byIdAll = useMemo(
+    () => Object.fromEntries(linhas.map((l: LinhaRel) => [l.id, l])) as Record<string, LinhaRel>, [linhas])
+
+  // ⚠ Percentual não desce: decompor `% EBITDA` somaria pontos percentuais, que
+  // não somam — o resíduo viraria quase tudo e pareceria defeito do dado.
+  // `formato` é o campo certo, mas está INCOMPLETO: `LER Bruto`, `LER de
+  // Margem`, `dLER` e `mLER` são razões marcadas como NUMERO e escapam daqui.
+  // O conserto é no CADASTRO (marcar as quatro como percentual), não numa lista
+  // de nomes — nome chumbado funciona nesta DRE e quebra na próxima.
+  const podeDescer = (id: string) => {
+    const l = byIdAll[id]
+    if (!l || (l as any).formato === 'PERCENTUAL') return false
+    return componentesDe(l, linhas).length > 0
+  }
+  // ⚠⚠ CARD ANTIGO SE CONSERTA SOZINHO. Com o seletor de componentes removido,
+  // um preset salvo com escolha manual ficaria preso nela para sempre — e a
+  // ponte não fecharia, sem caminho de volta pela tela. Aqui a seleção é
+  // re-derivada da estrutura quando diverge, uma vez.
+  // ⚠ `cfg` fora das dependências de propósito: ele muda a cada `setCfg` e o
+  // efeito voltaria a disparar — laço. Depois de alinhado não diverge mais.
+  useEffect(() => {
+    if (!resId) return
+    const der = componentesDe(byIdAll[resId], linhas)
+    if (!der.length) return
+    if ([...cfg.sel].sort().join(',') !== [...der].sort().join(',')) setCfg({ ...cfg, sel: der })
+  }, [resId, linhas]) // eslint-disable-line
+
+  const irPara = (id: string, nova: string[]) => {
+    navRef.current = id
+    setTrilha(nova)
+    setCfg({ ...cfg, resultado: id, sel: componentesDe(byIdAll[id], linhas) })
+  }
   const ini = resId ? v(comp, resId) : 0
   const fim = resId ? v(base, resId) : 0
 
@@ -1513,14 +1560,29 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
   // isso tem de aparecer em vez de o gráfico fingir que fecha.
   const explicado = itens.reduce((s: number, x: any) => s + x.d, 0)
   const residuo = (fim - ini) - explicado
-  const barras = [...itens, ...(Math.abs(residuo) > Math.max(1, Math.abs(fim - ini) * 0.001)
-    ? [{ id: '__resid', nome: 'não explicado', d: residuo }] : [])]
+  const temResid = Math.abs(residuo) > Math.max(1, Math.abs(fim - ini) * 0.001)
+  const resid = { id: '__resid', nome: 'não explicado', d: residuo }
+  const barras = [...itens, ...(temResid ? [resid] : [])]
+
+  // ⚠ O LIMITE É SÓ DO GRÁFICO. Uma linha tem 45 filhas, e 45 barras não se
+  // leem — mas a tabela mostra tudo, que é onde se confere.
+  // ⚠⚠ O resto vira UMA BARRA "outros", nunca é descartado: sem ela a cascata
+  // não chega no total final e o gráfico passa a mentir.
+  // ⚠ E o RESÍDUO fica sempre de fora do agrupamento — ele é a honestidade da
+  // ponte; escondê-lo dentro de "outros" seria enterrar o aviso.
+  const MAXB = 8
+  const itensG = itens.length <= MAXB ? itens : [
+    ...itens.slice(0, MAXB - 1),
+    { id: '__outros', nome: `outros (${itens.length - (MAXB - 1)})`,
+      d: itens.slice(MAXB - 1).reduce((t: number, x: any) => t + x.d, 0) },
+  ]
+  const barrasG = [...itensG, ...(temResid ? [resid] : [])]
 
   // Escala SEM forçar o zero: num bridge o início é muito maior que as
   // variações, e incluir o zero achata tudo — foi o que aconteceu na primeira
   // versão. Eixo na faixa do caminho, com folga.
   let ac = ini; const pts = [ini, fim]
-  for (const b of barras) { ac += b.d; pts.push(ac) }
+  for (const b of barrasG) { ac += b.d; pts.push(ac) }
   const mn = Math.min(...pts), mx = Math.max(...pts)
   const folga = (mx - mn || Math.abs(mx) || 1) * 0.18
   const lo = mn - folga, hi = mx + folga, amp = hi - lo || 1
@@ -1528,13 +1590,21 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
   const y = (v: number) => ((hi - v) / amp) * H
 
   let cur = ini
-  const passos = barras.map((b: any) => { const de = cur; cur += b.d; return { ...b, de, ate: cur } })
+  const passosG = barrasG.map((b: any) => { const de = cur; cur += b.d; return { ...b, de, ate: cur } })
+  let curT = ini
+  const passos = barras.map((b: any) => { const de = curT; curT += b.d; return { ...b, de, ate: curT } })
   const cols = [{ tot: true, lab: rotuloComp, v: ini, de: lo, ate: ini },
-                ...passos.map((p: any) => ({ tot: false, lab: p.nome, v: p.d, de: p.de, ate: p.ate, id: p.id })),
+                ...passosG.map((p: any) => ({ tot: false, lab: p.nome, v: p.d, de: p.de, ate: p.ate, id: p.id })),
                 { tot: true, lab: rotuloBase, v: fim, de: lo, ate: fim }]
   const W = 78
 
-  const opcoes = emArvore(linhas as any).filter((l: any) => linhasConciliaveis(linhas).some((x: any) => x.id === l.id))
+  // ⚠ Lista separada por ASSUNTO: eram 142 linhas de relatório misturadas com
+  // 27 indicadores num combo só, e escolher "% EBITDA" no meio das despesas é
+  // acidente esperando acontecer — somam coisas diferentes.
+  const [modoLista, setModoLista] = useState<'LINHA' | 'INDIC'>('LINHA')
+  const opcoes = emArvore(linhas as any)
+    .filter((l: any) => linhasConciliaveis(linhas).some((x: any) => x.id === l.id))
+    .filter((l: any) => modoLista === 'INDIC' ? l.tipo_linha === 'INDICADOR' : l.tipo_linha !== 'INDICADOR')
 
   return (
     <div style={S.sec}>
@@ -1549,24 +1619,33 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
             lado do número.
           </div></div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }} data-noexport>
+          <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}>
+            {([['LINHA', 'Linhas'], ['INDIC', 'Indicadores']] as const).map(([k, rot]) => (
+              <button key={k} onClick={() => setModoLista(k)}
+                style={{ padding: '5px 9px', fontSize: 11.5, border: 'none', cursor: 'pointer',
+                  fontWeight: modoLista === k ? 700 : 500,
+                  background: modoLista === k ? 'rgba(139,92,246,0.18)' : 'transparent',
+                  color: modoLista === k ? 'var(--violet)' : 'var(--muted)' }}>{rot}</button>
+            ))}
+          </div>
           <select value={resId ?? ''} onChange={e => {
               const novo = e.target.value
-              const der = componentesDe(linhas.find((l: LinhaRel) => l.id === novo), linhas)
-              // se a estrutura não souber dizer, preserva a escolha manual
-              setCfg({ ...cfg, resultado: novo, sel: der.length ? der : cfg.sel })
+              // Escolher pelo seletor é partir do zero: a trilha some.
+              navRef.current = novo; setTrilha([])
+              setCfg({ ...cfg, resultado: novo, sel: componentesDe(byIdAll[novo], linhas) })
             }}
             style={{ padding: '5px 8px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg-soft)', color: 'var(--text)', maxWidth: 220 }}>
             <option value="">— linha de resultado —</option>
             {opcoes.map((l: any) => <option key={l.id} value={l.id}>{'\u00A0'.repeat(l.prof * 2)}{l.descricao}</option>)}
           </select>
-          {componentesDe(linhas.find((l: LinhaRel) => l.id === resId), linhas).length > 0 && (
-            <button onClick={() => setCfg({ ...cfg, sel: componentesDe(linhas.find((l: LinhaRel) => l.id === resId), linhas) })}
-              title="Voltar aos componentes que a própria estrutura do relatório declara"
-              style={{ padding: '5px 10px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg-soft)', color: 'var(--violet)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              usar os da estrutura
-            </button>
-          )}
-          <SelLinhas cfg={cfg} setCfg={setCfg} linhas={linhas} />
+          {/* ⚠ SAÍRAM o "usar os da estrutura" e o seletor de componentes. Eles
+              só existiam um por causa do outro: um deixava mexer na lista à
+              mão, o outro desfazia. Trocar a linha JÁ deriva da estrutura, que
+              é o que o texto deste cartão promete — e componente escolhido a
+              dedo faz a ponte não fechar, que é o contrário de uma ponte. */}
+          <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+            {cfg.sel.length} componente(s)
+          </span>
         </div>
       </div>
 
@@ -1581,6 +1660,25 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
               estrutura — o total do resultado não o inclui, então ele sobra.
             </div>
           )}
+          {/* A trilha só existe quando se DESCEU. Entrando pelo seletor não há
+              caminho, e um "voltar" morto seria pior que a ausência dele. */}
+          {trilha.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 10, fontSize: 12.5 }} data-noexport>
+              {trilha.map((id: string, i: number) => (
+                <Fragment key={id}>
+                  <button onClick={() => irPara(id, trilha.slice(0, i))}
+                    title="Voltar a esta linha"
+                    style={{ background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer',
+                             color: 'var(--violet)', fontSize: 12.5, fontFamily: 'inherit' }}>
+                    {nome(id)}
+                  </button>
+                  <ChevronRight size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                </Fragment>
+              ))}
+              <span style={{ color: 'var(--text)', fontWeight: 700, padding: '2px 4px' }}>{nome(resId)}</span>
+            </div>
+          )}
+
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(340px, 1fr) minmax(290px, 400px)', gap: 20, alignItems: 'start' }}>
             <div style={{ overflowX: 'auto' }}>
               <svg width={Math.max(380, cols.length * W)} height={H + 46}>
@@ -1610,7 +1708,20 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
                   // (+ é mais receita), e repetir "↑ receita" seria ruído.
                   const desp = b.id !== '__resid' && natDaLinha(b.id) === 'DESPESA'
                   return (
-                  <tr key={b.id}><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: b.id === '__resid' ? 'var(--orange)' : undefined }}>{b.nome}</td>
+                  <tr key={b.id}><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: b.id === '__resid' ? 'var(--orange)' : undefined }}>
+                    {/* ⚠ Só onde HÁ o que decompor (46 das 170 linhas). Oferecer
+                        e depois abrir uma ponte vazia ensina que a tela às
+                        vezes não funciona. */}
+                    {podeDescer(b.id) && (
+                      <button onClick={() => irPara(b.id, [...trilha, resId])}
+                        title="Decompor esta linha — a ponte se refaz a partir dela"
+                        data-noexport
+                        style={{ background: 'none', border: 'none', padding: 0, marginRight: 6,
+                                 cursor: 'pointer', color: 'var(--violet)', verticalAlign: -2 }}>
+                        <CornerDownRight size={13} />
+                      </button>
+                    )}
+                    {b.nome}</td>
                     <td style={{ ...S.td, color: b.id === '__resid' ? 'var(--orange)' : b.d >= 0 ? 'var(--green)' : 'var(--red)' }}>
                       {b.d >= 0 ? '+' : ''}{fmt(b.d)}
                       {desp && <span style={{ marginLeft: 6, fontSize: 10.5, fontFamily: 'inherit', color: 'var(--muted)', whiteSpace: 'nowrap' }}>

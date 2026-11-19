@@ -1342,6 +1342,27 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ Some sozinho abaixo de 2 valores: atalho com uma opção é enfeite ocupando a linha mais
   visível da tela.
 
+- **A ponte NAVEGA (19/nov).** Trocar a linha no seletor era o único caminho, e analisar
+  "de onde veio" é descer. Ícone `↳` na linha da tabela desce; a **trilha** acima do gráfico
+  sobe. Medido: **54 das 170 linhas** se decompõem (27 por subtotal, 27 por fórmula) e a
+  profundidade real é **4 níveis** — no máximo 3 cliques até a folha.
+  ⚠⚠ **Subir segue o CAMINHO PERCORRIDO, não o `pai_id`.** Descendo por subtotal os dois
+  coincidem; por **fórmula**, não — o EBITDA referencia `Despesas`, que é linha de topo com pai
+  nulo, e o ↑ não teria para onde voltar. Metade dos pontos de descida é fórmula.
+  ⚠ A trilha **não** entra no card: ele guarda a linha onde se parou, e reabrir é como entrar
+  pelo seletor. Caminho é do momento, não da análise.
+  ⚠ **Percentual não desce** — somar pontos percentuais não fecha. O campo é `formato`, e ele
+  está **incompleto**: `LER Bruto`, `LER de Margem`, `dLER` e `mLER` são razões marcadas
+  `NUMERO` e escapam. **Conserto é de CADASTRO**, não lista de nomes — nome chumbado funciona
+  nesta DRE e quebra na próxima.
+  ⚠ **Limite de barras é só do GRÁFICO** (uma linha tem 45 filhas); a tabela mostra tudo. O
+  resto vira **uma barra "outros"**, nunca é descartado — sem ela a cascata não chega ao total e
+  o gráfico mente. E o **resíduo fica fora do agrupamento**: ele é o aviso.
+  ⚠ **Saíram `usar os da estrutura` e o seletor de componentes.** Só existiam um por causa do
+  outro — um deixava mexer à mão, o outro desfazia —, e componente escolhido a dedo faz a ponte
+  não fechar. Card antigo com escolha manual **se re-deriva sozinho**, senão ficaria preso nela
+  sem caminho de volta pela tela.
+
 - ⚠⚠ **Seções no seletor: "só esta" × "as filhas", e NUNCA as duas (nov/2026).** O atalho óbvio
   — marcar a subárvore inteira de uma seção — pouparia cliques e **quebraria a ponte por
   construção**: subtotal junto com filha conta a mesma variação duas vezes, que é o primeiro
