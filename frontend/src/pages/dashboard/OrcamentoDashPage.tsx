@@ -23,7 +23,7 @@ import {
   ExportarButton, FiltrosButton, PillsDim, SalvarCardButton, useCardPreset,
   effectiveCcFilter, escopoFiltro, type CC,
 } from './DashFiltros'
-import { ChevronLeft, AlertTriangle, Info, Download, ChevronUp, ChevronDown, ListChecks, CornerDownRight, CornerLeftUp } from 'lucide-react'
+import { ChevronLeft, AlertTriangle, Info, Download, ChevronUp, ChevronDown, ListChecks, CornerDownRight, CornerLeftUp, ArrowLeftRight } from 'lucide-react'
 import { ResponsiveBar } from '@nivo/bar'
 import { fmtEixo } from '../../lib/fmtEixo'
 import { ResponsiveLine } from '@nivo/line'
@@ -177,6 +177,11 @@ export default function OrcamentoDashPage() {
   const navPonte = useRef<string | null>(null)
   const [ponteNat, setPonteNat] = useState<'TODAS' | 'RECEITA' | 'DESPESA'>('TODAS')
   const [ponteAte, setPonteAte] = useState<number | 'tudo'>(1)
+  // ⚠⚠ O SENTIDO DA PONTE É A PERGUNTA, não um estilo. Guarda-se quem é a
+  // ORIGEM — e `undefined` é "siga o modo", a mesma distinção entre INTENÇÃO e
+  // estado que o preset do relatório já faz: gravar o sentido resolvido faria
+  // a escolha automática virar escolha fixa no primeiro salvamento.
+  const [ponteOrig, setPonteOrig] = useState<'ANALISADO' | 'COMPARADO' | undefined>(sv.ponteOrig)
   // ⚠ Mesma razão da trilha: `carregando` desmonta o cartão inteiro, e estado
   // local de `Variacao` morreria a cada troca de nível — que é justamente o
   // que dispara a recarga.
@@ -211,6 +216,10 @@ export default function OrcamentoDashPage() {
     if (!f) return
     f.relId && setRelId(f.relId); f.vBase && setVBase(f.vBase); f.vComp && setVComp(f.vComp)
     f.modo && setModo(f.modo); f.proj && setProj(f.proj)
+    // ⚠ Só grava se o card TEM a chave: ausência é "siga o modo", e um
+    // `setPonteOrig(undefined)` aqui apagaria a escolha de quem já estava na
+    // tela ao abrir um card antigo, que não decidiu nada sobre isso.
+    if (f.ponteOrig) setPonteOrig(f.ponteOrig)
     f.aba && setAba(f.aba); Array.isArray(f.indicSel) && setIndicSel(f.indicSel); Array.isArray(f.linhaSel) && setLinhaSel(f.linhaSel); f.empLinha !== undefined && setEmpLinha(f.empLinha)
     if (f.mesIni) setMesIni(f.mesIni); if (f.mesFim) setMesFim(f.mesFim)
     f.empresaSel && setEmpresaSel(f.empresaSel); f.filialSel && setFilialSel(f.filialSel)
@@ -309,14 +318,14 @@ export default function OrcamentoDashPage() {
   // sintoma é um filtro que o card silenciosamente não guarda.
   const estado = () => ({
     relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel, empLinha,
-    empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel,
+    empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ponteOrig,
     secPonte, secVar, secAcur, secOrc,
   })
   useEffect(() => {
     if (cardId) return   // vendo um card: não contaminar o estado próprio da tela
     localStorage.setItem(SAVE, JSON.stringify(estado()))
   }, [cardId, relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel, empLinha,
-      empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, secPonte, secVar, secAcur, secOrc]) // eslint-disable-line
+      empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ponteOrig, secPonte, secVar, secAcur, secOrc]) // eslint-disable-line
 
   const meses = useMemo(() => Array.from({ length: Math.max(0, mesFim - mesIni + 1) }, (_, i) => mesIni + i), [mesIni, mesFim])
   // os meses DEPOIS do período, até dezembro
@@ -566,6 +575,24 @@ export default function OrcamentoDashPage() {
   const rotuloComp = modo === 'REAL'
     ? `Realizado ${anoComp ?? ''}` + (proj !== 'OFF' && mesesProj.length ? ` + projeção` : '')
     : `${versao(vComp)?.codigo ?? ''} · ${anoComp ?? ''}`
+  const rotuloBase = versao(vBase)?.codigo ?? ''
+
+  // ⚠⚠ O SENTIDO SEGUE O MODO quando ninguém escolheu, porque são DUAS
+  // perguntas diferentes e cada modo faz uma delas:
+  //   · Orçado × Orçado — "saí de 2026 e cheguei no 2027 que estou montando":
+  //     o destino é a coisa sendo construída, logo a origem é o COMPARADO.
+  //   · Orçado × Realizado — "planejei X e aconteceu Y": o plano é a
+  //     REFERÊNCIA e o realizado o resultado, logo a origem é o ANALISADO.
+  // O segundo caso era desenhado ao contrário, e a leitura saía invertida: uma
+  // despesa estourada em 5,06 mi aparecia VERDE com "↓ gasto", porque a frase
+  // verdadeira ali é "indo do realizado para o orçado, o gasto cai" — e
+  // ninguém faz essa pergunta. Quem leu errado foi o próprio dono da regra,
+  // que é o sinal de que não era preferência.
+  const origemAnalisado = ponteOrig ? ponteOrig === 'ANALISADO' : modo === 'REAL'
+  const pOrigem = origemAnalisado ? dados?.base : dados?.comp
+  const pDestino = origemAnalisado ? dados?.comp : dados?.base
+  const rotOrigem = origemAnalisado ? rotuloBase : rotuloComp
+  const rotDestino = origemAnalisado ? rotuloComp : rotuloBase
 
   return (
     <div style={S.page} ref={dashRef}>
@@ -731,13 +758,14 @@ export default function OrcamentoDashPage() {
           linhaSel={linhaSel} setLinhaSel={setLinhaSel} pickLinha={pickLinha} setPickLinha={setPickLinha}
           empLinha={empLinha} setEmpLinha={setEmpLinha}
           porEmp={porEmp} porArea={porArea} setDrill={setDrill}
-          rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
+          rotuloBase={rotuloBase} rotuloComp={rotuloComp} />
       ) : (
         <>
           <Ponte S={S} cfg={secPonte} setCfg={setSecPonte} linhas={linhas} nome={nome}
             trilha={trilhaPonte} setTrilha={setTrilhaPonte} navRef={navPonte}
             nat={ponteNat} setNat={setPonteNat} ate={ponteAte} setAte={setPonteAte}
-            base={dados.base} comp={dados.comp} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
+            origem={pOrigem} destino={pDestino} rotOrigem={rotOrigem} rotDestino={rotDestino}
+            trocarSentido={() => setPonteOrig(origemAnalisado ? 'COMPARADO' : 'ANALISADO')} />
 
           <Variacao S={S} cfg={secVar} setCfg={setSecVar} linhas={linhas} nome={nome} fac={fac}
             aba={varAba} setAba={setVarAba} nivel={varNivel} setNivel={setVarNivel}
@@ -1657,8 +1685,12 @@ function SelLinhas({ cfg, setCfg, linhas, limiar }: { cfg: SecCfg; setCfg: (c: S
 // O único gráfico que responde "de onde vem o crescimento" numa imagem.
 // Sempre com a TABELA ao lado: cascata se lê por aproximação — a altura dá
 // ordem de grandeza, não valor, e quem aprova precisa do número exato.
-function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloComp, trilha, setTrilha, navRef,
-                 nat, setNat, ate, setAte }: any) {
+// ⚠⚠ A PONTE NÃO SABE O QUE É ORÇADO. Ela recebe `origem`/`destino` e desenha
+// o caminho de um ao outro — quem decide qual lado é qual é a PÁGINA, porque a
+// resposta depende da pergunta que a tela está fazendo. Foi o que permitiu o
+// sentido virar um botão em vez de um `if` espalhado pelo componente.
+function Ponte({ S, cfg, setCfg, linhas, nome, origem, destino, rotOrigem, rotDestino, trocarSentido,
+                 trilha, setTrilha, navRef, nat, setNat, ate, setAte }: any) {
   // ⚠ SINAL ECONÔMICO, não o de exibição. O resto da tela mostra despesa
   // positiva (fatorExibicao inverte), mas numa ponte isso quebra tudo: uma
   // despesa que CRESCE 20 viraria barra verde +20, sugerindo melhora, quando o
@@ -1712,8 +1744,8 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
     setTrilha(nova)
     setCfg({ ...cfg, resultado: id, sel: componentesDe(byIdAll[id], linhas) })
   }
-  const ini = resId ? v(comp, resId) : 0
-  const fim = resId ? v(base, resId) : 0
+  const ini = resId ? v(origem, resId) : 0
+  const fim = resId ? v(destino, resId) : 0
 
   // ⚠ Limpa também a seleção JÁ SALVA. Corrigir só `componentesDe` deixaria o
   // defeito vivo em todo preset montado antes — e esse é o caso que importa,
@@ -1742,7 +1774,7 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
     return nat
   }, [linhas])
   const itens = cfg.sel.filter((id: string) => id !== resId && !desativadas.has(id))
-    .map((id: string) => ({ id, nome: nome(id), d: v(base, id) - v(comp, id) }))
+    .map((id: string) => ({ id, nome: nome(id), d: v(destino, id) - v(origem, id) }))
     .filter((x: any) => Math.abs(x.d) > 0.005)
     .sort((a: any, b: any) => Math.abs(b.d) - Math.abs(a.d))
 
@@ -1794,9 +1826,9 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
   const passosG = barrasG.map((b: any) => { const de = cur; cur += b.d; return { ...b, de, ate: cur } })
   let curT = ini
   const passos = barras.map((b: any) => { const de = curT; curT += b.d; return { ...b, de, ate: curT } })
-  const cols = [{ tot: true, lab: rotuloComp, v: ini, de: lo, ate: ini },
+  const cols = [{ tot: true, lab: rotOrigem, v: ini, de: lo, ate: ini },
                 ...passosG.map((p: any) => ({ tot: false, lab: p.nome, v: p.d, de: p.de, ate: p.ate, id: p.id })),
-                { tot: true, lab: rotuloBase, v: fim, de: lo, ate: fim }]
+                { tot: true, lab: rotDestino, v: fim, de: lo, ate: fim }]
   const W = 78
 
   // ⚠ Lista separada por ASSUNTO: eram 142 linhas de relatório misturadas com
@@ -1872,6 +1904,10 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
             {' '}⚠ Aqui o nível é <strong>cumulativo</strong>: <em>até 2</em> oferece os níveis 1 <em>e</em> 2 —
             é um seletor de ponto de partida, não um corte. Em <em>O que mudou</em> o mesmo botão
             significa outra coisa.
+            {' '}⚠⚠ <strong>Confira o sentido antes de ler os sinais.</strong> Comparando com o
+            realizado, a ponte sai do <strong>orçado</strong> e chega no <strong>realizado</strong>:
+            cada barra é o <em>desvio em relação ao plano</em>. Entre dois orçamentos ela sai do
+            comparado e chega no analisado. O botão inverte, e todos os sinais viram junto.
           </div></div>
         <div style={S.secBarra} data-noexport>
           <Grupo opcoes={ABAS} valor={modoLista} onPick={setModoLista} />
@@ -1897,6 +1933,17 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
               mão, o outro desfazia. Trocar a linha JÁ deriva da estrutura, que
               é o que o texto deste cartão promete — e componente escolhido a
               dedo faz a ponte não fechar, que é o contrário de uma ponte. */}
+          {/* ⚠ O sentido fica ESCRITO, não atrás de um ícone: é a primeira
+              coisa a conferir antes de ler qualquer sinal desta tabela, e um
+              ⇄ sozinho não diz para onde está apontando agora. */}
+          <button onClick={trocarSentido} title="Inverter o sentido da ponte — troca origem e destino, e todos os sinais junto"
+            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 9px', fontSize: 11.5,
+                     border: '1px solid var(--border-strong)', borderRadius: 7, cursor: 'pointer',
+                     background: 'transparent', color: 'var(--text-mid)', whiteSpace: 'nowrap' }}>
+            <ArrowLeftRight size={12} style={{ color: 'var(--violet)' }} />
+            <span style={{ color: 'var(--muted)' }}>de</span> <strong>{rotOrigem}</strong>
+            <span style={{ color: 'var(--muted)' }}>para</span> <strong>{rotDestino}</strong>
+          </button>
           <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
             {cfg.sel.length} componente(s)
           </span>
@@ -1977,7 +2024,7 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
                   efeito no resultado
                 </th></tr></thead>
               <tbody>
-                <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--muted)' }}>{rotuloComp}</td><td style={S.td}>{fmt(ini)}</td></tr>
+                <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--muted)' }}>{rotOrigem}</td><td style={S.td}>{fmt(ini)}</td></tr>
                 {passos.map((b: any) => {
                   // Só em linha de DESPESA: em receita o sinal já se lê direto
                   // (+ é mais receita), e repetir "↑ receita" seria ruído.
@@ -2004,7 +2051,7 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
                       </span>}
                     </td></tr>
                 )})}
-                <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontWeight: 700 }}>{rotuloBase}</td>
+                <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontWeight: 700 }}>{rotDestino}</td>
                   <td style={{ ...S.td, fontWeight: 700 }}>{fmt(fim)}</td></tr>
               </tbody>
             </table>

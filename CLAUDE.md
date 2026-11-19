@@ -1400,6 +1400,30 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   está **incompleto**: `LER Bruto`, `LER de Margem`, `dLER` e `mLER` são razões marcadas
   `NUMERO` e escapam. **Conserto é de CADASTRO**, não lista de nomes — nome chumbado funciona
   nesta DRE e quebra na próxima.
+  ⚠⚠ **O SENTIDO DA PONTE É A PERGUNTA, e o default errado inverte a leitura (19/nov).**
+  A ponte ia sempre `comparado → analisado`: certo entre dois **orçamentos** ("saí de 2026 e
+  cheguei no 2027 que estou montando" — o destino é a coisa sendo construída), e **invertido**
+  contra o realizado, onde o plano é a REFERÊNCIA e o realizado o resultado.
+  Medido na tela: *Despesas* com realizado −72,5 mi contra orçado −67,4 mi aparecia
+  **+5.061.499 ↓ gasto, em VERDE** — frase verdadeira sobre a seta desenhada ("indo do realizado
+  para o orçado, o gasto cai") e que **ninguém pergunta**; o que houve foi estouro de 5,06 mi.
+  Hoje o default segue o **modo** (`Orçado × Realizado` → orçado→realizado; `Orçado × Orçado` →
+  comparado→analisado) e um botão inverte, dizendo **por extenso** de onde para onde — ⇄ sozinho
+  não informa para que lado aponta agora.
+  ⚠ **A Ponte deixou de saber o que é orçado**: recebe `origem`/`destino` e quem decide é a
+  página. Foi isso que fez o sentido ser um botão em vez de um `if` espalhado pelo componente.
+  ⚠ **A semântica se corrige sozinha** — cor e `↑ gasto / ↓ gasto` saem do sinal cru cruzado com
+  a natureza, então a despesa estourada vira vermelha com `↑ gasto` por construção. Inversão que
+  não exige caso especial é a evidência de que o modelo de sinal está certo.
+  ⚠ **`undefined` é "siga o modo"**, não um valor: gravar o sentido resolvido faria a escolha
+  automática virar escolha fixa no primeiro salvamento (mesma distinção intenção × estado do
+  preset do relatório). Card sem a chave não apaga a escolha de quem está na tela.
+  ⚠⚠ **A tela ainda tem TRÊS sentidos, e dois concordam.** *Acurácia* já calculava
+  `erro = realizado − orçado` (sentido de acompanhamento) e *O que mudou* usa
+  `analisado − comparado` — então a ponte, invertida no modo REAL, passou a concordar com a
+  Acurácia e **O que mudou ficou sozinha**. Incoerência que já existia e agora tem um lado só;
+  estender o sentido aos três é trabalho à parte.
+
   ⚠⚠ **O Δ do resultado não estava em lugar nenhum (19/nov).** A tabela dava o valor inicial,
   cada componente e o valor final — e **a soma que tudo aquilo explica** ficava para o leitor
   fazer de cabeça, justamente o número que a ponte existe para decompor. No gráfico ele é só a
