@@ -1452,6 +1452,19 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   (`ImpostosFaturamento`); `Custo Pessoas (fully loaded)` e `Folha direta` dão valores idênticos
   porque são duas fórmulas que calculam a mesma coisa, e nenhum filtro adivinha isso.
 
+- ⚠⚠ **Acurácia é o SEGUNDO ranking, e ranking pede partição (19/nov).** Ela tinha seleção livre
+  (`SelLinhas`) enquanto *O que mudou* já havia trocado para o corte em nível — então dava para
+  marcar `Despesas` junto com `Despesas com Pessoal` e **o mesmo erro aparecia duas vezes**, sem
+  resíduo que denunciasse. Aqui pesa mais do que no outro cartão: o erro é o que calibra a
+  confiança na rodada seguinte, e contá-lo em dobro desconfia da linha errada.
+  Hoje os dois cartões usam **`useCorte` + `BarraCorte` + `useSincronizaSel`** — aba
+  Linhas/Indicadores, nível, pílula de natureza e o limiar duplo, idênticos.
+  ⚠ **Extraído em vez de copiado de propósito:** eram ~60 linhas iguais, e a cópia divergiria na
+  primeira alteração deixando **um dos dois** contando duas vezes, em silêncio. A **ponte** fica
+  fora do helper: lá o nível é cumulativo, e é diferença deliberada.
+  ⚠ Zero nos dois lados sai da lista nos dois cartões (ausência de conteúdo, não erro pequeno) —
+  divergir faria o mesmo relatório render duas listas.
+
 - **Seletor de linhas do *Orçamento — análise*: "todas", "nenhuma" e "sem limiar" (nov/2026).**
   Analisar o resultado inteiro era marcar 32 caixas na mão, uma a uma — e quem desiste no meio
   fica com uma análise que **parece completa e não é**. ⚠ "Marcar todas" usa a lista já filtrada

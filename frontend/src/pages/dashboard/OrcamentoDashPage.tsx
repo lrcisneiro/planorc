@@ -184,6 +184,11 @@ export default function OrcamentoDashPage() {
   const [varNivel, setVarNivel] = useState<number | 'folhas'>(1)
   const [varNat, setVarNat] = useState<'TODAS' | 'RECEITA' | 'DESPESA'>('TODAS')
   const [secVar, setSecVar] = useState<SecCfg>(SEC_PADRAO)
+  // ⚠ Mesmo trio da *Variação*, pela mesma razão: a Acurácia é um ranking e
+  // precisa do corte em nível para não contar o mesmo dinheiro duas vezes.
+  const [acurAba, setAcurAba] = useState<'LINHA' | 'INDIC'>('LINHA')
+  const [acurNivel, setAcurNivel] = useState<number | 'folhas'>(1)
+  const [acurNat, setAcurNat] = useState<'TODAS' | 'RECEITA' | 'DESPESA'>('TODAS')
   const [secAcur, setSecAcur] = useState<SecCfg>(SEC_PADRAO)
   // Configuração de seção vinda de FORA (estado salvo ou card) espera aqui até
   // as linhas do relatório chegarem — é só então que dá para saber se os ids
@@ -740,6 +745,8 @@ export default function OrcamentoDashPage() {
             base={dados.base} comp={dados.comp} val={val} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
 
           <Acuracia S={S} cfg={secAcur} setCfg={setSecAcur} linhas={linhas} nome={nome}
+            aba={acurAba} setAba={setAcurAba} nivel={acurNivel} setNivel={setAcurNivel}
+            nat={acurNat} setNat={setAcurNat}
             orc={dados.orcAnt} real={dados.realAnt} val={val} ano={anoComp} />
 
           <Alertas S={S} linhas={linhas} nome={nome}
@@ -1362,6 +1369,87 @@ function Grupo({ opcoes, valor, onPick, rotulo }: {
 
 const NATS = [['TODAS', 'Todas'], ['RECEITA', 'Receita'], ['DESPESA', 'Despesa']] as const
 const ABAS = [['LINHA', 'Linhas'], ['INDIC', 'Indicadores']] as const
+const NIVEIS = [[1, '1'], [2, '2'], [3, '3'],
+                ['folhas', 'folhas', 'As linhas de lançamento — o grão mais fino']] as const
+
+// ⚠⚠ O CORTE É COMPARTILHADO por *O que mudou* e *Acurácia*, e não por economia
+// de linhas: os dois são RANKINGS, e ranking de itens que se contêm é dupla
+// contagem por construção (`Despesas` junto com `Despesas com Pessoal`). A
+// regra que evita isso é uma partição em nível — se cada cartão tivesse a sua
+// cópia, a primeira alteração deixaria um dos dois contando duas vezes, em
+// silêncio. A *ponte* fica fora: lá o nível é cumulativo e o resíduo denuncia.
+function useCorte(linhas: LinhaRel[], aba: string, nivel: number | 'folhas', nat: string) {
+  // Natureza EFETIVA: a própria, ou herdada do pai — a mesma regra de
+  // `fatorExibicao`. `NEUTRO` não interrompe a herança; ausência de natureza
+  // em toda a cadeia é que faz a linha ser neutra de verdade.
+  const natEf = useMemo(() => {
+    const byId: Record<string, LinhaRel> = Object.fromEntries(linhas.map(l => [l.id, l]))
+    const f = (id: string | null): string | null => {
+      if (!id) return null
+      const l = byId[id]; if (!l) return null
+      return (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : f(l.pai_id)
+    }
+    return f
+  }, [linhas])
+
+  const ehInd = useMemo(() => {
+    const t: Record<string, string> = Object.fromEntries(linhas.map(l => [l.id, l.tipo_linha || '']))
+    return (id: string) => t[id] === 'INDICADOR'
+  }, [linhas])
+
+  // ⚠ Indicador NÃO entra no corte de nível: os 23 desta DRE são todos nível 1,
+  // então o botão não os afeta — e ali o recorte é a própria aba.
+  const conjunto = useMemo(() => aba === 'INDIC'
+    ? linhas.filter(l => l.tipo_linha === 'INDICADOR' && !l.desativada).map(l => l.id)
+    : particaoNivel(linhas, nivel)
+        .filter(id => !ehInd(id))
+        // ⚠ Só recorta quando se PEDE. "Todas" inclui as neutras — e elas não
+        // são sobra: no nível 1 são `Impostos s/ faturamento`, `Resultado
+        // Financeiro`, `Impostos sobre o Resultado`, `Receita Liquida`.
+        // Dinheiro de verdade que uma pílula de dois estados esconderia.
+        .filter(id => nat === 'TODAS' || natEf(id) === nat),
+    [linhas, aba, nivel, nat, natEf, ehInd])
+
+  // Quantas ficam de fora pelo recorte de natureza — para a tela dizer, em vez
+  // de a lista simplesmente encolher.
+  const foraPorNat = useMemo(() => {
+    if (aba === 'INDIC' || nat === 'TODAS') return 0
+    return particaoNivel(linhas, nivel).filter(id => !ehInd(id) && natEf(id) !== nat).length
+  }, [linhas, aba, nivel, nat, natEf, ehInd])
+
+  return { conjunto, foraPorNat }
+}
+
+/** A barra de seletores dos dois rankings. Uma só, para não divergirem. */
+function BarraCorte({ S, aba, setAba, nivel, setNivel, nat, setNat, cfg, setCfg, n }: any) {
+  const inp = { width: 46, padding: '3px 5px', fontSize: 11.5, background: 'var(--bg)',
+                color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 6 }
+  return (
+    <div style={S.secBarra} data-noexport>
+      <Grupo opcoes={ABAS} valor={aba} onPick={setAba} />
+      {/* ⚠ Nível e natureza só na aba Linhas: os 23 indicadores são todos nível
+          1 (o botão não mudaria nada) e 20 deles são neutros ("Receita" daria
+          lista vazia). Controle morto ensina que a tela às vezes não responde. */}
+      {aba === 'LINHA' && <Grupo rotulo="nível" valor={nivel} onPick={setNivel} opcoes={NIVEIS} />}
+      {aba === 'LINHA' && <Grupo opcoes={NATS} valor={nat} onPick={setNat} />}
+      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--muted)' }}>
+        ≥<input type="number" step="1" min={0} value={cfg.pct}
+          onChange={e => setCfg({ ...cfg, pct: Number(e.target.value) })} style={inp} />%
+        e ≥<input type="number" step="0.1" min={0} value={cfg.minPctTotal}
+          onChange={e => setCfg({ ...cfg, minPctTotal: Number(e.target.value) })} style={inp} />% do total
+      </span>
+      <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{n} linha(s)</span>
+    </div>
+  )
+}
+
+/** Mantém `cfg.sel` igual ao conjunto calculado. `cfg` fora das dependências:
+ *  ele muda a cada `setCfg` e o efeito voltaria a disparar — laço. */
+function useSincronizaSel(cfg: SecCfg, setCfg: (c: SecCfg) => void, conjunto: string[]) {
+  useEffect(() => {
+    if ([...cfg.sel].sort().join(',') !== [...conjunto].sort().join(',')) setCfg({ ...cfg, sel: conjunto })
+  }, [conjunto]) // eslint-disable-line
+}
 
 function profDe(linhas: LinhaRel[]): (l: LinhaRel) => number {
   const byId: Record<string, LinhaRel> = Object.fromEntries(linhas.map(l => [l.id, l]))
@@ -2099,51 +2187,13 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
 // tela de bobagem; só o absoluto esconde a conta pequena que dobrou.
 function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBase, rotuloComp,
                     aba, setAba, nivel, setNivel, nat, setNat }: any) {
-  // Natureza EFETIVA: a própria, ou herdada do pai — a mesma regra de
-  // `fatorExibicao`. `NEUTRO` não interrompe a herança; ausência de natureza
-  // em toda a cadeia é que faz a linha ser neutra de verdade.
-  const natEf = useMemo(() => {
-    const byId: Record<string, LinhaRel> = Object.fromEntries(linhas.map((l: LinhaRel) => [l.id, l]))
-    const f = (id: string | null): string | null => {
-      if (!id) return null
-      const l = byId[id]; if (!l) return null
-      return (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : f(l.pai_id)
-    }
-    return f
-  }, [linhas])
   // ⚠⚠ O CONJUNTO VEM DO CORTE, não de escolha manual. Era a seleção livre que
   // deixava marcar `Despesas` junto com `Despesas com Pessoal` e produzir a
   // duplicata — num ranking, seleção à mão reintroduz exatamente o defeito.
   // `cfg.sel` continua sendo o armazenamento porque é ele que vai para o
   // preset do cartão; só deixou de ser digitado.
-  const conjunto = useMemo(() => {
-    const ind = (id: string) => linhas.find((l: LinhaRel) => l.id === id)?.tipo_linha === 'INDICADOR'
-    // ⚠ Indicador NÃO entra no corte de nível: os 23 desta DRE são todos nível
-    // 1, então o botão não os afeta — e ali o recorte é a própria aba.
-    return aba === 'INDIC'
-      ? linhas.filter((l: LinhaRel) => l.tipo_linha === 'INDICADOR' && !l.desativada).map((l: LinhaRel) => l.id)
-      : particaoNivel(linhas, nivel)
-          .filter((id: string) => !ind(id))
-          // ⚠ Só recorta quando se PEDE. "Todas" inclui as neutras — e elas não
-          // são sobra: no nível 1 são `Impostos s/ faturamento`, `Resultado
-          // Financeiro`, `Impostos sobre o Resultado`, `Receita Liquida`.
-          // Dinheiro de verdade que uma pílula de dois estados esconderia.
-          .filter((id: string) => nat === 'TODAS' || natEf(id) === nat)
-  }, [linhas, aba, nivel, nat, natEf])
-
-  // Quantas ficam de fora pelo recorte de natureza — para a tela dizer, em vez
-  // de a lista simplesmente encolher.
-  const foraPorNat = useMemo(() => {
-    if (aba === 'INDIC' || nat === 'TODAS') return 0
-    const ind = (id: string) => linhas.find((l: LinhaRel) => l.id === id)?.tipo_linha === 'INDICADOR'
-    return particaoNivel(linhas, nivel).filter((id: string) => !ind(id) && natEf(id) !== nat).length
-  }, [linhas, aba, nivel, nat, natEf])
-
-  // ⚠ `cfg` fora das dependências: ele muda a cada `setCfg` e o efeito voltaria
-  // a disparar — laço. Igual ao da ponte.
-  useEffect(() => {
-    if ([...cfg.sel].sort().join(',') !== [...conjunto].sort().join(',')) setCfg({ ...cfg, sel: conjunto })
-  }, [conjunto]) // eslint-disable-line
+  const { conjunto, foraPorNat } = useCorte(linhas, aba, nivel, nat)
+  useSincronizaSel(cfg, setCfg, conjunto)
 
   // O limiar foca a atenção; esconder o resto para sempre tira a conferência.
   const [todas, setTodas] = useState(false)
@@ -2228,26 +2278,8 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
               </span>
             )}
           </div></div>
-        <div style={S.secBarra} data-noexport>
-          <Grupo opcoes={ABAS} valor={aba} onPick={setAba} />
-          {/* ⚠ Nível e natureza só na aba Linhas: os 23 indicadores são todos
-              nível 1 (o botão não mudaria nada) e 20 deles são neutros
-              ("Receita" daria lista vazia). Controle morto ensina que a tela
-              às vezes não responde. */}
-          {aba === 'LINHA' && (
-            <Grupo rotulo="nível" valor={nivel} onPick={setNivel}
-              opcoes={[[1, '1'], [2, '2'], [3, '3'],
-                       ['folhas', 'folhas', 'As linhas de lançamento — o grão mais fino']] as const} />
-          )}
-          {aba === 'LINHA' && <Grupo opcoes={NATS} valor={nat} onPick={setNat} />}
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--muted)' }}>
-            ≥<input type="number" step="1" min={0} value={cfg.pct} onChange={e => setCfg({ ...cfg, pct: Number(e.target.value) })}
-              style={{ width: 46, padding: '3px 5px', fontSize: 11.5, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 6 }} />%
-            e ≥<input type="number" step="0.1" min={0} value={cfg.minPctTotal} onChange={e => setCfg({ ...cfg, minPctTotal: Number(e.target.value) })}
-              style={{ width: 46, padding: '3px 5px', fontSize: 11.5, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 6 }} />% do total
-          </span>
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{conjunto.length} linha(s)</span>
-        </div>
+        <BarraCorte S={S} aba={aba} setAba={setAba} nivel={nivel} setNivel={setNivel}
+          nat={nat} setNat={setNat} cfg={cfg} setCfg={setCfg} n={conjunto.length} />
       </div>
       <Tabela S={S} arquivo={`variacao-${rotuloBase}`}
         rows={(todas ? [...destaque, ...resto.map((r: any) => ({ ...r, _fraco: true }))] : destaque)}
@@ -2282,32 +2314,70 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
 // ── 3 · ACURÁCIA DO ORÇAMENTO ANTERIOR ──────────────────────
 // Não serve para julgar o passado: serve para CALIBRAR A CONFIANÇA no futuro.
 // Linha que errou 12% e vem com número redondo e confiante merece pergunta.
-function Acuracia({ S, cfg, setCfg, linhas, nome, orc, real, val, ano }: any) {
-  // Por padrão esconde linha sem nada nos dois lados; mas esconder para sempre
-  // tira a conferência de "por que esta linha não aparece?".
+function Acuracia({ S, cfg, setCfg, linhas, nome, orc, real, val, ano,
+                    aba, setAba, nivel, setNivel, nat, setNat }: any) {
+  // ⚠⚠ MESMO CORTE DE *O QUE MUDOU*, e pela mesma razão: a Acurácia é um
+  // ranking por tamanho do erro, e a seleção livre deixava marcar `Despesas`
+  // junto com `Despesas com Pessoal` — o mesmo erro aparecia duas vezes e a
+  // conversa virava "a folha errou, e as despesas também". Partição não repete
+  // e não perde. ⚠ Aqui ela vale ainda mais do que lá: o erro é o que se leva
+  // para a próxima rodada de orçamento, e contá-lo em dobro calibra a
+  // desconfiança no lugar errado.
+  const { conjunto, foraPorNat } = useCorte(linhas, aba, nivel, nat)
+  useSincronizaSel(cfg, setCfg, conjunto)
+
+  // O limiar foca a atenção; esconder o resto para sempre tira a conferência.
   const [todas, setTodas] = useState(false)
-  const itens = cfg.sel.map((id: string) => {
+  const total = cfg.sel.reduce((s: number, id: string) => s + Math.abs(val(orc, id)), 0)
+  const minAbs = total * (cfg.minPctTotal / 100)
+  const cruas = cfg.sel.map((id: string) => {
     const o = val(orc, id), r = val(real, id)
     return { id, nome: nome(id), o, r, erro: r - o, pct: o !== 0 ? ((r - o) / Math.abs(o)) * 100 : (r !== 0 ? Infinity : 0) }
-  }).map((x: any) => ({ ...x, _fraco: x.o === 0 && x.r === 0 }))
-    .filter((x: any) => todas || !x._fraco)
-    .sort((a: any, b: any) => Math.abs(b.erro) - Math.abs(a.erro))
-  const vazias = cfg.sel.length - itens.filter((x: any) => !x._fraco).length
+  })
+  // ⚠ Zero nos DOIS lados não é "erro pequeno", é ausência de conteúdo: a linha
+  // existe na estrutura e não foi orçada nem realizada. Mesma regra da
+  // *Variação* — divergir faria os dois cartões listarem conjuntos diferentes
+  // do mesmo relatório.
+  const vazia = (x: any) => Math.abs(x.o) < 0.005 && Math.abs(x.r) < 0.005
+  const nVazias = cruas.filter(vazia).length
+  const itensTodos = cruas.filter((x: any) => !vazia(x))
+  const marca = (x: any) => Math.abs(x.erro) >= minAbs && (Math.abs(x.pct) >= cfg.pct || !Number.isFinite(x.pct))
+  const ordem = (a: any, b: any) => Math.abs(b.erro) - Math.abs(a.erro)
+  const destaque = itensTodos.filter(marca).sort(ordem)
+  const resto = itensTodos.filter((x: any) => !marca(x)).sort(ordem)
+  const somaResto = resto.reduce((s: number, x: any) => s + x.erro, 0)
+  const itens = todas ? [...destaque, ...resto.map((r: any) => ({ ...r, _fraco: true }))] : destaque
 
   return (
     <div style={S.sec}>
-      <div style={S.secH}>
+      <div>
         <div><div style={S.secT}>Acurácia do orçamento de {ano ?? '—'}</div>
           <div style={S.secD}>
             Orçado × realizado do ano comparado. Não é para julgar o passado — é para saber
             <strong> em quem acreditar</strong> no orçamento novo.
-            {vazias > 0 && (
+            {' '}Marcado o que errou mais de {cfg.pct}% <em>e</em> mais de {cfg.minPctTotal}% do orçado total ({fmt(minAbs)}).
+            {' '}⚠ Como em <em>O que mudou</em>, o nível é um <strong>corte</strong>: <em>2</em> traz só o
+            nível 2 e as folhas acima, nunca o nível 1 junto — senão o mesmo erro conta duas vezes.
+            {nVazias > 0 && (
+              <span style={{ color: 'var(--muted)' }}>
+                {' '}· {nVazias} linha(s) sem orçado e sem realizado ficam de fora.
+              </span>
+            )}
+            {foraPorNat > 0 && (
+              <><br /><span style={{ color: 'var(--orange)' }}>
+                {foraPorNat} linha(s) fora deste recorte de natureza — entre elas as <b>neutras</b>
+                {' '}(impostos, resultado financeiro), que não são receita nem despesa na estrutura.
+                {' '}Use <b>Todas</b> para vê-las.
+              </span></>
+            )}
+            {resto.length > 0 && (
               <span data-noexport style={{ marginLeft: 8, color: 'var(--violet)', cursor: 'pointer' }} onClick={() => setTodas(v => !v)}>
-                {todas ? 'ocultar as sem valor' : `mostrar todas (${vazias} sem valor)`}
+                {todas ? `ver só as ${destaque.length} acima do limiar` : `mostrar todas as ${itensTodos.length} linhas`}
               </span>
             )}
           </div></div>
-        <SelLinhas cfg={cfg} setCfg={setCfg} linhas={linhas} />
+        <BarraCorte S={S} aba={aba} setAba={setAba} nivel={nivel} setNivel={setNivel}
+          nat={nat} setNat={setNat} cfg={cfg} setCfg={setCfg} n={conjunto.length} />
       </div>
       {!itens.length ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados no ano comparado.</div> : (
         <Tabela S={S} arquivo={`acuracia-${ano ?? ''}`} rows={itens}
@@ -2331,7 +2401,16 @@ function Acuracia({ S, cfg, setCfg, linhas, nome, orc, real, val, ano }: any) {
                   : a < 5 ? 'acertou' : a < 15 ? (r.erro > 0 ? 'passou do orçado' : 'ficou abaixo') : '⚠ errou muito'
                 return <span style={{ fontSize: 12, color: a >= 15 ? 'var(--orange)' : 'var(--muted)' }}>{t}</span>
               } },
-          ]} />
+          ]}
+          rodape={resto.length > 0 && !todas ? (
+            <tr onClick={() => setTodas(true)} style={{ cursor: 'pointer' }} data-noexport>
+              <td style={{ ...S.td, textAlign: 'left', color: 'var(--violet)', fontStyle: 'italic' }}>
+                demais {resto.length} linha(s), abaixo do limiar — <strong>mostrar</strong></td>
+              <td style={S.td} /><td style={S.td} />
+              <td style={{ ...S.td, textAlign: 'right', fontFamily: 'monospace', color: 'var(--muted)' }}>{somaResto >= 0 ? '+' : ''}{fmt(somaResto)}</td>
+              <td style={S.td} /><td style={S.td} />
+            </tr>
+          ) : null} />
       )}
     </div>
   )
