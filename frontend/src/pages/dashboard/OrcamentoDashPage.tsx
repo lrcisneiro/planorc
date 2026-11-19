@@ -23,7 +23,7 @@ import {
   ExportarButton, FiltrosButton, PillsDim, SalvarCardButton, useCardPreset,
   effectiveCcFilter, escopoFiltro, type CC,
 } from './DashFiltros'
-import { ChevronLeft, AlertTriangle, Info, Download, ChevronUp, ChevronDown, ListChecks, CornerDownRight, CornerLeftUp, ArrowLeftRight } from 'lucide-react'
+import { ChevronLeft, AlertTriangle, Info, Download, ChevronUp, ChevronDown, ListChecks, CornerDownRight, CornerLeftUp } from 'lucide-react'
 import { ResponsiveBar } from '@nivo/bar'
 import { fmtEixo } from '../../lib/fmtEixo'
 import { ResponsiveLine } from '@nivo/line'
@@ -177,11 +177,12 @@ export default function OrcamentoDashPage() {
   const navPonte = useRef<string | null>(null)
   const [ponteNat, setPonteNat] = useState<'TODAS' | 'RECEITA' | 'DESPESA'>('TODAS')
   const [ponteAte, setPonteAte] = useState<number | 'tudo'>(1)
-  // ⚠⚠ O SENTIDO DA PONTE É A PERGUNTA, não um estilo. Guarda-se quem é a
-  // ORIGEM — e `undefined` é "siga o modo", a mesma distinção entre INTENÇÃO e
-  // estado que o preset do relatório já faz: gravar o sentido resolvido faria
-  // a escolha automática virar escolha fixa no primeiro salvamento.
-  const [ponteOrig, setPonteOrig] = useState<'ANALISADO' | 'COMPARADO' | undefined>(sv.ponteOrig)
+  // ⚠⚠ O SENTIDO DA COMPARAÇÃO É A PERGUNTA, não um estilo — e por isso mora
+  // no CABEÇALHO, não dentro de um cartão: ele rege a aba inteira. Guarda-se
+  // quem é a ORIGEM, e `undefined` é "siga o modo" — a mesma distinção entre
+  // INTENÇÃO e estado do preset do relatório: gravar o sentido já resolvido
+  // faria a escolha automática virar escolha fixa no primeiro salvamento.
+  const [sentidoOrigem, setSentidoOrigem] = useState<'ANALISADO' | 'COMPARADO' | undefined>(sv.sentidoOrigem)
   // ⚠ Mesma razão da trilha: `carregando` desmonta o cartão inteiro, e estado
   // local de `Variacao` morreria a cada troca de nível — que é justamente o
   // que dispara a recarga.
@@ -219,7 +220,7 @@ export default function OrcamentoDashPage() {
     // ⚠ Só grava se o card TEM a chave: ausência é "siga o modo", e um
     // `setPonteOrig(undefined)` aqui apagaria a escolha de quem já estava na
     // tela ao abrir um card antigo, que não decidiu nada sobre isso.
-    if (f.ponteOrig) setPonteOrig(f.ponteOrig)
+    if (f.sentidoOrigem) setSentidoOrigem(f.sentidoOrigem)
     f.aba && setAba(f.aba); Array.isArray(f.indicSel) && setIndicSel(f.indicSel); Array.isArray(f.linhaSel) && setLinhaSel(f.linhaSel); f.empLinha !== undefined && setEmpLinha(f.empLinha)
     if (f.mesIni) setMesIni(f.mesIni); if (f.mesFim) setMesFim(f.mesFim)
     f.empresaSel && setEmpresaSel(f.empresaSel); f.filialSel && setFilialSel(f.filialSel)
@@ -318,14 +319,14 @@ export default function OrcamentoDashPage() {
   // sintoma é um filtro que o card silenciosamente não guarda.
   const estado = () => ({
     relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel, empLinha,
-    empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ponteOrig,
+    empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, sentidoOrigem,
     secPonte, secVar, secAcur, secOrc,
   })
   useEffect(() => {
     if (cardId) return   // vendo um card: não contaminar o estado próprio da tela
     localStorage.setItem(SAVE, JSON.stringify(estado()))
   }, [cardId, relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel, empLinha,
-      empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, ponteOrig, secPonte, secVar, secAcur, secOrc]) // eslint-disable-line
+      empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, sentidoOrigem, secPonte, secVar, secAcur, secOrc]) // eslint-disable-line
 
   const meses = useMemo(() => Array.from({ length: Math.max(0, mesFim - mesIni + 1) }, (_, i) => mesIni + i), [mesIni, mesFim])
   // os meses DEPOIS do período, até dezembro
@@ -588,7 +589,7 @@ export default function OrcamentoDashPage() {
   // verdadeira ali é "indo do realizado para o orçado, o gasto cai" — e
   // ninguém faz essa pergunta. Quem leu errado foi o próprio dono da regra,
   // que é o sinal de que não era preferência.
-  const origemAnalisado = ponteOrig ? ponteOrig === 'ANALISADO' : modo === 'REAL'
+  const origemAnalisado = sentidoOrigem ? sentidoOrigem === 'ANALISADO' : modo === 'REAL'
   const pOrigem = origemAnalisado ? dados?.base : dados?.comp
   const pDestino = origemAnalisado ? dados?.comp : dados?.base
   const rotOrigem = origemAnalisado ? rotuloBase : rotuloComp
@@ -675,6 +676,24 @@ export default function OrcamentoDashPage() {
             ano inteiro: o que mudar fora desse intervalo não aparece aqui. Para o efeito total,
             use <b>jan–dez</b>.
           </div>
+        )}
+
+        {/* ⚠⚠ O SENTIDO É DO CABEÇALHO, não de um cartão: ele rege a leitura da
+            aba inteira (a ponte e o ranking), e dentro de um quadro pareceria
+            um ajuste local. O rótulo mostra a FRASE completa — "de X para Y" —
+            porque é a primeira coisa a conferir antes de ler qualquer sinal.
+            ⚠ Só na aba Comparativo. Em *Orçamento* o protagonista é o plano e o
+            comparado é um Δ discreto nos cards; em *Análise Pessoas* não há
+            comparação nenhuma. Controle morto ensina que a tela às vezes não
+            responde. */}
+        {aba === 'comparativo' && (
+          <div><div style={S.lbl}>Sentido da leitura</div>
+            <select style={{ ...S.sel, maxWidth: 320 }}
+              value={origemAnalisado ? 'ANALISADO' : 'COMPARADO'}
+              onChange={e => setSentidoOrigem(e.target.value as 'ANALISADO' | 'COMPARADO')}>
+              <option value="ANALISADO">de {rotuloBase} para {rotuloComp}</option>
+              <option value="COMPARADO">de {rotuloComp} para {rotuloBase}</option>
+            </select></div>
         )}
 
         {mesFim < 12 && (
@@ -764,13 +783,12 @@ export default function OrcamentoDashPage() {
           <Ponte S={S} cfg={secPonte} setCfg={setSecPonte} linhas={linhas} nome={nome}
             trilha={trilhaPonte} setTrilha={setTrilhaPonte} navRef={navPonte}
             nat={ponteNat} setNat={setPonteNat} ate={ponteAte} setAte={setPonteAte}
-            origem={pOrigem} destino={pDestino} rotOrigem={rotOrigem} rotDestino={rotDestino}
-            trocarSentido={() => setPonteOrig(origemAnalisado ? 'COMPARADO' : 'ANALISADO')} />
+            origem={pOrigem} destino={pDestino} rotOrigem={rotOrigem} rotDestino={rotDestino} />
 
           <Variacao S={S} cfg={secVar} setCfg={setSecVar} linhas={linhas} nome={nome} fac={fac}
             aba={varAba} setAba={setVarAba} nivel={varNivel} setNivel={setVarNivel}
             nat={varNat} setNat={setVarNat}
-            base={dados.base} comp={dados.comp} val={val} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
+            origem={pOrigem} destino={pDestino} val={val} rotOrigem={rotOrigem} rotDestino={rotDestino} />
 
           <Acuracia S={S} cfg={secAcur} setCfg={setSecAcur} linhas={linhas} nome={nome}
             aba={acurAba} setAba={setAcurAba} nivel={acurNivel} setNivel={setAcurNivel}
@@ -1689,7 +1707,7 @@ function SelLinhas({ cfg, setCfg, linhas, limiar }: { cfg: SecCfg; setCfg: (c: S
 // o caminho de um ao outro — quem decide qual lado é qual é a PÁGINA, porque a
 // resposta depende da pergunta que a tela está fazendo. Foi o que permitiu o
 // sentido virar um botão em vez de um `if` espalhado pelo componente.
-function Ponte({ S, cfg, setCfg, linhas, nome, origem, destino, rotOrigem, rotDestino, trocarSentido,
+function Ponte({ S, cfg, setCfg, linhas, nome, origem, destino, rotOrigem, rotDestino,
                  trilha, setTrilha, navRef, nat, setNat, ate, setAte }: any) {
   // ⚠ SINAL ECONÔMICO, não o de exibição. O resto da tela mostra despesa
   // positiva (fatorExibicao inverte), mas numa ponte isso quebra tudo: uma
@@ -1904,10 +1922,10 @@ function Ponte({ S, cfg, setCfg, linhas, nome, origem, destino, rotOrigem, rotDe
             {' '}⚠ Aqui o nível é <strong>cumulativo</strong>: <em>até 2</em> oferece os níveis 1 <em>e</em> 2 —
             é um seletor de ponto de partida, não um corte. Em <em>O que mudou</em> o mesmo botão
             significa outra coisa.
-            {' '}⚠⚠ <strong>Confira o sentido antes de ler os sinais.</strong> Comparando com o
-            realizado, a ponte sai do <strong>orçado</strong> e chega no <strong>realizado</strong>:
-            cada barra é o <em>desvio em relação ao plano</em>. Entre dois orçamentos ela sai do
-            comparado e chega no analisado. O botão inverte, e todos os sinais viram junto.
+            {' '}⚠⚠ <strong>Confira o sentido antes de ler os sinais</strong> — ele está no
+            cabeçalho e vale para este quadro e para <em>O que mudou</em>. Saindo do
+            <strong> orçado</strong> para o <strong>realizado</strong>, cada barra é o
+            <em> desvio em relação ao plano</em>; invertido, todos os sinais viram junto.
           </div></div>
         <div style={S.secBarra} data-noexport>
           <Grupo opcoes={ABAS} valor={modoLista} onPick={setModoLista} />
@@ -1933,17 +1951,6 @@ function Ponte({ S, cfg, setCfg, linhas, nome, origem, destino, rotOrigem, rotDe
               mão, o outro desfazia. Trocar a linha JÁ deriva da estrutura, que
               é o que o texto deste cartão promete — e componente escolhido a
               dedo faz a ponte não fechar, que é o contrário de uma ponte. */}
-          {/* ⚠ O sentido fica ESCRITO, não atrás de um ícone: é a primeira
-              coisa a conferir antes de ler qualquer sinal desta tabela, e um
-              ⇄ sozinho não diz para onde está apontando agora. */}
-          <button onClick={trocarSentido} title="Inverter o sentido da ponte — troca origem e destino, e todos os sinais junto"
-            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 9px', fontSize: 11.5,
-                     border: '1px solid var(--border-strong)', borderRadius: 7, cursor: 'pointer',
-                     background: 'transparent', color: 'var(--text-mid)', whiteSpace: 'nowrap' }}>
-            <ArrowLeftRight size={12} style={{ color: 'var(--violet)' }} />
-            <span style={{ color: 'var(--muted)' }}>de</span> <strong>{rotOrigem}</strong>
-            <span style={{ color: 'var(--muted)' }}>para</span> <strong>{rotDestino}</strong>
-          </button>
           <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
             {cfg.sel.length} componente(s)
           </span>
@@ -2268,7 +2275,9 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
 // Limiar DUPLO: percentual E valor mínimo, juntos. 40% numa conta de R$ 800 é
 // ruído; 3% na folha é a maior conversa do orçamento. Só o percentual enche a
 // tela de bobagem; só o absoluto esconde a conta pequena que dobrou.
-function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBase, rotuloComp,
+// ⚠ Mesma assinatura da Ponte: `origem`/`destino`, e quem decide é a página.
+// O sentido vale para os DOIS — lá como narrativa, aqui como coluna e sinal.
+function Variacao({ S, cfg, setCfg, linhas, nome, origem, destino, val, fac, rotOrigem, rotDestino,
                     aba, setAba, nivel, setNivel, nat, setNat }: any) {
   // ⚠⚠ O CONJUNTO VEM DO CORTE, não de escolha manual. Era a seleção livre que
   // deixava marcar `Despesas` junto com `Despesas com Pessoal` e produzir a
@@ -2280,10 +2289,15 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
 
   // O limiar foca a atenção; esconder o resto para sempre tira a conferência.
   const [todas, setTodas] = useState(false)
-  const total = cfg.sel.reduce((s: number, id: string) => s + Math.abs(val(base, id)), 0)
+  // ⚠ O denominador do limiar é o DESTINO — o retrato final. No modo
+  // Orçado × Orçado ele é o analisado, que é exatamente o que já era, então
+  // trocar o sentido não remexe nos limiares de quem compara orçamentos.
+  const total = cfg.sel.reduce((s: number, id: string) => s + Math.abs(val(destino, id)), 0)
   const minAbs = total * (cfg.minPctTotal / 100)
+  // `b` = destino, `c` = origem: os nomes curtos ficaram, a semântica é a do
+  // sentido escolhido no cabeçalho.
   const linhasCruas = cfg.sel.map((id: string) => {
-    const b = val(base, id), c = val(comp, id)
+    const b = val(destino, id), c = val(origem, id)
     return { id, nome: nome(id), b, c, d: b - c, pct: c !== 0 ? ((b - c) / Math.abs(c)) * 100 : (b !== 0 ? Infinity : 0) }
   })
   // ⚠ ZERO NOS DOIS PERÍODOS não é "variação pequena", é AUSÊNCIA de conteúdo:
@@ -2343,6 +2357,7 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
             {' '}⚠ Aqui o nível é um <strong>corte</strong>: <em>2</em> traz só o nível 2 e as folhas acima,
             nunca o nível 1 junto. É o que impede a lista de contar o mesmo dinheiro duas vezes —
             na <em>ponte</em> o mesmo botão é cumulativo.
+            {' '}A variação é <strong>{rotDestino} − {rotOrigem}</strong>, no sentido escolhido no cabeçalho.
             {nVazias > 0 && (
               <span style={{ color: 'var(--muted)' }}>
                 {' '}· {nVazias} linha(s) zerada(s) nos dois períodos ficam de fora.
@@ -2364,12 +2379,12 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
         <BarraCorte S={S} aba={aba} setAba={setAba} nivel={nivel} setNivel={setNivel}
           nat={nat} setNat={setNat} cfg={cfg} setCfg={setCfg} n={conjunto.length} />
       </div>
-      <Tabela S={S} arquivo={`variacao-${rotuloBase}`}
+      <Tabela S={S} arquivo={`variacao-${rotDestino}`}
         rows={(todas ? [...destaque, ...resto.map((r: any) => ({ ...r, _fraco: true }))] : destaque)}
         cols={[
           { key: 'nome', label: 'linha' },
-          { key: 'c', label: String(rotuloComp), num: true, render: (r: any) => fmt(r.c) },
-          { key: 'b', label: String(rotuloBase), num: true, render: (r: any) => fmt(r.b) },
+          { key: 'c', label: String(rotOrigem), num: true, render: (r: any) => fmt(r.c) },
+          { key: 'b', label: String(rotDestino), num: true, render: (r: any) => fmt(r.b) },
           { key: 'd', label: 'variação', num: true,
             render: (r: any) => (
               <span style={{ color: r.d === 0 ? 'var(--muted)' : bom(r) ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}
@@ -2438,6 +2453,10 @@ function Acuracia({ S, cfg, setCfg, linhas, nome, orc, real, val, ano,
           <div style={S.secD}>
             Orçado × realizado do ano comparado. Não é para julgar o passado — é para saber
             <strong> em quem acreditar</strong> no orçamento novo.
+            {' '}⚠ Este quadro <strong>não segue o sentido do cabeçalho</strong>: ele compara o
+            orçado de {ano ?? '—'} com o realizado de {ano ?? '—'}, e o erro é sempre
+            <em> realizado − orçado</em>. Não existe a outra direção — orçamento se mede contra o
+            que aconteceu, nunca o contrário.
             {' '}Marcado o que errou mais de {cfg.pct}% <em>e</em> mais de {cfg.minPctTotal}% do orçado total ({fmt(minAbs)}).
             {' '}⚠ Como em <em>O que mudou</em>, o nível é um <strong>corte</strong>: <em>2</em> traz só o
             nível 2 e as folhas acima, nunca o nível 1 junto — senão o mesmo erro conta duas vezes.

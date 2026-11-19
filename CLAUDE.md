@@ -1418,11 +1418,20 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ **`undefined` é "siga o modo"**, não um valor: gravar o sentido resolvido faria a escolha
   automática virar escolha fixa no primeiro salvamento (mesma distinção intenção × estado do
   preset do relatório). Card sem a chave não apaga a escolha de quem está na tela.
-  ⚠⚠ **A tela ainda tem TRÊS sentidos, e dois concordam.** *Acurácia* já calculava
-  `erro = realizado − orçado` (sentido de acompanhamento) e *O que mudou* usa
-  `analisado − comparado` — então a ponte, invertida no modo REAL, passou a concordar com a
-  Acurácia e **O que mudou ficou sozinha**. Incoerência que já existia e agora tem um lado só;
-  estender o sentido aos três é trabalho à parte.
+  ⚠⚠ **O sentido é do CABEÇALHO, e rege a aba — não é ajuste de um cartão.** A primeira versão
+  pôs o botão dentro da ponte, e aí *O que mudou* continuou em `analisado − comparado` enquanto
+  a ponte ia ao contrário: **a mesma linha com sinais opostos na mesma tela**. Hoje é um campo
+  do cabeçalho (*Sentido da leitura*, com a frase inteira — "de X para Y") e os dois quadros o
+  seguem: a ponte como narrativa, o ranking como ordem das colunas e sinal de `variação`.
+  ⚠ Aparece **só na aba Comparativo**: em *Orçamento* o protagonista é o plano e o comparado é um
+  Δ discreto nos cards; em *Análise Pessoas* não há comparação.
+  ⚠⚠ **A Acurácia NÃO segue, de propósito** — e o quadro diz isso. Ela não compara `base × comp`:
+  compara o **orçado de um ano com o realizado do mesmo ano**, e `erro = realizado − orçado` é a
+  única direção que existe. Orçamento se mede contra o que aconteceu, nunca o contrário; oferecer
+  a inversão ali seria um controle que não significa nada.
+  ⚠ Em *O que mudou* o denominador do limiar virou o **destino**. No modo Orçado × Orçado o
+  destino é o analisado, que é exatamente o que já era — trocar o sentido não remexe nos limiares
+  de quem compara orçamentos.
 
   ⚠⚠ **O Δ do resultado não estava em lugar nenhum (19/nov).** A tabela dava o valor inicial,
   cada componente e o valor final — e **a soma que tudo aquilo explica** ficava para o leitor
