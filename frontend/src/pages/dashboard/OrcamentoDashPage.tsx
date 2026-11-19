@@ -2119,9 +2119,22 @@ function Ponte({ S, cfg, setCfg, linhas, nome, origem, destino, rotOrigem, rotDe
                     </div>
                   )}
                   efeito no resultado
-                </th></tr></thead>
+                </th>
+                {/* ⚠ O MARCADOR TEM COLUNA PRÓPRIA, e ela existe mesmo vazia.
+                    Inline, "↑ gasto" ocupava o fluxo da célula e empurrava o
+                    número daquela linha para a esquerda — a única linha fora
+                    do alinhamento da coluna, o que faz procurar defeito no
+                    número. Reservar a largura em todas as linhas custa 22px e
+                    mantém os valores encostados na mesma borda.
+                    ⚠ Só a SETA, sem a palavra (decisão do Ricardo, 19/nov): o
+                    texto "↑ gasto" dobrava a largura reservada em toda linha
+                    para explicar o que o `title` explica sob demanda. O que se
+                    perde é a leitura sem passar o mouse — por isso a seta fica
+                    só em linha de DESPESA, onde ela é a única convenção
+                    possível, e o cabeçalho segue escrevendo por extenso. */}
+                <th style={{ ...S.th, width: 22 }} /></tr></thead>
               <tbody>
-                <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--muted)' }}>{rotOrigem}</td><td style={S.td}>{fmt(ini)}</td></tr>
+                <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--muted)' }}>{rotOrigem}</td><td style={S.td}>{fmt(ini)}</td><td style={S.td} /></tr>
                 {passos.map((b: any) => {
                   // Só em linha de DESPESA: em receita o sinal já se lê direto
                   // (+ é mais receita), e repetir "↑ receita" seria ruído.
@@ -2143,13 +2156,14 @@ function Ponte({ S, cfg, setCfg, linhas, nome, origem, destino, rotOrigem, rotDe
                     {b.nome}</td>
                     <td style={{ ...S.td, color: b.id === '__resid' ? 'var(--orange)' : b.d >= 0 ? 'var(--green)' : 'var(--red)' }}>
                       {b.d >= 0 ? '+' : ''}{fmt(b.d)}
-                      {desp && <span style={{ marginLeft: 6, fontSize: 10.5, fontFamily: 'inherit', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                        {b.d < 0 ? '↑ gasto' : '↓ gasto'}
-                      </span>}
+                    </td>
+                    <td style={{ ...S.td, textAlign: 'left', paddingLeft: 5, fontSize: 11, fontFamily: 'inherit', color: 'var(--muted)' }}
+                      title={desp ? (b.d < 0 ? 'gasto MAIOR — a despesa cresceu, por isso o número é negativo' : 'gasto MENOR — a despesa caiu') : undefined}>
+                      {desp ? (b.d < 0 ? '↑' : '↓') : ''}
                     </td></tr>
                 )})}
                 <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontWeight: 700 }}>{rotDestino}</td>
-                  <td style={{ ...S.td, fontWeight: 700 }}>{fmt(fim)}</td></tr>
+                  <td style={{ ...S.td, fontWeight: 700 }}>{fmt(fim)}</td><td style={S.td} /></tr>
               </tbody>
             </table>
           </div>

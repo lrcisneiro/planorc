@@ -1629,6 +1629,14 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   R$ 1,38 mi. Hoje cada linha de **natureza DESPESA** (própria ou herdada) traz **↑ gasto** /
   **↓ gasto** ao lado do número, e a coluna chama-se *efeito no resultado*, não *variação*.
   ⚠ Só em despesa: em receita o sinal se lê direto, e "↑ receita" seria ruído.
+  ⚠⚠ **O marcador tem COLUNA PRÓPRIA, e ela existe mesmo vazia.** Inline, ele ocupava o fluxo da
+  célula e empurrava o número **daquela** linha para a esquerda — a única fora do alinhamento da
+  coluna, o que faz quem confere procurar defeito no número. Reservar a largura em todas as
+  linhas custa 22px e mantém os valores na mesma borda.
+  ⚠ Ficou **só a seta**, sem a palavra (decisão do Ricardo, 19/nov): "↑ gasto" dobrava a largura
+  reservada em toda linha para explicar o que o `title` explica sob demanda. Perde-se a leitura
+  sem passar o mouse; por isso a seta só aparece em linha de **DESPESA**, onde é a única
+  convenção possível, e o **cabeçalho continua escrevendo por extenso**.
   **A lição vale além desta tela:** quando a convenção local contraria a do resto do produto,
   explicar no cabeçalho não resolve — tem de estar **na linha**, junto do número que engana.
 
