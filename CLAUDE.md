@@ -1346,6 +1346,10 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   "de onde veio" é descer. Ícone `↳` na linha da tabela desce; a **trilha** acima do gráfico
   sobe. Medido: **54 das 170 linhas** se decompõem (27 por subtotal, 27 por fórmula) e a
   profundidade real é **4 níveis** — no máximo 3 cliques até a folha.
+  ⚠ **Subir é um `↑` no CABEÇALHO da tabela**, na mesma coluna do `↳` de descer — não uma
+  trilha acima do gráfico, que foi a primeira tentativa. A trilha mostrava o caminho inteiro,
+  mas a profundidade real é **4 níveis** (no máximo 3 voltas) e o cabeçalho já nomeia onde se
+  está: ela ocupava uma faixa da tela para repetir o que estava logo abaixo.
   ⚠⚠ **Subir segue o CAMINHO PERCORRIDO, não o `pai_id`.** Descendo por subtotal os dois
   coincidem; por **fórmula**, não — o EBITDA referencia `Despesas`, que é linha de topo com pai
   nulo, e o ↑ não teria para onde voltar. Metade dos pontos de descida é fórmula.

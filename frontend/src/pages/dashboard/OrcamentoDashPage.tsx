@@ -23,7 +23,7 @@ import {
   ExportarButton, FiltrosButton, PillsDim, SalvarCardButton, useCardPreset,
   effectiveCcFilter, escopoFiltro, type CC,
 } from './DashFiltros'
-import { ChevronLeft, AlertTriangle, Info, Download, ChevronUp, ChevronDown, ListChecks, ChevronRight, CornerDownRight } from 'lucide-react'
+import { ChevronLeft, AlertTriangle, Info, Download, ChevronUp, ChevronDown, ListChecks, CornerDownRight, CornerLeftUp } from 'lucide-react'
 import { ResponsiveBar } from '@nivo/bar'
 import { fmtEixo } from '../../lib/fmtEixo'
 import { ResponsiveLine } from '@nivo/line'
@@ -1667,25 +1667,6 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
               estrutura — o total do resultado não o inclui, então ele sobra.
             </div>
           )}
-          {/* A trilha só existe quando se DESCEU. Entrando pelo seletor não há
-              caminho, e um "voltar" morto seria pior que a ausência dele. */}
-          {trilha.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 10, fontSize: 12.5 }} data-noexport>
-              {trilha.map((id: string, i: number) => (
-                <Fragment key={id}>
-                  <button onClick={() => irPara(id, trilha.slice(0, i))}
-                    title="Voltar a esta linha"
-                    style={{ background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer',
-                             color: 'var(--violet)', fontSize: 12.5, fontFamily: 'inherit' }}>
-                    {nome(id)}
-                  </button>
-                  <ChevronRight size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                </Fragment>
-              ))}
-              <span style={{ color: 'var(--text)', fontWeight: 700, padding: '2px 4px' }}>{nome(resId)}</span>
-            </div>
-          )}
-
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(340px, 1fr) minmax(290px, 400px)', gap: 20, alignItems: 'start' }}>
             <div style={{ overflowX: 'auto' }}>
               <svg width={Math.max(380, cols.length * W)} height={H + 46}>
@@ -1707,7 +1688,21 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
               </svg>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr><th style={{ ...S.th, textAlign: 'left' }}>{nome(resId)}</th><th style={S.th} title="Quanto cada componente move o RESULTADO. Despesa que cresce aparece negativa, porque piora o resultado.">efeito no resultado</th></tr></thead>
+              {/* ⚠ SUBIR fica aqui, na mesma coluna do ↳ de descer, e não numa
+                  trilha acima do gráfico. A trilha mostrava o caminho inteiro,
+                  mas a profundidade real é 4 níveis — no máximo 3 voltas — e o
+                  cabeçalho já nomeia onde se está. Dois controles no mesmo
+                  lugar valem mais que um mapa que ocupa uma faixa da tela. */}
+              <thead><tr><th style={{ ...S.th, textAlign: 'left' }}>
+                {trilha.length > 0 && (
+                  <button onClick={() => irPara(trilha[trilha.length - 1], trilha.slice(0, -1))}
+                    title={`Voltar a ${nome(trilha[trilha.length - 1])}`} data-noexport
+                    style={{ background: 'none', border: 'none', padding: 0, marginRight: 6,
+                             cursor: 'pointer', color: 'var(--violet)', verticalAlign: -2 }}>
+                    <CornerLeftUp size={13} />
+                  </button>
+                )}
+                {nome(resId)}</th><th style={S.th} title="Quanto cada componente move o RESULTADO. Despesa que cresce aparece negativa, porque piora o resultado.">efeito no resultado</th></tr></thead>
               <tbody>
                 <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--muted)' }}>{rotuloComp}</td><td style={S.td}>{fmt(ini)}</td></tr>
                 {passos.map((b: any) => {
