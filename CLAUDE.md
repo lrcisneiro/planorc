@@ -1363,6 +1363,15 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ **O seletor mostra só o NÍVEL 1** — ele escolhe o ponto de partida; descer é com o `↳`.
   Eram 170 opções indentadas, rolagem longa para achar o que a navegação alcança num clique.
   Ficam **9 em Linhas** e **23 em Indicadores**.
+  ⚠ **O seletor usa a MESMA regra do `↳`** — oferecer linha que não decompõe abre ponte vazia,
+  que é o "offer and then refuse" evitado no ícone. Sobram **8 em Linhas e 11 em Indicadores**.
+  Saiu o `Headcount médio (FTE)` (ANALITICA com master, única de nível 1 sem componentes) e as
+  8 percentuais.
+  ⚠⚠ **`formato` serve a EXIBIÇÃO e está sendo usado para responder "isto é uma razão?".**
+  Coincide no percentual e **falha na TAXA**: `Receita por FTE (mês)` e `Custo médio por pessoa`
+  são R$/FTE, decompõem e somariam taxas — e marcá-las `PERCENTUAL` as exibiria com `%`, o que
+  seria pior. O enum não tem "índice". Fica o resíduo denunciando; se virar incômodo, é campo
+  novo, não truque de filtro.
   ⚠⚠ **EBITDA e Resultado Líquido são `INDICADOR`**, então caem na aba *Indicadores* — e são
   justamente os pontos de partida mais prováveis de uma ponte. Quem procurar em *Linhas* não
   acha. É fiel à estrutura, mas contraintuitivo: se incomodar, o conserto é de cadastro

@@ -1613,10 +1613,19 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
   // Com a árvore inteira eram 170 opções indentadas — rolagem longa para achar
   // o que a navegação alcança em um clique, e fácil escolher uma linha funda
   // sem perceber de que bloco ela é.
+  // ⚠⚠ O SELETOR USA A MESMA REGRA DO `↳`. Oferecer uma linha que não decompõe
+  // abre a ponte vazia — "offer and then refuse", que é o que se evitou no
+  // ícone. Tira exatamente duas coisas desta DRE:
+  //   · `Headcount médio (FTE)` — ANALITICA com master, única de nível 1 sem
+  //     componentes (as outras 31 decompõem);
+  //   · as 8 PERCENTUAIS — somar pontos percentuais não fecha, e deixá-las no
+  //     seletor manteria a análise quebrada a um clique de distância, mesmo com
+  //     o ícone escondido.
   const opcoes = emArvore(linhas as any)
     .filter((l: any) => l.prof === 0)
     .filter((l: any) => linhasConciliaveis(linhas).some((x: any) => x.id === l.id))
     .filter((l: any) => modoLista === 'INDIC' ? l.tipo_linha === 'INDICADOR' : l.tipo_linha !== 'INDICADOR')
+    .filter((l: any) => podeDescer(l.id))
 
   return (
     <div style={S.sec}>
