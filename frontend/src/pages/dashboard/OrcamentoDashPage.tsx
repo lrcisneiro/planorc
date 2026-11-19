@@ -175,6 +175,7 @@ export default function OrcamentoDashPage() {
   // que dispara a recarga.
   const [varAba, setVarAba] = useState<'LINHA' | 'INDIC'>('LINHA')
   const [varNivel, setVarNivel] = useState<number | 'folhas'>(1)
+  const [varNat, setVarNat] = useState<'TODAS' | 'RECEITA' | 'DESPESA'>('TODAS')
   const [secVar, setSecVar] = useState<SecCfg>(SEC_PADRAO)
   const [secAcur, setSecAcur] = useState<SecCfg>(SEC_PADRAO)
   // Configuração de seção vinda de FORA (estado salvo ou card) espera aqui até
@@ -705,6 +706,7 @@ export default function OrcamentoDashPage() {
 
           <Variacao S={S} cfg={secVar} setCfg={setSecVar} linhas={linhas} nome={nome} fac={fac}
             aba={varAba} setAba={setVarAba} nivel={varNivel} setNivel={setVarNivel}
+            nat={varNat} setNat={setVarNat}
             base={dados.base} comp={dados.comp} val={val} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
 
           <Acuracia S={S} cfg={secAcur} setCfg={setSecAcur} linhas={linhas} nome={nome}
@@ -2019,7 +2021,19 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
 // ruído; 3% na folha é a maior conversa do orçamento. Só o percentual enche a
 // tela de bobagem; só o absoluto esconde a conta pequena que dobrou.
 function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBase, rotuloComp,
-                    aba, setAba, nivel, setNivel }: any) {
+                    aba, setAba, nivel, setNivel, nat, setNat }: any) {
+  // Natureza EFETIVA: a própria, ou herdada do pai — a mesma regra de
+  // `fatorExibicao`. `NEUTRO` não interrompe a herança; ausência de natureza
+  // em toda a cadeia é que faz a linha ser neutra de verdade.
+  const natEf = useMemo(() => {
+    const byId: Record<string, LinhaRel> = Object.fromEntries(linhas.map((l: LinhaRel) => [l.id, l]))
+    const f = (id: string | null): string | null => {
+      if (!id) return null
+      const l = byId[id]; if (!l) return null
+      return (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : f(l.pai_id)
+    }
+    return f
+  }, [linhas])
   // ⚠⚠ O CONJUNTO VEM DO CORTE, não de escolha manual. Era a seleção livre que
   // deixava marcar `Despesas` junto com `Despesas com Pessoal` e produzir a
   // duplicata — num ranking, seleção à mão reintroduz exatamente o defeito.
@@ -2031,8 +2045,22 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
     // 1, então o botão não os afeta — e ali o recorte é a própria aba.
     return aba === 'INDIC'
       ? linhas.filter((l: LinhaRel) => l.tipo_linha === 'INDICADOR' && !l.desativada).map((l: LinhaRel) => l.id)
-      : particaoNivel(linhas, nivel).filter((id: string) => !ind(id))
-  }, [linhas, aba, nivel])
+      : particaoNivel(linhas, nivel)
+          .filter((id: string) => !ind(id))
+          // ⚠ Só recorta quando se PEDE. "Todas" inclui as neutras — e elas não
+          // são sobra: no nível 1 são `Impostos s/ faturamento`, `Resultado
+          // Financeiro`, `Impostos sobre o Resultado`, `Receita Liquida`.
+          // Dinheiro de verdade que uma pílula de dois estados esconderia.
+          .filter((id: string) => nat === 'TODAS' || natEf(id) === nat)
+  }, [linhas, aba, nivel, nat, natEf])
+
+  // Quantas ficam de fora pelo recorte de natureza — para a tela dizer, em vez
+  // de a lista simplesmente encolher.
+  const foraPorNat = useMemo(() => {
+    if (aba === 'INDIC' || nat === 'TODAS') return 0
+    const ind = (id: string) => linhas.find((l: LinhaRel) => l.id === id)?.tipo_linha === 'INDICADOR'
+    return particaoNivel(linhas, nivel).filter((id: string) => !ind(id) && natEf(id) !== nat).length
+  }, [linhas, aba, nivel, nat, natEf])
 
   // ⚠ `cfg` fora das dependências: ele muda a cada `setCfg` e o efeito voltaria
   // a disparar — laço. Igual ao da ponte.
@@ -2093,6 +2121,13 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
           <div style={S.secD}>
             Ordenado por <strong>impacto</strong>, não por tamanho. Marcado o que passa de {cfg.pct}% <em>e</em> de {cfg.minPctTotal}% do total ({fmt(minAbs)}).
             {' '}<span style={{ color: 'var(--green)' }}>Verde</span> é melhora e <span style={{ color: 'var(--red)' }}>vermelho</span> é piora — numa despesa, cair é melhorar.
+            {foraPorNat > 0 && (
+              <><br /><span style={{ color: 'var(--orange)' }}>
+                {foraPorNat} linha(s) fora deste recorte de natureza — entre elas as <b>neutras</b>
+                {' '}(impostos, resultado financeiro), que não são receita nem despesa na estrutura.
+                {' '}Use <b>Todas</b> para vê-las.
+              </span></>
+            )}
             {resto.length > 0 && (
               <span data-noexport style={{ marginLeft: 8, color: 'var(--violet)', cursor: 'pointer' }} onClick={() => setTodas(v => !v)}>
                 {todas ? `ver só as ${destaque.length} acima do limiar` : `mostrar todas as ${todas0} linhas`}
@@ -2125,6 +2160,19 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
                       color: nivel === n ? 'var(--violet)' : 'var(--muted)' }}>{n}</button>
                 ))}
               </div>
+            </div>
+          )}
+          {/* Natureza só na aba Linhas: entre os 23 indicadores são 3 de
+              despesa e 20 neutros — "Receita" daria lista vazia. */}
+          {aba === 'LINHA' && (
+            <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}>
+              {([['TODAS', 'Todas'], ['RECEITA', 'Receita'], ['DESPESA', 'Despesa']] as const).map(([k, rot]) => (
+                <button key={k} onClick={() => setNat(k)}
+                  style={{ padding: '5px 9px', fontSize: 11.5, border: 'none', cursor: 'pointer',
+                    fontWeight: nat === k ? 700 : 500,
+                    background: nat === k ? 'rgba(139,92,246,0.18)' : 'transparent',
+                    color: nat === k ? 'var(--violet)' : 'var(--muted)' }}>{rot}</button>
+              ))}
             </div>
           )}
           <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{conjunto.length} linha(s)</span>

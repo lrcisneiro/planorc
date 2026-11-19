@@ -1429,6 +1429,13 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠⚠ **Indicador ordena por %, não por valor.** Eles misturam unidades — `% EBITDA` em pontos
   percentuais, `Custo Pessoas` em reais, `Receita por FTE` em R$/FTE: ordenar por variação
   absoluta compara grandezas diferentes e põe sempre os de reais no topo.
+  ⚠ **Pílula de natureza `Todas · Receita · Despesa`**, só na aba Linhas (entre os indicadores
+  são 3 de despesa e 20 neutros — "Receita" daria lista vazia). Medido: N=1 → 1 receita, 1
+  despesa e **7 neutras**; N=2 → 14/12/8; N=3 → 37/68/15.
+  ⚠⚠ **As neutras NÃO são sobra** — no nível 1 são `Impostos s/ faturamento`, `Resultado
+  Financeiro`, `Impostos sobre o Resultado`, `Receita Liquida`: dinheiro de verdade que uma
+  pílula de dois estados esconderia em silêncio. Por isso há o terceiro estado, e ao recortar a
+  tela **diz quantas ficaram de fora** em vez de só encolher a lista.
   ⚠ **A duplicação restante é CADASTRO:** só **um** indicador é espelho estrutural de uma linha
   (`ImpostosFaturamento`); `Custo Pessoas (fully loaded)` e `Folha direta` dão valores idênticos
   porque são duas fórmulas que calculam a mesma coisa, e nenhum filtro adivinha isso.
