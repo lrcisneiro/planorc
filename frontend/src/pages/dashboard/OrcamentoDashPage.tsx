@@ -1753,6 +1753,16 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
   const residuo = (fim - ini) - explicado
   const temResid = Math.abs(residuo) > Math.max(1, Math.abs(fim - ini) * 0.001)
   const resid = { id: '__resid', nome: 'não explicado', d: residuo }
+  // ⚠⚠ O Δ DO RESULTADO NÃO ESTAVA EM LUGAR NENHUM. A tabela dava o valor
+  // inicial, cada componente e o valor final — e a soma que tudo isso explica
+  // ficava para o leitor fazer de cabeça, justamente o número que a ponte
+  // existe para decompor (o gráfico só o mostra como a DISTÂNCIA entre as duas
+  // barras roxas, que se lê por aproximação). Vai no cabeçalho da coluna, que
+  // é onde a resposta precede o detalhe.
+  const dTot = fim - ini
+  // Percentual sobre o |inicial|: sem base não existe variação relativa, e
+  // "∞%" no cabeçalho não informa nada.
+  const pctTot = Math.abs(ini) > 0.005 ? (dTot / Math.abs(ini)) * 100 : null
   const barras = [...itens, ...(temResid ? [resid] : [])]
 
   // ⚠ O LIMITE É SÓ DO GRÁFICO. Uma linha tem 45 filhas, e 45 barras não se
@@ -1939,7 +1949,33 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
                     <CornerLeftUp size={13} />
                   </button>
                 )}
-                {nome(resId)}</th><th style={S.th} title="Quanto cada componente move o RESULTADO. Despesa que cresce aparece negativa, porque piora o resultado.">efeito no resultado</th></tr></thead>
+                {nome(resId)}</th>
+                <th style={{ ...S.th, verticalAlign: 'bottom' }}
+                  title="Quanto cada componente move o RESULTADO. Despesa que cresce aparece negativa, porque piora o resultado.">
+                  {/* O número que a ponte decompõe, acima do rótulo da coluna:
+                      a resposta antes do detalhe que a explica. */}
+                  <div style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 700, textTransform: 'none',
+                                letterSpacing: 0, marginBottom: 1,
+                                color: dTot >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                    {dTot >= 0 ? '+' : ''}{fmt(dTot)}
+                    {pctTot != null && (
+                      <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 5 }}>
+                        {fmtPct(pctTot)}
+                      </span>
+                    )}
+                  </div>
+                  {/* ⚠ A linha de resultado também pode ser DESPESA — é o que
+                      acontece ao descer para `Despesas` —, e aí o Δ do
+                      cabeçalho se lê invertido como os das linhas. Mesmo
+                      marcador, mesma razão: o aviso tem de estar junto do
+                      número que engana. */}
+                  {natDaLinha(resId) === 'DESPESA' && (
+                    <div style={{ fontSize: 10, textTransform: 'none', letterSpacing: 0, color: 'var(--muted)' }}>
+                      {dTot < 0 ? '↑ gasto' : '↓ gasto'}
+                    </div>
+                  )}
+                  efeito no resultado
+                </th></tr></thead>
               <tbody>
                 <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--muted)' }}>{rotuloComp}</td><td style={S.td}>{fmt(ini)}</td></tr>
                 {passos.map((b: any) => {

@@ -1400,6 +1400,16 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   está **incompleto**: `LER Bruto`, `LER de Margem`, `dLER` e `mLER` são razões marcadas
   `NUMERO` e escapam. **Conserto é de CADASTRO**, não lista de nomes — nome chumbado funciona
   nesta DRE e quebra na próxima.
+  ⚠⚠ **O Δ do resultado não estava em lugar nenhum (19/nov).** A tabela dava o valor inicial,
+  cada componente e o valor final — e **a soma que tudo aquilo explica** ficava para o leitor
+  fazer de cabeça, justamente o número que a ponte existe para decompor. No gráfico ele é só a
+  **distância entre as duas barras roxas**, que se lê por aproximação. Hoje vai no **cabeçalho da
+  coluna**, acima de *efeito no resultado*: a resposta antes do detalhe que a explica, com o % ao
+  lado (nulo quando o inicial é zero — "∞%" não informa).
+  ⚠ **A linha de resultado também pode ser DESPESA** — é o que acontece ao descer para
+  `Despesas` —, então o Δ do cabeçalho leva o mesmo **↑ gasto / ↓ gasto** das linhas. O aviso tem
+  de estar junto do número que engana, aqui como lá.
+
   ⚠ **Limite de barras é só do GRÁFICO** (uma linha tem 45 filhas); a tabela mostra tudo. O
   resto vira **uma barra "outros"**, nunca é descartado — sem ela a cascata não chega ao total e
   o gráfico mente. E o **resíduo fica fora do agrupamento**: ele é o aviso.
