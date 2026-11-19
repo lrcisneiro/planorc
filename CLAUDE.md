@@ -1360,9 +1360,17 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   "Calculando…": o `Ponte` desmonta e qualquer estado local morre. Na primeira versão a trilha
   nunca chegou a aparecer. **Estado que precisa sobreviver a uma recarga não pode viver num
   componente que a recarga desmonta** — vale para qualquer cartão desta tela.
-  ⚠ **O seletor mostra só o NÍVEL 1** — ele escolhe o ponto de partida; descer é com o `↳`.
-  Eram 170 opções indentadas, rolagem longa para achar o que a navegação alcança num clique.
-  Ficam **9 em Linhas** e **23 em Indicadores**.
+  ⚠⚠ **O MESMO botão de nível significa coisas diferentes nos dois cartões, e é deliberado.**
+  Na **ponte** é **cumulativo** (*até 2* = níveis 1 e 2): seletor de ponto de partida, e esconder
+  o nível 1 ao pedir mais profundidade surpreenderia. Em **"O que mudou"** é uma **partição**
+  (*2* = só o nível 2 + folhas acima): ali a lista precisa **somar**, e incluir o nível 1 junto
+  conta o mesmo dinheiro duas vezes.
+  O **visual é idêntico** — os dois usam o componente `Grupo`, para não divergirem na primeira
+  alteração — e a diferença é dita **no texto de cada cartão**, nunca no estilo do botão. Só o
+  quarto valor difere, porque os extremos são outros: `tudo` na ponte, `folhas` no ranking.
+  ⚠ **Pílula de natureza também na ponte**, mesma regra dos dois: só na aba Linhas.
+  ⚠ **O seletor começa no nível 1** — ele escolhe o ponto de partida; descer é com o `↳`. Eram
+  170 opções indentadas, rolagem longa para achar o que a navegação alcança num clique.
   ⚠⚠ **`linhasConciliaveis` NÃO serve à ponte — filtro certo para a pergunta errada.** Ele existe
   para a conciliação ("linha de fórmula tem total mas não tem folha a conciliar contra"), e numa
   ponte isso não importa: o que importa é ter **valor e componentes**, e um indicador de fórmula

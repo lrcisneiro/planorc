@@ -170,6 +170,8 @@ export default function OrcamentoDashPage() {
   // localStorage. Caminho é do momento, não da análise.
   const [trilhaPonte, setTrilhaPonte] = useState<string[]>([])
   const navPonte = useRef<string | null>(null)
+  const [ponteNat, setPonteNat] = useState<'TODAS' | 'RECEITA' | 'DESPESA'>('TODAS')
+  const [ponteAte, setPonteAte] = useState<number | 'tudo'>(1)
   // ⚠ Mesma razão da trilha: `carregando` desmonta o cartão inteiro, e estado
   // local de `Variacao` morreria a cada troca de nível — que é justamente o
   // que dispara a recarga.
@@ -702,6 +704,7 @@ export default function OrcamentoDashPage() {
         <>
           <Ponte S={S} cfg={secPonte} setCfg={setSecPonte} linhas={linhas} nome={nome}
             trilha={trilhaPonte} setTrilha={setTrilhaPonte} navRef={navPonte}
+            nat={ponteNat} setNat={setPonteNat} ate={ponteAte} setAte={setPonteAte}
             base={dados.base} comp={dados.comp} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
 
           <Variacao S={S} cfg={secVar} setCfg={setSecVar} linhas={linhas} nome={nome} fac={fac}
@@ -1305,14 +1308,42 @@ function Aviso({ tom, children }: { tom: 'alerta' | 'info'; children: any }) {
  *  ⚠ A profundidade sai do `pai_id`, nunca da coluna `nivel`: ela é **1 em
  *  todas as 170 linhas** desta DRE — não é mantida.
  */
-function particaoNivel(linhas: LinhaRel[], nivel: number | 'folhas'): string[] {
+/** Grupo de botões segmentado — UM componente para os dois cartões.
+ *  ⚠ Existe para a ponte e o "O que mudou" não divergirem visualmente na
+ *  primeira alteração. O que difere entre eles é o SIGNIFICADO do nível
+ *  (cumulativo × partição), e isso se explica no texto de cada cartão, não
+ *  na aparência do botão. */
+function Grupo({ opcoes, valor, onPick, rotulo }: {
+  opcoes: readonly (readonly [any, string, string?])[]
+  valor: any; onPick: (v: any) => void; rotulo?: string
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+      {rotulo && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{rotulo}</span>}
+      <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}>
+        {opcoes.map(([k, rot, tit]) => (
+          <button key={String(k)} onClick={() => onPick(k)} title={tit}
+            style={{ padding: '5px 9px', fontSize: 11.5, border: 'none', cursor: 'pointer',
+              fontWeight: valor === k ? 700 : 500,
+              background: valor === k ? 'rgba(139,92,246,0.18)' : 'transparent',
+              color: valor === k ? 'var(--violet)' : 'var(--muted)' }}>{rot}</button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const NATS = [['TODAS', 'Todas'], ['RECEITA', 'Receita'], ['DESPESA', 'Despesa']] as const
+const ABAS = [['LINHA', 'Linhas'], ['INDIC', 'Indicadores']] as const
+
+function profDe(linhas: LinhaRel[]): (l: LinhaRel) => number {
   const byId: Record<string, LinhaRel> = Object.fromEntries(linhas.map(l => [l.id, l]))
+  return (l: LinhaRel) => { let d = 1, p = l.pai_id; while (p && byId[p]) { d++; p = byId[p].pai_id } return d }
+}
+
+function particaoNivel(linhas: LinhaRel[], nivel: number | 'folhas'): string[] {
   const temFilha = new Set(linhas.map(l => l.pai_id).filter(Boolean) as string[])
-  const prof = (l: LinhaRel): number => {
-    let d = 1, p = l.pai_id
-    while (p && byId[p]) { d++; p = byId[p].pai_id }
-    return d
-  }
+  const prof = profDe(linhas)
   return linhas
     .filter(l => !l.desativada)
     .filter(l => nivel === 'folhas' ? !temFilha.has(l.id)
@@ -1511,7 +1542,8 @@ function SelLinhas({ cfg, setCfg, linhas, limiar }: { cfg: SecCfg; setCfg: (c: S
 // O único gráfico que responde "de onde vem o crescimento" numa imagem.
 // Sempre com a TABELA ao lado: cascata se lê por aproximação — a altura dá
 // ordem de grandeza, não valor, e quem aprova precisa do número exato.
-function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloComp, trilha, setTrilha, navRef }: any) {
+function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloComp, trilha, setTrilha, navRef,
+                 nat, setNat, ate, setAte }: any) {
   // ⚠ SINAL ECONÔMICO, não o de exibição. O resto da tela mostra despesa
   // positiva (fatorExibicao inverte), mas numa ponte isso quebra tudo: uma
   // despesa que CRESCE 20 viraria barra verde +20, sugerindo melhora, quando o
@@ -1665,9 +1697,29 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
   // Emprestado, ele derrubava 13 dos 23 indicadores: a lista caía para 4 e
   // sumiam `Custo Pessoas`, `Folha direta`, `Margem bruta` — justamente as
   // decomposições que se quer olhar. Filtro certo para a pergunta errada.
+  // ⚠⚠ AQUI O NÍVEL É CUMULATIVO ("até 2" = níveis 1 e 2), ao contrário de
+  // "O que mudou", onde é uma PARTIÇÃO ("nível 2" = só o 2 + folhas acima).
+  // A diferença é de propósito e tem razão: lá a lista precisa SOMAR, e
+  // partição é o que impede dupla contagem; aqui é um seletor de ponto de
+  // partida, e esconder o nível 1 ao pedir mais profundidade surpreenderia.
+  // Por isso o rótulo também difere — "até" contra "nível".
+  const prof = useMemo(() => profDe(linhas), [linhas])
+  const natEf = useMemo(() => {
+    const byId: Record<string, LinhaRel> = Object.fromEntries(linhas.map((l: LinhaRel) => [l.id, l]))
+    const f = (id: string | null): string | null => {
+      if (!id) return null
+      const l = byId[id]; if (!l) return null
+      return (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : f(l.pai_id)
+    }
+    return f
+  }, [linhas])
+
   const opcoesN1 = emArvore(linhas as any)
-    .filter((l: any) => l.prof === 0)
+    .filter((l: any) => ate === 'tudo' || prof(l) <= ate)
     .filter((l: any) => modoLista === 'INDIC' ? l.tipo_linha === 'INDICADOR' : l.tipo_linha !== 'INDICADOR')
+    // ⚠ Natureza só vale nas Linhas: entre os 23 indicadores são 3 de despesa e
+    // 20 neutros, então "Receita" devolveria lista vazia.
+    .filter((l: any) => modoLista === 'INDIC' || nat === 'TODAS' || natEf(l.id) === nat)
     .filter((l: any) => podeDescer(l.id))
 
   // ⚠⚠ A LINHA ATUAL ENTRA NA LISTA MESMO FORA DO NÍVEL 1. O seletor é o
@@ -1692,17 +1744,15 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
             barra mostra o efeito no <strong>resultado</strong>, não a convenção do resto da tela, onde despesa é
             positiva. Por isso as linhas de despesa trazem <strong>↑ gasto</strong> ou <strong>↓ gasto</strong> ao
             lado do número.
+            {' '}⚠ Aqui o nível é <strong>cumulativo</strong>: <em>até 2</em> oferece os níveis 1 <em>e</em> 2 —
+            é um seletor de ponto de partida, não um corte. Em <em>O que mudou</em> o mesmo botão
+            significa outra coisa.
           </div></div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }} data-noexport>
-          <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}>
-            {([['LINHA', 'Linhas'], ['INDIC', 'Indicadores']] as const).map(([k, rot]) => (
-              <button key={k} onClick={() => setModoLista(k)}
-                style={{ padding: '5px 9px', fontSize: 11.5, border: 'none', cursor: 'pointer',
-                  fontWeight: modoLista === k ? 700 : 500,
-                  background: modoLista === k ? 'rgba(139,92,246,0.18)' : 'transparent',
-                  color: modoLista === k ? 'var(--violet)' : 'var(--muted)' }}>{rot}</button>
-            ))}
-          </div>
+          <Grupo opcoes={ABAS} valor={modoLista} onPick={setModoLista} />
+          <Grupo rotulo="até" valor={ate} onPick={setAte}
+            opcoes={[[1, '1'], [2, '2'], [3, '3'], ['tudo', 'tudo', 'Todas as linhas, em qualquer profundidade']] as const} />
+          {modoLista === 'LINHA' && <Grupo opcoes={NATS} valor={nat} onPick={setNat} />}
           <select value={resId ?? ''} onChange={e => {
               const novo = e.target.value
               // Escolher pelo seletor é partir do zero: a trilha some.
@@ -2130,6 +2180,9 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
           <div style={S.secD}>
             Ordenado por <strong>impacto</strong>, não por tamanho. Marcado o que passa de {cfg.pct}% <em>e</em> de {cfg.minPctTotal}% do total ({fmt(minAbs)}).
             {' '}<span style={{ color: 'var(--green)' }}>Verde</span> é melhora e <span style={{ color: 'var(--red)' }}>vermelho</span> é piora — numa despesa, cair é melhorar.
+            {' '}⚠ Aqui o nível é um <strong>corte</strong>: <em>2</em> traz só o nível 2 e as folhas acima,
+            nunca o nível 1 junto. É o que impede a lista de contar o mesmo dinheiro duas vezes —
+            na <em>ponte</em> o mesmo botão é cumulativo.
             {nVazias > 0 && (
               <span style={{ color: 'var(--muted)' }}>
                 {' '}· {nVazias} linha(s) zerada(s) nos dois períodos ficam de fora.
@@ -2149,46 +2202,17 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
             )}
           </div></div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }} data-noexport>
-          <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}>
-            {([['LINHA', 'Linhas'], ['INDIC', 'Indicadores']] as const).map(([k, rot]) => (
-              <button key={k} onClick={() => setAba(k)}
-                style={{ padding: '5px 9px', fontSize: 11.5, border: 'none', cursor: 'pointer',
-                  fontWeight: aba === k ? 700 : 500,
-                  background: aba === k ? 'rgba(139,92,246,0.18)' : 'transparent',
-                  color: aba === k ? 'var(--violet)' : 'var(--muted)' }}>{rot}</button>
-            ))}
-          </div>
-          {/* ⚠ Só na aba Linhas: os 23 indicadores são todos nível 1, então
-              aqui o botão não mudaria nada — controle morto ensina que a tela
+          <Grupo opcoes={ABAS} valor={aba} onPick={setAba} />
+          {/* ⚠ Nível e natureza só na aba Linhas: os 23 indicadores são todos
+              nível 1 (o botão não mudaria nada) e 20 deles são neutros
+              ("Receita" daria lista vazia). Controle morto ensina que a tela
               às vezes não responde. */}
           {aba === 'LINHA' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>nível</span>
-              <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}>
-                {([1, 2, 3, 'folhas'] as const).map(n => (
-                  <button key={String(n)} onClick={() => setNivel(n)}
-                    title={n === 'folhas' ? 'As linhas de lançamento — o grão mais fino' : `Corte no nível ${n}`}
-                    style={{ padding: '5px 9px', fontSize: 11.5, border: 'none', cursor: 'pointer',
-                      fontWeight: nivel === n ? 700 : 500,
-                      background: nivel === n ? 'rgba(139,92,246,0.18)' : 'transparent',
-                      color: nivel === n ? 'var(--violet)' : 'var(--muted)' }}>{n}</button>
-                ))}
-              </div>
-            </div>
+            <Grupo rotulo="nível" valor={nivel} onPick={setNivel}
+              opcoes={[[1, '1'], [2, '2'], [3, '3'],
+                       ['folhas', 'folhas', 'As linhas de lançamento — o grão mais fino']] as const} />
           )}
-          {/* Natureza só na aba Linhas: entre os 23 indicadores são 3 de
-              despesa e 20 neutros — "Receita" daria lista vazia. */}
-          {aba === 'LINHA' && (
-            <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}>
-              {([['TODAS', 'Todas'], ['RECEITA', 'Receita'], ['DESPESA', 'Despesa']] as const).map(([k, rot]) => (
-                <button key={k} onClick={() => setNat(k)}
-                  style={{ padding: '5px 9px', fontSize: 11.5, border: 'none', cursor: 'pointer',
-                    fontWeight: nat === k ? 700 : 500,
-                    background: nat === k ? 'rgba(139,92,246,0.18)' : 'transparent',
-                    color: nat === k ? 'var(--violet)' : 'var(--muted)' }}>{rot}</button>
-              ))}
-            </div>
-          )}
+          {aba === 'LINHA' && <Grupo opcoes={NATS} valor={nat} onPick={setNat} />}
           <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{conjunto.length} linha(s)</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--muted)' }}>
             ≥<input type="number" step="1" min={0} value={cfg.pct} onChange={e => setCfg({ ...cfg, pct: Number(e.target.value) })}
