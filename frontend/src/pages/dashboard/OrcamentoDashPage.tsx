@@ -158,14 +158,19 @@ export default function OrcamentoDashPage() {
   const [empLinha, setEmpLinha] = useState<string>(sv.empLinha || '')
   const [linhaSel, setLinhaSel] = useState<string[]>(arr(sv.linhaSel) || [])
   const [pickLinha, setPickLinha] = useState(false)
-  const [porEmp, setPorEmp] = useState<{ empresa: string; valor: number }[]>([])
+  // ⚠ O BRUTO fica no estado e o gráfico é DERIVADO. Antes o cálculo morava
+  // dentro de `carregar`, então trocar a linha de resultado da aba Orçamento
+  // recarregava a tela INTEIRA — todos os cartões trocados por "Calculando…"
+  // para refazer uma soma cujos dados já estavam em memória.
+  const [linhaEmpBruto, setLinhaEmpBruto] = useState<any[]>([])
   const [porArea, setPorArea] = useState<{ rec: any[]; desp: any[]; ccRec: any[]; ccDesp: any[]; mes: any[] }>({ rec: [], desp: [], ccRec: [], ccDesp: [], mes: [] })
   const [drill, setDrill] = useState<{ nodeId: string; ccFilter?: string[] | null } | null>(null)
   const [secPonte, setSecPonte] = useState<SecCfg>(SEC_PADRAO)
-  // ⚠⚠ A TRILHA DA PONTE MORA AQUI, não dentro do `Ponte`. Descer muda
-  // `secPonte.sel`, o que dispara a recarga, e enquanto `carregando` é true
-  // esta tela troca TODO o conteúdo por "Calculando…" — o `Ponte` desmonta e
-  // qualquer estado local dele se perde. A trilha simplesmente nunca aparecia.
+  // ⚠⚠ A TRILHA DA PONTE MORA AQUI, não dentro do `Ponte`. Enquanto
+  // `carregando` é true esta tela troca TODO o conteúdo por "Calculando…" — o
+  // `Ponte` desmonta e qualquer estado local dele se perde. A trilha
+  // simplesmente nunca aparecia. Descer deixou de recarregar, mas mexer nos
+  // filtros do topo continua desmontando, então o estado fica aqui.
   // ⚠ Fora de `estado()` de propósito: não vai para o card nem para o
   // localStorage. Caminho é do momento, não da análise.
   const [trilhaPonte, setTrilhaPonte] = useState<string[]>([])
@@ -377,9 +382,32 @@ export default function OrcamentoDashPage() {
   // realizado em silêncio, fazendo tudo parecer "ficou abaixo".
   const realCurto = realAte > 0 && realAte < mesFim
 
-  const todasSel = useMemo(
-    () => Array.from(new Set([...secPonte.sel, ...secVar.sel, ...secAcur.sel])),
-    [secPonte.sel, secVar.sel, secAcur.sel])
+  // Orçado por empresa da linha de resultado escolhida. Roda o MOTOR por
+  // empresa (a linha costuma ser FÓRMULA, e somar o agregado direto daria um
+  // número que não existe na DRE) — mas sobre o bruto que já veio.
+  const porEmp = useMemo(() => {
+    const alvo = empLinha || secOrc.resultado
+    if (!linhaEmpBruto.length || !alvo || !anoBase) return []
+    const masters = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
+    const rlOf: Record<string, string> = {}
+    linhas.forEach(l => { if (l.linha_orc_id && !l.nao_soma) rlOf[l.linha_orc_id] = l.id })
+    const calc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada, nao_soma: l.nao_soma }))
+    const PER: Periodo = { ano: anoBase, mes: 1 }; const K = pkey(PER)
+    const porEmpM: Record<string, Record<string, number>> = {}
+    for (const x of linhaEmpBruto) {
+      if (!empFiltradas.includes(x.empresa_id)) continue
+      ;(porEmpM[x.empresa_id] = porEmpM[x.empresa_id] || {})[x.linha_id] = Number(x.orcado) || 0
+    }
+    const nomeEmp: Record<string, string> = {}
+    empresas.forEach((e: any) => { nomeEmp[e.id] = `${e.codigo} · ${String(e.descricao || '').slice(0, 20)}` })
+    const fAlvo = fatorExibicao(alvo, Object.fromEntries(linhas.map(l => [l.id, l])) as any)
+    return Object.entries(porEmpM).map(([eid, byMaster]) => {
+      const computed: Computed = {}; calc.forEach(l => { computed[l.id] = {} })
+      for (const mm of masters) { const rl = rlOf[mm]; if (rl) computed[rl][K] = byMaster[mm] || 0 }
+      return { empresa: nomeEmp[eid] || '?', valor: Math.round(fAlvo * (computeTotais(calc, computed, [PER])[alvo] || 0)) }
+    }).filter(x => x.valor).sort((a, b) => b.valor - a.valor).slice(0, 14).reverse()
+    /* eslint-disable-next-line */
+  }, [linhaEmpBruto, empLinha, secOrc.resultado, linhas, empFiltradas.join(','), empresas, anoBase])
 
   const carregar = async () => {
     // ⚠ `anoBase`/`anoComp` saem do CATÁLOGO de versões, não do id. Com o id
@@ -387,7 +415,13 @@ export default function OrcamentoDashPage() {
     // chegar — e aí a consulta ia com ano `undefined` e voltava vazia, com a
     // tela inteira zerada. Mexer em qualquer combo recarregava e "consertava",
     // que é o sintoma clássico de carga disparada cedo demais.
-    if (!relId || !vBase || !vComp || !anoBase || !anoComp || !linhas.length || !empFiltradas.length || !todasSel.length) { setDados(null); return }
+    // ⚠⚠ A SELEÇÃO DOS CARTÕES NÃO ENTRA AQUI — nem na guarda, nem nas
+    // dependências. A carga já computa TODAS as linhas (`base` recebe
+    // `linhas`, não a seleção), então marcar uma linha num cartão recarregava
+    // a tela inteira para recalcular exatamente o mesmo dado; e `carregando`
+    // troca o conteúdo por "Calculando…", que é o piscar desagradável.
+    // Filtro e pílulas do TOPO seguem recarregando: esses mudam o dado.
+    if (!relId || !vBase || !vComp || !anoBase || !anoComp || !linhas.length || !empFiltradas.length) { setDados(null); return }
     setCarregando(true); setErro(null)
     try {
       const base = { linhas, ccs, empresas: empFiltradas, filialFilter, ccFilter, ccPermitidos: null as string[] | null }
@@ -453,9 +487,12 @@ export default function OrcamentoDashPage() {
       // Uma chamada só e o motor roda por empresa, em vez de N chamadas de
       // totaisRelatorio: a linha de resultado costuma ser FÓRMULA, e somar o
       // agregado direto daria um número que não existe na DRE.
+      // ⚠⚠ A BUSCA NÃO DEPENDE DA LINHA ESCOLHIDA — só o cálculo depende. O
+      // `p_linhas` vai com TODOS os masters, então trocar a linha de resultado
+      // não muda uma vírgula do que o banco devolve. Guardamos o bruto e o
+      // gráfico se refaz em memória (ver `porEmp`, abaixo).
       const masters = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
-      const alvo = empLinha || secOrc.resultado
-      if (masters.length && alvo) {
+      if (masters.length) {
         // ⚠ PAGINAR. O agregado devolve EMPRESA × LINHA: com 13 empresas e
         // ~270 masters passa de 3.500 linhas, e o PostgREST corta em 1000 sem
         // erro nenhum. O sintoma é o gráfico vir com menos empresas do que
@@ -470,24 +507,8 @@ export default function OrcamentoDashPage() {
           le.push(...data)
           if (data.length < 1000) break
         }
-        const rlOf: Record<string, string> = {}
-        linhas.forEach(l => { if (l.linha_orc_id && !l.nao_soma) rlOf[l.linha_orc_id] = l.id })
-        const calc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada, nao_soma: l.nao_soma }))
-        const PER: Periodo = { ano: anoBase!, mes: 1 }; const K = pkey(PER)
-        const porEmpM: Record<string, Record<string, number>> = {}
-        for (const x of le) {
-          if (!empFiltradas.includes(x.empresa_id)) continue
-          ;(porEmpM[x.empresa_id] = porEmpM[x.empresa_id] || {})[x.linha_id] = Number(x.orcado) || 0
-        }
-        const nomeEmp: Record<string, string> = {}
-        empresas.forEach((e: any) => { nomeEmp[e.id] = `${e.codigo} · ${String(e.descricao || '').slice(0, 20)}` })
-        const fAlvo = fatorExibicao(alvo, Object.fromEntries(linhas.map(l => [l.id, l])) as any)
-        setPorEmp(Object.entries(porEmpM).map(([eid, byMaster]) => {
-          const computed: Computed = {}; calc.forEach(l => { computed[l.id] = {} })
-          for (const mm of masters) { const rl = rlOf[mm]; if (rl) computed[rl][K] = byMaster[mm] || 0 }
-          return { empresa: nomeEmp[eid] || '?', valor: Math.round(fAlvo * (computeTotais(calc, computed, [PER])[alvo] || 0)) }
-        }).filter(x => x.valor).sort((a, b) => b.valor - a.valor).slice(0, 14).reverse())
-      } else setPorEmp([])
+        setLinhaEmpBruto(le)
+      } else setLinhaEmpBruto([])
 
       // ── por ÁREA e por CC (só orçado)
       // `dashboard_cc_agg` devolve cc × linha × mês e passa de mil linhas fácil,
@@ -510,7 +531,7 @@ export default function OrcamentoDashPage() {
     }
     setCarregando(false)
   }
-  useEffect(() => { carregar() /* eslint-disable-next-line */ }, [relId, vBase, vComp, modo, mesIni, mesFim, proj, todasSel.join(','), empFiltradas.join(','), filialSel.join(','), ccSel.join(','), areaSel.join(','), divisaoSel.join(','), buSel.join(','), linhas.length, secOrc.resultado, empLinha, anoBase, anoComp])
+  useEffect(() => { carregar() /* eslint-disable-next-line */ }, [relId, vBase, vComp, modo, mesIni, mesFim, proj, empFiltradas.join(','), filialSel.join(','), ccSel.join(','), areaSel.join(','), divisaoSel.join(','), buSel.join(','), linhas.length, anoBase, anoComp])
 
   // ── helpers de linha
   const byId = useMemo(() => Object.fromEntries(linhas.map(l => [l.id, l])) as Record<string, LinhaRel>, [linhas])
@@ -721,7 +742,7 @@ export default function OrcamentoDashPage() {
           <Acuracia S={S} cfg={secAcur} setCfg={setSecAcur} linhas={linhas} nome={nome}
             orc={dados.orcAnt} real={dados.realAnt} val={val} ano={anoComp} />
 
-          <Alertas S={S} linhas={linhas} nome={nome} sel={secVar.sel}
+          <Alertas S={S} linhas={linhas} nome={nome}
             base={dados.base} comp={dados.comp} mensal={dados.mensalBase} val={val} nMeses={meses.length} />
         </>
       )}
@@ -2093,8 +2114,8 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
   // ⚠⚠ O CONJUNTO VEM DO CORTE, não de escolha manual. Era a seleção livre que
   // deixava marcar `Despesas` junto com `Despesas com Pessoal` e produzir a
   // duplicata — num ranking, seleção à mão reintroduz exatamente o defeito.
-  // `cfg.sel` continua sendo o armazenamento porque é ele que diz ao
-  // carregamento quais linhas buscar (`todasSel`); só deixou de ser digitado.
+  // `cfg.sel` continua sendo o armazenamento porque é ele que vai para o
+  // preset do cartão; só deixou de ser digitado.
   const conjunto = useMemo(() => {
     const ind = (id: string) => linhas.find((l: LinhaRel) => l.id === id)?.tipo_linha === 'INDICADOR'
     // ⚠ Indicador NÃO entra no corte de nível: os 23 desta DRE são todos nível
@@ -2319,37 +2340,67 @@ function Acuracia({ S, cfg, setCfg, linhas, nome, orc, real, val, ano }: any) {
 // ── 4 · ALERTAS ─────────────────────────────────────────────
 // Barato de calcular e pega problema real. O mais importante é "sumiu": linha
 // que desaparece não aparece em lugar nenhum — só o total denuncia, e tarde.
-function Alertas({ S, nome, sel, base, comp, mensal, val, nMeses }: any) {
-  const alertas: { tipo: string; cor: string; nome: string; detalhe: string }[] = []
-  for (const id of sel) {
+//
+// ⚠⚠ NÃO TEM SELETOR, E É O PONTO. O cartão recebia `secVar.sel` — a seleção
+// de *O que mudou* —, e isso errava das duas pontas: no nível 1 ele apontava
+// subtotais (onde "sumiu" não significa nada, porque o subtotal só reflete as
+// filhas) e NENHUMA linha de lançamento era conferida. Alerta é sobre O
+// ORÇAMENTO, não sobre o recorte que outro quadro está mostrando — o conjunto
+// são as folhas analíticas do relatório, sempre as mesmas. De graça, o cartão
+// sai do caminho da recarga: mudar seleção não mexe nele.
+const MAX_ALERTA = 30
+function Alertas({ S, linhas, nome, base, comp, mensal, val, nMeses }: any) {
+  // Folha = linha sem filha. Subtotal e fórmula ficam de fora porque ali o
+  // alerta é consequência, não causa; indicador é razão, não valor orçado.
+  const folhas = useMemo(() => {
+    const temFilha = new Set<string>()
+    linhas.forEach((l: LinhaRel) => { if (l.pai_id) temFilha.add(l.pai_id) })
+    return linhas.filter((l: LinhaRel) => !l.desativada && !temFilha.has(l.id)
+      && l.tipo_linha !== 'INDICADOR' && l.tipo_linha !== 'FORMULA').map((l: LinhaRel) => l.id)
+  }, [linhas])
+
+  const alertas: { tipo: string; cor: string; nome: string; detalhe: string; peso: number; mag: number }[] = []
+  for (const id of folhas) {
     const b = val(base, id), c = val(comp, id)
     const mm = mensal[id] || []
+    const mag = Math.max(Math.abs(b), Math.abs(c))
     if (Math.abs(b) < 0.005 && Math.abs(c) > 0.005)
-      alertas.push({ tipo: 'sumiu', cor: 'var(--red)', nome: nome(id), detalhe: `tinha ${fmt(c)} e ficou sem orçado` })
+      alertas.push({ tipo: 'sumiu', cor: 'var(--red)', nome: nome(id), detalhe: `tinha ${fmt(c)} e ficou sem orçado`, peso: 0, mag })
     else if (Math.abs(c) < 0.005 && Math.abs(b) > 0.005)
-      alertas.push({ tipo: 'nova', cor: 'var(--cyan)', nome: nome(id), detalhe: `${fmt(b)} sem nada no comparado — merece justificativa` })
+      alertas.push({ tipo: 'nova', cor: 'var(--cyan)', nome: nome(id), detalhe: `${fmt(b)} sem nada no comparado — merece justificativa`, peso: 1, mag })
     else if (Math.abs(b - c) < 0.005 && Math.abs(b) > 0.005)
-      alertas.push({ tipo: 'idêntica', cor: 'var(--orange)', nome: nome(id), detalhe: `igual ao comparado, centavo a centavo — copiada sem revisar?` })
+      alertas.push({ tipo: 'idêntica', cor: 'var(--orange)', nome: nome(id), detalhe: `igual ao comparado, centavo a centavo — copiada sem revisar?`, peso: 2, mag })
     if (nMeses >= 6 && mm.length === nMeses && Math.abs(mm[0]) > 0.005 && mm.every((v: number) => Math.abs(v - mm[0]) < 0.005))
-      alertas.push({ tipo: 'linha reta', cor: 'var(--orange)', nome: nome(id), detalhe: `os ${nMeses} meses são idênticos — "dividi por doze"?` })
+      alertas.push({ tipo: 'linha reta', cor: 'var(--orange)', nome: nome(id), detalhe: `os ${nMeses} meses são idênticos — "dividi por doze"?`, peso: 3, mag })
   }
+  // ⚠ Sem seleção o conjunto cresce, então a ORDEM passa a importar: tipo
+  // primeiro (o que sumiu é mais urgente que o que foi copiado), valor depois.
+  // E a lista cortada diz quantas ficaram — corte calado faz quem leu as 30
+  // primeiras achar que conferiu tudo.
+  alertas.sort((a, b2) => a.peso - b2.peso || b2.mag - a.mag)
+  const mostra = alertas.slice(0, MAX_ALERTA)
   return (
     <div style={S.sec}>
       <div style={S.secH}>
         <div><div style={S.secT}>Alertas</div>
-          <div style={S.secD}>Orçamento feito no automático, e o que sumiu. Usa as linhas da seção <em>O que mudou</em>.</div></div>
+          <div style={S.secD}>Orçamento feito no automático, e o que sumiu. Varre as {folhas.length} linhas de lançamento do relatório — não depende da seleção dos outros quadros.</div></div>
       </div>
       {!alertas.length ? (
-        <div style={{ fontSize: 13, color: 'var(--green)' }}>✓ Nada a apontar nas linhas analisadas.</div>
+        <div style={{ fontSize: 13, color: 'var(--green)' }}>✓ Nada a apontar nas linhas de lançamento.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {alertas.map((a, i) => (
+          {mostra.map((a, i) => (
             <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'baseline', fontSize: 13 }}>
               <span style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: .5, color: a.cor, minWidth: 82, fontWeight: 700 }}>{a.tipo}</span>
               <span style={{ color: 'var(--text)' }}>{a.nome}</span>
               <span style={{ color: 'var(--muted)', fontSize: 12 }}>— {a.detalhe}</span>
             </div>
           ))}
+          {alertas.length > mostra.length && (
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+              + {alertas.length - mostra.length} alerta(s) além dos {MAX_ALERTA} de maior valor.
+            </div>
+          )}
         </div>
       )}
     </div>

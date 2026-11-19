@@ -1462,6 +1462,28 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   a conta pequena que dobrou. O que faltava não era remover um filtro, era **desligá-lo num
   clique**: `0` nos dois campos já mostrava tudo, e não havia como descobrir isso olhando.
 
+- ⚠⚠ **Seleção DENTRO de um cartão não recarrega a tela (nov/2026).** No *Orçamento — análise*,
+  marcar uma linha em qualquer quadro disparava a carga inteira: a união das seleções
+  (`todasSel`) estava na **guarda e nas dependências** do efeito, e `carregando` troca todo o
+  conteúdo por "Calculando…" — a tela piscava e todo estado local dos cartões morria.
+  **E era puro desperdício:** a carga sempre computou TODAS as linhas (`base` recebe `linhas`,
+  nunca a seleção), então o recálculo devolvia exatamente o mesmo dado. Hoje só muda a carga o
+  que muda o **dado**: versão, ano, período, modo, projeção e os filtros/pílulas do **topo**.
+  ⚠ O gráfico *por empresa* era o único caso real — o cálculo morava na carga. O **bruto** passou
+  a ficar no estado (`linhaEmpBruto`) e o gráfico virou `useMemo`: a busca já ia com **todos** os
+  masters, então trocar a linha de resultado nunca mudou uma vírgula do que o banco devolve.
+  **A regra:** se o seletor não muda o que se pede ao banco, ele não pertence às dependências da
+  carga — e a prova disso é olhar se o parâmetro da consulta cita o seletor.
+
+- ⚠⚠ **Alerta é sobre o ORÇAMENTO, não sobre o recorte de outro quadro (nov/2026).** O cartão
+  *Alertas* recebia `secVar.sel` — a seleção de *O que mudou* — e errava das duas pontas: com o
+  nível 1 ele apontava **subtotais**, onde "sumiu" não significa nada (o subtotal só reflete as
+  filhas), e **nenhuma linha de lançamento** era conferida. Hoje varre as **folhas analíticas**
+  do relatório (sem filha, não indicador, não fórmula), sempre as mesmas, e de graça sai do
+  caminho da recarga. ⚠ Sem seleção o conjunto cresce, então a **ordem** passa a importar (o que
+  sumiu antes do que foi copiado) e a lista cortada **diz quantas ficaram** — corte calado faz
+  quem leu as 30 primeiras achar que conferiu tudo.
+
 - ⚠⚠ **O drill filtrava só por EMPRESA, e contradizia a linha que o abriu** (nov/2026). Em
   produção, com a pílula *Serviços* marcada, a linha *Correio/moto taxi* mostrava **10.465** e o
   drill dela abria com **14.936,77 em 10 combinações**, metade do CSC. Os dois números vinham da
