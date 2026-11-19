@@ -170,6 +170,11 @@ export default function OrcamentoDashPage() {
   // localStorage. Caminho é do momento, não da análise.
   const [trilhaPonte, setTrilhaPonte] = useState<string[]>([])
   const navPonte = useRef<string | null>(null)
+  // ⚠ Mesma razão da trilha: `carregando` desmonta o cartão inteiro, e estado
+  // local de `Variacao` morreria a cada troca de nível — que é justamente o
+  // que dispara a recarga.
+  const [varAba, setVarAba] = useState<'LINHA' | 'INDIC'>('LINHA')
+  const [varNivel, setVarNivel] = useState<number | 'folhas'>(1)
   const [secVar, setSecVar] = useState<SecCfg>(SEC_PADRAO)
   const [secAcur, setSecAcur] = useState<SecCfg>(SEC_PADRAO)
   // Configuração de seção vinda de FORA (estado salvo ou card) espera aqui até
@@ -699,6 +704,7 @@ export default function OrcamentoDashPage() {
             base={dados.base} comp={dados.comp} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
 
           <Variacao S={S} cfg={secVar} setCfg={setSecVar} linhas={linhas} nome={nome} fac={fac}
+            aba={varAba} setAba={setVarAba} nivel={varNivel} setNivel={setVarNivel}
             base={dados.base} comp={dados.comp} val={val} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
 
           <Acuracia S={S} cfg={secAcur} setCfg={setSecAcur} linhas={linhas} nome={nome}
@@ -1281,6 +1287,35 @@ function Aviso({ tom, children }: { tom: 'alerta' | 'info'; children: any }) {
       <span>{children}</span>
     </div>
   )
+}
+
+/** Um CORTE da árvore que é uma PARTIÇÃO: nada se repete, nada se perde.
+ *
+ *  ⚠⚠ É o que torna um ranking somável. "O que mudou" misturava níveis, então
+ *  `Despesas` e `Despesas com Pessoal` apareciam na mesma lista e o leitor
+ *  somava o mesmo dinheiro duas vezes sem perceber. Numa PONTE o problema é
+ *  o mesmo e o resíduo denuncia; num RANKING não há resíduo que denuncie.
+ *
+ *  O corte no nível N são as linhas de profundidade N **mais as folhas acima
+ *  dele** — sem as folhas, dinheiro de um ramo curto sumiria da lista.
+ *  `'folhas'` é o grão de lançamento, qualquer que seja a profundidade.
+ *
+ *  ⚠ A profundidade sai do `pai_id`, nunca da coluna `nivel`: ela é **1 em
+ *  todas as 170 linhas** desta DRE — não é mantida.
+ */
+function particaoNivel(linhas: LinhaRel[], nivel: number | 'folhas'): string[] {
+  const byId: Record<string, LinhaRel> = Object.fromEntries(linhas.map(l => [l.id, l]))
+  const temFilha = new Set(linhas.map(l => l.pai_id).filter(Boolean) as string[])
+  const prof = (l: LinhaRel): number => {
+    let d = 1, p = l.pai_id
+    while (p && byId[p]) { d++; p = byId[p].pai_id }
+    return d
+  }
+  return linhas
+    .filter(l => !l.desativada)
+    .filter(l => nivel === 'folhas' ? !temFilha.has(l.id)
+                                    : prof(l) === nivel || (prof(l) < nivel && !temFilha.has(l.id)))
+    .map(l => l.id)
 }
 
 /** Seletor de linhas da seção, em ordem de ÁRVORE (ver emArvore). */
@@ -1983,7 +2018,28 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
 // Limiar DUPLO: percentual E valor mínimo, juntos. 40% numa conta de R$ 800 é
 // ruído; 3% na folha é a maior conversa do orçamento. Só o percentual enche a
 // tela de bobagem; só o absoluto esconde a conta pequena que dobrou.
-function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBase, rotuloComp }: any) {
+function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBase, rotuloComp,
+                    aba, setAba, nivel, setNivel }: any) {
+  // ⚠⚠ O CONJUNTO VEM DO CORTE, não de escolha manual. Era a seleção livre que
+  // deixava marcar `Despesas` junto com `Despesas com Pessoal` e produzir a
+  // duplicata — num ranking, seleção à mão reintroduz exatamente o defeito.
+  // `cfg.sel` continua sendo o armazenamento porque é ele que diz ao
+  // carregamento quais linhas buscar (`todasSel`); só deixou de ser digitado.
+  const conjunto = useMemo(() => {
+    const ind = (id: string) => linhas.find((l: LinhaRel) => l.id === id)?.tipo_linha === 'INDICADOR'
+    // ⚠ Indicador NÃO entra no corte de nível: os 23 desta DRE são todos nível
+    // 1, então o botão não os afeta — e ali o recorte é a própria aba.
+    return aba === 'INDIC'
+      ? linhas.filter((l: LinhaRel) => l.tipo_linha === 'INDICADOR' && !l.desativada).map((l: LinhaRel) => l.id)
+      : particaoNivel(linhas, nivel).filter((id: string) => !ind(id))
+  }, [linhas, aba, nivel])
+
+  // ⚠ `cfg` fora das dependências: ele muda a cada `setCfg` e o efeito voltaria
+  // a disparar — laço. Igual ao da ponte.
+  useEffect(() => {
+    if ([...cfg.sel].sort().join(',') !== [...conjunto].sort().join(',')) setCfg({ ...cfg, sel: conjunto })
+  }, [conjunto]) // eslint-disable-line
+
   // O limiar foca a atenção; esconder o resto para sempre tira a conferência.
   const [todas, setTodas] = useState(false)
   const total = cfg.sel.reduce((s: number, id: string) => s + Math.abs(val(base, id)), 0)
@@ -2018,7 +2074,14 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
   const ehCusto = (x: any) => fac?.(x.id) === -1
   const bom = (x: any) => (ehCusto(x) ? Math.abs(x.b) < Math.abs(x.c) : x.b > x.c)
   const marca = (x: any) => Math.abs(x.d) >= minAbs && (Math.abs(x.pct) >= cfg.pct || !Number.isFinite(x.pct))
-  const destaque = linhasTodas.filter(marca).sort((a: any, b: any) => Math.abs(b.d) - Math.abs(a.d))
+  // ⚠⚠ INDICADOR ORDENA POR %, não por valor. Eles misturam unidades — `% EBITDA`
+  // varia em pontos percentuais, `Custo Pessoas` em reais, `Receita por FTE` em
+  // R$/FTE. Ordenar por variação absoluta compara grandezas diferentes e põe
+  // sempre os de reais no topo, como se fossem os que mais mudaram.
+  const ordem = aba === 'INDIC'
+    ? (a: any, b: any) => (Number.isFinite(b.pct) ? Math.abs(b.pct) : Infinity) - (Number.isFinite(a.pct) ? Math.abs(a.pct) : Infinity)
+    : (a: any, b: any) => Math.abs(b.d) - Math.abs(a.d)
+  const destaque = linhasTodas.filter(marca).sort(ordem)
   const resto = linhasTodas.filter((x: any) => !marca(x))
   const somaResto = resto.reduce((s: number, x: any) => s + x.d, 0)
   const todas0 = linhasTodas.length
@@ -2036,7 +2099,42 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
               </span>
             )}
           </div></div>
-        <SelLinhas cfg={cfg} setCfg={setCfg} linhas={linhas} limiar />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }} data-noexport>
+          <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}>
+            {([['LINHA', 'Linhas'], ['INDIC', 'Indicadores']] as const).map(([k, rot]) => (
+              <button key={k} onClick={() => setAba(k)}
+                style={{ padding: '5px 9px', fontSize: 11.5, border: 'none', cursor: 'pointer',
+                  fontWeight: aba === k ? 700 : 500,
+                  background: aba === k ? 'rgba(139,92,246,0.18)' : 'transparent',
+                  color: aba === k ? 'var(--violet)' : 'var(--muted)' }}>{rot}</button>
+            ))}
+          </div>
+          {/* ⚠ Só na aba Linhas: os 23 indicadores são todos nível 1, então
+              aqui o botão não mudaria nada — controle morto ensina que a tela
+              às vezes não responde. */}
+          {aba === 'LINHA' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>nível</span>
+              <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}>
+                {([1, 2, 3, 'folhas'] as const).map(n => (
+                  <button key={String(n)} onClick={() => setNivel(n)}
+                    title={n === 'folhas' ? 'As linhas de lançamento — o grão mais fino' : `Corte no nível ${n}`}
+                    style={{ padding: '5px 9px', fontSize: 11.5, border: 'none', cursor: 'pointer',
+                      fontWeight: nivel === n ? 700 : 500,
+                      background: nivel === n ? 'rgba(139,92,246,0.18)' : 'transparent',
+                      color: nivel === n ? 'var(--violet)' : 'var(--muted)' }}>{n}</button>
+                ))}
+              </div>
+            </div>
+          )}
+          <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{conjunto.length} linha(s)</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--muted)' }}>
+            ≥<input type="number" step="1" min={0} value={cfg.pct} onChange={e => setCfg({ ...cfg, pct: Number(e.target.value) })}
+              style={{ width: 46, padding: '3px 5px', fontSize: 11.5, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 6 }} />%
+            e ≥<input type="number" step="0.1" min={0} value={cfg.minPctTotal} onChange={e => setCfg({ ...cfg, minPctTotal: Number(e.target.value) })}
+              style={{ width: 46, padding: '3px 5px', fontSize: 11.5, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 6 }} />% do total
+          </span>
+        </div>
       </div>
       <Tabela S={S} arquivo={`variacao-${rotuloBase}`}
         rows={(todas ? [...destaque, ...resto.map((r: any) => ({ ...r, _fraco: true }))] : destaque)}

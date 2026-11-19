@@ -1412,6 +1412,27 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   relatório misturadas com 27 indicadores na DRE Gerencial: marcar *% EBITDA* junto com
   *Marketing* soma pontos percentuais com reais, na ponte e na ordenação da variação.
 
+- ⚠⚠ **"O que mudou" é um RANKING, e ranking de itens que se contêm é dupla contagem por
+  construção** (19/nov). Com a seleção livre dava para marcar `Despesas` **e** `Despesas com
+  Pessoal`, e o leitor somava o mesmo dinheiro duas vezes. Numa **ponte** o resíduo denuncia;
+  num ranking **não há resíduo que denuncie** — por isso o conjunto passou a vir de um **corte
+  em nível** (`particaoNivel`), que é uma partição: nada se repete, nada se perde.
+  ⚠ O corte no nível N são as linhas de profundidade N **mais as folhas acima** — sem elas,
+  dinheiro de um ramo curto sumiria. `folhas` é o grão de lançamento.
+  ⚠ **A profundidade sai do `pai_id`, nunca de `nivel`** — essa coluna é **1 em todas as 170
+  linhas**, não é mantida.
+  ⚠ **A seleção manual SAIU.** Ela é que permitia a duplicata; com nível + limiar o recorte já
+  existe. `cfg.sel` continua sendo o armazenamento porque alimenta `todasSel` (o que carregar),
+  só deixou de ser digitado.
+  ⚠ **Nível não vale na aba Indicadores**: os 23 são todos nível 1, então o botão some ali em
+  vez de ficar morto. Medido: Linhas N=1: 9 · N=2: 34 · N=3: 120 · folhas: 120.
+  ⚠⚠ **Indicador ordena por %, não por valor.** Eles misturam unidades — `% EBITDA` em pontos
+  percentuais, `Custo Pessoas` em reais, `Receita por FTE` em R$/FTE: ordenar por variação
+  absoluta compara grandezas diferentes e põe sempre os de reais no topo.
+  ⚠ **A duplicação restante é CADASTRO:** só **um** indicador é espelho estrutural de uma linha
+  (`ImpostosFaturamento`); `Custo Pessoas (fully loaded)` e `Folha direta` dão valores idênticos
+  porque são duas fórmulas que calculam a mesma coisa, e nenhum filtro adivinha isso.
+
 - **Seletor de linhas do *Orçamento — análise*: "todas", "nenhuma" e "sem limiar" (nov/2026).**
   Analisar o resultado inteiro era marcar 32 caixas na mão, uma a uma — e quem desiste no meio
   fica com uma análise que **parece completa e não é**. ⚠ "Marcar todas" usa a lista já filtrada
