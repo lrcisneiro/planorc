@@ -1485,6 +1485,23 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   diferença, dizendo para comparar as áreas **entre si**, não contra o orçado delas.
   ⚠ **Por empresa não existe o problema**: `empresa_id` é preenchido nos dois fatos (0 nulos
   medidos em 2026, nas duas tabelas).
+  ⚠⚠ **A CAUSA, medida (19/nov) — são DUAS, e nenhuma é lançamento desleixado.** Dos R$ 22 mi
+  sem CC na DRE Gerencial/2026:
+  **(1) R$ 12,93 mi são `30101 Receitas Financeiras`** — 98% sem CC, em **todas as 10 empresas**.
+  Legítimo: resultado financeiro não pertence a centro de custo. ⚠ E ela **não é orçada em 2026**
+  (só em 2027), então mesmo com CC não haveria o que comparar.
+  **(2) R$ 8,98 mi são a empresa `XX PARAGUAI`, e é falha real.** 1.750 lançamentos, todos os
+  meses, origem `IMPORT`, **filial também nula em 100%**. Não é um lote ruim — os **quatro** lotes
+  do ERP vêm 94–100% sem CC (`008810` 96% · `008820` 100% · `008850` 95% · `008890` 94%), logo é
+  a origem. Medido: o **orçado** do PY está em 5 CCs (111 · 214 · 314 · 411 · 514) e **0% sem
+  CC**; o realizado tem CC em **357 de 7.643** (4,7%) e, quando tem, usa CCs **legados**
+  (`100 Adm(legado)`, `300 CC Serviços(legado)`, `400 Diretoria(Legado)`) — plano antigo.
+  ⚠ **No Brasil, fora Receitas Financeiras, é ZERO.** A amarração de CC do razão brasileiro está
+  íntegra; o problema é exterior (ver a memória *Exterior PY/BO — pausado*) e tem de ser
+  resolvido no perfil de importação ou num CC padrão por empresa, não na tela.
+  ⚠ Por isso o aviso manda **trocar para Empresa** quando dispara: ali os dois lados estão sempre
+  atribuídos e o buraco aparece concentrado em uma.
+
   ⚠ O sustinho inicial foi ler "71% do realizado sem CC" sobre o razão **inteiro** — são as
   contas de BALANÇO (Fornecedores, Empréstimos, Reservas, Lucros Acumulados), que não têm centro
   de custo nem entram na DRE. **Restringir ao universo do relatório é parte da medição**, não

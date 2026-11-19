@@ -2312,6 +2312,8 @@ function QuemCausou({ S, linhas, nome, bruto, empresas, ccs, resId, componentes,
           <em> (sem centro de custo)</em>. Com isso, quase toda área tende a parecer que
           economizou. Compare as áreas <strong>entre si</strong>, não contra o orçado delas,
           enquanto a amarração de centro de custo do realizado não fechar.
+          {' '}Para localizar a origem, troque para <strong>Empresa</strong>: ali os dois lados
+          estão sempre atribuídos, e o buraco costuma estar concentrado numa delas.
         </div>
       )}
       {!resId ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Escolha a linha de resultado na ponte.</div>
