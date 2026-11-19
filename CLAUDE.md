@@ -1429,6 +1429,10 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠⚠ **Indicador ordena por %, não por valor.** Eles misturam unidades — `% EBITDA` em pontos
   percentuais, `Custo Pessoas` em reais, `Receita por FTE` em R$/FTE: ordenar por variação
   absoluta compara grandezas diferentes e põe sempre os de reais no topo.
+  ⚠ **Linha zerada nos DOIS períodos não entra.** Não é "variação pequena", é ausência de
+  conteúdo — a linha existe na estrutura e não foi orçada em nenhum dos lados. Com o limiar em
+  0, que é como se vê tudo, elas enchiam a lista e empurravam o que importa para baixo. O
+  contador diz quantas saíram.
   ⚠ **Pílula de natureza `Todas · Receita · Despesa`**, só na aba Linhas (entre os indicadores
   são 3 de despesa e 20 neutros — "Receita" daria lista vazia). Medido: N=1 → 1 receita, 1
   despesa e **7 neutras**; N=2 → 14/12/8; N=3 → 37/68/15.

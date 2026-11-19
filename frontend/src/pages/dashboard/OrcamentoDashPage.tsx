@@ -2072,10 +2072,19 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
   const [todas, setTodas] = useState(false)
   const total = cfg.sel.reduce((s: number, id: string) => s + Math.abs(val(base, id)), 0)
   const minAbs = total * (cfg.minPctTotal / 100)
-  const linhasTodas = cfg.sel.map((id: string) => {
+  const linhasCruas = cfg.sel.map((id: string) => {
     const b = val(base, id), c = val(comp, id)
     return { id, nome: nome(id), b, c, d: b - c, pct: c !== 0 ? ((b - c) / Math.abs(c)) * 100 : (b !== 0 ? Infinity : 0) }
   })
+  // ⚠ ZERO NOS DOIS PERÍODOS não é "variação pequena", é AUSÊNCIA de conteúdo:
+  // a linha existe na estrutura e não foi orçada em nenhum dos lados. Com o
+  // limiar em 0 — que é como se vê tudo — elas enchiam a lista e empurravam o
+  // que importa para baixo. Sai sem perda: não há informação em 0 → 0.
+  // ⚠ Epsilon e não `=== 0`: resíduo de arredondamento em fórmula não deve
+  // ressuscitar uma linha vazia.
+  const vazia = (x: any) => Math.abs(x.b) < 0.005 && Math.abs(x.c) < 0.005
+  const nVazias = linhasCruas.filter(vazia).length
+  const linhasTodas = linhasCruas.filter((x: any) => !vazia(x))
   // ⚠ A cor diz BOM ou RUIM, não positivo ou negativo. Numa despesa, cair é
   // bom: Custo Pessoas −9,8 mi pintado de vermelho lê ao contrário do que
   // aconteceu.
@@ -2121,6 +2130,11 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
           <div style={S.secD}>
             Ordenado por <strong>impacto</strong>, não por tamanho. Marcado o que passa de {cfg.pct}% <em>e</em> de {cfg.minPctTotal}% do total ({fmt(minAbs)}).
             {' '}<span style={{ color: 'var(--green)' }}>Verde</span> é melhora e <span style={{ color: 'var(--red)' }}>vermelho</span> é piora — numa despesa, cair é melhorar.
+            {nVazias > 0 && (
+              <span style={{ color: 'var(--muted)' }}>
+                {' '}· {nVazias} linha(s) zerada(s) nos dois períodos ficam de fora.
+              </span>
+            )}
             {foraPorNat > 0 && (
               <><br /><span style={{ color: 'var(--orange)' }}>
                 {foraPorNat} linha(s) fora deste recorte de natureza — entre elas as <b>neutras</b>
