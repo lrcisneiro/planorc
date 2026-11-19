@@ -1462,6 +1462,37 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   não fechar. Card antigo com escolha manual **se re-deriva sozinho**, senão ficaria preso nela
   sem caminho de volta pela tela.
 
+- **"Quem causou a variação" — a ponte pelo outro eixo (19/nov).** A ponte decompõe o Δ por
+  LINHA; este quadro decompõe **o mesmo Δ** por empresa · área · divisão · BU · CC. Usa a linha
+  de resultado da ponte, então descer lá move os dois juntos e os totais fecham por construção.
+  Existia porque responder "qual área estourou?" era marcar a área no filtro, ler, desmarcar e
+  repetir — cinco gestos por área e nenhuma comparação lado a lado.
+  ⚠ **O motor roda POR DIMENSÃO.** A linha de resultado costuma ser fórmula ou subtotal; somar
+  `orcado` das folhas daria um número que não existe na DRE — mesma mecânica do gráfico por
+  empresa. O detalhe que abre no clique são **os componentes da ponte** naquela área: literalmente
+  "a ponte daquela área".
+  ⚠ **No caso típico não custa consulta nenhuma.** `relatorio_linha_empresa_agg` e
+  `dashboard_cc_agg` já devolvem `orcado` **e** `realizado` do ano pedido, então Orçado2026 ×
+  Realizado 2026 sai das chamadas que a tela já fazia. Só orçado × orçado, ou ano diferente,
+  pede uma segunda leitura. Área, divisão e BU são **atributos do CC**, então os três saem da
+  mesma leitura e trocar entre eles não custa nada.
+  ⚠⚠ **A ATRIBUIÇÃO DOS DOIS LADOS É ASSIMÉTRICA, e isso faz toda área parecer que economizou.**
+  Medido na DRE Gerencial/2026: **100% do orçado tem centro de custo e só 81,8% do realizado**
+  (18,2% — R$ 22 mi de 120,6 mi — são lançamentos do razão sem CC). Comparando por área, o
+  realizado de cada uma chega menor do que é e o excedente aparece inteiro em *(sem centro de
+  custo)*: cada número certo, conclusão falsa. O quadro **calcula a assimetria do próprio bruto**
+  (em magnitude, acompanhando relatório, período e filtro) e avisa acima de 2 pontos de
+  diferença, dizendo para comparar as áreas **entre si**, não contra o orçado delas.
+  ⚠ **Por empresa não existe o problema**: `empresa_id` é preenchido nos dois fatos (0 nulos
+  medidos em 2026, nas duas tabelas).
+  ⚠ O sustinho inicial foi ler "71% do realizado sem CC" sobre o razão **inteiro** — são as
+  contas de BALANÇO (Fornecedores, Empréstimos, Reservas, Lucros Acumulados), que não têm centro
+  de custo nem entram na DRE. **Restringir ao universo do relatório é parte da medição**, não
+  refinamento.
+  ⚠ O resíduo *não atribuído a nenhum grupo* tem as mesmas três causas conhecidas: linha com
+  `filtro_escopo` próprio (o agregado por dimensão não o aplica), projeção ligada e recorte de
+  empresa entre as duas RPCs. Aparece como linha, igual ao resíduo da ponte.
+
 - ⚠⚠ **Seções no seletor: "só esta" × "as filhas", e NUNCA as duas (nov/2026).** O atalho óbvio
   — marcar a subárvore inteira de uma seção — pouparia cliques e **quebraria a ponte por
   construção**: subtotal junto com filha conta a mesma variação duas vezes, que é o primeiro

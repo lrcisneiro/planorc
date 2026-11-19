@@ -55,6 +55,9 @@ const PROJ_ROTULO: Record<Proj, string> = {
 
 /** uma seção escolhe as próprias linhas e o próprio limiar */
 type SecCfg = { sel: string[]; pct: number; minPctTotal: number; resultado?: string }
+/** dimValor → master → { b: analisado, c: comparado } */
+type LadoPorMaster = Record<string, Record<string, { b: number; c: number }>>
+type DimBruto = { emp: LadoPorMaster; cc: LadoPorMaster }
 const SEC_PADRAO: SecCfg = { sel: [], pct: 10, minPctTotal: 0.5 }
 
 // ── Último estado da tela, por navegador. Mesma mecânica do DRE —
@@ -163,6 +166,11 @@ export default function OrcamentoDashPage() {
   // recarregava a tela INTEIRA — todos os cartões trocados por "Calculando…"
   // para refazer uma soma cujos dados já estavam em memória.
   const [linhaEmpBruto, setLinhaEmpBruto] = useState<any[]>([])
+  // ── bruto por DIMENSÃO × master, com os dois lados
+  // `b` = versão/ano analisado, `c` = o comparado. Origem e destino saem do
+  // sentido do cabeçalho, que muda sem recarregar — por isso o estado guarda
+  // os lados pelo que eles SÃO, não pelo papel que ocupam na leitura.
+  const [dimBruto, setDimBruto] = useState<DimBruto>({ emp: {}, cc: {} })
   const [porArea, setPorArea] = useState<{ rec: any[]; desp: any[]; ccRec: any[]; ccDesp: any[]; mes: any[] }>({ rec: [], desp: [], ccRec: [], ccDesp: [], mes: [] })
   const [drill, setDrill] = useState<{ nodeId: string; ccFilter?: string[] | null } | null>(null)
   const [secPonte, setSecPonte] = useState<SecCfg>(SEC_PADRAO)
@@ -177,6 +185,7 @@ export default function OrcamentoDashPage() {
   const navPonte = useRef<string | null>(null)
   const [ponteNat, setPonteNat] = useState<'TODAS' | 'RECEITA' | 'DESPESA'>('TODAS')
   const [ponteAte, setPonteAte] = useState<number | 'tudo'>(1)
+  const [quemDim, setQuemDim] = useState<DimQuem>('area')
   // ⚠⚠ O SENTIDO DA COMPARAÇÃO É A PERGUNTA, não um estilo — e por isso mora
   // no CABEÇALHO, não dentro de um cartão: ele rege a aba inteira. Guarda-se
   // quem é a ORIGEM, e `undefined` é "siga o modo" — a mesma distinção entre
@@ -507,12 +516,14 @@ export default function OrcamentoDashPage() {
       // não muda uma vírgula do que o banco devolve. Guardamos o bruto e o
       // gráfico se refaz em memória (ver `porEmp`, abaixo).
       const masters = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
+      // `le` vive fora do `if`: o quadro "quem causou" o relê depois, e
+      // declarado dentro ele não chegaria lá.
+      const le: any[] = []
       if (masters.length) {
         // ⚠ PAGINAR. O agregado devolve EMPRESA × LINHA: com 13 empresas e
         // ~270 masters passa de 3.500 linhas, e o PostgREST corta em 1000 sem
         // erro nenhum. O sintoma é o gráfico vir com menos empresas do que
         // existe — ou vazio, se as que sobraram forem as sem valor.
-        const le: any[] = []
         for (let from = 0; ; from += 1000) {
           const { data, error } = await supabase.rpc('relatorio_linha_empresa_agg', {
             p_versao: vBase, p_anos: [anoBase!], p_meses: meses,
@@ -524,6 +535,7 @@ export default function OrcamentoDashPage() {
         }
         setLinhaEmpBruto(le)
       } else setLinhaEmpBruto([])
+
 
       // ── por ÁREA e por CC (só orçado)
       // `dashboard_cc_agg` devolve cc × linha × mês e passa de mil linhas fácil,
@@ -541,6 +553,53 @@ export default function OrcamentoDashPage() {
         }
       }
       setPorArea(agregarPorArea(ccAgg, linhas, ccs))
+
+      // ── bruto por dimensão (quadro "quem causou")
+      // ⚠⚠ NO CASO TÍPICO NÃO CUSTA CONSULTA NENHUMA. As duas RPCs já
+      // devolvem `orcado` E `realizado` do ano pedido, então comparando o
+      // Orçado de 2026 com o Realizado de 2026 as chamadas que a tela já fazia
+      // trazem os dois lados. Só quando o comparado é OUTRA versão (orçado ×
+      // orçado) ou OUTRO ano é que vai uma segunda leitura — e aí vai, porque
+      // a alternativa seria o quadro sumir sem explicação justamente no modo
+      // em que se monta o orçamento.
+      const mesmoLado = modo === 'REAL' && anoComp === anoBase
+      const emp: LadoPorMaster = {}, cc: LadoPorMaster = {}
+      const por = (alvo: LadoPorMaster, chave: string | null, master: string, campo: 'b' | 'c', v: number) => {
+        if (!v) return
+        const k = chave || '__sem'
+        const m = (alvo[k] = alvo[k] || {})
+        const cel = (m[master] = m[master] || { b: 0, c: 0 })
+        cel[campo] += v
+      }
+      for (const x of le) {
+        if (!empFiltradas.includes(x.empresa_id)) continue
+        por(emp, x.empresa_id, x.linha_id, 'b', Number(x.orcado) || 0)
+        if (mesmoLado) por(emp, x.empresa_id, x.linha_id, 'c', Number(x.realizado) || 0)
+      }
+      for (const r of ccAgg) {
+        por(cc, r.cc_id, r.linha_id, 'b', Number(r.orcado) || 0)
+        if (mesmoLado) por(cc, r.cc_id, r.linha_id, 'c', Number(r.realizado) || 0)
+      }
+      if (!mesmoLado && masters.length) {
+        const vLado = modo === 'ORC' ? vComp : vBase
+        const campoLado = modo === 'ORC' ? 'orcado' : 'realizado'
+        const [leC, ccC] = await Promise.all([
+          supabase.rpc('relatorio_linha_empresa_agg', {
+            p_versao: vLado, p_anos: [anoComp!], p_meses: meses,
+            p_linhas: masters, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: 1,
+          }).range(0, 4999),
+          supabase.rpc('dashboard_cc_agg', {
+            p_versao: vLado, p_empresas: empFiltradas, p_anos: [anoComp!], p_meses: meses,
+            p_linhas: masters, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: 1,
+          }).range(0, 9999),
+        ])
+        for (const x of (leC.data || []) as any[]) {
+          if (!empFiltradas.includes(x.empresa_id)) continue
+          por(emp, x.empresa_id, x.linha_id, 'c', Number(x[campoLado]) || 0)
+        }
+        for (const r of (ccC.data || []) as any[]) por(cc, r.cc_id, r.linha_id, 'c', Number(r[campoLado]) || 0)
+      }
+      setDimBruto({ emp, cc })
     } catch (e: any) {
       setErro(e?.message ?? String(e)); setDados(null)
     }
@@ -809,6 +868,12 @@ export default function OrcamentoDashPage() {
             trilha={trilhaPonte} setTrilha={setTrilhaPonte} navRef={navPonte}
             nat={ponteNat} setNat={setPonteNat} ate={ponteAte} setAte={setPonteAte}
             origem={pOrigem} destino={pDestino} rotOrigem={rotOrigem} rotDestino={rotDestino} />
+
+          <QuemCausou S={S} linhas={linhas} nome={nome} bruto={dimBruto} empresas={empresas} ccs={ccs}
+            resId={secPonte.resultado} componentes={secPonte.sel} invertido={origemAnalisado}
+            rotOrigem={rotOrigem} rotDestino={rotDestino} dim={quemDim} setDim={setQuemDim}
+            ano={anoBase} dTotal={secPonte.resultado
+              ? (pDestino?.[secPonte.resultado] ?? 0) - (pOrigem?.[secPonte.resultado] ?? 0) : 0} />
 
           <Variacao S={S} cfg={secVar} setCfg={setSecVar} linhas={linhas} nome={nome} fac={fac}
             aba={varAba} setAba={setVarAba} nivel={varNivel} setNivel={setVarNivel}
@@ -2089,6 +2154,231 @@ function Ponte({ S, cfg, setCfg, linhas, nome, origem, destino, rotOrigem, rotDe
             </table>
           </div>
         </>
+      )}
+    </div>
+  )
+}
+
+// ── 1b · QUEM CAUSOU A VARIAÇÃO ─────────────────────────────
+// A PONTE VISTA PELO OUTRO EIXO. A ponte decompõe o Δ por LINHA; este quadro
+// decompõe **o mesmo Δ** por empresa, área, divisão, BU ou centro de custo.
+// Mesma linha de resultado, mesmo total — dois cortes do mesmo número.
+//
+// POR QUE EXISTE: hoje responder "qual área estourou?" é marcar a área no
+// filtro, ler, desmarcar, marcar a próxima. Cinco gestos por área e nenhuma
+// comparação lado a lado — quem desiste no meio fica com metade da resposta.
+//
+// ⚠⚠ O MOTOR RODA POR DIMENSÃO, não se soma o agregado. A linha de resultado
+// costuma ser FÓRMULA ou subtotal; somar `orcado` das folhas daria um número
+// que não existe na DRE. Mesma razão e mesma mecânica do gráfico por empresa.
+const DIMS_QUEM = [
+  ['emp', 'Empresa'], ['area', 'Área'], ['divisao', 'Divisão'], ['bu', 'BU'], ['cc', 'Centro de custo'],
+] as const
+type DimQuem = typeof DIMS_QUEM[number][0]
+const MAX_QUEM = 12
+
+function QuemCausou({ S, linhas, nome, bruto, empresas, ccs, resId, componentes, invertido,
+                      rotOrigem, rotDestino, dTotal, dim, setDim, ano }: any) {
+  const [aberta, setAberta] = useState<string | null>(null)
+
+  // Agrupa o bruto (empresa_id / cc_id) na dimensão pedida. Empresa e CC são
+  // chaves diretas; área, divisão e BU são ATRIBUTOS do CC — é por isso que os
+  // três saem da mesma leitura e trocar entre eles não custa consulta.
+  const grupos = useMemo(() => {
+    const out: Record<string, Record<string, { b: number; c: number }>> = {}
+    const junta = (k: string, m: Record<string, { b: number; c: number }>) => {
+      const alvo = (out[k] = out[k] || {})
+      for (const master in m) {
+        const cel = (alvo[master] = alvo[master] || { b: 0, c: 0 })
+        cel.b += m[master].b; cel.c += m[master].c
+      }
+    }
+    if (dim === 'emp') {
+      const nomeEmp: Record<string, string> = {}
+      ;(empresas as any[]).forEach(e => { nomeEmp[e.id] = `${e.codigo} · ${e.descricao}` })
+      for (const id in bruto.emp) junta(nomeEmp[id] || '(empresa desconhecida)', bruto.emp[id])
+    } else {
+      const ccById: Record<string, CC> = Object.fromEntries((ccs as CC[]).map(c => [c.id, c]))
+      // ⚠ "(sem …)" NÃO É DESCARTE. São as células de grão consolidado — cc
+      // nulo —, e omiti-las faria a soma das áreas não bater com o total: o
+      // quadro encolheria sem dizer por quê, que é a pior forma de errar.
+      const rot = (ccId: string) => {
+        const c = ccId === '__sem' ? null : ccById[ccId]
+        if (!c) return '(sem centro de custo)'
+        if (dim === 'cc') return `${c.codigo} · ${c.descricao}`
+        const n = dim === 'area' ? c.area_nome : dim === 'divisao' ? c.divisao_nome : c.bu_nome
+        return n || `(sem ${dim === 'area' ? 'área' : dim === 'divisao' ? 'divisão' : 'BU'})`
+      }
+      for (const id in bruto.cc) junta(rot(id), bruto.cc[id])
+    }
+    return out
+  }, [bruto, dim, empresas, ccs])
+
+  // Roda o motor dentro de cada grupo e devolve o total da linha de resultado
+  // e o de cada componente — os mesmos componentes da ponte, para o detalhe de
+  // uma área ser literalmente "a ponte daquela área".
+  const linhasQ = useMemo(() => {
+    if (!resId) return []
+    const rlOf: Record<string, string> = {}
+    linhas.forEach((l: LinhaRel) => { if (l.linha_orc_id && !l.nao_soma) rlOf[l.linha_orc_id] = l.id })
+    const calc: LinhaCalc[] = linhas.map((l: LinhaRel) => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada, nao_soma: l.nao_soma }))
+    const PER: Periodo = { ano: ano || 1, mes: 1 }; const K = pkey(PER)
+    const totaisDe = (lado: 'b' | 'c', m: Record<string, { b: number; c: number }>) => {
+      const computed: Computed = {}; calc.forEach(l => { computed[l.id] = {} })
+      for (const master in m) { const rl = rlOf[master]; if (rl) computed[rl][K] = m[master][lado] }
+      return computeTotais(calc, computed, [PER])
+    }
+    return Object.entries(grupos).map(([k, m]) => {
+      const tb = totaisDe('b', m), tc = totaisDe('c', m)
+      // `invertido` = o cabeçalho pediu analisado → comparado. Origem e destino
+      // só existem como leitura; o dado continua sendo "analisado" e "comparado".
+      const o = (id: string) => (invertido ? tb[id] : tc[id]) || 0
+      const d = (id: string) => (invertido ? tc[id] : tb[id]) || 0
+      return {
+        k, origem: o(resId), destino: d(resId), delta: d(resId) - o(resId),
+        partes: (componentes as string[]).filter(id => id !== resId)
+          .map(id => ({ id, nome: nome(id), delta: d(id) - o(id) }))
+          .filter(x => Math.abs(x.delta) > 0.005)
+          .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)),
+      }
+    }).filter(x => Math.abs(x.delta) > 0.005 || Math.abs(x.origem) > 0.005)
+      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+  }, [grupos, linhas, resId, componentes, invertido, nome, ano])
+
+  // ⚠⚠ ASSIMETRIA DE ATRIBUIÇÃO — medida, não suposta. Na DRE Gerencial de
+  // 2026: **100% do orçado tem centro de custo e só 82% do realizado tem**
+  // (18,2%, R$ 22 mi de 120,6 mi, são lançamentos do razão sem CC). Sem avisar,
+  // a leitura por área sai assim: TODA área parece ter economizado, e o grupo
+  // "(sem centro de custo)" aparece com orçado zero e um realizado enorme —
+  // cada número está certo e a conclusão é falsa.
+  // ⚠ Não é chute nem constante: sai do próprio bruto, em magnitude, então
+  // acompanha o relatório, o período e o filtro de quem está olhando. Por
+  // empresa não existe (empresa é NOT NULL nos dois fatos: 0 nulos medidos).
+  const atribuicao = useMemo(() => {
+    if (dim === 'emp') return null
+    let bT = 0, cT = 0, bS = 0, cS = 0
+    for (const id in bruto.cc) {
+      const sem = id === '__sem' || !(ccs as CC[]).some(c => c.id === id)
+      for (const master in bruto.cc[id]) {
+        const { b, c } = bruto.cc[id][master]
+        bT += Math.abs(b); cT += Math.abs(c)
+        if (sem) { bS += Math.abs(b); cS += Math.abs(c) }
+      }
+    }
+    if (!bT || !cT) return null
+    const pb = (bS / bT) * 100, pc = (cS / cT) * 100
+    // Dois pontos percentuais de diferença já bastam: abaixo disso o efeito
+    // some no arredondamento das próprias linhas.
+    return Math.abs(pb - pc) >= 2 ? { pb, pc } : null
+  }, [bruto, dim, ccs])
+
+  const somaDim = linhasQ.reduce((s: number, x: any) => s + x.delta, 0)
+  // ⚠⚠ O RESÍDUO É A MESMA HONESTIDADE DA PONTE. A soma das dimensões pode não
+  // fechar com o Δ do cabeçalho por três causas conhecidas: linha com
+  // `filtro_escopo` próprio (o agregado por dimensão não o aplica), projeção
+  // ligada (o quadro lê só o período real) e recorte de empresa entre as duas
+  // RPCs. Mostrar sem o resíduo seria afirmar que tudo foi atribuído.
+  const naoAtrib = (dTotal || 0) - somaDim
+  const temResid = Math.abs(naoAtrib) > Math.max(1, Math.abs(dTotal || 0) * 0.005)
+  const mostra = linhasQ.slice(0, MAX_QUEM)
+  const resto = linhasQ.slice(MAX_QUEM)
+  const somaResto = resto.reduce((s: number, x: any) => s + x.delta, 0)
+
+  return (
+    <div style={S.sec}>
+      <div>
+        <div><div style={S.secT}>Quem causou a variação</div>
+          <div style={S.secD}>
+            O <strong>mesmo Δ da ponte</strong>, decomposto pelo outro eixo: em vez de por linha,
+            por empresa ou área. A linha de resultado é a que está selecionada na ponte — descer
+            lá move este quadro junto. Clique numa linha para ver <em>o que</em> mudou ali.
+            {' '}⚠ <strong>(sem centro de custo)</strong> reúne o que não tem onde cair; entra na
+            lista para a soma fechar, em vez de encolher o quadro em silêncio.
+          </div></div>
+        <div style={S.secBarra} data-noexport>
+          <Grupo opcoes={DIMS_QUEM} valor={dim} onPick={setDim} />
+          <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+            {linhasQ.length} {dim === 'emp' ? 'empresa(s)' : dim === 'cc' ? 'centro(s)' : 'grupo(s)'}
+          </span>
+        </div>
+      </div>
+      {atribuicao && (
+        <div style={{ fontSize: 12, color: 'var(--orange)', marginBottom: 10, lineHeight: 1.6 }}>
+          ⚠⚠ <strong>Os dois lados não estão igualmente atribuídos.</strong>{' '}
+          <b>{rotOrigem}</b> tem {(invertido ? atribuicao.pb : atribuicao.pc).toFixed(1)}% do valor
+          sem centro de custo e <b>{rotDestino}</b> tem
+          {' '}{(invertido ? atribuicao.pc : atribuicao.pb).toFixed(1)}%. O lado menos atribuído
+          chega às áreas <strong>menor do que é</strong> — e o excedente aparece inteiro em
+          <em> (sem centro de custo)</em>. Com isso, quase toda área tende a parecer que
+          economizou. Compare as áreas <strong>entre si</strong>, não contra o orçado delas,
+          enquanto a amarração de centro de custo do realizado não fechar.
+        </div>
+      )}
+      {!resId ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Escolha a linha de resultado na ponte.</div>
+       : !linhasQ.length ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Sem movimento nesta dimensão.</div> : (
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr>
+            <th style={{ ...S.th, textAlign: 'left' }}>{DIMS_QUEM.find(d => d[0] === dim)?.[1]}</th>
+            <th style={S.th}>{rotOrigem}</th>
+            <th style={S.th}>{rotDestino}</th>
+            <th style={S.th}>efeito no resultado</th>
+            <th style={S.th}>% do Δ</th>
+          </tr></thead>
+          <tbody>
+            {mostra.map((x: any) => (
+              <Fragment key={x.k}>
+                <tr onClick={() => setAberta(aberta === x.k ? null : x.k)} style={{ cursor: 'pointer' }}>
+                  <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit' }}>
+                    <span data-noexport style={{ color: 'var(--violet)', marginRight: 6 }}>{aberta === x.k ? '▾' : '▸'}</span>
+                    {x.k}
+                  </td>
+                  <td style={S.td}>{fmt(x.origem)}</td>
+                  <td style={S.td}>{fmt(x.destino)}</td>
+                  <td style={{ ...S.td, color: x.delta >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+                    {x.delta >= 0 ? '+' : ''}{fmt(x.delta)}
+                  </td>
+                  <td style={{ ...S.td, color: 'var(--muted)' }}>
+                    {dTotal ? `${Math.round((x.delta / dTotal) * 100)}%` : '—'}
+                  </td>
+                </tr>
+                {aberta === x.k && (
+                  x.partes.length ? x.partes.map((p: any) => (
+                    <tr key={p.id}>
+                      <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', paddingLeft: 30, color: 'var(--muted)', fontSize: 12 }}>{p.nome}</td>
+                      <td style={S.td} /><td style={S.td} />
+                      <td style={{ ...S.td, fontSize: 12, color: p.delta >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                        {p.delta >= 0 ? '+' : ''}{fmt(p.delta)}
+                      </td>
+                      <td style={S.td} />
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={5} style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', paddingLeft: 30, color: 'var(--muted)', fontSize: 12 }}>
+                      Sem componentes com variação aqui.</td></tr>
+                  )
+                )}
+              </Fragment>
+            ))}
+            {resto.length > 0 && (
+              <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--muted)', fontStyle: 'italic' }}>
+                outros {resto.length}</td>
+                <td style={S.td} /><td style={S.td} />
+                <td style={{ ...S.td, color: 'var(--muted)' }}>{somaResto >= 0 ? '+' : ''}{fmt(somaResto)}</td>
+                <td style={S.td} /></tr>
+            )}
+            {temResid && (
+              <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--orange)' }}
+                    title="Linha com filtro de escopo próprio, projeção ligada ou recorte de empresa — o agregado por dimensão não os reproduz.">
+                não atribuído a nenhum grupo</td>
+                <td style={S.td} /><td style={S.td} />
+                <td style={{ ...S.td, color: 'var(--orange)' }}>{naoAtrib >= 0 ? '+' : ''}{fmt(naoAtrib)}</td>
+                <td style={S.td} /></tr>
+            )}
+            <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontWeight: 700 }}>total — {nome(resId)}</td>
+              <td style={S.td} /><td style={S.td} />
+              <td style={{ ...S.td, fontWeight: 700 }}>{(dTotal || 0) >= 0 ? '+' : ''}{fmt(dTotal || 0)}</td>
+              <td style={S.td} /></tr>
+          </tbody>
+        </table>
       )}
     </div>
   )
