@@ -1621,11 +1621,22 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
   //   · as 8 PERCENTUAIS — somar pontos percentuais não fecha, e deixá-las no
   //     seletor manteria a análise quebrada a um clique de distância, mesmo com
   //     o ícone escondido.
-  const opcoes = emArvore(linhas as any)
+  const opcoesN1 = emArvore(linhas as any)
     .filter((l: any) => l.prof === 0)
     .filter((l: any) => linhasConciliaveis(linhas).some((x: any) => x.id === l.id))
     .filter((l: any) => modoLista === 'INDIC' ? l.tipo_linha === 'INDICADOR' : l.tipo_linha !== 'INDICADOR')
     .filter((l: any) => podeDescer(l.id))
+
+  // ⚠⚠ A LINHA ATUAL ENTRA NA LISTA MESMO FORA DO NÍVEL 1. O seletor é o
+  // "onde estou": descendo para uma linha de nível 2 ela não estava entre as
+  // opções, e o combo voltava para "— linha de resultado —" — vazio justamente
+  // depois de navegar, como se nada estivesse selecionado.
+  // Vale também ao REABRIR: o card guarda a linha onde se parou, e se ela for
+  // funda o seletor precisa saber mostrá-la.
+  const atual = resId ? (linhas as any[]).find((l: any) => l.id === resId) : null
+  const opcoes = atual && !opcoesN1.some((l: any) => l.id === resId)
+    ? [{ ...atual, prof: 0, _fora: true }, ...opcoesN1]
+    : opcoesN1
 
   return (
     <div style={S.sec}>
@@ -1657,7 +1668,11 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
             }}
             style={{ padding: '5px 8px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg-soft)', color: 'var(--text)', maxWidth: 220 }}>
             <option value="">— linha de resultado —</option>
-            {opcoes.map((l: any) => <option key={l.id} value={l.id}>{'\u00A0'.repeat(l.prof * 2)}{l.descricao}</option>)}
+            {opcoes.map((l: any) => (
+              // `↳` na que veio da navegação: ela não é ponto de partida da
+              // lista, está ali porque é onde você está.
+              <option key={l.id} value={l.id}>{l._fora ? '↳ ' : ''}{'\u00A0'.repeat(l.prof * 2)}{l.descricao}</option>
+            ))}
           </select>
           {/* ⚠ SAÍRAM o "usar os da estrutura" e o seletor de componentes. Eles
               só existiam um por causa do outro: um deixava mexer na lista à

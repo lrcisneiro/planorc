@@ -1363,6 +1363,10 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ **O seletor mostra só o NÍVEL 1** — ele escolhe o ponto de partida; descer é com o `↳`.
   Eram 170 opções indentadas, rolagem longa para achar o que a navegação alcança num clique.
   Ficam **9 em Linhas** e **23 em Indicadores**.
+  ⚠ **A linha ATUAL entra na lista mesmo fora do nível 1.** O seletor é o "onde estou":
+  descendo para uma linha de nível 2 ela não estava entre as opções e o combo voltava a
+  "— linha de resultado —" — vazio **justamente depois de navegar**. Vale também ao reabrir,
+  porque o card guarda a linha onde se parou e ela pode ser funda.
   ⚠ **O seletor usa a MESMA regra do `↳`** — oferecer linha que não decompõe abre ponte vazia,
   que é o "offer and then refuse" evitado no ícone. Sobram **8 em Linhas e 11 em Indicadores**.
   Saiu o `Headcount médio (FTE)` (ANALITICA com master, única de nível 1 sem componentes) e as
