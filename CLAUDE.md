@@ -1429,6 +1429,17 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   compara o **orçado de um ano com o realizado do mesmo ano**, e `erro = realizado − orçado` é a
   única direção que existe. Orçamento se mede contra o que aconteceu, nunca o contrário; oferecer
   a inversão ali seria um controle que não significa nada.
+  ⚠⚠ **No modo Realizado a versão de comparação faz DUAS coisas**, e o código afirmava que
+  fazia uma só ("a versão só serve para dizer o ANO"). Ela diz o ano do realizado — a ponte e
+  *O que mudou* leem `serie('REALIZADO', anoComp)` e não olham a versão — **e** escolhe qual
+  orçamento daquele ano a *Acurácia* confronta com esse realizado (`chamar(vComp, [anoComp])`).
+  Sintoma: três versões de 2027 viravam três **"Realizado 2027" idênticos** no combo — rótulos
+  iguais para opções que **não são equivalentes**, já que trocar entre elas muda a Acurácia
+  inteira. ⚠ **Deduplicar por ano seria o conserto errado**: apagaria a escolha e elegeria uma
+  versão em silêncio, a armadilha do `ON CONFLICT` de novo. O rótulo passou a dizer a segunda
+  coisa (`· acurácia vs <código>`) e **só onde há mais de uma versão no ano** — sufixo em toda
+  linha deixa de informar.
+
   ⚠ Em *O que mudou* o denominador do limiar virou o **destino**. No modo Orçado × Orçado o
   destino é o analisado, que é exatamente o que já era — trocar o sentido não remexe nos limiares
   de quem compara orçamentos.

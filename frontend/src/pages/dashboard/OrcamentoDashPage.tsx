@@ -578,6 +578,14 @@ export default function OrcamentoDashPage() {
     : `${versao(vComp)?.codigo ?? ''} · ${anoComp ?? ''}`
   const rotuloBase = versao(vBase)?.codigo ?? ''
 
+  // Quantas versões existem em cada ano — o sufixo do combo de comparação só
+  // aparece onde há mais de uma. Marcador em toda linha deixa de marcar.
+  const versoesNoAno = useMemo(() => {
+    const n: Record<number, number> = {}
+    versoes.forEach((v: any) => { n[v.ano] = (n[v.ano] || 0) + 1 })
+    return n
+  }, [versoes])
+
   // ⚠⚠ O SENTIDO SEGUE O MODO quando ninguém escolheu, porque são DUAS
   // perguntas diferentes e cada modo faz uma delas:
   //   · Orçado × Orçado — "saí de 2026 e cheguei no 2027 que estou montando":
@@ -636,12 +644,29 @@ export default function OrcamentoDashPage() {
           </select></div>
 
         <div><div style={S.lbl}>{modo === 'REAL' ? 'Realizado do ano da versão' : 'Versão de comparação'}</div>
-          <select style={S.sel} value={vComp} onChange={e => setVComp(e.target.value)}>
+          <select style={S.sel} value={vComp} onChange={e => setVComp(e.target.value)}
+            title={modo === 'REAL'
+              ? 'Escolhe o ANO do realizado a comparar — e, quando o ano tem mais de uma versão, qual orçamento a Acurácia confronta com ele.'
+              : 'A versão de orçamento com que o analisado é comparado.'}>
             {versoes.map(v => (
-              // No modo Realizado a versão só serve para dizer o ANO. Mostrar o
-              // código sugeriria que aquele realizado pertence àquela versão,
-              // o que não existe.
-              <option key={v.id} value={v.id}>{modo === 'REAL' ? `Realizado ${v.ano}` : `${v.codigo} · ${v.ano}`}</option>
+              // ⚠⚠ NO MODO REALIZADO A VERSÃO FAZ DUAS COISAS, e o comentário
+              // antigo aqui afirmava que fazia uma só ("só serve para dizer o
+              // ANO"). Ela diz o ano do realizado — a ponte e *O que mudou* leem
+              // `serie('REALIZADO', anoComp)` e não olham a versão — **e**
+              // escolhe qual orçamento daquele ano a *Acurácia* confronta com
+              // esse realizado (`chamar(vComp, [anoComp])`).
+              // Por isso três versões de 2027 viravam três "Realizado 2027"
+              // idênticos no combo: rótulos iguais para opções que NÃO são
+              // equivalentes — trocar entre elas muda a Acurácia inteira.
+              // ⚠ Deduplicar por ano seria o conserto errado: apagaria a
+              // escolha e elegeria uma versão em silêncio, que é a armadilha do
+              // `ON CONFLICT` de novo. O que faltava era o rótulo dizer a
+              // segunda coisa — e só onde ela existe.
+              <option key={v.id} value={v.id}>
+                {modo === 'REAL'
+                  ? `Realizado ${v.ano}` + (versoesNoAno[v.ano] > 1 ? ` · acurácia vs ${v.codigo}` : '')
+                  : `${v.codigo} · ${v.ano}`}
+              </option>
             ))}
           </select></div>
 
