@@ -1351,6 +1351,11 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   nulo, e o ↑ não teria para onde voltar. Metade dos pontos de descida é fórmula.
   ⚠ A trilha **não** entra no card: ele guarda a linha onde se parou, e reabrir é como entrar
   pelo seletor. Caminho é do momento, não da análise.
+  ⚠⚠ **Mas o estado dela mora na PÁGINA, não no cartão.** Descer muda `secPonte.sel`, o que
+  dispara a recarga, e enquanto `carregando` é true esta tela troca **todo** o conteúdo por
+  "Calculando…": o `Ponte` desmonta e qualquer estado local morre. Na primeira versão a trilha
+  nunca chegou a aparecer. **Estado que precisa sobreviver a uma recarga não pode viver num
+  componente que a recarga desmonta** — vale para qualquer cartão desta tela.
   ⚠ **Percentual não desce** — somar pontos percentuais não fecha. O campo é `formato`, e ele
   está **incompleto**: `LER Bruto`, `LER de Margem`, `dLER` e `mLER` são razões marcadas
   `NUMERO` e escapam. **Conserto é de CADASTRO**, não lista de nomes — nome chumbado funciona

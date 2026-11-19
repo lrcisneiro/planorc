@@ -162,6 +162,14 @@ export default function OrcamentoDashPage() {
   const [porArea, setPorArea] = useState<{ rec: any[]; desp: any[]; ccRec: any[]; ccDesp: any[]; mes: any[] }>({ rec: [], desp: [], ccRec: [], ccDesp: [], mes: [] })
   const [drill, setDrill] = useState<{ nodeId: string; ccFilter?: string[] | null } | null>(null)
   const [secPonte, setSecPonte] = useState<SecCfg>(SEC_PADRAO)
+  // ⚠⚠ A TRILHA DA PONTE MORA AQUI, não dentro do `Ponte`. Descer muda
+  // `secPonte.sel`, o que dispara a recarga, e enquanto `carregando` é true
+  // esta tela troca TODO o conteúdo por "Calculando…" — o `Ponte` desmonta e
+  // qualquer estado local dele se perde. A trilha simplesmente nunca aparecia.
+  // ⚠ Fora de `estado()` de propósito: não vai para o card nem para o
+  // localStorage. Caminho é do momento, não da análise.
+  const [trilhaPonte, setTrilhaPonte] = useState<string[]>([])
+  const navPonte = useRef<string | null>(null)
   const [secVar, setSecVar] = useState<SecCfg>(SEC_PADRAO)
   const [secAcur, setSecAcur] = useState<SecCfg>(SEC_PADRAO)
   // Configuração de seção vinda de FORA (estado salvo ou card) espera aqui até
@@ -687,6 +695,7 @@ export default function OrcamentoDashPage() {
       ) : (
         <>
           <Ponte S={S} cfg={secPonte} setCfg={setSecPonte} linhas={linhas} nome={nome}
+            trilha={trilhaPonte} setTrilha={setTrilhaPonte} navRef={navPonte}
             base={dados.base} comp={dados.comp} rotuloBase={versao(vBase)?.codigo ?? ''} rotuloComp={rotuloComp} />
 
           <Variacao S={S} cfg={secVar} setCfg={setSecVar} linhas={linhas} nome={nome} fac={fac}
@@ -1465,7 +1474,7 @@ function SelLinhas({ cfg, setCfg, linhas, limiar }: { cfg: SecCfg; setCfg: (c: S
 // O único gráfico que responde "de onde vem o crescimento" numa imagem.
 // Sempre com a TABELA ao lado: cascata se lê por aproximação — a altura dá
 // ordem de grandeza, não valor, e quem aprova precisa do número exato.
-function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloComp }: any) {
+function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloComp, trilha, setTrilha, navRef }: any) {
   // ⚠ SINAL ECONÔMICO, não o de exibição. O resto da tela mostra despesa
   // positiva (fatorExibicao inverte), mas numa ponte isso quebra tudo: uma
   // despesa que CRESCE 20 viraria barra verde +20, sugerindo melhora, quando o
@@ -1483,11 +1492,9 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
   // descida, então o caso não é raro.
   // Por isso a volta é uma TRILHA e não um botão: ela diz onde se está (hoje
   // só o seletor dizia) e leva a qualquer ancestral num clique.
-  const [trilha, setTrilha] = useState<string[]>([])
-  // ⚠ A trilha NÃO é guardada no card: o card guarda a linha onde se parou, e
-  // reabrir é como entrar pelo seletor. Caminho é do momento, não da análise.
-  const navRef = useRef<string | null>(null)
-  useEffect(() => { if (cfg.resultado !== navRef.current) setTrilha([]) }, [cfg.resultado])
+  // ⚠ `trilha`/`navRef` vêm da PÁGINA: aqui dentro morreriam a cada recarga,
+  // porque `carregando` desmonta o cartão inteiro. Ver o comentário lá.
+  useEffect(() => { if (cfg.resultado !== navRef.current) setTrilha([]) }, [cfg.resultado]) // eslint-disable-line
 
   const byIdAll = useMemo(
     () => Object.fromEntries(linhas.map((l: LinhaRel) => [l.id, l])) as Record<string, LinhaRel>, [linhas])
