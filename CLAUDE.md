@@ -1360,6 +1360,13 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   "Calculando…": o `Ponte` desmonta e qualquer estado local morre. Na primeira versão a trilha
   nunca chegou a aparecer. **Estado que precisa sobreviver a uma recarga não pode viver num
   componente que a recarga desmonta** — vale para qualquer cartão desta tela.
+  ⚠ **O seletor mostra só o NÍVEL 1** — ele escolhe o ponto de partida; descer é com o `↳`.
+  Eram 170 opções indentadas, rolagem longa para achar o que a navegação alcança num clique.
+  Ficam **9 em Linhas** e **23 em Indicadores**.
+  ⚠⚠ **EBITDA e Resultado Líquido são `INDICADOR`**, então caem na aba *Indicadores* — e são
+  justamente os pontos de partida mais prováveis de uma ponte. Quem procurar em *Linhas* não
+  acha. É fiel à estrutura, mas contraintuitivo: se incomodar, o conserto é de cadastro
+  (`tipo_linha`), não de filtro na tela.
   ⚠ **Percentual não desce** — somar pontos percentuais não fecha. O campo é `formato`, e ele
   está **incompleto**: `LER Bruto`, `LER de Margem`, `dLER` e `mLER` são razões marcadas
   `NUMERO` e escapam. **Conserto é de CADASTRO**, não lista de nomes — nome chumbado funciona

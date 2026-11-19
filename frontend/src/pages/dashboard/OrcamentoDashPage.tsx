@@ -1609,7 +1609,12 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
   // 27 indicadores num combo só, e escolher "% EBITDA" no meio das despesas é
   // acidente esperando acontecer — somam coisas diferentes.
   const [modoLista, setModoLista] = useState<'LINHA' | 'INDIC'>('LINHA')
+  // ⚠ SÓ O NÍVEL 1. O seletor escolhe o PONTO DE PARTIDA; descer é com o `↳`.
+  // Com a árvore inteira eram 170 opções indentadas — rolagem longa para achar
+  // o que a navegação alcança em um clique, e fácil escolher uma linha funda
+  // sem perceber de que bloco ela é.
   const opcoes = emArvore(linhas as any)
+    .filter((l: any) => l.prof === 0)
     .filter((l: any) => linhasConciliaveis(linhas).some((x: any) => x.id === l.id))
     .filter((l: any) => modoLista === 'INDIC' ? l.tipo_linha === 'INDICADOR' : l.tipo_linha !== 'INDICADOR')
 
