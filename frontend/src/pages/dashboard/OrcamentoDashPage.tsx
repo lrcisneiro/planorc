@@ -525,6 +525,12 @@ export default function OrcamentoDashPage() {
     sel: { padding: '7px 10px', fontSize: 13, border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--panel)', color: 'var(--text)' },
     sec: { background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 18 },
     secH: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 },
+    // ⚠ Cabeçalho EMPILHADO, para a ponte e o "O que mudou" ficarem iguais.
+    // Com os controles ao lado do texto, a descrição da ponte era espremida
+    // numa coluna estreita de 8 linhas enquanto a do outro ocupava a largura
+    // toda — e os controles lá quebravam em três fileiras. Mesmo conteúdo,
+    // cartões de aparências diferentes.
+    secBarra: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' as const, margin: '12px 0 16px' },
     secT: { fontSize: 15, fontWeight: 700, color: 'var(--text)' },
     secD: { fontSize: 12, color: 'var(--muted)', marginTop: 2 },
     th: { textAlign: 'right' as const, padding: '6px 8px', fontSize: 11, textTransform: 'uppercase' as const, letterSpacing: .4, color: 'var(--muted)', borderBottom: '1px solid var(--border)' },
@@ -1735,7 +1741,7 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
 
   return (
     <div style={S.sec}>
-      <div style={S.secH}>
+      <div>
         <div><div style={S.secT}>A ponte — de onde vem a variação</div>
           <div style={S.secD}>
             Decompõe a variação de <strong>uma</strong> linha de resultado. Os componentes precisam
@@ -1748,7 +1754,7 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
             é um seletor de ponto de partida, não um corte. Em <em>O que mudou</em> o mesmo botão
             significa outra coisa.
           </div></div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }} data-noexport>
+        <div style={S.secBarra} data-noexport>
           <Grupo opcoes={ABAS} valor={modoLista} onPick={setModoLista} />
           <Grupo rotulo="até" valor={ate} onPick={setAte}
             opcoes={[[1, '1'], [2, '2'], [3, '3'], ['tudo', 'tudo', 'Todas as linhas, em qualquer profundidade']] as const} />
@@ -2175,7 +2181,7 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
 
   return (
     <div style={S.sec}>
-      <div style={S.secH}>
+      <div>
         <div><div style={S.secT}>O que mudou</div>
           <div style={S.secD}>
             Ordenado por <strong>impacto</strong>, não por tamanho. Marcado o que passa de {cfg.pct}% <em>e</em> de {cfg.minPctTotal}% do total ({fmt(minAbs)}).
@@ -2201,7 +2207,7 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
               </span>
             )}
           </div></div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }} data-noexport>
+        <div style={S.secBarra} data-noexport>
           <Grupo opcoes={ABAS} valor={aba} onPick={setAba} />
           {/* ⚠ Nível e natureza só na aba Linhas: os 23 indicadores são todos
               nível 1 (o botão não mudaria nada) e 20 deles são neutros
@@ -2213,13 +2219,13 @@ function Variacao({ S, cfg, setCfg, linhas, nome, base, comp, val, fac, rotuloBa
                        ['folhas', 'folhas', 'As linhas de lançamento — o grão mais fino']] as const} />
           )}
           {aba === 'LINHA' && <Grupo opcoes={NATS} valor={nat} onPick={setNat} />}
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{conjunto.length} linha(s)</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--muted)' }}>
             ≥<input type="number" step="1" min={0} value={cfg.pct} onChange={e => setCfg({ ...cfg, pct: Number(e.target.value) })}
               style={{ width: 46, padding: '3px 5px', fontSize: 11.5, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 6 }} />%
             e ≥<input type="number" step="0.1" min={0} value={cfg.minPctTotal} onChange={e => setCfg({ ...cfg, minPctTotal: Number(e.target.value) })}
               style={{ width: 46, padding: '3px 5px', fontSize: 11.5, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 6 }} />% do total
           </span>
+          <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{conjunto.length} linha(s)</span>
         </div>
       </div>
       <Tabela S={S} arquivo={`variacao-${rotuloBase}`}
