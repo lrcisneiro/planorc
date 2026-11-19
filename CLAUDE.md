@@ -1363,6 +1363,14 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ **O seletor mostra só o NÍVEL 1** — ele escolhe o ponto de partida; descer é com o `↳`.
   Eram 170 opções indentadas, rolagem longa para achar o que a navegação alcança num clique.
   Ficam **9 em Linhas** e **23 em Indicadores**.
+  ⚠⚠ **`linhasConciliaveis` NÃO serve à ponte — filtro certo para a pergunta errada.** Ele existe
+  para a conciliação ("linha de fórmula tem total mas não tem folha a conciliar contra"), e numa
+  ponte isso não importa: o que importa é ter **valor e componentes**, e um indicador de fórmula
+  tem os dois mesmo sem conta própria. Emprestado, derrubava **13 dos 23 indicadores** — a lista
+  caía para 4 e sumiam `Custo Pessoas`, `Folha direta`, `Margem bruta`, justamente as
+  decomposições que se quer olhar.
+  ⚠ E **todos os 23 indicadores já são nível 1**, então o filtro de profundidade nunca tirou
+  nenhum — o sintoma apontava para ele, a causa era o outro.
   ⚠ **A linha ATUAL entra na lista mesmo fora do nível 1.** O seletor é o "onde estou":
   descendo para uma linha de nível 2 ela não estava entre as opções e o combo voltava a
   "— linha de resultado —" — vazio **justamente depois de navegar**. Vale também ao reabrir,

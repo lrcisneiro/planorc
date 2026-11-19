@@ -1621,9 +1621,15 @@ function Ponte({ S, cfg, setCfg, linhas, nome, base, comp, rotuloBase, rotuloCom
   //   · as 8 PERCENTUAIS — somar pontos percentuais não fecha, e deixá-las no
   //     seletor manteria a análise quebrada a um clique de distância, mesmo com
   //     o ícone escondido.
+  // ⚠⚠ SEM `linhasConciliaveis` AQUI. Ele existe para a conciliação, e a razão
+  // dele é "linha de fórmula tem total mas não tem folha a conciliar contra" —
+  // o que numa PONTE não importa: o que importa é ter valor e componentes, e um
+  // indicador de fórmula tem os dois mesmo sem conta própria.
+  // Emprestado, ele derrubava 13 dos 23 indicadores: a lista caía para 4 e
+  // sumiam `Custo Pessoas`, `Folha direta`, `Margem bruta` — justamente as
+  // decomposições que se quer olhar. Filtro certo para a pergunta errada.
   const opcoesN1 = emArvore(linhas as any)
     .filter((l: any) => l.prof === 0)
-    .filter((l: any) => linhasConciliaveis(linhas).some((x: any) => x.id === l.id))
     .filter((l: any) => modoLista === 'INDIC' ? l.tipo_linha === 'INDICADOR' : l.tipo_linha !== 'INDICADOR')
     .filter((l: any) => podeDescer(l.id))
 
