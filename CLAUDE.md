@@ -936,6 +936,36 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   pessoa × empresa e vive em `posto`. O `NOT NULL` caiu; o `UNIQUE` fica (nulos são distintos
   entre si) para o cadastro manual. **Nada novo deve escrever nessa coluna.**
 
+  ⚠⚠ **O RAZÃO ENTRA PELO ZIP, NA TELA (22/nov/2026).** Até aqui o realizado só subia assim:
+  alguém com o repositório na máquina rodava `scripts/realizado.sh`, que quebrava o razão em um
+  xlsx por mês, e só então alguém arrastava os xlsx para `/realizado`. O passo do meio existia
+  **porque a tela não sabia abrir o zip** — e prendia a carga mensal a uma pessoa.
+  `lib/razaoZip.ts` abre o zip no navegador e entrega as linhas ao `importarLote` que já existia:
+  resolver conta/empresa/filial/CC, câmbio, lote ignorado, modo *substituir* e log continuam
+  sendo o mesmo caminho provado. **Nada de xlsx intermediário.**
+  ⚠ **O PERFIL É UM SÓ.** Os JSONs saíram de `scripts/perfis/` para **`frontend/src/lib/perfis/`**
+  e o Python passou a ler de lá. Duas cópias da regra divergiriam no primeiro ajuste, e o sintoma
+  seria o lote do script e o da tela deixando de bater **sem nada acusar**. A tela os descobre com
+  `import.meta.glob`, então outro ERP segue sendo "acrescentar um perfil", nunca "editar a tela".
+  ⚠ **DUAS PASSADAS, de propósito.** A 1ª só **conta** por competência e a tela mostra o que o
+  arquivo tem (o razão traz desde 2022); a 2ª extrai só os meses marcados. Guardar o ano inteiro
+  para filtrar depois seriam 375 mil linhas em objetos — centenas de MB no navegador de quem
+  importa. Reler o zip, que está em memória, é barato perto de travar a aba.
+  ⚠ **A entrada que não interessa é descartada SEM INFLAR** (`fflate`: só se chama `.start()` no
+  arquivo escolhido). O `PLANORC.zip` tem 2 entradas e 368 MB; o zip do ERP inteiro tem 60 e 1 GB.
+  ⚠⚠ **`split(',')` não serve**: o histórico do razão tem vírgula dentro de aspas
+  ("SERV ENTREGA, UNIMED"), e partir na vírgula crua desloca as colunas seguintes **sem dar erro**
+  — vira lançamento com conta errada. O parser é incremental e com estado, porque o chunk corta no
+  meio do campo. ⚠ E o arquivo é **latin-1**: decodificar como UTF-8 não falha, só entrega
+  histórico corrompido.
+  **Medido (22/nov, `PLANORC.zip` da área de stage do GoodData):** 25 MB comprimidos,
+  `LancamentoContabil.csv` com **367 MB e 1.155.566 linhas** (2022→2026); inventário em **7,5 s**,
+  extração de um mês em **7,0 s**, **heap de 17 MB**. A contagem por competência bate **mês a mês**
+  com a do script Python, e no mês extraído **débito = crédito** (diferença 0,00).
+  ⚠ **Sem CORS no GoodData** — o navegador não busca o arquivo sozinho, e isso é recurso: o
+  usuário baixa o zip pelo link e solta na tela, então **nenhuma credencial entra no Planorc**.
+  ⚠ O `scripts/realizado.sh` **continua funcionando** e é a contingência.
+
   **Importação como padrão, não como caso (nov/2026).** O alvo é receber de **mais de um ERP**, e
   nome de coluna é a primeira coisa que muda entre eles. Três partes separadas:
   `lerPlanilha` (`lib/planilha.ts`, ao lado do `downloadSheet` — ler e escrever planilha moram

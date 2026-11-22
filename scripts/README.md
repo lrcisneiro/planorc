@@ -16,10 +16,10 @@ Finder — daí é só arrastar os arquivos para **Realizado → Importar**.
 > Regerar só o mês do fechamento (`--mes 8`) é o caminho normal do dia a dia.
 > Na tela, use o modo **Substituir** para o mês reimportado não duplicar.
 
-## Perfis (`scripts/perfis/*.json`) — uma empresa/ERP por arquivo
+## Perfis (`frontend/src/lib/perfis/*.json`) — uma empresa/ERP por arquivo
 
 As regras de conversão **não estão no código**: cada cliente tem um perfil JSON.
-Para atender outra empresa, copie `_modelo.json`, renomeie e ajuste — nenhum `.py`
+Para atender outra empresa, copie `_modelo.json` (a TELA lê os mesmos arquivos), renomeie e ajuste — nenhum `.py`
 é tocado. Havendo mais de um perfil, o wrapper pergunta qual usar (ou `--perfil nome`).
 
 | chave | o que faz |

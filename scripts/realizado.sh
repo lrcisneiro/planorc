@@ -14,7 +14,7 @@ set -euo pipefail
 
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GERADOR="$RAIZ/scripts/gerar_lotes_mensais.py"
-DIR_PERFIS="$RAIZ/scripts/perfis"
+DIR_PERFIS="$RAIZ/frontend/src/lib/perfis"
 SAIDA="$RAIZ/lotes_saida"
 
 ANO=""; MESES=""; PERFIL=""; ARQUIVO=""; SIM=0

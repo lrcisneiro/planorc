@@ -28,7 +28,12 @@ import csv, sys, os, json, glob, zipfile, tempfile
 from collections import defaultdict
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DIR_PERFIS = os.path.join(RAIZ, 'scripts', 'perfis')
+# ⚠ OS PERFIS MUDARAM DE LUGAR (nov/2026): vivem em `frontend/src/lib/perfis/`
+# porque a TELA passou a convertê-los também — ela lê o mesmo JSON por import.
+# Duas cópias da mesma regra divergem no primeiro ajuste, e o sintoma seria o
+# pior possível: o lote gerado aqui e o importado pela tela deixando de bater
+# sem nada acusar. Este script segue sendo o caminho de contingência.
+DIR_PERFIS = os.path.join(RAIZ, 'frontend', 'src', 'lib', 'perfis')
 SAIDA_PADRAO = os.path.join(RAIZ, 'lotes_saida')
 
 OUT_COLS = ['empresa_codigo', 'filial_codigo', 'cc_codigo', 'conta_codigo', 'data', 'ano', 'mes',

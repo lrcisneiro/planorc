@@ -4,10 +4,12 @@ import { supabase, TENANT_ID } from '../../lib/supabase'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { pageAll } from '../../lib/pageAll'
 import { fimDoMes, taxaRealizada, materializa } from '../../lib/cambio'
-import { Upload, Download, FileDown, AlertCircle, RefreshCw, Trash2, X, Filter } from 'lucide-react'
+import { FileArchive, Upload, Download, FileDown, AlertCircle, RefreshCw, Trash2, X, Filter } from 'lucide-react'
 import { useGrid, GridHead } from '../../lib/grid'
 import type { GCol } from '../../lib/grid'
 import { ErpPills } from '../erp/ErpPills'
+import { inventariarRazao, extrairRazao, RazaoZipErro } from '../../lib/razaoZip'
+import type { PerfilRazao, Competencia } from '../../lib/razaoZip'
 
 declare const XLSX: any
 
@@ -17,6 +19,24 @@ const ANOS = [2024, 2025, 2026, 2027, 2028]
 const MESES = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
 // Colunas do modelo de importação (razão / lançamentos)
+// ⚠⚠ OS PERFIS SÃO DESCOBERTOS, não listados. `import.meta.glob` varre
+// `lib/perfis/*.json`, então atender outro ERP continua sendo "acrescentar um
+// perfil", nunca "editar a tela" — que é a promessa da seção de importação do
+// CLAUDE.md. `_modelo.json` fica de fora: é gabarito, não perfil.
+// ⚠ O MESMO arquivo é lido pelo `scripts/gerar_lotes_mensais.py`. Duas cópias
+// da regra divergiriam no primeiro ajuste, e o sintoma seria o lote do script
+// e o da tela deixando de bater sem nada acusar.
+const PERFIS = Object.entries(
+  import.meta.glob<PerfilRazao>('../../lib/perfis/*.json', { eager: true, import: 'default' }))
+  .filter(([cam]) => !cam.split('/').pop()!.startsWith('_'))
+  .map(([cam, p]) => ({ id: cam.split('/').pop()!.replace('.json', ''), nome: p.nome, perfil: p }))
+  .sort((a, b) => a.id.localeCompare(b.id))
+
+const MESES_ABR = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+
+/** Um lote a importar: arquivo de planilha OU linhas já convertidas (do zip). */
+type LoteImport = { name: string; file?: File; linhas?: Record<string, any>[] }
+
 const HEADERS = ['empresa_codigo', 'filial_codigo', 'cc_codigo', 'conta_codigo', 'data', 'ano', 'mes', 'documento', 'historico', 'debito', 'credito', 'lote', 'sublote']
 const EXEMPLO = [
   ['01', '2001', '111', '3.1.01.001', '15/01/2026', '', '', 'NF 123', 'Energia elétrica', 1500, 0, '008850', '001'],
@@ -160,6 +180,14 @@ export default function RealizadoDadosPage() {
   useEffect(() => { supabase.from('moeda').select('slot,codigo').eq('ativo', true).order('slot').then(r => setMoedas(r.data || [])) }, [])
   const [importOpen, setImportOpen] = useState(false)
   const [dropFiles, setDropFiles] = useState<File[]>([])
+  // ── zip do ERP
+  const [zipFile, setZipFile] = useState<File | null>(null)
+  const [zipBuf, setZipBuf] = useState<Uint8Array | null>(null)
+  const [perfilId, setPerfilId] = useState<string>(PERFIS[0]?.id || '')
+  const [comps, setComps] = useState<Competencia[]>([])
+  const [compSel, setCompSel] = useState<Set<number>>(new Set())
+  const [zipBusy, setZipBusy] = useState(false)
+  const [zipProg, setZipProg] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [impBusy, setImpBusy] = useState(false)
   const [impProg, setImpProg] = useState('')
@@ -296,7 +324,68 @@ export default function RealizadoDadosPage() {
     else setInfo(`Agregados recalculados.${nrel ? ` ${Number(nrel).toLocaleString('pt-BR')} lançamento(s) re-vinculados a CC.` : ''}`)
   }
 
-  const importarLote = async (files: File[]) => {
+  // ⚠ Passou a aceitar LINHAS PRONTAS além de arquivo. O zip do ERP é
+  // convertido em memória (`lib/razaoZip.ts`) e entra por aqui — todo o resto
+  // do caminho (resolver conta/empresa/filial/CC, câmbio, lote ignorado, modo
+  // substituir, log) já existe e está provado. Gerar um xlsx intermediário só
+  // para alimentá-lo seria construir 35 mil linhas de planilha no navegador
+  // para desmontá-las na linha seguinte.
+  // Separa o que é planilha do que é zip do ERP. Só UM zip por vez: cada um é
+  // um razão inteiro, e dois em memória são 50 MB comprimidos somados ao que
+  // a conversão aloca.
+  const receber = (fs: File[]) => {
+    const zips = fs.filter(f => /\.zip$/i.test(f.name))
+    const plan = fs.filter(f => /\.(xlsx|xls|xlsm|csv)$/i.test(f.name))
+    if (plan.length) setDropFiles(p => [...p, ...plan])
+    if (zips.length) { setZipFile(zips[0]); setZipBuf(null); setComps([]); setCompSel(new Set()); setZipProg('') }
+  }
+
+  const perfilAtual = () => PERFIS.find(p => p.id === perfilId)?.perfil
+  const podeImportar = !impBusy && !zipBusy && (compSel.size > 0 || dropFiles.length > 0)
+
+  const lerZip = async () => {
+    const perfil = perfilAtual()
+    if (!zipFile || !perfil) return
+    setZipBusy(true); setZipProg('Abrindo o arquivo…'); setComps([]); setCompSel(new Set())
+    try {
+      // O buffer fica guardado: a 2ª passada relê o MESMO zip em memória, sem
+      // voltar ao disco nem pedir o arquivo de novo.
+      const buf = zipBuf ?? new Uint8Array(await zipFile.arrayBuffer())
+      setZipBuf(buf)
+      const inv = await inventariarRazao(buf, perfil,
+        n => setZipProg(`Lendo o razão… ${n.toLocaleString('pt-BR')} lançamentos`))
+      setComps(inv)
+      setZipProg(inv.length
+        ? `${inv.length} competências · ${inv.reduce((s, c) => s + c.linhas, 0).toLocaleString('pt-BR')} lançamentos no arquivo. Marque o que importar.`
+        : 'Nenhum lançamento com data válida foi encontrado.')
+    } catch (e: any) {
+      // ⚠ Coluna que falta é o erro mais comum e o mais fácil de resolver: a
+      // mensagem diz qual perfil esperava o quê, e lista o que o arquivo TEM.
+      const cols = (e as RazaoZipErro)?.colunasDoArquivo
+      setZipProg('✗ ' + (e?.message === 'ARQUIVO_NAO_ENCONTRADO'
+        ? `Não achei "${perfil.arquivo_padrao || 'LancamentoContabil.csv'}" dentro do zip.`
+        : (e?.message || String(e))) + (cols ? ` · O arquivo tem: ${cols.join(', ')}` : ''))
+    }
+    setZipBusy(false)
+  }
+
+  const importarZip = async () => {
+    const perfil = perfilAtual()
+    if (!zipBuf || !perfil || !compSel.size) return
+    setZipBusy(true); setZipProg('Separando os meses escolhidos…')
+    try {
+      const escolhidas = comps.filter(c => compSel.has(c.ano * 100 + c.mes))
+      const lotes = await extrairRazao(zipBuf, perfil, escolhidas,
+        n => setZipProg(`Separando… ${n.toLocaleString('pt-BR')} lançamentos`))
+      setZipProg('')
+      await importarLote(lotes.map(l => ({ name: `${l.nome} (do zip)`, linhas: l.linhas })))
+    } catch (e: any) {
+      setZipProg('✗ ' + (e?.message || String(e)))
+    }
+    setZipBusy(false)
+  }
+
+  const importarLote = async (files: LoteImport[]) => {
     if (!files.length) return
     setImpBusy(true); setImpLog([]); setImpProg('Carregando cadastros…')
     try {
@@ -362,7 +451,7 @@ export default function RealizadoDadosPage() {
       for (let fi = 0; fi < files.length; fi++) {
         const file = files[fi]
         setImpProg(`(${fi + 1}/${files.length}) Lendo ${file.name}…`)
-        const { rows: raw } = await parseXlsx(file)
+        const raw = file.linhas ?? (await parseXlsx(file.file!)).rows
         if (!raw.length) { log.push(`⚠ ${file.name}: sem linhas`); setImpLog([...log]); arqResumo.push([file.name, 0, 0, 0]); continue }
         const inserts: any[] = []; const comboEmp: Record<string, Set<string>> = {}; let ign = 0
         for (const r of raw) {
@@ -623,14 +712,71 @@ export default function RealizadoDadosPage() {
               onClick={() => fileRef.current?.click()}
               onDragOver={e => { e.preventDefault(); setDragOver(true) }}
               onDragLeave={() => setDragOver(false)}
-              onDrop={e => { e.preventDefault(); setDragOver(false); const fs = Array.from(e.dataTransfer.files).filter(f => /\.(xlsx|xls|xlsm|csv)$/i.test(f.name)); if (fs.length) setDropFiles(p => [...p, ...fs]) }}
+              onDrop={e => { e.preventDefault(); setDragOver(false); receber(Array.from(e.dataTransfer.files)) }}
               style={{ border: `2px dashed ${dragOver ? 'var(--violet)' : 'var(--border-strong)'}`, background: dragOver ? 'rgba(139,92,246,0.14)' : 'var(--bg-soft)', borderRadius: 12, padding: '28px 16px', textAlign: 'center', cursor: 'pointer' }}>
               <Upload size={26} style={{ color: dragOver ? 'var(--violet)' : 'var(--muted)' }} />
               <div style={{ marginTop: 8, fontSize: 14, color: 'var(--text-mid)' }}>Arraste os arquivos aqui ou <span style={{ color: 'var(--violet)', fontWeight: 600 }}>clique para selecionar</span></div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>.xlsx — pode soltar vários meses de uma vez</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>.xlsx de um mês, ou o <strong>.zip do ERP</strong> — dele a tela separa os meses sozinha</div>
             </div>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" multiple style={{ display: 'none' }}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => { const fs = Array.from(e.target.files || []); if (fs.length) setDropFiles(p => [...p, ...fs]); e.target.value = '' }} />
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.xlsm,.csv,.zip" multiple style={{ display: 'none' }}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => { receber(Array.from(e.target.files || [])); e.target.value = '' }} />
+
+            {zipFile && (
+              <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <FileArchive size={15} style={{ color: 'var(--violet)' }} />
+                  <strong style={{ fontSize: 13 }}>{zipFile.name}</strong>
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>{(zipFile.size / 1048576).toFixed(1)} MB</span>
+                  <span style={{ flex: 1 }} />
+                  {!zipBusy && !impBusy && <X size={14} style={{ cursor: 'pointer', color: 'var(--red)' }}
+                    onClick={() => { setZipFile(null); setComps([]); setCompSel(new Set()); setZipProg('') }} />}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                  <label style={{ fontSize: 12, color: 'var(--muted)' }}>Perfil:</label>
+                  <select style={S.sel} value={perfilId} disabled={zipBusy || impBusy}
+                    onChange={e => { setPerfilId(e.target.value); setComps([]); setCompSel(new Set()) }}>
+                    {PERFIS.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                  </select>
+                  {!comps.length && <button style={{ ...S.btn, background: 'var(--violet)', color: '#fff', borderColor: 'var(--violet)' }}
+                    disabled={zipBusy || impBusy} onClick={lerZip}>{zipBusy ? 'Lendo…' : 'Ler o arquivo'}</button>}
+                </div>
+                {zipProg && <div style={{ ...S.info, marginTop: 10 }}>{zipProg}</div>}
+                {comps.length > 0 && (
+                  <>
+                    {/* ⚠ O INVENTÁRIO VEM ANTES DA ESCOLHA. Pedir ano e mês de
+                        antemão obriga a saber o que o arquivo tem — e o razão
+                        traz desde 2022. Aqui a tela mostra e a pessoa marca.
+                        ⚠ Nada vem marcado: importar é reescrever competência,
+                        e marcação pré-pronta é a que ninguém confere. */}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{comps.length} competências no arquivo:</span>
+                      <span style={{ fontSize: 11.5, color: 'var(--violet)', cursor: 'pointer' }}
+                        onClick={() => { const u = comps[comps.length - 1]; setCompSel(new Set([u.ano * 100 + u.mes])) }}>só a última</span>
+                      <span style={{ fontSize: 11.5, color: 'var(--violet)', cursor: 'pointer' }}
+                        onClick={() => { const a = comps[comps.length - 1].ano; setCompSel(new Set(comps.filter(c => c.ano === a).map(c => c.ano * 100 + c.mes))) }}>ano de {comps[comps.length - 1].ano}</span>
+                      <span style={{ fontSize: 11.5, color: 'var(--violet)', cursor: 'pointer' }} onClick={() => setCompSel(new Set())}>limpar</span>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8, maxHeight: 160, overflow: 'auto' }}>
+                      {comps.map(c => {
+                        const k = c.ano * 100 + c.mes, on = compSel.has(k)
+                        return (
+                          <button key={k} disabled={zipBusy || impBusy}
+                            onClick={() => setCompSel(p => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n })}
+                            title={`${c.linhas.toLocaleString('pt-BR')} lançamentos`}
+                            style={{ padding: '4px 8px', fontSize: 11.5, borderRadius: 7, cursor: 'pointer',
+                                     border: '1px solid ' + (on ? 'var(--violet)' : 'var(--border-strong)'),
+                                     background: on ? 'rgba(139,92,246,0.16)' : 'transparent',
+                                     color: on ? 'var(--violet)' : 'var(--text-mid)', fontWeight: on ? 700 : 500 }}>
+                            {MESES_ABR[c.mes - 1]}/{String(c.ano).slice(2)}
+                            <span style={{ opacity: .6, marginLeft: 4, fontWeight: 400 }}>{c.linhas > 999 ? `${Math.round(c.linhas / 1000)}k` : c.linhas}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {dropFiles.length > 0 && (
               <div style={{ marginTop: 12, maxHeight: 150, overflow: 'auto', border: '1px solid var(--panel)', borderRadius: 8 }}>
@@ -672,8 +818,12 @@ export default function RealizadoDadosPage() {
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
               {logXlsx && <button style={S.btn} onClick={() => downloadSheets('log_importacao_realizado.xlsx', [{ nome: 'Arquivos', aoa: logXlsx.arq }, { nome: 'Ignorados', aoa: logXlsx.ign }])}><Download size={13} /> Baixar log</button>}
               <button style={S.btn} onClick={() => !impBusy && setImportOpen(false)} disabled={impBusy}>Fechar</button>
-              <button style={{ ...S.btn, background: dropFiles.length && !impBusy ? 'var(--green)' : 'var(--border-strong)', color: '#ffffff', borderColor: 'transparent', cursor: dropFiles.length && !impBusy ? 'pointer' : 'default' }} disabled={!dropFiles.length || impBusy} onClick={() => importarLote(dropFiles)}>
-                {impBusy ? 'Importando…' : `Importar ${dropFiles.length || ''}`}
+              {/* Um botão só: o que ele importa depende do que foi solto. Com o
+                  zip, o número é de MESES marcados — "importar 3" dizendo 3
+                  arquivos quando são 3 meses de um arquivo confunde. */}
+              <button style={{ ...S.btn, background: podeImportar ? 'var(--green)' : 'var(--border-strong)', color: '#ffffff', borderColor: 'transparent', cursor: podeImportar ? 'pointer' : 'default' }}
+                disabled={!podeImportar} onClick={() => (compSel.size ? importarZip() : importarLote(dropFiles.map(f => ({ name: f.name, file: f }))))}>
+                {impBusy || zipBusy ? 'Importando…' : compSel.size ? `Importar ${compSel.size} mês(es)` : `Importar ${dropFiles.length || ''}`}
               </button>
             </div>
           </div>
