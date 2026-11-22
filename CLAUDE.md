@@ -990,6 +990,17 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   descobrir o limite de memória em produção, no dia do fechamento.
   ⚠ O recorte por tenant vai **explícito** no código da função: service role ignora RLS, então
   sem a linha ela entregaria a fonte de outro cliente a quem soubesse o uuid.
+  ⚠⚠ **O PERFIL NÃO TEM DEFAULT quando há mais de um.** Eles diferem no mapa de empresa por item
+  contábil: ler o razão brasileiro com o perfil da Bolívia **passa na conferência de colunas**
+  (são as mesmas) e distribui tudo para as empresas erradas — importação que termina "com
+  sucesso" e põe o ano inteiro no lugar errado. Adivinhar coluna já era proibido aqui; adivinhar
+  perfil é pior. Com um perfil só, escolher não é escolha: seleciona sozinho.
+  ⚠⚠ **O formulário tem canal de erro PRÓPRIO.** A primeira versão escrevia a falha do cadastro
+  em `zipProg`, e essa mensagem só é desenhada **dentro do painel do zip** — sem arquivo
+  carregado, o erro ia para um estado invisível e o *Salvar* parecia não fazer nada (aconteceu
+  no primeiro uso, 22/nov, com a migration ainda não aplicada). Gravação que falha calada é o
+  defeito que este projeto mais persegue; a mensagem de "função não existe" agora diz, em
+  português, que falta rodar a migration.
   ⚠ **A manutenção mora junto do uso** — o cadastro está no próprio modal de importar, não numa
   tela distante. O projeto já pagou duas vezes por motor sem tela de manutenção (áreas
   funcionais, gestor), e quem precisa trocar a senha está ali no dia em que a carga falhou.

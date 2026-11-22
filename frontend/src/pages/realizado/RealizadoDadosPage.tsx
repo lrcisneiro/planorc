@@ -183,7 +183,13 @@ export default function RealizadoDadosPage() {
   // ── zip do ERP
   const [zipFile, setZipFile] = useState<File | null>(null)
   const [zipBuf, setZipBuf] = useState<Uint8Array | null>(null)
-  const [perfilId, setPerfilId] = useState<string>(PERFIS[0]?.id || '')
+  // ⚠⚠ SEM DEFAULT QUANDO HÁ MAIS DE UM PERFIL. Eles diferem no mapa de
+  // empresa por item contábil: ler o razão brasileiro com o perfil da Bolívia
+  // passa na conferência de colunas (são as mesmas) e distribui tudo para as
+  // empresas erradas — importação que termina "com sucesso" e põe o ano
+  // inteiro no lugar errado. Adivinhar coluna já era proibido aqui; adivinhar
+  // perfil é pior. Com um perfil só, escolher não é escolha: seleciona.
+  const [perfilId, setPerfilId] = useState<string>(PERFIS.length === 1 ? PERFIS[0].id : '')
   const [comps, setComps] = useState<Competencia[]>([])
   const [compSel, setCompSel] = useState<Set<number>>(new Set())
   const [zipBusy, setZipBusy] = useState(false)
@@ -192,6 +198,12 @@ export default function RealizadoDadosPage() {
   const [fontes, setFontes] = useState<any[]>([])
   const [fonteId, setFonteId] = useState('')
   const [fonteForm, setFonteForm] = useState<any | null>(null)
+  // ⚠⚠ CANAL DE ERRO PRÓPRIO DO FORMULÁRIO. A primeira versão escrevia a falha
+  // em `zipProg`, e essa mensagem só é desenhada DENTRO do painel do zip — sem
+  // arquivo carregado, o erro ia para um estado invisível e o Salvar parecia
+  // não fazer nada. Gravação que falha calada é o defeito que este projeto
+  // mais persegue; não dá para reintroduzi-lo numa tela nova.
+  const [fonteErro, setFonteErro] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [impBusy, setImpBusy] = useState(false)
   const [impProg, setImpProg] = useState('')
@@ -395,7 +407,7 @@ export default function RealizadoDadosPage() {
   const salvarFonte = async () => {
     const f = fonteForm
     if (!f) return
-    setZipBusy(true); setZipProg('Salvando a fonte…')
+    setZipBusy(true); setFonteErro('')
     try {
       const { data: id, error } = await supabase.rpc('erp_fonte_salvar', {
         p_id: f.id || null, p_nome: f.nome, p_url: f.url_base,
@@ -413,9 +425,14 @@ export default function RealizadoDadosPage() {
       }
       const { data: l } = await supabase.from('erp_fonte')
         .select('id,nome,url_base,usuario,perfil,arquivo,ativo').eq('ativo', true).order('nome')
-      setFontes(l || []); setFonteId(id as string); setFonteForm(null); setZipProg('Fonte salva.')
+      setFontes(l || []); setFonteId(id as string); setFonteForm(null)
     } catch (e: any) {
-      setZipProg('✗ ' + (e?.message || String(e)))
+      // ⚠ "função não existe" é o erro de quem ainda não rodou a migration, e
+      // a mensagem crua do PostgREST não diz isso a ninguém. Traduz.
+      const m = e?.message || String(e)
+      setFonteErro(/does not exist|schema cache|42P01|PGRST202/i.test(m)
+        ? 'O cadastro de fontes ainda não existe no banco: rode a migration schema_v3_196_erp_fonte.sql no SQL Editor.'
+        : m)
     }
     setZipBusy(false)
   }
@@ -827,11 +844,11 @@ export default function RealizadoDadosPage() {
                       <Download size={13} /> {zipBusy ? 'Buscando…' : 'Baixar e ler'}
                     </button>
                     {capImp.papel === 'admin' && <span style={{ fontSize: 11.5, color: 'var(--violet)', cursor: 'pointer' }}
-                      onClick={() => setFonteForm({ ...fontes.find(f => f.id === fonteId), senha: '' })}>editar</span>}
+                      onClick={() => { setFonteErro(''); setFonteForm({ ...fontes.find(f => f.id === fonteId), senha: '' }) }}>editar</span>}
                   </>
                 ) : <span style={{ fontSize: 12, color: 'var(--muted)' }}>Nenhuma fonte cadastrada.</span>}
                 {capImp.papel === 'admin' && <span style={{ fontSize: 11.5, color: 'var(--violet)', cursor: 'pointer' }}
-                  onClick={() => setFonteForm({ nome: '', url_base: '', usuario: '', senha: '', perfil: perfilId, arquivo: '' })}>+ nova</span>}
+                  onClick={() => { setFonteErro(''); setFonteForm({ nome: '', url_base: '', usuario: '', senha: '', perfil: perfilId, arquivo: '' }) }}>+ nova</span>}
               </div>
             )}
 
@@ -857,7 +874,7 @@ export default function RealizadoDadosPage() {
                   <label style={{ fontSize: 11, color: 'var(--muted)' }}>Perfil de conversão
                     <select value={fonteForm.perfil || ''} onChange={e => setFonteForm({ ...fonteForm, perfil: e.target.value })}
                       style={{ ...S.sel, width: '100%', marginTop: 3, display: 'block' }}>
-                      <option value="">—</option>
+                      <option value="">— escolha —</option>
                       {PERFIS.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
                     </select>
                   </label>
@@ -866,6 +883,12 @@ export default function RealizadoDadosPage() {
                   A senha é guardada cifrada no servidor e <strong>nunca volta para a tela</strong> —
                   nem aqui, nem no download. Só <code>https://</code>.
                 </div>
+                {fonteErro && (
+                  <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 8, fontSize: 12.5,
+                                background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', color: 'var(--red)' }}>
+                    ✗ {fonteErro}
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                   <button style={{ ...S.btn, background: 'var(--green)', color: '#fff', borderColor: 'transparent' }}
                     disabled={zipBusy || !fonteForm.nome || !fonteForm.url_base} onClick={salvarFonte}>Salvar</button>
@@ -895,10 +918,11 @@ export default function RealizadoDadosPage() {
                   <label style={{ fontSize: 12, color: 'var(--muted)' }}>Perfil:</label>
                   <select style={S.sel} value={perfilId} disabled={zipBusy || impBusy}
                     onChange={e => { setPerfilId(e.target.value); setComps([]); setCompSel(new Set()) }}>
+                    <option value="">— escolha o perfil —</option>
                     {PERFIS.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
                   </select>
-                  {!comps.length && <button style={{ ...S.btn, background: 'var(--violet)', color: '#fff', borderColor: 'var(--violet)' }}
-                    disabled={zipBusy || impBusy} onClick={lerZip}>{zipBusy ? 'Lendo…' : 'Ler o arquivo'}</button>}
+                  {!comps.length && <button style={{ ...S.btn, background: perfilId ? 'var(--violet)' : 'var(--border-strong)', color: '#fff', borderColor: 'transparent' }}
+                    disabled={zipBusy || impBusy || !perfilId} onClick={lerZip}>{zipBusy ? 'Lendo…' : 'Ler o arquivo'}</button>}
                 </div>
                 {zipProg && <div style={{ ...S.info, marginTop: 10 }}>{zipProg}</div>}
                 {comps.length > 0 && (
