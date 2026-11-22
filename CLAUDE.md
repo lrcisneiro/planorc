@@ -1605,6 +1605,21 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `filtro_escopo` próprio (o agregado por dimensão não o aplica), projeção ligada e recorte de
   empresa entre as duas RPCs. Aparece como linha, igual ao resíduo da ponte.
 
+- **"% EBITDA por empresa" no lugar de "Relatório inteiro por empresa" (22/nov).** O card da
+  esquerda somava as folhas de cada empresa — no escopo "Relatório inteiro" isso **não é número
+  de lugar nenhum da DRE**, o mesmo defeito do gráfico mensal. E pior: ao lado do *EBITDA por
+  empresa*, repetia a leitura — as duas barras maiores eram a mesma empresa pelo mesmo motivo.
+  A margem responde o que o valor não responde: *a maior é também a mais eficiente?*
+  ⚠ Usa a **linha percentual do próprio relatório**, não `EBITDA ÷ receita` calculado aqui: se
+  "% EBITDA" é sobre receita líquida ou bruta é decisão do **cadastro**.
+  ⚠⚠ **`ebNode` pegava a PRIMEIRA linha com "ebitda" no nome** — se `% EBITDA` viesse antes na
+  ordem, o gráfico de VALOR mostraria percentual, em silêncio. Agora cada um é escolhido pelo
+  `formato`, que é o campo que diz isso.
+  ⚠ **Percentual difere em PONTOS percentuais**: o tooltip mostra `pp`, não `%`. "Δ 2,3" sem a
+  unidade seria lido como 2,3% de variação, que é outro número.
+  ⚠ Cai no gráfico antigo quando o relatório não tem linha de % EBITDA (o Balanço) — leitura
+  imperfeita é melhor que card vazio.
+
 - ⚠⚠ **A ORDEM DOS CENÁRIOS É INFORMAÇÃO, e o sort alfabético a jogava fora (v3_198, 22/nov).**
   No Comparativo **o Δ é a 2ª série menos a 1ª** — ordem não é cosmética. `expandirCens`
   ordenava as versões pelo CÓDIGO, então `ORC2027_PRELIM` vinha sempre antes de `Orçado2027`

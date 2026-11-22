@@ -39,14 +39,19 @@ const tipBox: CSSProperties = { background: 'var(--panel)', padding: '8px 10px',
 const corDelta = (d: number, desp?: boolean) => ((desp ? d <= 0 : d >= 0) ? '#2f9e44' : '#e03131')
 
 // tooltip de Orçado × Realizado com Δ (R−O) e separador de milhar. `desp` inverte o bom/ruim do Δ.
-function TipOR({ titulo, data, hint, desp }: { titulo: string; data: any; hint?: string; desp?: boolean }) {
+// ⚠ `pct` não é só formatação: num percentual a diferença se lê em PONTOS
+// percentuais, não em "reais a mais". "Δ 2,3" sem a unidade seria lido como
+// 2,3% de variação — que é outro número.
+function TipOR({ titulo, data, hint, desp, pct }: { titulo: string; data: any; hint?: string; desp?: boolean; pct?: boolean }) {
   const o = Number(data['Orçado'] || 0), r = Number(data['Realizado'] || 0), d = r - o
+  const v = (n: number) => pct ? `${n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : fmt(n)
   return (
     <div style={tipBox}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>{titulo}</div>
-      <div><span style={{ color: 'var(--muted)' }}>Orçado:</span> {fmt(o)}</div>
-      <div><span style={{ color: 'var(--muted)' }}>Realizado:</span> {fmt(r)}</div>
-      <div style={{ color: corDelta(d, desp ?? !!data.desp), fontWeight: 600 }}>Δ (R−O): {fmt(d)}</div>
+      <div><span style={{ color: 'var(--muted)' }}>Orçado:</span> {v(o)}</div>
+      <div><span style={{ color: 'var(--muted)' }}>Realizado:</span> {v(r)}</div>
+      <div style={{ color: corDelta(d, desp ?? !!data.desp), fontWeight: 600 }}>
+        Δ (R−O): {pct ? `${d >= 0 ? '+' : ''}${d.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} pp` : fmt(d)}</div>
       {hint && <div style={{ color: 'var(--muted)', marginTop: 4 }}>{hint}</div>}
     </div>
   )
@@ -188,6 +193,7 @@ export default function DashboardPage() {
   const [filhasMes, setFilhasMes] = useState<any[]>([])
   const [cascata, setCascata] = useState<any[]>([])
   const [porEmpresa, setPorEmpresa] = useState<any[]>([])
+  const [ebitdaPctEmp, setEbitdaPctEmp] = useState<any[]>([])
   const [ebitdaEmp, setEbitdaEmp] = useState<any[]>([])
   const [desvios, setDesvios] = useState<any[]>([])
   // gráficos por Área / Centro de Custo (cruzam CC × natureza da linha)
@@ -300,7 +306,13 @@ export default function DashboardPage() {
       } else if (myseq === loadSeq.current) setIndicCards([])
 
       // orçado/realizado ESCOPADOS ao nó; lineEmp FULL (p/ EBITDA = fórmula do relatório inteiro)
-      const ebNode = linhas.find(l => (l.descricao || '').toLowerCase().includes('ebitda'))
+      // ⚠⚠ O VALOR E O PERCENTUAL SÃO DUAS LINHAS, e o `find` antigo pegava a
+      // PRIMEIRA com "ebitda" no nome — se `% EBITDA` viesse antes na ordem do
+      // relatório, o gráfico de VALOR mostraria percentual, em silêncio.
+      // Agora cada um é escolhido pelo `formato`, que é o campo que diz isso.
+      const ehEbitda = (l: RL) => (l.descricao || '').toLowerCase().includes('ebitda')
+      const ebNode = linhas.find(l => ehEbitda(l) && (l as any).formato !== 'PERCENTUAL')
+      const ebPctNode = linhas.find(l => ehEbitda(l) && (l as any).formato === 'PERCENTUAL')
       const linhasCalc: LinhaCalc[] = linhas.map(l => ({ id: l.id, pai_id: l.pai_id, codigo: l.codigo, tipo_linha: l.tipo_linha, expressao: l.expressao, desativada: l.desativada, nao_soma: l.nao_soma }))
       // dashboard_cc_agg retorna cc×linha×mês (muitas linhas) → PAGINAR pra não truncar no limite do Supabase
       const fetchCcAggAll = async (): Promise<any[]> => {
@@ -537,6 +549,18 @@ export default function DashboardPage() {
           .filter(x => x.Orçado || x.Realizado).sort((a, b) => b.Realizado - a.Realizado).slice(0, 14).reverse()
       }
 
+      // % EBITDA por empresa — a pergunta que o valor não responde: BAURU é a
+      // maior, mas é a mais eficiente? Mesmo motor por empresa do EBITDA ao
+      // lado, só que na linha percentual do próprio relatório: a definição de
+      // "% EBITDA" (sobre receita líquida ou bruta) é do cadastro, não daqui.
+      let ebPct: any[] = []
+      if (ebPctNode) {
+        const r1 = (n: number) => Math.round(n * 10) / 10
+        ebPct = Object.keys(orcEM).filter(id => empSet.has(id))
+          .map(id => ({ empresa: empName[id] || '?', Orçado: r1(evalTot(ebPctNode.id, orcEM[id])), Realizado: r1(evalTot(ebPctNode.id, realEM[id])) }))
+          .filter(x => x.Orçado || x.Realizado).sort((a, b) => b.Realizado - a.Realizado).slice(0, 14).reverse()
+      }
+
       const desv = scopedMasters.map(m => ({ m, conta: descByMaster[m] || '—', d: (realByMaster[m] || 0) - (orcByMaster[m] || 0) }))
         .filter(x => x.d).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 12).reverse().map(x => ({ conta: cut(x.conta, 26), Δ: Math.round(x.d), nodeId: rlOfMaster[x.m] }))
 
@@ -544,7 +568,7 @@ export default function DashboardPage() {
       setKpi({ resOrc: resOrcKpi, resReal: resRealKpi, recOrc: recOF, recReal: recRF, despOrc: despOF, despReal: despRF, resPrev: resPrevKpi, recPrev: recPF, despPrev: despPF, recBrutaOrc: recBrutaOF, recBrutaReal: recBrutaRF, recBrutaPrev: recBrutaPF })
       setOrcRealMes(orMes); setResMes(resMesArr); setAccLines(acc); setComposicao(comps); setCompOcultas(childrenOcultas); setFilhasMes(fMes); setCascata(steps)
       setRecAreaLinhas(recAreaLinhasD); setRecDespLinhas(recDespLinhasD); setRecAreaBar(recAreaBarD); setDespAreaBar(despAreaBarD); setDespCcBar(despCcBarD); setRecCcBar(recCcBarD)
-      setPorEmpresa(pe); setEbitdaEmp(eb); setDesvios(desv)
+      setPorEmpresa(pe); setEbitdaEmp(eb); setEbitdaPctEmp(ebPct); setDesvios(desv)
       setTemDados(Object.keys(omM).length > 0 || Object.keys(rmM).length > 0)
     } catch (e: any) { if (myseq === loadSeq.current) setErro(e?.message ?? String(e)) }
     if (myseq === loadSeq.current) setLoading(false)
@@ -805,6 +829,30 @@ export default function DashboardPage() {
           </div>
 
           <div style={S.grid2}>
+            {/* ⚠⚠ MARGEM, NÃO TAMANHO (22/nov). Aqui ficava "{escopo} por
+                empresa", somando as folhas de cada uma — e no "Relatório
+                inteiro" isso não é número de lugar nenhum da DRE (mesmo
+                defeito do gráfico mensal). Pior: ao lado do EBITDA em valor,
+                ele repetia a mesma leitura — as duas barras maiores eram a
+                mesma empresa, pelo mesmo motivo. O % EBITDA responde o que o
+                valor não responde: BAURU é a maior, mas é a mais eficiente?
+                ⚠ Cai no gráfico antigo quando o relatório não tem linha de %
+                EBITDA (o Balanço, por exemplo) — melhor a leitura imperfeita
+                que um card vazio. */}
+            {ebitdaPctEmp.length ? (
+              <div style={S.card}>
+                <div style={S.cardT}>% EBITDA por empresa <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(margem — orçado × realizado)</span></div>
+                <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: Math.max(220, ebitdaPctEmp.length * 30 + 50) }}>
+                  <ResponsiveBar theme={nivoTheme()} data={ebitdaPctEmp} keys={['Orçado', 'Realizado']} indexBy="empresa" layout="horizontal" groupMode="grouped"
+                    margin={{ top: 6, right: 24, bottom: 30, left: 150 }} padding={0.25} innerPadding={2}
+                    colors={['#9aa0aa', '#3b5bdb']}
+                    axisBottom={{ format: (v: any) => `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%` }}
+                    enableLabel={false} valueFormat={(v: any) => `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`} animate
+                    tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} pct />}
+                    legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
+                </div>
+              </div>
+            ) : (
             <div style={S.card}>
               <div style={S.cardT}>{escopoNome} por empresa</div>
               <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: Math.max(220, porEmpresa.length * 30 + 50) }}>
@@ -816,6 +864,7 @@ export default function DashboardPage() {
                   legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
               </div>
             </div>
+            )}
             <div style={S.card}>
               <div style={S.cardT}>EBITDA por empresa</div>
               {ebitdaEmp.length ? (
