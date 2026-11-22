@@ -1605,6 +1605,26 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `filtro_escopo` próprio (o agregado por dimensão não o aplica), projeção ligada e recorte de
   empresa entre as duas RPCs. Aparece como linha, igual ao resíduo da ponte.
 
+- ⚠⚠ **O PDF cortava card ao meio porque fatiava em alturas IGUAIS (22/nov).** `exportarPdf`
+  rasteriza a tela num PNG e dividia por `h / páginas` — o corte caía onde calhasse. Hoje cada
+  corte **recua para o topo do card que atravessaria**, então as páginas têm alturas diferentes
+  e o total só se conhece depois de calcular.
+  ⚠ **Os cards são medidos DURANTE a captura**, com as barras `data-noexport` já escondidas e as
+  rolagens expandidas: medidos antes, cada um estaria deslocado pela altura da barra de filtros
+  e o corte erraria com ar de acerto.
+  ⚠ **Heurística declarada:** card é quem tem `border-radius >= 8px` e altura >= 36px (o piso
+  tira os botões). Exigir um atributo em toda tela seria mais exato e teria o defeito que este
+  projeto já cometeu três vezes — motor pronto, marcação esquecida na tela nova, defeito de
+  volta sem ninguém entender. `data-bloco` existe como escape explícito e tem precedência.
+  ⚠⚠ **Bloco MAIOR que a página sai da conta.** Recuar por ele é o pior dos mundos, e só o teste
+  mostrou: um card de 600px com página de 300 fazia a página anterior terminar em **100px** e o
+  card era partido do mesmo jeito 300px adiante. Não cabendo, o corte cego é a resposta certa.
+  ⚠ **O recuo tem piso (25% da página)**: sem ele, uma sequência de cards altos geraria páginas
+  com dois dedos de conteúdo.
+  ⚠ `exportarDash.teste.mjs` cobre os 8 casos e **a lógica errou em 2 na primeira escrita** —
+  nenhum dos dois visível lendo o código. Lógica que decide onde cortar papel merece casos
+  escritos, mesmo num projeto sem runner.
+
 - ⚠⚠ **Rótulo de eixo: `fmtEixo` em TODOS, e a varredura achou 21 fora (22/nov).** O drill abria
   com `1.000.0002.000.0003.000.000` colados — o eixo deixava de dizer escala, que é a única
   função dele ali. `lib/fmtEixo.ts` existia desde out/2026 **e só tinha chegado a 3 eixos**,

@@ -70,15 +70,22 @@ function expandirRolagens(el: HTMLElement): Restaurar {
   })
 }
 
-async function paraPng(el: HTMLElement): Promise<{ dataUrl: string; w: number; h: number }> {
+async function paraPng(el: HTMLElement): Promise<{ dataUrl: string; w: number; h: number; blocos: Bloco[] }> {
   const { toPng } = await import(/* @vite-ignore */ CDN_IMG)
   const restaurar: Restaurar[] = [esconderBarras(el), expandirRolagens(el)]
   let dataUrl: string
+  let blocos: Bloco[] = []
   try {
     // mede DEPOIS de esconder/expandir: a largura real pode ter crescido
     void el.offsetHeight
     const largura = Math.max(el.scrollWidth, el.offsetWidth)
     const altura = Math.max(el.scrollHeight, el.offsetHeight)
+    // ⚠ MEDIR AQUI, não antes nem depois: as barras `data-noexport` já estão
+    // escondidas e as rolagens expandidas, então as posições são as MESMAS que
+    // a imagem vai ter. Medido fora deste bloco, cada card estaria deslocado
+    // pela altura da barra de filtros — e o corte cairia no lugar errado com
+    // ar de acerto.
+    blocos = medirBlocos(el, largura, altura)
     dataUrl = await toPng(el, {
       pixelRatio: 2,
       backgroundColor: cssVar('--bg', '#ffffff'),
@@ -91,7 +98,87 @@ async function paraPng(el: HTMLElement): Promise<{ dataUrl: string; w: number; h
     restaurar.reverse().forEach(f => f())
   }
   const img = await carregar(dataUrl)
-  return { dataUrl, w: img.naturalWidth, h: img.naturalHeight }
+  // A escala sai da própria imagem (pixelRatio 2, mas não se supõe): os blocos
+  // foram medidos em px de CSS e o corte acontece em px da imagem.
+  const escala = img.naturalWidth / Math.max(1, el.scrollWidth, el.offsetWidth)
+  return {
+    dataUrl, w: img.naturalWidth, h: img.naturalHeight,
+    blocos: blocos.map(b => ({ y0: b.y0 * escala, y1: b.y1 * escala })),
+  }
+}
+
+/** Um retângulo que não deve ser partido entre páginas. */
+type Bloco = { y0: number; y1: number }
+
+/**
+ * Os cards da tela, em px de CSS relativos ao topo do `el`.
+ *
+ * ⚠⚠ POR HEURÍSTICA, e declarada: o que define "card" neste app é ter canto
+ * arredondado (`S.card`, `S.sec` e `S.panel` usam 10 a 14px). Um atributo
+ * explícito em toda tela seria mais exato e teria o defeito conhecido do
+ * projeto — o motor pronto e a marcação esquecida na tela nova, que então
+ * volta a cortar no meio sem ninguém entender por quê. `data-bloco` existe
+ * como escape para quem quiser ser explícito.
+ *
+ * ⚠ Botão também tem canto arredondado: por isso o piso de altura.
+ */
+function medirBlocos(el: HTMLElement, largura: number, altura: number): Bloco[] {
+  const base = el.getBoundingClientRect()
+  const explicitos = el.querySelectorAll<HTMLElement>('[data-bloco]')
+  const alvos = explicitos.length ? Array.from(explicitos)
+    : Array.from(el.querySelectorAll<HTMLElement>('*')).filter(e => {
+        if (e.offsetParent === null) return false
+        const r = parseFloat(getComputedStyle(e).borderTopLeftRadius) || 0
+        return r >= 8
+      })
+  const out: Bloco[] = []
+  for (const e of alvos) {
+    const r = e.getBoundingClientRect()
+    const y0 = r.top - base.top, y1 = r.bottom - base.top
+    // ⚠ Quem descarta o bloco ALTO DEMAIS é `cortesDePagina`, que conhece a
+    // altura da página — aqui só se sabe a do documento. A primeira versão
+    // filtrava por `altura` e o filtro nunca filtrava nada.
+    if (r.height < 36) continue
+    if (y1 <= 0 || y0 >= altura) continue
+    out.push({ y0, y1 })
+  }
+  void largura
+  return out.sort((a, b) => a.y0 - b.y0)
+}
+
+/**
+ * Onde cortar, em px da imagem. Devolve os limites [0, …, h].
+ *
+ * ⚠ O corte RECUA para o topo do card atravessado — nunca avança. Avançar
+ * deixaria a página anterior maior que o papel, e o excedente sumiria.
+ * ⚠ Recuo com piso: sem ele, uma sequência de cards altos geraria páginas com
+ * dois dedos de conteúdo. Abaixo do piso vale o corte cego, que é o
+ * comportamento antigo — pior que cortar entre cards, melhor que desperdiçar
+ * meia dúzia de páginas.
+ */
+export function cortesDePagina(h: number, maxFatia: number, blocos: Bloco[]): number[] {
+  const PISO = maxFatia * 0.25
+  // ⚠⚠ BLOCO MAIOR QUE A PÁGINA SAI DA CONTA. Recuar por ele é o pior dos
+  // mundos — medido no teste: um card de 600px com página de 300 fazia a
+  // página anterior terminar em 100px e o card era partido do mesmo jeito,
+  // 300px adiante. Não cabendo, o corte cego é a resposta certa.
+  const uteis = blocos.filter(b => b.y1 - b.y0 <= maxFatia)
+  const cortes = [0]
+  let y = 0
+  let guarda = 0
+  while (y < h - 1 && guarda++ < 500) {
+    let fim = Math.min(h, y + maxFatia)
+    if (fim < h) {
+      // O bloco que o corte atravessa — com folga de 1px para não tratar
+      // encostar na borda como atravessar.
+      const corta = uteis.find(b => b.y0 < fim - 1 && b.y1 > fim + 1)
+      if (corta && corta.y0 > y + PISO) fim = Math.floor(corta.y0)
+    }
+    cortes.push(fim)
+    y = fim
+  }
+  if (cortes[cortes.length - 1] < h) cortes.push(h)
+  return cortes
 }
 
 function carregar(src: string): Promise<HTMLImageElement> {
@@ -120,7 +207,7 @@ export async function exportarPng(el: HTMLElement, opts: ExportarOpts) {
 }
 
 export async function exportarPdf(el: HTMLElement, opts: ExportarOpts) {
-  const [{ dataUrl, w, h }, mod] = await Promise.all([paraPng(el), import(/* @vite-ignore */ CDN_PDF)])
+  const [{ dataUrl, w, h, blocos }, mod] = await Promise.all([paraPng(el), import(/* @vite-ignore */ CDN_PDF)])
   const jsPDF = (mod as any).jsPDF || (mod as any).default
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
 
@@ -143,8 +230,14 @@ export async function exportarPdf(el: HTMLElement, opts: ExportarOpts) {
   // Escala para caber na LARGURA; se ficar mais alto que a página, fatia em várias.
   const mmPorPx = areaW / w
   const alturaTotalMm = h * mmPorPx
-  const paginas = Math.max(1, Math.ceil(alturaTotalMm / areaH - 0.001))
-  const fatiaPx = Math.ceil(h / paginas)
+  const maxFatiaPx = areaH / mmPorPx
+
+  // ⚠⚠ AS FATIAS NÃO SÃO MAIS IGUAIS. Antes a altura era `h / páginas` e o
+  // corte caía onde calhasse — no meio de um card, que é o que se vê no PDF.
+  // Agora cada corte recua para o topo do card que ele atravessaria, então as
+  // páginas têm alturas diferentes e o total só se sabe DEPOIS de calcular.
+  const cortes = alturaTotalMm <= areaH + 0.001 ? [0, h] : cortesDePagina(h, maxFatiaPx, blocos)
+  const paginas = cortes.length - 1
 
   if (paginas === 1) {
     cabecalho(1, 1)
@@ -154,14 +247,18 @@ export async function exportarPdf(el: HTMLElement, opts: ExportarOpts) {
     const cv = document.createElement('canvas')
     const ctx = cv.getContext('2d')!
     for (let p = 0; p < paginas; p++) {
-      const y = p * fatiaPx
-      const altPx = Math.min(fatiaPx, h - y)
+      const y = cortes[p]
+      const altPx = cortes[p + 1] - y
+      if (altPx <= 0) continue
       cv.width = w; cv.height = altPx
       ctx.fillStyle = cssVar('--bg', '#ffffff')
       ctx.fillRect(0, 0, w, altPx)
       ctx.drawImage(img, 0, y, w, altPx, 0, 0, w, altPx)
       if (p > 0) pdf.addPage()
       cabecalho(p + 1, paginas)
+      // ⚠ A imagem entra com a ALTURA DELA, não esticada para a página: uma
+      // fatia curta tem de sair curta, senão o conteúdo estica e as páginas
+      // ficam em escalas diferentes.
       pdf.addImage(cv.toDataURL('image/png'), 'PNG', M, topo, areaW, altPx * mmPorPx, undefined, 'FAST')
     }
   }
