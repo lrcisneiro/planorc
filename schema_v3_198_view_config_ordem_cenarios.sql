@@ -56,8 +56,16 @@ SELECT 'alguma com realizado fora do fim?',
                                    WHERE c2 NOT LIKE 'REALIZADO%'))), '0')
 UNION ALL
 SELECT '— ' || vc.nome,
+       -- ⚠ A chave do "ano anterior" é `REALIZADO@-1`, NÃO a string
+       -- "REALIZADO_ANT" — essa é só o nome da constante no TypeScript
+       -- (`REALIZADO + '@-1'`). A primeira versão desta conferência comparou
+       -- com o nome da constante e imprimiu "?" para a visão "Orçado 2027 x
+       -- Realizado 2026". O dado estava certo; o relatório é que mentia.
+       -- ⚠ `REALIZADO@<ano>` (modo ciclo) é GERADO na leitura e nunca gravado,
+       -- mas o padrão cobre caso apareça.
        (SELECT string_agg(CASE WHEN c = 'REALIZADO' THEN 'Realizado'
-                               WHEN c = 'REALIZADO_ANT' THEN 'Real. ano ant.'
+                               WHEN c = 'REALIZADO@-1' THEN 'Real. ano ant.'
+                               WHEN c LIKE 'REALIZADO@%' THEN 'Real. ' || split_part(c, '@', 2)
                                ELSE coalesce(v.codigo, '?') END, '  →  ' ORDER BY ord)
           FROM unnest(vc.cenarios) WITH ORDINALITY AS t(c, ord)
           LEFT JOIN versao_orcamento v ON v.id::text = c)
