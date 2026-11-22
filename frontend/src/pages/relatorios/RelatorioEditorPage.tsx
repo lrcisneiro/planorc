@@ -405,15 +405,23 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const cenVivo = (c: string) =>
     c === REALIZADO || ehRealAno(c) || ehRealAnt(c) || versoes.some(v => v.id === c)
 
+  // ⚠⚠ A ORDEM É A DA MARCAÇÃO, não alfabética (22/nov). O sort antigo
+  // ordenava as versões pelo CÓDIGO, então `ORC2027_PRELIM` vinha sempre antes
+  // de `Orçado2027` por acidente de alfabeto — e no Comparativo a ordem não é
+  // cosmética: **o Δ é a 2ª série menos a 1ª**. Quem queria comparar o
+  // preliminar CONTRA o orçado via o sinal invertido e não tinha como mudar,
+  // porque o seletor é um checkbox e checkbox não expressa ordem.
+  // `toggleCen` já acrescenta no fim, então a intenção sempre esteve gravada —
+  // era o sort que a jogava fora na leitura.
+  // ⚠ Os `REALIZADO@<ano>` do modo ciclo são GERADOS, não escolhidos: esses
+  // entram ordenados por ano, na posição em que o `REALIZADO` estava.
   const expandirCens = (lista: string[]): string[] => {
     const out: string[] = []
     for (const c of lista.filter(cenVivo)) {
-      if (cicloMode && c === REALIZADO) { for (const a of anos) out.push(`${REALIZADO}@${a}`) }
+      if (cicloMode && c === REALIZADO) { for (const a of [...anos].sort((x, y) => x - y)) out.push(`${REALIZADO}@${a}`) }
       else out.push(c)   // REALIZADO_ANT fica como está: o ano é resolvido no rótulo e na carga
     }
-    // ordena: ORÇADO (versões) antes do REALIZADO; alfabético (versão) / por ano (realizado) dentro do grupo
-    const key = (c: string) => ehRealAno(c) ? `1_${anoDeRealAno(c)}` : ehRealAnt(c) ? `1_${anoRealAnt}` : c === REALIZADO ? '1_0' : `0_${versoes.find(v => v.id === c)?.codigo ?? c}`
-    return out.sort((a, b) => key(a).localeCompare(key(b)))
+    return out
   }
   const cenariosExpandidos = useMemo(() => expandirCens(cenariosAtivos), [cenariosAtivos, cicloMode, anos, versoes]) // eslint-disable-line
   // ⚠ Só com `versoes` CARREGADA: durante a carga a lista está vazia e tudo
@@ -2686,6 +2694,18 @@ function LinhaModal({ linha, refLinhas, ccs, somenteLeitura, onClose, onSave }: 
 function ViewModal({ view, versoes, onClose, onSave }: { view: ViewConfig; versoes: Versao[]; onClose: () => void; onSave: (v: ViewConfig) => void }) {
   const [v, setV] = useState<ViewConfig>(view)
   const toggleCen = (k: string) => setV(p => ({ ...p, cenarios: p.cenarios.includes(k) ? p.cenarios.filter(c => c !== k) : [...p.cenarios, k] }))
+  // ⚠ A ordem das colunas É a ordem deste array, e no Comparativo ela decide o
+  // sinal do Δ (2ª − 1ª). O checkbox sozinho não diz ordem nenhuma — por isso
+  // a lista abaixo, que mostra a ordem atual e deixa trocá-la.
+  const moverCen = (i: number, d: -1 | 1) => setV(p => {
+    const a = [...p.cenarios], j = i + d
+    if (j < 0 || j >= a.length) return p
+    ;[a[i], a[j]] = [a[j], a[i]]
+    return { ...p, cenarios: a }
+  })
+  const rotuloCen = (k: string) =>
+    k === REALIZADO ? 'Realizado' : k === REALIZADO_ANT ? 'Realizado (ano anterior)'
+      : (versoes.find(x => x.id === k)?.codigo ?? '—')
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={S.modal} onClick={e => e.stopPropagation()}>
@@ -2731,6 +2751,29 @@ function ViewModal({ view, versoes, onClose, onSave }: { view: ViewConfig; verso
           <label style={S.chk}><input type="checkbox" checked={v.cenarios.includes(REALIZADO)} onChange={() => toggleCen(REALIZADO)} /> Realizado <span style={{ color: 'var(--muted)', fontSize: 11 }}>· do ano do período</span></label>
           <label style={S.chk}><input type="checkbox" checked={v.cenarios.includes(REALIZADO_ANT)} onChange={() => toggleCen(REALIZADO_ANT)} /> Realizado <span style={{ color: 'var(--muted)', fontSize: 11 }}>· do ano ANTERIOR ao do orçamento</span></label>
           <div style={S.help}>Use "ano anterior" para comparar o orçamento novo com o realizado do ano que passou: ele acompanha a versão, então a visão continua certa no ano seguinte sem ser editada.</div>
+
+          {v.cenarios.length > 1 && (
+            <div style={{ marginTop: 12, padding: 10, border: '1px solid var(--border)', borderRadius: 8 }}>
+              <label style={{ ...S.label, marginBottom: 6 }}>Ordem das colunas</label>
+              {v.cenarios.map((k, i) => (
+                <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 13 }}>
+                  <span style={{ width: 18, color: 'var(--muted)', fontSize: 11 }}>{i + 1}ª</span>
+                  <span style={{ flex: 1, color: 'var(--text)' }}>{rotuloCen(k)}</span>
+                  <button onClick={() => moverCen(i, -1)} disabled={i === 0} title="Subir"
+                    style={{ border: '1px solid var(--border-strong)', background: 'transparent', borderRadius: 6, cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? 'var(--border-strong)' : 'var(--violet)', padding: '1px 7px', fontSize: 12 }}>↑</button>
+                  <button onClick={() => moverCen(i, 1)} disabled={i === v.cenarios.length - 1} title="Descer"
+                    style={{ border: '1px solid var(--border-strong)', background: 'transparent', borderRadius: 6, cursor: i === v.cenarios.length - 1 ? 'default' : 'pointer', color: i === v.cenarios.length - 1 ? 'var(--border-strong)' : 'var(--violet)', padding: '1px 7px', fontSize: 12 }}>↓</button>
+                </div>
+              ))}
+              {v.funcao === 'COMPARATIVO' && v.cenarios.length === 2 && (
+                <div style={{ ...S.help, marginTop: 6 }}>
+                  No Comparativo o <b>Δ é a 2ª menos a 1ª</b> — aqui,
+                  {' '}<b>{rotuloCen(v.cenarios[1])} − {rotuloCen(v.cenarios[0])}</b>. Inverta com as setas se o sinal
+                  estiver ao contrário do que você quer ler.
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

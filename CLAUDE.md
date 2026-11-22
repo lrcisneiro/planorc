@@ -1605,6 +1605,25 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `filtro_escopo` próprio (o agregado por dimensão não o aplica), projeção ligada e recorte de
   empresa entre as duas RPCs. Aparece como linha, igual ao resíduo da ponte.
 
+- ⚠⚠ **A ORDEM DOS CENÁRIOS É INFORMAÇÃO, e o sort alfabético a jogava fora (v3_198, 22/nov).**
+  No Comparativo **o Δ é a 2ª série menos a 1ª** — ordem não é cosmética. `expandirCens`
+  ordenava as versões pelo CÓDIGO, então `ORC2027_PRELIM` vinha sempre antes de `Orçado2027`
+  por **acidente de alfabeto**, e quem queria ler o preliminar *contra* o orçado via o sinal
+  invertido sem ter como mudar: o seletor é um **checkbox**, e checkbox não expressa ordem.
+  ⚠ `toggleCen` sempre acrescentou no fim — **a intenção estava gravada o tempo todo**, era a
+  leitura que a descartava. O conserto foi tirar o sort, não criar campo novo.
+  ⚠ **O modal ganhou a lista "Ordem das colunas" com setas**, e ela diz qual Δ sai (`B − A`).
+  Regra que existe e ninguém alcança é regra que não existe — e aqui a tela era justamente o
+  lugar onde a ordem parecia não importar.
+  ⚠⚠ **A migration das visões gravadas é PARCIAL de propósito:** realizado vai para o **fim**
+  (isso não era acidente, é semântica — plano antes de resultado; sem o passo, "O x R Mensal
+  2026", gravada como `{REALIZADO, Orçado2026}`, inverteria sozinha e o usuário descobriria pelo
+  sinal do Δ), mas **entre versões a ordem gravada fica como está** — ali o alfabeto era
+  arbitrário, e devolver a ordem de marcação é o conserto. Reordenar tudo pelo critério antigo
+  seria "preservar" o defeito.
+  ⚠ Os `REALIZADO@<ano>` do modo ciclo são **gerados**, não escolhidos: continuam ordenados por
+  ano, na posição em que o `REALIZADO` estava.
+
 - ⚠⚠ **CENÁRIO ÓRFÃO NA VISÃO FAZIA O Δ SUMIR (v3_197, 22/nov).** A visão "Orçado 2007 x 2027
   Preliminar" parou de mostrar Δ e Δ%: ela guardava **três** cenários, e o do meio era uma versão
   **excluída**. `view_config.cenarios` é `text[]` **sem FK** — nem podia ter, porque o array
