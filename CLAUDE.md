@@ -1605,6 +1605,23 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `filtro_escopo` próprio (o agregado por dimensão não o aplica), projeção ligada e recorte de
   empresa entre as duas RPCs. Aparece como linha, igual ao resíduo da ponte.
 
+- ⚠⚠ **CENÁRIO ÓRFÃO NA VISÃO FAZIA O Δ SUMIR (v3_197, 22/nov).** A visão "Orçado 2007 x 2027
+  Preliminar" parou de mostrar Δ e Δ%: ela guardava **três** cenários, e o do meio era uma versão
+  **excluída**. `view_config.cenarios` é `text[]` **sem FK** — nem podia ter, porque o array
+  mistura id de versão com as chaves especiais `REALIZADO`, `REALIZADO@<ano>` e `REALIZADO_ANT` —,
+  então apagar a versão não limpou nada.
+  ⚠⚠ **O sintoma não apontava para a causa**, e é isso que torna o caso caro: o Δ só existe com
+  **exatamente 2 séries** e o morto contava como terceira. Some a coluna que interessa, aparece
+  uma rotulada `—`, e o modal *Editar visão* mostra **2 marcados** — porque ele itera as versões
+  que existem. O estado inválido era invisível **justamente na tela onde se iria procurar por ele**.
+  **Três pontas:** gatilho `AFTER DELETE` em `versao_orcamento` limpando o array (a exclusão
+  acontece por Cadastros, por `excluir_cenario` e por SQL à mão — regra de tela não alcança
+  nenhum dos três); limpeza do que já estava gravado; e o frontend **descartando na leitura e
+  AVISANDO**. ⚠ Filtrar em silêncio esconderia o problema: a visão voltaria a funcionar e
+  continuaria gravada errada, levando o defeito para todo relatório feito a partir dela.
+  ⚠ O filtro é "**parece uuid E não existe**": só "não existe" removeria `REALIZADO`; só "parece
+  uuid" removeria as versões boas.
+
 - ⚠⚠ **O PDF cortava card ao meio porque fatiava em alturas IGUAIS (22/nov).** `exportarPdf`
   rasteriza a tela num PNG e dividia por `h / páginas` — o corte caía onde calhasse. Hoje cada
   corte **recua para o topo do card que atravessaria**, então as páginas têm alturas diferentes

@@ -20,7 +20,7 @@ import { ConciliacaoFolhaModal } from '../postos/ConciliacaoFolhaModal'
 import type { ConcilParams } from '../postos/ConciliacaoFolha'
 import { nomeCurto } from '../../lib/nomePessoa'
 import { useLocalPref } from '../../lib/uiPrefs'
-import {
+import { AlertTriangle,
   ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Settings2, X,
   Sigma, FunctionSquare, Percent, Minus, Type, Download, Upload, Link2, ChevronsUpDown, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Pencil, Eye, EyeOff, Strikethrough, ListTree, History, RotateCcw, RefreshCw, Save, GitCompareArrows, ListFilter } from 'lucide-react'
 
@@ -390,9 +390,24 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
 
   const anos = useMemo(() => [...new Set(periodosSel.map(p => p.ano))].sort((a, b) => a - b), [periodosSel])
   // No modo overlay, expande 'REALIZADO' em um pseudo-cenário por ano (REALIZADO@2025, @2026…).
+  // ⚠⚠ CENÁRIO ÓRFÃO SAI DA LISTA. `view_config.cenarios` é um array de TEXTO
+  // sem FK: excluir uma versão não limpa as visões que a citavam, e o id morto
+  // fica lá. Dois sintomas, e o segundo é pior que o primeiro:
+  //   1. a coluna aparece rotulada "—" (`cenarioLabel` não acha o código);
+  //   2. o Δ e o Δ% SOMEM, porque eles só existem com exatamente 2 séries —
+  //      e o morto conta como terceira.
+  // ⚠ E o modal mostrava **2 marcados**, porque ele itera as versões que
+  // existem: o estado inválido era invisível justamente na tela onde se iria
+  // procurar por ele. Achado em 22/nov na visão "Orçado 2007 x 2027
+  // Preliminar", que carregava uma versão apagada.
+  // ⚠ `REALIZADO`, `REALIZADO@ano` e `REALIZADO_ANT` NÃO são ids de versão —
+  // filtrá-los aqui apagaria metade das visões do produto.
+  const cenVivo = (c: string) =>
+    c === REALIZADO || ehRealAno(c) || ehRealAnt(c) || versoes.some(v => v.id === c)
+
   const expandirCens = (lista: string[]): string[] => {
     const out: string[] = []
-    for (const c of lista) {
+    for (const c of lista.filter(cenVivo)) {
       if (cicloMode && c === REALIZADO) { for (const a of anos) out.push(`${REALIZADO}@${a}`) }
       else out.push(c)   // REALIZADO_ANT fica como está: o ano é resolvido no rótulo e na carga
     }
@@ -401,6 +416,11 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     return out.sort((a, b) => key(a).localeCompare(key(b)))
   }
   const cenariosExpandidos = useMemo(() => expandirCens(cenariosAtivos), [cenariosAtivos, cicloMode, anos, versoes]) // eslint-disable-line
+  // ⚠ Só com `versoes` CARREGADA: durante a carga a lista está vazia e tudo
+  // pareceria órfão — o aviso piscaria em toda abertura de relatório.
+  const cenOrfaos = useMemo(
+    () => (versoes.length ? cenariosAtivos.filter(c => !cenVivo(c)) : []),
+    [cenariosAtivos, versoes]) // eslint-disable-line
   const periodos: Periodo[] = useMemo(() => {
     const sorted = [...periodosSel].sort((a, b) => perIdx(a) - perIdx(b))
     // modo ciclo: colapsa por MÊS (o ano vem de cada versão) e usa o ano de referência p/ sobrepor
@@ -1855,6 +1875,17 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
               style={{ ...mini, border: '1px solid ' + (verOcultas ? 'var(--blue)' : 'var(--border-strong)'), background: verOcultas ? 'rgba(59,130,246,0.16)' : 'var(--panel)', color: verOcultas ? 'var(--blue)' : 'var(--text-mid)' }}>
               <Eye size={13} /> Ver ocultas
             </button>
+            {/* ⚠ FILTRAR EM SILÊNCIO ESCONDERIA O PROBLEMA. A visão volta a
+                funcionar sozinha, mas ela está gravada errada — e só quem
+                abrir o modal e salvar conserta de vez. Sem esta faixa, o
+                defeito reapareceria em todo relatório novo feito a partir
+                desta visão, sem rastro de por quê. */}
+            {cenOrfaos.length > 0 && (
+              <span title={`Ignorado(s): ${cenOrfaos.join(', ')}`}
+                style={{ ...mini, border: '1px solid var(--orange)', background: 'rgba(251,146,60,0.14)', color: 'var(--orange)', cursor: 'default' }}>
+                <AlertTriangle size={13} /> {cenOrfaos.length} cenário(s) desta visão não existe(m) mais — abra <b>Editar visão</b> e salve
+              </span>
+            )}
             {view.funcao === 'COMPARATIVO' && (
               <button title="Coluna com o valor do delta, além do Δ%. O número é a 2ª série menos a 1ª, como aparecem na tela; a cor é o impacto no resultado — numa despesa, gastar mais fica positivo e vermelho." onClick={() => setShowDeltaVal(v => !v)}
                 style={{ ...mini, border: '1px solid ' + (showDeltaVal ? 'var(--blue)' : 'var(--border-strong)'), background: showDeltaVal ? 'rgba(59,130,246,0.16)' : 'var(--panel)', color: showDeltaVal ? 'var(--blue)' : 'var(--text-mid)' }}>
