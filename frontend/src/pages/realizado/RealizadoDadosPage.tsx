@@ -4,7 +4,7 @@ import { supabase, TENANT_ID } from '../../lib/supabase'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { pageAll } from '../../lib/pageAll'
 import { fimDoMes, taxaRealizada, materializa } from '../../lib/cambio'
-import { FileArchive, Upload, Download, FileDown, AlertCircle, RefreshCw, Trash2, X, Filter } from 'lucide-react'
+import { Cloud, FileArchive, Upload, Download, FileDown, AlertCircle, RefreshCw, Trash2, X, Filter } from 'lucide-react'
 import { useGrid, GridHead } from '../../lib/grid'
 import type { GCol } from '../../lib/grid'
 import { ErpPills } from '../erp/ErpPills'
@@ -188,6 +188,10 @@ export default function RealizadoDadosPage() {
   const [compSel, setCompSel] = useState<Set<number>>(new Set())
   const [zipBusy, setZipBusy] = useState(false)
   const [zipProg, setZipProg] = useState('')
+  // ── fonte de ERP (v3_196 + edge `erp-fonte`)
+  const [fontes, setFontes] = useState<any[]>([])
+  const [fonteId, setFonteId] = useState('')
+  const [fonteForm, setFonteForm] = useState<any | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [impBusy, setImpBusy] = useState(false)
   const [impProg, setImpProg] = useState('')
@@ -333,6 +337,89 @@ export default function RealizadoDadosPage() {
   // Separa o que é planilha do que é zip do ERP. Só UM zip por vez: cada um é
   // um razão inteiro, e dois em memória são 50 MB comprimidos somados ao que
   // a conversão aloca.
+  // ⚠ A MANUTENÇÃO MORA JUNTO DO USO, de propósito. O projeto já pagou duas
+  // vezes por motor sem tela de manutenção (áreas funcionais, gestor): quem
+  // precisa trocar a senha do ERP está exatamente aqui, no dia em que a
+  // importação falhou.
+  useEffect(() => {
+    if (!importOpen) return
+    supabase.from('erp_fonte').select('id,nome,url_base,usuario,perfil,arquivo,ativo')
+      .eq('ativo', true).order('nome')
+      .then(r => {
+        const l = r.data || []
+        setFontes(l)
+        setFonteId(p => p || (l[0]?.id ?? ''))
+      })
+  }, [importOpen])
+
+  const chamarErp = async (payload: Record<string, any>) => {
+    const { data: { session } } = await supabase.auth.getSession()
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/erp-fonte`
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+      body: JSON.stringify(payload),
+    })
+  }
+
+  const baixarDoErp = async () => {
+    const f = fontes.find(x => x.id === fonteId)
+    if (!f) return
+    setZipBusy(true); setComps([]); setCompSel(new Set()); setZipProg(`Buscando ${f.arquivo || 'o arquivo'} em ${f.nome}…`)
+    try {
+      const r = await chamarErp({ acao: 'baixar', fonte_id: f.id, arquivo: f.arquivo || undefined })
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({ erro: `HTTP ${r.status}` }))
+        throw new Error(j.erro || `HTTP ${r.status}`)
+      }
+      const buf = new Uint8Array(await r.arrayBuffer())
+      // Vira um "arquivo" como se tivesse sido arrastado: daí para a frente é
+      // exatamente o mesmo caminho, inventário incluído.
+      const nome = f.arquivo || 'erp.zip'
+      setZipFile(new File([buf], nome, { type: 'application/zip' }))
+      setZipBuf(buf)
+      if (f.perfil && PERFIS.some(p => p.id === f.perfil)) setPerfilId(f.perfil)
+      setZipProg(`${nome} · ${(buf.length / 1048576).toFixed(1)} MB recebidos. Lendo o razão…`)
+      const perfil = PERFIS.find(p => p.id === (f.perfil || perfilId))?.perfil
+      if (perfil) {
+        const inv = await inventariarRazao(buf, perfil, n => setZipProg(`Lendo o razão… ${n.toLocaleString('pt-BR')} lançamentos`))
+        setComps(inv)
+        setZipProg(`${inv.length} competências · ${inv.reduce((a, c) => a + c.linhas, 0).toLocaleString('pt-BR')} lançamentos. Marque o que importar.`)
+      }
+    } catch (e: any) {
+      setZipProg('✗ ' + (e?.message || String(e)))
+    }
+    setZipBusy(false)
+  }
+
+  const salvarFonte = async () => {
+    const f = fonteForm
+    if (!f) return
+    setZipBusy(true); setZipProg('Salvando a fonte…')
+    try {
+      const { data: id, error } = await supabase.rpc('erp_fonte_salvar', {
+        p_id: f.id || null, p_nome: f.nome, p_url: f.url_base,
+        p_usuario: f.usuario || null, p_perfil: f.perfil || null,
+        p_arquivo: f.arquivo || null, p_ativo: true,
+      })
+      if (error) throw error
+      // ⚠ A SENHA VAI POR OUTRO CAMINHO — nunca por RPC. Parâmetro de função
+      // atravessa o PostgREST e pode cair em log de erro; o segredo vai direto
+      // à Edge Function, que o grava no vault com service role.
+      if (f.senha) {
+        const r = await chamarErp({ acao: 'segredo', fonte_id: id, senha: f.senha })
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(j.erro || 'Não foi possível guardar a credencial.')
+      }
+      const { data: l } = await supabase.from('erp_fonte')
+        .select('id,nome,url_base,usuario,perfil,arquivo,ativo').eq('ativo', true).order('nome')
+      setFontes(l || []); setFonteId(id as string); setFonteForm(null); setZipProg('Fonte salva.')
+    } catch (e: any) {
+      setZipProg('✗ ' + (e?.message || String(e)))
+    }
+    setZipBusy(false)
+  }
+
   const receber = (fs: File[]) => {
     const zips = fs.filter(f => /\.zip$/i.test(f.name))
     const plan = fs.filter(f => /\.(xlsx|xls|xlsm|csv)$/i.test(f.name))
@@ -720,6 +807,79 @@ export default function RealizadoDadosPage() {
             </div>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.xlsm,.csv,.zip" multiple style={{ display: 'none' }}
               onChange={(e: ChangeEvent<HTMLInputElement>) => { receber(Array.from(e.target.files || [])); e.target.value = '' }} />
+
+            {/* ── buscar direto no ERP ─────────────────────────────────
+                ⚠ Fica ACIMA do arrastar: quando há fonte cadastrada, baixar à
+                mão passa a ser o caminho de exceção, e a ordem na tela é o que
+                diz isso sem precisar de texto. */}
+            {(fontes.length > 0 || capImp.papel === 'admin') && !fonteForm && (
+              <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 10, padding: 12,
+                            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <Cloud size={15} style={{ color: 'var(--violet)' }} />
+                <strong style={{ fontSize: 13 }}>Buscar no ERP</strong>
+                {fontes.length > 0 ? (
+                  <>
+                    <select style={S.sel} value={fonteId} onChange={e => setFonteId(e.target.value)} disabled={zipBusy || impBusy}>
+                      {fontes.map(f => <option key={f.id} value={f.id}>{f.nome}{f.arquivo ? ` · ${f.arquivo}` : ''}</option>)}
+                    </select>
+                    <button style={{ ...S.btn, background: 'var(--violet)', color: '#fff', borderColor: 'var(--violet)' }}
+                      disabled={zipBusy || impBusy || !fonteId} onClick={baixarDoErp}>
+                      <Download size={13} /> {zipBusy ? 'Buscando…' : 'Baixar e ler'}
+                    </button>
+                    {capImp.papel === 'admin' && <span style={{ fontSize: 11.5, color: 'var(--violet)', cursor: 'pointer' }}
+                      onClick={() => setFonteForm({ ...fontes.find(f => f.id === fonteId), senha: '' })}>editar</span>}
+                  </>
+                ) : <span style={{ fontSize: 12, color: 'var(--muted)' }}>Nenhuma fonte cadastrada.</span>}
+                {capImp.papel === 'admin' && <span style={{ fontSize: 11.5, color: 'var(--violet)', cursor: 'pointer' }}
+                  onClick={() => setFonteForm({ nome: '', url_base: '', usuario: '', senha: '', perfil: perfilId, arquivo: '' })}>+ nova</span>}
+              </div>
+            )}
+
+            {fonteForm && (
+              <div style={{ marginTop: 12, border: '1px solid var(--violet)', borderRadius: 10, padding: 12 }}>
+                <strong style={{ fontSize: 13 }}>{fonteForm.id ? 'Editar fonte' : 'Nova fonte do ERP'}</strong>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+                  {([['nome', 'Nome', 'GoodData — stage'], ['url_base', 'URL da pasta', 'https://…/today/'],
+                     ['usuario', 'Usuário', 'e-mail'], ['arquivo', 'Arquivo', 'PLANORC.zip']] as const).map(([k, rot, ph]) => (
+                    <label key={k} style={{ fontSize: 11, color: 'var(--muted)' }}>{rot}
+                      <input value={fonteForm[k] || ''} placeholder={ph} onChange={e => setFonteForm({ ...fonteForm, [k]: e.target.value })}
+                        style={{ ...S.sel, width: '100%', marginTop: 3, display: 'block' }} />
+                    </label>
+                  ))}
+                  <label style={{ fontSize: 11, color: 'var(--muted)' }}>Senha
+                    {/* ⚠ Nunca vem preenchida: a credencial guardada NÃO volta
+                        do servidor, em nenhuma hipótese. Em branco = manter. */}
+                    <input type="password" value={fonteForm.senha || ''} autoComplete="new-password"
+                      placeholder={fonteForm.id ? '(em branco mantém a atual)' : ''}
+                      onChange={e => setFonteForm({ ...fonteForm, senha: e.target.value })}
+                      style={{ ...S.sel, width: '100%', marginTop: 3, display: 'block' }} />
+                  </label>
+                  <label style={{ fontSize: 11, color: 'var(--muted)' }}>Perfil de conversão
+                    <select value={fonteForm.perfil || ''} onChange={e => setFonteForm({ ...fonteForm, perfil: e.target.value })}
+                      style={{ ...S.sel, width: '100%', marginTop: 3, display: 'block' }}>
+                      <option value="">—</option>
+                      {PERFIS.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+                  A senha é guardada cifrada no servidor e <strong>nunca volta para a tela</strong> —
+                  nem aqui, nem no download. Só <code>https://</code>.
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <button style={{ ...S.btn, background: 'var(--green)', color: '#fff', borderColor: 'transparent' }}
+                    disabled={zipBusy || !fonteForm.nome || !fonteForm.url_base} onClick={salvarFonte}>Salvar</button>
+                  <button style={S.btn} onClick={() => setFonteForm(null)} disabled={zipBusy}>Cancelar</button>
+                  {fonteForm.id && <button style={{ ...S.btn, color: 'var(--red)' }} disabled={zipBusy}
+                    onClick={async () => {
+                      if (!confirm(`Excluir a fonte "${fonteForm.nome}"? A credencial guardada vai junto.`)) return
+                      await supabase.rpc('erp_fonte_excluir', { p_id: fonteForm.id })
+                      const { data: l } = await supabase.from('erp_fonte').select('id,nome,url_base,usuario,perfil,arquivo,ativo').eq('ativo', true).order('nome')
+                      setFontes(l || []); setFonteId(l?.[0]?.id || ''); setFonteForm(null)
+                    }}>Excluir</button>}
+                </div>
+              </div>
+            )}
 
             {zipFile && (
               <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>

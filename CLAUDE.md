@@ -966,6 +966,34 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   usuário baixa o zip pelo link e solta na tela, então **nenhuma credencial entra no Planorc**.
   ⚠ O `scripts/realizado.sh` **continua funcionando** e é a contingência.
 
+  ⚠⚠ **FONTE DE ERP: a credencial NUNCA toca o navegador (`v3_196`, 22/nov).** Fechado o último
+  passo manual — a tela busca o arquivo no ponto de entrega do cliente (hoje a área de stage do
+  GoodData) e segue para o mesmo inventário/importação.
+  **Duas coisas tornavam o desenho óbvio impossível:** (1) o Planorc fala com o banco pelo cliente
+  JS, então **uma coluna `senha` numa tabela seria publicá-la** para todo mundo que alcança a tela
+  — RLS decide *quem* lê, não impede quem pode ler de ver; e (2) **o servidor do ERP não tem
+  CORS** (medido), então o `fetch` do navegador morre antes de sair. As duas se resolvem com o
+  mesmo remédio: a Edge Function **`erp-fonte`** fala com o ERP, com service role.
+  ⚠ `erp_fonte` guarda `secret_id`, nunca a senha; o segredo vive no **`vault`**.
+  ⚠⚠ **O schema `vault` não é exposto pelo PostgREST**, daí as pontes `erp_segredo_gravar` /
+  `erp_segredo_ler` em `public`. **`erp_segredo_ler` devolve a senha em claro — é a função mais
+  perigosa do banco** e só `service_role` a executa: o `REVOKE` de `PUBLIC` vem **antes** do
+  `GRANT`, porque toda função nasce com EXECUTE para `PUBLIC` e é por aí que um privilégio vaza
+  sem ninguém conceder nada.
+  ⚠ **A senha não entra por RPC**: parâmetro de função atravessa o PostgREST e pode cair em log
+  de erro. Cadastro vai por RPC (`erp_fonte_salvar`), segredo vai direto à Edge Function. Dois
+  caminhos de propósito. E a senha **nunca volta** — o campo abre vazio, em branco mantém a atual.
+  ⚠ **Escrita da tabela fechada no GRANT**, não só na RPC (v3_174/v3_190): trocar a `url_base` por
+  `PATCH` seria apontar o Planorc para outro lugar. `https://` é exigido — Basic em claro entrega
+  a credencial a quem estiver no caminho.
+  ⚠ **Download é passthrough de stream**, nunca `arrayBuffer()` na função: 25 MB bufferizados é
+  descobrir o limite de memória em produção, no dia do fechamento.
+  ⚠ O recorte por tenant vai **explícito** no código da função: service role ignora RLS, então
+  sem a linha ela entregaria a fonte de outro cliente a quem soubesse o uuid.
+  ⚠ **A manutenção mora junto do uso** — o cadastro está no próprio modal de importar, não numa
+  tela distante. O projeto já pagou duas vezes por motor sem tela de manutenção (áreas
+  funcionais, gestor), e quem precisa trocar a senha está ali no dia em que a carga falhou.
+
   **Importação como padrão, não como caso (nov/2026).** O alvo é receber de **mais de um ERP**, e
   nome de coluna é a primeira coisa que muda entre eles. Três partes separadas:
   `lerPlanilha` (`lib/planilha.ts`, ao lado do `downloadSheet` — ler e escrever planilha moram
