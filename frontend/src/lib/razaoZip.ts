@@ -242,6 +242,11 @@ export async function inventariarRazao(buf: Uint8Array, perfil: PerfilRazao,
   const { contagem } = await varrer(buf, { perfil, onProgresso })
   return [...contagem.entries()]
     .map(([k, linhas]) => ({ ano: Math.floor(k / 100), mes: k % 100, linhas }))
+    // ⚠ CRONOLÓGICO. Inverter parecia resolver "o mês de hoje está no fim da
+    // lista" e põe coisa pior no topo: o razão traz PROVISÃO ADIANTADA —
+    // jan/27 a jul/27 com 14, 14, 10, 4, 4, 4 e 4 lançamentos —, então o
+    // decrescente abre com sete competências de resíduo. Quem resolve é a tela,
+    // rolando até o mês corrente.
     .sort((a, b) => (a.ano - b.ano) || (a.mes - b.mes))
 }
 

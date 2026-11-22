@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent } from 'react'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { useCapacidades } from '../../hooks/useCapacidades'
@@ -204,6 +204,10 @@ export default function RealizadoDadosPage() {
   // não fazer nada. Gravação que falha calada é o defeito que este projeto
   // mais persegue; não dá para reintroduzi-lo numa tela nova.
   const [fonteErro, setFonteErro] = useState('')
+  // ⚠ A lista é cronológica e tem 67 itens; o mês de hoje fica no fim. Em vez
+  // de inverter a ordem — que traria a provisão adiantada de 2027 para o topo
+  // — a tela ROLA até ele. A ordem continua a natural para ler uma série.
+  const compAtualRef = useRef<HTMLButtonElement | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [impBusy, setImpBusy] = useState(false)
   const [impProg, setImpProg] = useState('')
@@ -443,6 +447,18 @@ export default function RealizadoDadosPage() {
     if (plan.length) setDropFiles(p => [...p, ...plan])
     if (zips.length) { setZipFile(zips[0]); setZipBuf(null); setComps([]); setCompSel(new Set()); setZipProg('') }
   }
+
+  // A competência de hoje, com queda para a última do arquivo quando ela não
+  // está lá — importar fechamento antigo é legítimo e a tela não pode travar.
+  const compHoje = useMemo(() => {
+    const d = new Date(), k = d.getFullYear() * 100 + (d.getMonth() + 1)
+    return comps.find(c => c.ano * 100 + c.mes === k)
+        || comps[comps.length - 1] || { ano: d.getFullYear(), mes: d.getMonth() + 1, linhas: 0 }
+  }, [comps])
+
+  useEffect(() => {
+    if (comps.length) compAtualRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [comps])
 
   const perfilAtual = () => PERFIS.find(p => p.id === perfilId)?.perfil
   const podeImportar = !impBusy && !zipBusy && (compSel.size > 0 || dropFiles.length > 0)
@@ -934,23 +950,35 @@ export default function RealizadoDadosPage() {
                         e marcação pré-pronta é a que ninguém confere. */}
                     <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                       <span style={{ fontSize: 12, color: 'var(--muted)' }}>{comps.length} competências no arquivo:</span>
+                      {/* ⚠⚠ O ATALHO SAI DO CALENDÁRIO, NÃO DO FIM DO ARQUIVO.
+                          "a última competência" parecia óbvio e apontava para o
+                          RESÍDUO: o razão traz provisão adiantada até jul/27, e
+                          o botão oferecia "ano de 2027" — exatamente o que
+                          ninguém importa. O que se importa é o mês de hoje. */}
                       <span style={{ fontSize: 11.5, color: 'var(--violet)', cursor: 'pointer' }}
-                        onClick={() => { const u = comps[comps.length - 1]; setCompSel(new Set([u.ano * 100 + u.mes])) }}>só a última</span>
+                        onClick={() => setCompSel(new Set([compHoje.ano * 100 + compHoje.mes]))}>
+                        {MESES_ABR[compHoje.mes - 1]}/{String(compHoje.ano).slice(2)}
+                      </span>
                       <span style={{ fontSize: 11.5, color: 'var(--violet)', cursor: 'pointer' }}
-                        onClick={() => { const a = comps[comps.length - 1].ano; setCompSel(new Set(comps.filter(c => c.ano === a).map(c => c.ano * 100 + c.mes))) }}>ano de {comps[comps.length - 1].ano}</span>
+                        onClick={() => setCompSel(new Set(comps.filter(c => c.ano === compHoje.ano).map(c => c.ano * 100 + c.mes)))}>
+                        ano de {compHoje.ano}
+                      </span>
                       <span style={{ fontSize: 11.5, color: 'var(--violet)', cursor: 'pointer' }} onClick={() => setCompSel(new Set())}>limpar</span>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8, maxHeight: 160, overflow: 'auto' }}>
                       {comps.map(c => {
                         const k = c.ano * 100 + c.mes, on = compSel.has(k)
+                        const ehHoje = k === compHoje.ano * 100 + compHoje.mes
                         return (
                           <button key={k} disabled={zipBusy || impBusy}
+                            ref={ehHoje ? compAtualRef : undefined}
                             onClick={() => setCompSel(p => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n })}
                             title={`${c.linhas.toLocaleString('pt-BR')} lançamentos`}
                             style={{ padding: '4px 8px', fontSize: 11.5, borderRadius: 7, cursor: 'pointer',
                                      border: '1px solid ' + (on ? 'var(--violet)' : 'var(--border-strong)'),
                                      background: on ? 'rgba(139,92,246,0.16)' : 'transparent',
-                                     color: on ? 'var(--violet)' : 'var(--text-mid)', fontWeight: on ? 700 : 500 }}>
+                                     color: on ? 'var(--violet)' : ehHoje ? 'var(--text)' : 'var(--text-mid)',
+                                     fontWeight: on || ehHoje ? 700 : 500 }}>
                             {MESES_ABR[c.mes - 1]}/{String(c.ano).slice(2)}
                             <span style={{ opacity: .6, marginLeft: 4, fontWeight: 400 }}>{c.linhas > 999 ? `${Math.round(c.linhas / 1000)}k` : c.linhas}</span>
                           </button>

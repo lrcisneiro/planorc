@@ -990,6 +990,16 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   descobrir o limite de memória em produção, no dia do fechamento.
   ⚠ O recorte por tenant vai **explícito** no código da função: service role ignora RLS, então
   sem a linha ela entregaria a fonte de outro cliente a quem soubesse o uuid.
+  ⚠⚠ **"A ÚLTIMA COMPETÊNCIA DO ARQUIVO" NÃO É O MÊS CORRENTE, e o atalho apontava para o
+  resíduo.** O razão traz **provisão adiantada**: medido no `PLANORC.zip` de 22/nov, jan/27 a
+  jul/27 têm 14 · 14 · 10 · 4 · 4 · 4 · 4 lançamentos. O botão oferecia *"ano de 2027"* — o que
+  ninguém importa. Hoje o atalho sai do **calendário** (o mês de hoje, caindo para a última do
+  arquivo quando ele não está lá, porque importar fechamento antigo é legítimo).
+  ⚠ E **inverter a lista não resolve, piora**: decrescente abre com as sete competências de
+  resíduo. A lista fica **cronológica** — a ordem natural de uma série — e quem resolve é a tela,
+  que **rola até o mês corrente** e o deixa em negrito. Achado no primeiro uso real: o arquivo
+  tem 67 competências e nov/26 estava depois de 60 pílulas.
+
   ⚠⚠ **O PERFIL NÃO TEM DEFAULT quando há mais de um.** Eles diferem no mapa de empresa por item
   contábil: ler o razão brasileiro com o perfil da Bolívia **passa na conferência de colunas**
   (são as mesmas) e distribui tudo para as empresas erradas — importação que termina "com
