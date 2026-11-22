@@ -163,6 +163,12 @@ export default function DashboardPage() {
   })
 
   const [escopoNome, setEscopoNome] = useState('Relatório inteiro')
+  // ⚠ O NOME DA LINHA QUE O GRÁFICO DESENHA. Não é o `escopoNome`: sem linha
+  // agrupadora o escopo é "Relatório inteiro", mas as barras mostram o
+  // Resultado Líquido — e um título que diz "relatório inteiro" sobre um
+  // número que é o resultado é a mesma classe de erro que o gráfico tinha
+  // antes, só que no texto.
+  const [nomeGraf, setNomeGraf] = useState('')
   const [escopoDesp, setEscopoDesp] = useState(false)   // natureza do escopo: despesa → inverte bom/ruim do Δ
   const [kpi, setKpi] = useState({ resOrc: 0, resReal: 0, recOrc: 0, recReal: 0, despOrc: 0, despReal: 0, resPrev: 0, recPrev: 0, despPrev: 0, recBrutaOrc: 0, recBrutaReal: 0, recBrutaPrev: 0 })
   const [orcRealMes, setOrcRealMes] = useState<any[]>([])
@@ -353,6 +359,32 @@ export default function DashboardPage() {
         }
       }
 
+      // ⚠⚠ O GRÁFICO PASSA A LER O NÓ, NÃO A SOMA DAS FOLHAS (22/nov).
+      // A soma de `leaves` exclui `tipo_linha` FORMULA e INDICADOR — são 14
+      // linhas com master nesta DRE —, e a mais cara delas é o `IRPJ/CSLL`
+      // (`=[…]*0,1520`). Resultado medido: as barras mostravam 25.049.791 de
+      // orçado e o cartão ao lado 21.124.823, **diferindo exatamente pelo
+      // imposto sobre o resultado**; no realizado, 20.477.541 contra
+      // 17.261.200, de novo o imposto (3.216.341).
+      // O cartão sempre esteve certo porque lê o NÓ pelo motor; as barras
+      // somavam folhas. Duas definições de "o resultado" na mesma tela, e a
+      // que aparecia maior era a errada.
+      // ⚠ A mecânica não é nova: a linha laranja já lia `cReal[resNode.id]`
+      // por período desde sempre — era só as barras fazerem o mesmo.
+      // ⚠ Sem nó identificável (relatório sem "Resultado Líquido"), mantém a
+      // soma das folhas: melhor um gráfico aproximado que um gráfico vazio.
+      // Subiu de lugar: o gráfico passou a precisar dele antes dos KPIs.
+      const resNode = linhas.find(l => norm(l.descricao).includes('resultado liquido'))
+      const noGraf = agrup || resNode?.id || null
+      setNomeGraf(noGraf ? (byId[noGraf]?.descricao || escopoNome) : escopoNome)
+      if (noGraf && (cOrc[noGraf] || cReal[noGraf])) {
+        for (const p of periodos) {
+          const k = pkey(p)
+          omM[p.mes] = cOrc[noGraf]?.[k] || 0
+          rmM[p.mes] = cReal[noGraf]?.[k] || 0
+        }
+      }
+
       // EXIBIÇÃO: despesa mostrada positiva (dado continua com sinal p/ cálculo). Fator pela natureza.
       const natFac = (n: string) => n === 'DESPESA' ? -1 : 1
       const nodeFac = agrup ? natFac(natOfLine(agrup) || '') : 1
@@ -385,7 +417,6 @@ export default function DashboardPage() {
           if (!redutoraByMaster[l.linha_orc_id!]) { recBrutaOF += tOrc[l.id] || 0; recBrutaRF += tReal[l.id] || 0 }  // bruta (sem redutoras)
         } else if (nat === 'DESPESA') { despOF += tOrc[l.id] || 0; despRF += tReal[l.id] || 0 }
       }
-      const resNode = linhas.find(l => norm(l.descricao).includes('resultado liquido'))
       const resOrcKpi = resNode ? (tOrc[resNode.id] || 0) : leaves.reduce((s, l) => s + (tOrc[l.id] || 0), 0)
       const resRealKpi = resNode ? (tReal[resNode.id] || 0) : leaves.reduce((s, l) => s + (tReal[l.id] || 0), 0)
       // ano anterior (mesma lógica de resultado/receita/despesa, sobre o realizado de anos-1)
@@ -399,7 +430,12 @@ export default function DashboardPage() {
       // Resultado Líquido realizado por mês (linha sobreposta no gráfico Orçado × Realizado)
       const resByMesN: Record<number, number> = {}
       if (resNode) for (const p of periodos) resByMesN[p.mes] = (resByMesN[p.mes] || 0) + (cReal[resNode.id]?.[pkey(p)] || 0)
-      const resMesArr = meses.map(m => ({ mes: MESES[m - 1], res: Math.round(resByMesN[m] || 0) }))
+      // ⚠ A linha laranja some quando as BARRAS já são o Resultado Líquido —
+      // isto é, no escopo "Relatório inteiro". Ela existe para comparar o
+      // resultado contra o recorte que está sendo olhado; sobre ele mesmo,
+      // desenharia exatamente em cima da barra azul e viraria enfeite.
+      const resMesArr = (noGraf && resNode && noGraf === resNode.id) ? []
+        : meses.map(m => ({ mes: MESES[m - 1], res: Math.round(resByMesN[m] || 0) }))
 
       // ── Gráficos por Área / Centro de Custo (dashboard_cc_agg → cc_id × linha × mês) ──
       // mesmos masters que o card/engine contam (folhas analíticas válidas: exclui desativada/não-soma)
@@ -708,7 +744,14 @@ export default function DashboardPage() {
 
           <div style={S.grid2}>
             <div style={S.card}>
-              <div style={S.cardT}>Orçado × Realizado por mês <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(clique no mês p/ detalhar)</span> <span style={{ fontSize: 11, fontWeight: 600, color: '#f59f00' }}>— linha: Resultado Líquido</span></div>
+              {/* ⚠ O cartão DIZ de que linha ele fala. Antes era só "Orçado ×
+                  Realizado por mês", e as barras somavam folhas — então o
+                  número não era o de lugar nenhum da DRE. Agora é o nó, e o
+                  nome dele fica no título: um gráfico de resultado tem de
+                  declarar qual resultado. */}
+              <div style={S.cardT}>{nomeGraf || escopoNome} — orçado × realizado por mês{' '}
+                <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(clique no mês p/ detalhar)</span>
+                {resMes.length > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: '#f59f00' }}> — linha: Resultado Líquido</span>}</div>
               <div style={S.chart}>
                 <ResponsiveBar theme={nivoTheme()} data={orcRealMes} keys={['Orçado', 'Realizado']} indexBy="mes" groupMode="grouped"
                   margin={{ top: 18, right: 10, bottom: 40, left: 56 }} padding={0.25} innerPadding={2}

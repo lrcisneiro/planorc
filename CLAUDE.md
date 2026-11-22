@@ -1605,6 +1605,28 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `filtro_escopo` próprio (o agregado por dimensão não o aplica), projeção ligada e recorte de
   empresa entre as duas RPCs. Aparece como linha, igual ao resíduo da ponte.
 
+- ⚠⚠ **GRÁFICO QUE SOMA FOLHAS NÃO É A LINHA DO RELATÓRIO (22/nov).** No acompanhamento, o
+  cartão *Orçado × Realizado por mês* somava `leaves` — as folhas **ANALITICAS** com master —,
+  enquanto o KPI ao lado lia o **nó** `Resultado Líquido` pelo motor. Duas definições de "o
+  resultado" na mesma tela, e **a maior era a errada**: a soma de folhas ignora `tipo_linha`
+  FORMULA e INDICADOR, que são **14 linhas com master** nesta DRE — a mais cara delas o
+  `IRPJ/CSLL` (`=[…]*0,1520`).
+  Medido: barras 25.049.791 × cartão 21.124.823 no orçado, e 20.477.541 × 17.261.200 no
+  realizado — **a diferença é exatamente o imposto sobre o resultado** nos dois casos
+  (3.924.968 e 3.216.341). Confere pela própria DRE:
+  `EBITDA − resultado financeiro − impostos = Resultado Líquido`.
+  Hoje as barras leem o **mesmo nó** do cartão (`cOrc[no]?.[periodo]`), mecânica que a linha
+  laranja já usava desde sempre — era só as barras fazerem igual.
+  ⚠ **Não eram as desativadas**, que foi a primeira suspeita e vale registrar como descartada:
+  há 4 linhas desativadas com master e o orçado delas é **zero**; além disso `leaves` já filtra
+  `desativada`.
+  ⚠ **A linha laranja some no escopo inteiro**: com as barras já sendo o Resultado Líquido, ela
+  desenharia em cima da barra azul.
+  ⚠ **O título passou a nomear o NÓ**, não o escopo: sem linha agrupadora o escopo é "Relatório
+  inteiro" e as barras são o Resultado Líquido — dizer "relatório inteiro" seria repetir o mesmo
+  erro no texto. Sem nó identificável, mantém a soma das folhas: gráfico aproximado é melhor que
+  gráfico vazio.
+
 - ⚠⚠ **Seções no seletor: "só esta" × "as filhas", e NUNCA as duas (nov/2026).** O atalho óbvio
   — marcar a subárvore inteira de uma seção — pouparia cliques e **quebraria a ponte por
   construção**: subtotal junto com filha conta a mesma variação duas vezes, que é o primeiro
