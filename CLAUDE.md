@@ -1605,6 +1605,24 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `filtro_escopo` próprio (o agregado por dimensão não o aplica), projeção ligada e recorte de
   empresa entre as duas RPCs. Aparece como linha, igual ao resíduo da ponte.
 
+- ⚠⚠ **Rótulo de eixo: `fmtEixo` em TODOS, e a varredura achou 21 fora (22/nov).** O drill abria
+  com `1.000.0002.000.0003.000.000` colados — o eixo deixava de dizer escala, que é a única
+  função dele ali. `lib/fmtEixo.ts` existia desde out/2026 **e só tinha chegado a 3 eixos**,
+  enquanto o próprio arquivo avisava "ao mexer em eixo de gráfico, usar este".
+  Medido na varredura: **`fmtK` em 18** (`DashboardPage` e `BalancoDashboardPage`, com a função
+  **copiada literalmente** nos dois — divide por mil sempre, então 13,7 milhões viravam
+  `13.770k`), **`fmt` cheio em 3** (os dois eixos Y do *Orçamento — análise* e o drill) e `fmtC`
+  no Comparativo.
+  ⚠ **Nem tudo virou `fmtEixo`, e as exceções têm razão:** o eixo do CAGR é **percentual**; e o
+  `fmtC` formata conforme o **tipo da linha** — hoje ele mantém `formatValor` no percentual (onde
+  "12,4%" é a informação) e delega o resto. ⚠ `fmtRow` **não** foi tocado: ele serve ao eixo
+  **e à tabela**, e na tabela o valor cheio é o certo.
+  ⚠ **Um uso de `fmtK` sobreviveu, renomeado para `fmtPonto`**: o valor escrito SOBRE o ponto da
+  linha, onde a precisão importa para comparar meses — `1.536k` distingue o que `1,5 mi` achata.
+  O nome passou a dizer o papel, que é o que impedia de notar a diferença.
+  **A lição é a do padrão do erro:** função utilitária criada para unificar não unifica sozinha —
+  ou se varre tudo no mesmo passo, ou nasce a quarta convenção.
+
 - ⚠⚠ **GRÁFICO QUE SOMA FOLHAS NÃO É A LINHA DO RELATÓRIO (22/nov).** No acompanhamento, o
   cartão *Orçado × Realizado por mês* somava `leaves` — as folhas **ANALITICAS** com master —,
   enquanto o KPI ao lado lia o **nó** `Resultado Líquido` pelo motor. Duas definições de "o

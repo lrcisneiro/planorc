@@ -7,6 +7,7 @@ import { escopoFiltro, useMoedaView, MoedaSelect, ExportarButton } from '../dash
 import { computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
+import { fmtEixo } from '../../lib/fmtEixo'
 import { nivoTheme } from '../../lib/nivoTheme'
 import { ResponsiveLine } from '@nivo/line'
 import { Link } from 'react-router-dom'
@@ -16,7 +17,6 @@ const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'O
 const ANOS = [2024, 2025, 2026, 2027, 2028]
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 const fmt = (v: number | null) => v == null || !isFinite(v) ? '—' : Math.round(v).toLocaleString('pt-BR')
-const fmtK = (v: number) => Math.abs(v) >= 1000 ? (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + 'k' : String(Math.round(v))
 const rat = (v: number | null) => v == null || !isFinite(v) ? '—' : v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const pct = (v: number | null) => v == null || !isFinite(v) ? '—' : (v * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%'
 const dias = (v: number | null) => v == null || !isFinite(v) ? '—' : Math.round(v) + ' d'
@@ -329,13 +329,13 @@ export default function BalancoDashboardPage() {
             <div style={S.chart}>
               <div style={S.chartT}>Composição do Ativo</div>
               <div style={{ height: Math.max(200, compAtivo.length * 34 + 40) }}>
-                <ResponsiveBar theme={nivoTheme()} data={compAtivo} keys={['valor']} indexBy="grupo" layout="horizontal" margin={{ top: 6, right: 20, bottom: 24, left: 150 }} padding={0.3} colors={['#3b5bdb']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate />
+                <ResponsiveBar theme={nivoTheme()} data={compAtivo} keys={['valor']} indexBy="grupo" layout="horizontal" margin={{ top: 6, right: 20, bottom: 24, left: 150 }} padding={0.3} colors={['#3b5bdb']} axisBottom={{ format: (v: any) => fmtEixo(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate />
               </div>
             </div>
             <div style={S.chart}>
               <div style={S.chartT}>Composição do Passivo + PL</div>
               <div style={{ height: Math.max(200, compPassivo.length * 34 + 40) }}>
-                <ResponsiveBar theme={nivoTheme()} data={compPassivo} keys={['valor']} indexBy="grupo" layout="horizontal" margin={{ top: 6, right: 20, bottom: 24, left: 150 }} padding={0.3} colors={['#e8590c']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate />
+                <ResponsiveBar theme={nivoTheme()} data={compPassivo} keys={['valor']} indexBy="grupo" layout="horizontal" margin={{ top: 6, right: 20, bottom: 24, left: 150 }} padding={0.3} colors={['#e8590c']} axisBottom={{ format: (v: any) => fmtEixo(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate />
               </div>
             </div>
           </div>
@@ -343,7 +343,7 @@ export default function BalancoDashboardPage() {
           <div style={{ ...S.chart, marginTop: 16 }}>
             <div style={S.chartT}>Evolução — Ativo Total × PL ({ano})</div>
             <div style={{ height: 300 }}>
-              <ResponsiveLine theme={nivoTheme()} data={evol} margin={{ top: 10, right: 20, bottom: 40, left: 60 }} xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))} colors={['#3b5bdb', '#2f9e44']} pointSize={6} useMesh curve="monotoneX" axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableArea areaOpacity={0.05} legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 60, itemHeight: 16, symbolSize: 12 }]} />
+              <ResponsiveLine theme={nivoTheme()} data={evol} margin={{ top: 10, right: 20, bottom: 40, left: 60 }} xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))} colors={['#3b5bdb', '#2f9e44']} pointSize={6} useMesh curve="monotoneX" axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }} enableArea areaOpacity={0.05} legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 60, itemHeight: 16, symbolSize: 12 }]} />
             </div>
           </div>
         </>

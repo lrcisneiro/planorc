@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { supabase } from '../../lib/supabase'
 import { ResponsiveBar } from '@nivo/bar'
+import { fmtEixo } from '../../lib/fmtEixo'
 import { nivoTheme } from '../../lib/nivoTheme'
 import { X, ChevronRight, Download, FileDown } from 'lucide-react'
 
@@ -222,7 +223,7 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
               <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: Math.max(200, chartData.length * 40 + 50) }}>
                 <ResponsiveBar theme={nivoTheme()} data={chartData} keys={soOrcado ? ['Orçado'] : ['Orçado', 'Realizado']} indexBy="filha" layout="horizontal" groupMode="grouped"
                   margin={{ top: 6, right: 26, bottom: 26, left: 180 }} padding={0.25} innerPadding={2} colors={soOrcado ? ['#7048e8'] : ['#9aa0aa', '#3b5bdb']} enableGridX
-                  valueFormat={(v: any) => fmt(Number(v))} axisBottom={{ format: (v: any) => fmt(Number(v)) }} labelSkipWidth={9999}
+                  valueFormat={(v: any) => fmt(Number(v))} axisBottom={{ format: (v: any) => fmtEixo(Number(v)), tickValues: 5 }} labelSkipWidth={9999}
                   onClick={(d: any) => { const id = d.data.id; const med: Medida = d.id === 'Orçado' ? 'Orçado' : 'Realizado'; if (childrenVis(id).length) push(id); else abrirRazao(med, id) }}
                   legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]}
                   tooltip={({ data }: any) => { const o = Number(data['Orçado'] || 0), r = Number(data['Realizado'] || 0), dd = r - o; const bom = natOf(data.id) === 'DESPESA' ? dd <= 0 : dd >= 0; return <div style={{ background: 'var(--panel)', padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, lineHeight: 1.5 }}><strong>{data.filha}</strong><br />Orçado: <strong>{fmt(o)}</strong>{!soOrcado && <><br />Realizado: <strong>{fmt(r)}</strong><br /><span style={{ color: bom ? '#2f9e44' : '#e03131', fontWeight: 600 }}>Δ (R−O): {(dd >= 0 ? '+' : '') + fmt(dd)}</span></>}</div> }} />

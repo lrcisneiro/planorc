@@ -6,6 +6,7 @@ import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { computeTotais, pkey, formatValor } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo, Formato } from '../../lib/engine'
 import { ResponsiveBar } from '@nivo/bar'
+import { fmtEixo } from '../../lib/fmtEixo'
 import { nivoTheme } from '../../lib/nivoTheme'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
 import { effectiveCcFilter, escopoFiltro, ExportarButton, FiltrosButton, MoedaSelect, PeriodoButton, PillsDim, SalvarCardButton, useCardPreset, useMoedaView } from './DashFiltros'
@@ -169,7 +170,12 @@ export default function ComparativoAnualPage() {
   const toggleAno = (y: number) => setAnosSel(s => s.includes(y) ? s.filter(x => x !== y) : [...s, y])
   const chartRow = rows.find(r => r.id === chartLine)
   const arred = (v: number) => chartRow && respeitaRelatorio(chartRow) ? v : Math.round(v)
-  const fmtC = (v: number) => chartRow ? fmtRow(chartRow, v) : fmt(v)
+  // ⚠ EIXO, não tabela. `fmtRow` serve aos dois e devolve o valor CHEIO numa
+  // linha de reais — no eixo isso encosta as marcas umas nas outras ("1.000.000
+  // 2.000.000"), que foi o defeito do drill em 22/nov. Percentual mantém o
+  // formato da linha (onde "12,4%" é a informação); o resto vai em `fmtEixo`.
+  const fmtC = (v: number) => (chartRow && (chartRow as any).formato === 'PERCENTUAL')
+    ? fmtRow(chartRow, v) : fmtEixo(v)
   const chartData = chartRow ? anos.map((y, i) => { const v = arred(chartRow.vals[y] || 0); const pv = i > 0 ? arred(chartRow.vals[anos[i - 1]] || 0) : null; return { ano: String(y), valor: v, delta: pv == null ? null : v - pv, deltaPct: pv ? ((v - pv) / Math.abs(pv)) * 100 : null } }) : []
   const isBold = (t: any) => t === 'SUBTOTAL' || t === 'FORMULA' || t === 'TOTAL'
 

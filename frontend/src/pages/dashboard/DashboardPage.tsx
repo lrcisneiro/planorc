@@ -8,6 +8,7 @@ import { PeriodPicker } from './PeriodPicker'
 import { totaisRelatorio } from '../../lib/relatorioTotais'
 import type { RLData } from '../../lib/relatorioTotais'
 import { ResponsiveBar } from '@nivo/bar'
+import { fmtEixo } from '../../lib/fmtEixo'
 import { nivoTheme } from '../../lib/nivoTheme'
 import { ResponsiveLine } from '@nivo/line'
 import { Link } from 'react-router-dom'
@@ -25,7 +26,11 @@ const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'O
 const ANOS = [2024, 2025, 2026, 2027, 2028]
 const CAT = ['#3b5bdb', '#f59f00', '#2f9e44', '#e8590c', '#7048e8', '#1098ad', '#e64980', '#0ca678', '#f76707', '#4263eb']
 const fmt = (v: number) => (v || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })
-const fmtK = (v: number) => Math.abs(v) >= 1000 ? (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + 'k' : String(Math.round(v))
+// ⚠ NÃO É RÓTULO DE EIXO — é o valor escrito SOBRE o ponto da linha, onde a
+// precisão importa para comparar meses: "1.536k" distingue o que "1,5 mi"
+// achata. Os eixos usam `fmtEixo`; esta função sobrevive só para isto, e o
+// nome diz qual é o papel dela.
+const fmtPonto = (v: number) => Math.abs(v) >= 1000 ? (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + 'k' : String(Math.round(v))
 const pctOf = (real: number, orc: number) => orc === 0 ? null : (real / orc) * 100
 const cut = (s: string, n: number) => s.length > n ? s.slice(0, n) + '…' : s
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -624,7 +629,7 @@ export default function DashboardPage() {
         {pts.map((p, i) => (
           <g key={i}>
             <circle cx={p.x} cy={p.y} r={3} fill="#f59f00" stroke="var(--panel)" strokeWidth={1} />
-            <text x={p.x} y={p.y - 7} textAnchor="middle" fontSize={9} fontWeight={700} fill="#f59f00">{fmtK(p.v)}</text>
+            <text x={p.x} y={p.y - 7} textAnchor="middle" fontSize={9} fontWeight={700} fill="#f59f00">{fmtPonto(p.v)}</text>
           </g>
         ))}
       </g>
@@ -720,7 +725,7 @@ export default function DashboardPage() {
                 <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: Math.max(220, composicao.length * 34 + 50) }}>
                   <ResponsiveBar theme={nivoTheme()} data={composicao} keys={['Orçado', 'Realizado']} indexBy="filha" layout="horizontal" groupMode="grouped"
                     margin={{ top: 6, right: 24, bottom: 30, left: 160 }} padding={0.25} innerPadding={2}
-                    colors={['#9aa0aa', '#3b5bdb']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
+                    colors={['#9aa0aa', '#3b5bdb']} axisBottom={{ format: (v: any) => fmtEixo(Number(v)) }}
                     enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate onClick={(d: any) => d.data.id && qparams && setDrill({ nodeId: d.data.id })}
                     tooltip={({ data }: any) => <TipOR titulo={data.filha} data={data} hint="clique para detalhar" />}
                     legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
@@ -734,7 +739,7 @@ export default function DashboardPage() {
                   <ResponsiveLine theme={nivoTheme()} data={filhasMes} margin={{ top: 10, right: 16, bottom: 64, left: 56 }}
                     xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
                     colors={filhasMes.map((_, i) => CAT[i % CAT.length])} pointSize={5} useMesh curve="monotoneX"
-                    axisLeft={{ format: (v: any) => fmtK(Number(v)) }}
+                    axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }}
                     legends={[{ anchor: 'bottom', direction: 'row', translateY: 56, itemWidth: 110, itemHeight: 14, symbolSize: 10, itemsSpacing: 2 }]} />
                 </div>
               ) : <div style={{ padding: '40px 12px', color: 'var(--muted)', fontSize: 13, textAlign: 'center' }}>Sem filhas com realizado.</div>}
@@ -757,7 +762,7 @@ export default function DashboardPage() {
                   margin={{ top: 18, right: 10, bottom: 40, left: 56 }} padding={0.25} innerPadding={2}
                   colors={['#9aa0aa', '#3b5bdb']} borderRadius={3}
                   layers={['grid', 'axes', 'bars', LinhaResultado, 'markers', 'legends']}
-                  axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                  axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
                   onClick={(d: any) => { const m = d.data?.mesN || (MESES.indexOf(String(d.indexValue)) + 1); if (m > 0 && qparams) setDrill({ nodeId: agrupId || '__root', meses: [m] }) }}
                   tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} desp={escopoDesp} />}
                   legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
@@ -769,7 +774,7 @@ export default function DashboardPage() {
                 <ResponsiveBar theme={nivoTheme()} data={deltaMes} keys={['Δ']} indexBy="mes"
                   margin={{ top: 10, right: 10, bottom: 40, left: 56 }} padding={0.3} borderRadius={3}
                   colors={(b: any) => corDelta(Number(b.value), escopoDesp)}
-                  axisLeft={{ format: (v: any) => fmtK(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                  axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
                   tooltip={({ indexValue, value }: any) => <div style={tipBox}><strong>{String(indexValue)}</strong><br /><span style={{ color: corDelta(Number(value), escopoDesp), fontWeight: 600 }}>Δ (R−O): {fmt(Number(value))}</span></div>} />
               </div>
             </div>
@@ -782,7 +787,7 @@ export default function DashboardPage() {
                 xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
                 colors={(s: any) => s.id === 'Orçado' ? '#9aa0aa' : '#3b5bdb'}
                 pointSize={6} pointBorderWidth={1} useMesh curve="monotoneX"
-                axisLeft={{ format: (v: any) => fmtK(Number(v)) }}
+                axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }}
                 layers={['grid', 'markers', 'axes', AccLinhas, 'points', 'slices', 'mesh', 'legends']}
                 legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
             </div>
@@ -794,7 +799,7 @@ export default function DashboardPage() {
               <ResponsiveBar theme={nivoTheme()} data={cascata} keys={['base', 'neg', 'pos', 'total']} indexBy="step"
                 margin={{ top: 10, right: 10, bottom: 50, left: 56 }} padding={0.3}
                 colors={(b: any) => b.id === 'base' ? 'transparent' : b.id === 'total' ? '#3b5bdb' : b.id === 'pos' ? '#2f9e44' : '#e03131'}
-                axisLeft={{ format: (v: any) => fmtK(Number(v)) }} axisBottom={{ tickRotation: -30 }}
+                axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }} axisBottom={{ tickRotation: -30 }}
                 enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate />
             </div>
           </div>
@@ -805,7 +810,7 @@ export default function DashboardPage() {
               <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: Math.max(220, porEmpresa.length * 30 + 50) }}>
                 <ResponsiveBar theme={nivoTheme()} data={porEmpresa} keys={['Orçado', 'Realizado']} indexBy="empresa" layout="horizontal" groupMode="grouped"
                   margin={{ top: 6, right: 24, bottom: 30, left: 150 }} padding={0.25} innerPadding={2}
-                  colors={['#9aa0aa', '#3b5bdb']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
+                  colors={['#9aa0aa', '#3b5bdb']} axisBottom={{ format: (v: any) => fmtEixo(Number(v)) }}
                   enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
                   tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} desp={escopoDesp} />}
                   legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
@@ -817,7 +822,7 @@ export default function DashboardPage() {
                 <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: Math.max(220, ebitdaEmp.length * 30 + 50) }}>
                   <ResponsiveBar theme={nivoTheme()} data={ebitdaEmp} keys={['Orçado', 'Realizado']} indexBy="empresa" layout="horizontal" groupMode="grouped"
                     margin={{ top: 6, right: 24, bottom: 30, left: 150 }} padding={0.25} innerPadding={2}
-                    colors={['#ffd8a8', '#e8590c']} axisBottom={{ format: (v: any) => fmtK(Number(v)) }}
+                    colors={['#ffd8a8', '#e8590c']} axisBottom={{ format: (v: any) => fmtEixo(Number(v)) }}
                     enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
                     tooltip={({ indexValue, data }: any) => <TipOR titulo={String(indexValue)} data={data} />}
                     legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
@@ -832,7 +837,7 @@ export default function DashboardPage() {
               <ResponsiveBar theme={nivoTheme()} data={desvios} keys={['Δ']} indexBy="conta" layout="horizontal"
                 margin={{ top: 6, right: 24, bottom: 24, left: 200 }} padding={0.3}
                 colors={(b: any) => (b.value >= 0 ? '#2f9e44' : '#e03131')} enableGridX
-                axisBottom={{ format: (v: any) => fmtK(Number(v)) }} valueFormat={(v: any) => fmt(Number(v))}
+                axisBottom={{ format: (v: any) => fmtEixo(Number(v)) }} valueFormat={(v: any) => fmt(Number(v))}
                 labelSkipWidth={9999} animate onClick={(d: any) => d.data.nodeId && qparams && setDrill({ nodeId: d.data.nodeId })} />
             </div>
           </div>
@@ -846,7 +851,7 @@ export default function DashboardPage() {
                 xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
                 colors={(s: any) => s.color} pointSize={5} pointBorderWidth={1} useMesh curve="monotoneX"
                 onClick={(p: any) => drillAreaMes(String(p.serieId), String(p.data?.x))}
-                axisLeft={{ format: (v: any) => fmtK(Number(v)) }}
+                axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }}
                 layers={['grid', 'markers', 'axes', AccLinhas, 'points', 'slices', 'mesh', 'legends']}
                 legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 110, itemHeight: 16, symbolSize: 12 }]} />
             </div>
@@ -858,7 +863,7 @@ export default function DashboardPage() {
               <ResponsiveLine theme={nivoTheme()} data={recDespLinhas} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
                 xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
                 colors={(s: any) => s.id === 'Receitas' ? '#2f9e44' : '#e03131'} pointSize={6} pointBorderWidth={1} useMesh curve="monotoneX"
-                axisLeft={{ format: (v: any) => fmtK(Number(v)) }}
+                axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }}
                 legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
             </div>
           </div>
@@ -872,7 +877,7 @@ export default function DashboardPage() {
                   onClick={(d: any) => drillPorCcs(areaToCcs[String(d.indexValue)] || [])}
                   margin={{ top: 18, right: 10, bottom: 60, left: 56 }} padding={0.3} innerPadding={2}
                   colors={(b: any) => b.id === 'Orçado' ? '#9aa0aa' : b.id === 'Realizado' ? '#3b5bdb' : '#1098ad'} borderRadius={3}
-                  axisLeft={{ format: (v: any) => fmtK(Number(v)) }} axisBottom={{ tickRotation: -20 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                  axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }} axisBottom={{ tickRotation: -20 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
                   tooltip={({ indexValue, data }: any) => barTip(String(indexValue), data, false)}
                   legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 76, itemHeight: 16, symbolSize: 12 }]} />
               </div>
@@ -884,7 +889,7 @@ export default function DashboardPage() {
                   onClick={(d: any) => drillPorCcs(areaToCcs[String(d.indexValue)] || [])}
                   margin={{ top: 18, right: 10, bottom: 60, left: 56 }} padding={0.3} innerPadding={2}
                   colors={(b: any) => b.id === 'Orçado' ? '#9aa0aa' : b.id === 'Realizado' ? '#3b5bdb' : '#1098ad'} borderRadius={3}
-                  axisLeft={{ format: (v: any) => fmtK(Number(v)) }} axisBottom={{ tickRotation: -20 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                  axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }} axisBottom={{ tickRotation: -20 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
                   tooltip={({ indexValue, data }: any) => barTip(String(indexValue), data, true)}
                   legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 76, itemHeight: 16, symbolSize: 12 }]} />
               </div>
@@ -898,7 +903,7 @@ export default function DashboardPage() {
                 onClick={(d: any) => { const ids = (d.data?._ccs || []) as string[]; if (ids.length) drillPorCcs(ids) }}
                 margin={{ top: 18, right: 10, bottom: 110, left: 56 }} padding={0.3} innerPadding={1}
                 colors={(b: any) => b.id === 'Orçado' ? '#9aa0aa' : b.id === 'Realizado' ? '#3b5bdb' : '#1098ad'} borderRadius={2}
-                axisLeft={{ format: (v: any) => fmtK(Number(v)) }} axisBottom={{ tickRotation: -45 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }} axisBottom={{ tickRotation: -45 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
                 tooltip={({ indexValue, data }: any) => barTip(String(indexValue), data, true)}
                 legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 76, itemHeight: 16, symbolSize: 12 }]} />
             </div>
@@ -911,7 +916,7 @@ export default function DashboardPage() {
                 onClick={(d: any) => { const ids = (d.data?._ccs || []) as string[]; if (ids.length) drillPorCcs(ids) }}
                 margin={{ top: 18, right: 10, bottom: 110, left: 56 }} padding={0.3} innerPadding={1}
                 colors={(b: any) => b.id === 'Orçado' ? '#9aa0aa' : b.id === 'Realizado' ? '#3b5bdb' : '#1098ad'} borderRadius={2}
-                axisLeft={{ format: (v: any) => fmtK(Number(v)) }} axisBottom={{ tickRotation: -45 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
+                axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }} axisBottom={{ tickRotation: -45 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
                 tooltip={({ indexValue, data }: any) => barTip(String(indexValue), data, false)}
                 legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', translateY: -2, itemWidth: 76, itemHeight: 16, symbolSize: 12 }]} />
             </div>

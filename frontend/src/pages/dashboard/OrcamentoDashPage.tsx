@@ -1235,7 +1235,7 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
           <div style={{ ...cx, height: 300 }}>
             <ResponsiveLine theme={nivoTheme()} data={evolucao} margin={{ top: 10, right: 150, bottom: 40, left: 72 }}
               xScale={{ type: 'point' }} yScale={{ type: 'linear', stacked: false }}
-              axisLeft={{ format: (v: any) => fmt(Number(v)) }} enablePoints pointSize={5} useMesh
+              axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }} enablePoints pointSize={5} useMesh
               colors={{ scheme: 'set2' }} enableGridX={false}
               legends={[{ anchor: 'right', direction: 'column', translateX: 140, itemWidth: 130, itemHeight: 18, symbolSize: 9, itemTextColor: 'var(--text-mid)' }]}
               tooltip={({ point }: any) => (
@@ -1301,7 +1301,7 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
         {!porArea.mes?.[0]?.data?.length ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>Sem dado por centro de custo no período.</div> : (
           <div style={{ ...cx, height: 290 }}>
             <ResponsiveLine theme={nivoTheme()} data={porArea.mes} margin={{ top: 10, right: 110, bottom: 40, left: 72 }}
-              xScale={{ type: 'point' }} yScale={{ type: 'linear' }} axisLeft={{ format: (v: any) => fmt(Number(v)) }}
+              xScale={{ type: 'point' }} yScale={{ type: 'linear' }} axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }}
               colors={['#2f9e44', '#e03131']} enablePoints pointSize={5} useMesh enableGridX={false}
               legends={[{ anchor: 'right', direction: 'column', translateX: 100, itemWidth: 90, itemHeight: 18, symbolSize: 9, itemTextColor: 'var(--text-mid)' }]}
               tooltip={({ point }: any) => (
