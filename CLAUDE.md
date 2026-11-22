@@ -965,6 +965,11 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ **Sem CORS no GoodData** — o navegador não busca o arquivo sozinho, e isso é recurso: o
   usuário baixa o zip pelo link e solta na tela, então **nenhuma credencial entra no Planorc**.
   ⚠ O `scripts/realizado.sh` **continua funcionando** e é a contingência.
+  **Primeiro uso real (22/nov):** out/26 + nov/26 pelo caminho novo, **47.499 lançamentos**
+  (32.563 + 14.936), 3 ignorados. E o **recorte por moeda do modo Substituir foi exercitado pela
+  primeira vez por aqui**: out/26 ficou com 32.563 linhas em BRL e **183 em USD da empresa XX
+  intactas** — o razão paraguaio não foi apagado pela reimportação do brasileiro, que é
+  exatamente para isso que o recorte existe.
 
   ⚠⚠ **FONTE DE ERP: a credencial NUNCA toca o navegador (`v3_196`, 22/nov).** Fechado o último
   passo manual — a tela busca o arquivo no ponto de entrega do cliente (hoje a área de stage do
