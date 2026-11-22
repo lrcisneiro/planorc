@@ -1640,6 +1640,15 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   continuaria gravada errada, levando o defeito para todo relatório feito a partir dela.
   ⚠ O filtro é "**parece uuid E não existe**": só "não existe" removeria `REALIZADO`; só "parece
   uuid" removeria as versões boas.
+  ⚠⚠ **O AVISO MANDAVA FAZER O QUE REINSERIA O ÓRFÃO.** A grade descartava a versão morta na
+  LEITURA, mas o modal guardava o array **cru** — então "abra *Editar visão* e salve" regravava
+  exatamente o que a migration tinha acabado de remover, e o defeito voltava com cara de teimoso.
+  Hoje o modal **normaliza ao abrir**, e aí a instrução faz o que promete. **Lição: filtrar na
+  leitura não basta quando existe um caminho que grava o estado cru de volta** — o conserto tem
+  de alcançar a escrita.
+  ⚠ E o filtro do modal só vale com `versoes` **carregada**: com a lista vazia ele apagaria todos
+  os cenários e um *Salvar* gravaria a visão em branco — o conserto destruindo o que veio
+  consertar.
 
 - ⚠⚠ **O PDF cortava card ao meio porque fatiava em alturas IGUAIS (22/nov).** `exportarPdf`
   rasteriza a tela num PNG e dividia por `h / páginas` — o corte caía onde calhasse. Hoje cada

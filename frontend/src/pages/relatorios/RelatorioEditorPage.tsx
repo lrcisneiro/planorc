@@ -2692,7 +2692,22 @@ function LinhaModal({ linha, refLinhas, ccs, somenteLeitura, onClose, onSave }: 
 
 // ─── Modal: view ─────────────────────────────────────────────
 function ViewModal({ view, versoes, onClose, onSave }: { view: ViewConfig; versoes: Versao[]; onClose: () => void; onSave: (v: ViewConfig) => void }) {
-  const [v, setV] = useState<ViewConfig>(view)
+  // ⚠⚠ LIMPA O ÓRFÃO AO ABRIR, e isso é correção de um defeito que eu mesmo
+  // criei: a grade descartava a versão apagada na LEITURA, mas este modal
+  // guardava o array cru — então o aviso "abra Editar visão e salve"
+  // **reinseria** o órfão que a migration tinha acabado de remover. A
+  // instrução causava o problema que mandava consertar.
+  // Normalizando aqui, salvar grava a visão limpa, que é o que o aviso promete.
+  // ⚠⚠ SÓ FILTRA COM A LISTA DE VERSÕES CARREGADA. Com `versoes` vazia, o
+  // filtro apagaria TODOS os cenários da visão e um "Salvar" gravaria a visão
+  // em branco — o conserto destruindo o que veio consertar. Na prática o modal
+  // abre por clique e as versões já chegaram; a guarda é para o caso em que
+  // não chegaram.
+  const [v, setV] = useState<ViewConfig>(() => (versoes.length ? {
+    ...view,
+    cenarios: (view.cenarios || []).filter(
+      c => c.startsWith(REALIZADO) || versoes.some(x => x.id === c)),
+  } : view))
   const toggleCen = (k: string) => setV(p => ({ ...p, cenarios: p.cenarios.includes(k) ? p.cenarios.filter(c => c !== k) : [...p.cenarios, k] }))
   // ⚠ A ordem das colunas É a ordem deste array, e no Comparativo ela decide o
   // sinal do Δ (2ª − 1ª). O checkbox sozinho não diz ordem nenhuma — por isso
