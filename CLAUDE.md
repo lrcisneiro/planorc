@@ -990,6 +990,17 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   descobrir o limite de memória em produção, no dia do fechamento.
   ⚠ O recorte por tenant vai **explícito** no código da função: service role ignora RLS, então
   sem a linha ela entregaria a fonte de outro cliente a quem soubesse o uuid.
+  ⚠⚠ **A DATA DO ARQUIVO É A DO SERVIDOR, e ela diz se o job do ERP rodou.** Sem repassar o
+  `Last-Modified` da origem, o `File` criado a partir do download nasce com **a hora de agora** —
+  e a tela afirmaria que o arquivo é de hoje mesmo quando a carga do ERP não roda há três dias.
+  A Edge Function repassa o header (ele é CORS-safelisted, mas vai em `Expose-Headers` por
+  garantia) e a tela mostra ao lado do tamanho, em **laranja acima de 2 dias** — só quando é o
+  caso, porque aviso que acende sempre ninguém lê.
+  ⚠ **Fuso FIXO em `America/Sao_Paulo`**, não o da máquina: `Last-Modified` chega em GMT e o
+  `toLocaleString` sozinho converte para o fuso de quem olha, fazendo a MESMA carga aparecer com
+  horas diferentes no Brasil, no Paraguai e na Bolívia — que é onde este grupo opera. A carga
+  roda aqui, então a hora é a daqui, e o `title` diz isso por extenso.
+
   ⚠⚠ **"A ÚLTIMA COMPETÊNCIA DO ARQUIVO" NÃO É O MÊS CORRENTE, e o atalho apontava para o
   resíduo.** O razão traz **provisão adiantada**: medido no `PLANORC.zip` de 22/nov, jan/27 a
   jul/27 têm 14 · 14 · 10 · 4 · 4 · 4 · 4 lançamentos. O botão oferecia *"ano de 2027"* — o que

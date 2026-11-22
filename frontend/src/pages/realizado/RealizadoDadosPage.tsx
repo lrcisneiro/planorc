@@ -34,6 +34,13 @@ const PERFIS = Object.entries(
 
 const MESES_ABR = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 
+// ⚠⚠ FUSO FIXO, NÃO O DA MÁQUINA. `Last-Modified` chega em GMT e o
+// `toLocaleString` sozinho converte para o fuso de quem está olhando — o que
+// faria a MESMA carga aparecer com horas diferentes para quem abre no Brasil,
+// no Paraguai e na Bolívia, que é onde este grupo opera. A carga roda aqui,
+// então a hora é a daqui, e o `title` diz isso por extenso.
+const TZ_BR = { timeZone: 'America/Sao_Paulo' } as const
+
 /** Um lote a importar: arquivo de planilha OU linhas já convertidas (do zip). */
 type LoteImport = { name: string; file?: File; linhas?: Record<string, any>[] }
 
@@ -388,11 +395,18 @@ export default function RealizadoDadosPage() {
         const j = await r.json().catch(() => ({ erro: `HTTP ${r.status}` }))
         throw new Error(j.erro || `HTTP ${r.status}`)
       }
+      // ⚠ A DATA É A DO SERVIDOR, não a do download. Sem `lastModified` o
+      // `File` nasce com a hora de agora, e a tela afirmaria que o arquivo é
+      // de hoje mesmo quando o job do ERP não rodou há três dias.
+      const lm = r.headers.get('last-modified')
       const buf = new Uint8Array(await r.arrayBuffer())
       // Vira um "arquivo" como se tivesse sido arrastado: daí para a frente é
       // exatamente o mesmo caminho, inventário incluído.
       const nome = f.arquivo || 'erp.zip'
-      setZipFile(new File([buf], nome, { type: 'application/zip' }))
+      setZipFile(new File([buf], nome, {
+        type: 'application/zip',
+        ...(lm && !isNaN(Date.parse(lm)) ? { lastModified: Date.parse(lm) } : {}),
+      }))
       setZipBuf(buf)
       if (f.perfil && PERFIS.some(p => p.id === f.perfil)) setPerfilId(f.perfil)
       setZipProg(`${nome} · ${(buf.length / 1048576).toFixed(1)} MB recebidos. Lendo o razão…`)
@@ -926,6 +940,22 @@ export default function RealizadoDadosPage() {
                   <FileArchive size={15} style={{ color: 'var(--violet)' }} />
                   <strong style={{ fontSize: 13 }}>{zipFile.name}</strong>
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}>{(zipFile.size / 1048576).toFixed(1)} MB</span>
+                  {/* ⚠ Laranja quando o arquivo passa de 2 dias — é o sinal de
+                      que o job do ERP não rodou, e o único jeito de saber antes
+                      de importar dado velho. Só aparece quando é o caso: aviso
+                      que acende sempre ninguém lê. */}
+                  {!!zipFile.lastModified && (() => {
+                    const d = new Date(zipFile.lastModified)
+                    const dias = (Date.now() - zipFile.lastModified) / 86400000
+                    return (
+                      <span title={`${d.toLocaleString('pt-BR', { ...TZ_BR, dateStyle: 'short', timeStyle: 'short' })} (horário de Brasília)`
+                                   + (dias > 2 ? ` · o arquivo tem ${Math.floor(dias)} dias — confira se a carga do ERP rodou.` : '')}
+                        style={{ fontSize: 11, color: dias > 2 ? 'var(--orange)' : 'var(--muted)' }}>
+                        · {d.toLocaleString('pt-BR', { ...TZ_BR, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        {dias > 2 && ` · ${Math.floor(dias)} dias`}
+                      </span>
+                    )
+                  })()}
                   <span style={{ flex: 1 }} />
                   {!zipBusy && !impBusy && <X size={14} style={{ cursor: 'pointer', color: 'var(--red)' }}
                     onClick={() => { setZipFile(null); setComps([]); setCompSel(new Set()); setZipProg('') }} />}

@@ -136,11 +136,19 @@ Deno.serve(async (req) => {
       const r = await fetch(base + encodeURIComponent(nome), { headers })
       if (!r.ok) return json({ erro: `O servidor respondeu ${r.status} ao baixar "${nome}".` }, 502)
       // Passthrough: o corpo nunca é materializado nesta função.
+      // ⚠ `Last-Modified` VAI JUNTO, e não é enfeite: é o que diz se o job do
+      // ERP rodou. Sem ela a tela carimbaria a hora do DOWNLOAD, e importar um
+      // arquivo de três dias atrás pareceria importar o de hoje.
+      // ⚠ `Last-Modified` e `Content-Length` são CORS-safelisted, então o JS os
+      // lê sem mais nada — `Expose-Headers` vai por garantia, porque um
+      // proxy no caminho pode não ser tão generoso.
       return new Response(r.body, {
         headers: {
           ...cors,
+          'Access-Control-Expose-Headers': 'Content-Length, Last-Modified',
           'Content-Type': r.headers.get('content-type') || 'application/octet-stream',
           ...(r.headers.get('content-length') ? { 'Content-Length': r.headers.get('content-length')! } : {}),
+          ...(r.headers.get('last-modified') ? { 'Last-Modified': r.headers.get('last-modified')! } : {}),
         },
       })
     }
