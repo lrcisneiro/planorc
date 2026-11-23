@@ -20,7 +20,11 @@ const overlay: CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(
 const modalBox: CSSProperties = { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 1500, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 14, boxShadow: '0 24px 60px rgba(0,0,0,0.25)', padding: 16, maxHeight: '85vh', overflowY: 'auto', overflowX: 'hidden' }
 
 // Modal centralizado reutilizável (cabeçalho com Aplicar/X no topo)
-export function ModalPanel({ titulo, onClose, children, width }: { titulo: string; onClose: () => void; children: ReactNode; width?: string }) {
+// ⚠ `semAplicar` para o modal que só MOSTRA. "Aplicar e fechar" faz sentido
+// num modal de filtros, onde há escolha pendente a confirmar; num de leitura
+// ele promete uma ação que não existe, e a pessoa fica procurando o que foi
+// aplicado. Ali o X é a única saída, e é a saída certa.
+export function ModalPanel({ titulo, onClose, children, width, semAplicar }: { titulo: string; onClose: () => void; children: ReactNode; width?: string; semAplicar?: boolean }) {
   return (
     <>
       <div style={overlay} onClick={onClose} />
@@ -28,7 +32,7 @@ export function ModalPanel({ titulo, onClose, children, width }: { titulo: strin
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
           <strong style={{ fontSize: 14, color: 'var(--text)' }}>{titulo}</strong>
           <div style={{ flex: 1 }} />
-          <button style={{ ...btn, padding: '5px 12px', background: 'var(--violet)', color: '#ffffff', borderColor: 'var(--violet)' }} onClick={onClose}>Aplicar e fechar</button>
+          {!semAplicar && <button style={{ ...btn, padding: '5px 12px', background: 'var(--violet)', color: '#ffffff', borderColor: 'var(--violet)' }} onClick={onClose}>Aplicar e fechar</button>}
           <X size={18} style={{ cursor: 'pointer', color: 'var(--muted)', marginLeft: 8 }} onClick={onClose} />
         </div>
         {children}

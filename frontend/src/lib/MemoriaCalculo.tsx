@@ -71,9 +71,22 @@ export function componentesMem(l: LinhaMem | undefined, linhas: LinhaMem[]): Lin
   return out
 }
 
+// ⚠ `v === 0` é true para **−0**, e é assim que o zero negativo morre aqui:
+// `0 × -1` dá −0 e o pt-BR escreve "-0", que numa memória de cálculo parece
+// defeito. Mesma armadilha já registrada no total do rateio.
 const fmtL = (l: LinhaMem | undefined, v: number | undefined) =>
   v === undefined || !isFinite(v) ? '—'
-    : formatValor(v, l?.formato || 'NUMERO', l?.casas_decimais ?? (l?.formato === 'PERCENTUAL' ? 1 : 0))
+    : formatValor(v === 0 ? 0 : v, l?.formato || 'NUMERO', l?.casas_decimais ?? (l?.formato === 'PERCENTUAL' ? 1 : 0))
+
+/** O mesmo número, mas dentro da EXPRESSÃO.
+ *  ⚠⚠ NEGATIVO VAI ENTRE PARÊNTESES, senão a substituição produz `+-379.650`
+ *  e `--42.813` — sequências que ninguém lê como conta e que fazem a memória
+ *  parecer quebrada justamente onde ela devia ser conferível. */
+const fmtSub = (l: LinhaMem | undefined, v: number | undefined) => {
+  if (v === undefined || !isFinite(v)) return '—'
+  const s = fmtL(l, v)
+  return v < 0 ? `(${s})` : s
+}
 
 // ── a expressão escrita, com nomes ou com valores no lugar das referências ──
 function Expr({ l, linhas, col }: { l: LinhaMem; linhas: LinhaMem[]; col?: ColMem }) {
@@ -82,7 +95,7 @@ function Expr({ l, linhas, col }: { l: LinhaMem; linhas: LinhaMem[]; col?: ColMe
     if (!f.length) return <em style={{ color: 'var(--muted)' }}>soma das filhas (nenhuma ativa)</em>
     return <>{f.map((c, i) => (
       <span key={c.id}>{i > 0 ? ' + ' : ''}
-        <span style={{ color: col ? 'var(--text)' : 'var(--violet)' }}>{col ? fmtL(c, col.val[c.id]) : c.descricao}</span>
+        <span style={{ color: col ? 'var(--text)' : 'var(--violet)' }}>{col ? fmtSub(c, col.val[c.id]) : c.descricao}</span>
       </span>
     ))}</>
   }
@@ -90,69 +103,103 @@ function Expr({ l, linhas, col }: { l: LinhaMem; linhas: LinhaMem[]; col?: ColMe
   return <>{tokensDe(l.expressao).map((t, i) => {
     if (t.t === 'txt') return <span key={i}>{t.v}</span>
     const x = linhas.find(z => z.codigo === t.v)
-    const txt = col ? fmtL(x, x ? col.val[x.id] : undefined) : (x?.descricao || t.v)
+    const txt = col ? fmtSub(x, x ? col.val[x.id] : undefined) : (x?.descricao || t.v)
     return <span key={i} style={{ color: col ? 'var(--text)' : 'var(--violet)' }}>{txt}</span>
   })}</>
 }
 
-// ── uma linha da árvore, expansível enquanto houver do que descer ──
-function No({ l, linhas, cols, prof, caminho }: {
-  l: LinhaMem; linhas: LinhaMem[]; cols: ColMem[]; prof: number; caminho: string[]
+// ── uma linha de termo: NAVEGA para a memória dele, não expande inline ──
+// ⚠⚠ EXPANDIR NÃO ERA ENTRAR. A primeira versão abria o termo ali mesmo, e
+// mostrava só a fórmula dele COM NOMES — sem os valores substituídos nem o
+// resultado, que é justamente o que faz a memória ser conferível. Quem
+// procurou "a memória da fórmula de dentro" não a achou, porque ela não
+// existia: existia um esboço dela. Aninhar o tratamento completo em vários
+// níveis é ilegível; **navegar** entrega a peça inteira em cada nível.
+function Termo({ l, linhas, col, onEntrar }: {
+  l: LinhaMem; linhas: LinhaMem[]; col: ColMem; onEntrar: (id: string) => void
 }) {
-  const [aberto, setAberto] = useState(false)
-  const filhos = componentesMem(l, linhas)
-  // ⚠ CICLO: `=[A]` em A travaria o render. O caminho já percorrido é a guarda —
-  // o motor tem a dele (`disabled`), mas aqui a recursão é de TELA.
-  const podeAbrir = filhos.length > 0 && !caminho.includes(l.id) && prof < 6
+  const desce = componentesMem(l, linhas).length > 0
   return (
-    <>
-      <tr style={{ borderTop: '1px solid var(--line)' }}>
-        <td style={{ padding: '6px 8px 6px 0' }}>
-          <span style={{ paddingLeft: prof * 16, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {podeAbrir ? (
-              <button onClick={() => setAberto(a => !a)}
-                title={aberto ? 'recolher' : 'abrir a memória desta linha'}
-                style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--violet)', fontSize: 11, width: 14, padding: 0 }}>
-                {aberto ? '▾' : '▸'}
-              </button>
-            ) : <span style={{ width: 14, display: 'inline-block' }} />}
-            <span style={{ color: prof ? 'var(--muted)' : 'var(--text)' }}>{l.descricao}</span>
-            {l.desativada && <span style={{ fontSize: 10.5, color: 'var(--orange)' }}>desativada</span>}
-          </span>
-        </td>
-        {cols.map(c => (
-          <td key={c.rot} style={{ padding: '6px 0 6px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-            {fmtL(l, c.val[l.id])}
-          </td>
-        ))}
-      </tr>
-      {aberto && (
-        <>
-          <tr>
-            <td colSpan={1 + cols.length} style={{ padding: `0 0 6px ${prof * 16 + 20}px`, fontSize: 11.5, color: 'var(--muted)' }}>
-              = <Expr l={l} linhas={linhas} />
-            </td>
-          </tr>
-          {filhos.map(f => <No key={f.id} l={f} linhas={linhas} cols={cols} prof={prof + 1} caminho={[...caminho, l.id]} />)}
-        </>
-      )}
-    </>
+    <tr style={{ borderTop: '1px solid var(--line)' }}>
+      <td style={{ padding: '7px 8px 7px 0' }}>
+        {/* ⚠ Termo que não se decompõe NÃO é clicável — oferecer e então
+            recusar é o erro que esta base já evitou no `↳` da ponte. A ausência
+            do botão já diz que a estrutura acaba ali e o número vem do fato. */}
+        {desce ? (
+          <button onClick={() => onEntrar(l.id)} title={`Abrir a memória de ${l.descricao}`}
+            style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: 'var(--violet)',
+                     font: 'inherit', textAlign: 'left', textDecoration: 'underline', textDecorationStyle: 'dotted' }}>
+            {l.descricao} <span style={{ fontSize: 11 }}>↳</span>
+          </button>
+        ) : <span style={{ color: 'var(--text-mid)' }}>{l.descricao}</span>}
+        {l.desativada && <span style={{ fontSize: 10.5, color: 'var(--orange)', marginLeft: 6 }}>desativada</span>}
+      </td>
+      <td style={{ padding: '7px 0 7px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+        {fmtL(l, col.val[l.id])}
+      </td>
+    </tr>
   )
 }
 
 export function MemoriaModal({ id, linhas, cols, onClose, nota }: {
   id: string; linhas: LinhaMem[]; cols: ColMem[]; onClose: () => void; nota?: string
 }) {
-  const l = linhas.find(z => z.id === id)
+  // ⚠ A trilha vive AQUI: o modal não é desmontado por recarga nenhuma (os
+  // valores já vieram prontos), então o estado local é seguro — ao contrário
+  // da ponte, cuja trilha teve de subir para a página.
+  // ⚠⚠ UMA COLUNA DE CADA VEZ. Orçado e realizado lado a lado viram duas
+  // substituições longas na mesma tela, e a leitura é sequencial — "confiro
+  // esta conta" —, não comparativa: comparar é o que a PONTE faz. Com as duas,
+  // a pessoa perde a linha que estava seguindo no meio da expressão.
+  const [ci, setCi] = useState(0)
+  const [pilha, setPilha] = useState<string[]>([id])
+  const atual = pilha[pilha.length - 1]
+  const l = linhas.find(z => z.id === atual)
+  const raiz = linhas.find(z => z.id === id)
   if (!l) return null
+  const col = cols[Math.min(ci, cols.length - 1)] || { rot: '—', val: {} }
   const filhos = componentesMem(l, linhas)
   return (
-    <ModalPanel titulo={`Memória de cálculo · ${l.descricao}`} onClose={onClose} width="min(820px, calc(100vw - 40px))">
+    <ModalPanel titulo={`Memória de cálculo · ${l.descricao}`} onClose={onClose} semAplicar
+                width="min(820px, calc(100vw - 40px))">
+      {/* ⚠ A trilha é o único caminho de volta, então ela mostra o percurso
+          INTEIRO e cada degrau é clicável: com 3 ou 4 níveis, um "voltar" só
+          obriga a refazer a descida para trocar de ramo. */}
+      {pilha.length > 1 && (
+        <div style={{ fontSize: 12, marginBottom: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
+          {pilha.map((pid, i) => {
+            const nm = linhas.find(z => z.id === pid)?.descricao ?? '—'
+            const ultimo = i === pilha.length - 1
+            return (
+              <span key={pid + i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                {i > 0 && <span style={{ color: 'var(--faint)' }}>›</span>}
+                {ultimo ? <span style={{ color: 'var(--text)', fontWeight: 600 }}>{nm}</span> : (
+                  <button onClick={() => setPilha(pilha.slice(0, i + 1))}
+                    style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: 'var(--violet)', font: 'inherit' }}>{nm}</button>
+                )}
+              </span>
+            )
+          })}
+        </div>
+      )}
+      {/* ⚠ Some sozinho com uma coluna só: pílula de uma opção é enfeite
+          ocupando a linha mais visível — mesma regra do `PillsDim`. */}
+      {cols.length > 1 && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+          {cols.map((c, i) => (
+            <button key={c.rot + i} onClick={() => setCi(i)}
+              style={{ padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                       border: `1px solid ${i === ci ? 'var(--violet)' : 'var(--border)'}`,
+                       background: i === ci ? 'rgba(139,92,246,0.16)' : 'var(--panel)',
+                       color: i === ci ? 'var(--violet)' : 'var(--text-mid)' }}>{c.rot}</button>
+          ))}
+        </div>
+      )}
       {nota && <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>{nota}</div>}
 
       {!filhos.length ? (
         <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-          Esta linha vem direto do lançamento{l.linha_orc_id ? '' : ' e não tem conta amarrada'} — não há fórmula a abrir.
+          Esta linha vem direto do lançamento — não há fórmula a abrir.
         </div>
       ) : (
         <>
@@ -163,40 +210,38 @@ export function MemoriaModal({ id, linhas, cols, onClose, nota }: {
 
           {/* ⚠ UMA SUBSTITUIÇÃO POR COLUNA. É a memória propriamente dita: a
               mesma expressão com os números no lugar dos nomes, e o resultado
-              embaixo — dá para conferir a conta à mão, que é o pedido. */}
-          {cols.map(c => (
-            <div key={c.rot} style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 4 }}>{c.rot}</div>
-              <div style={{ fontSize: 13, lineHeight: 1.7, fontVariantNumeric: 'tabular-nums', wordBreak: 'break-word' }}>
-                = <Expr l={l} linhas={linhas} col={c} />
-              </div>
-              <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
-                = {fmtL(l, c.val[l.id])}
-              </div>
+              embaixo — dá para conferir a conta à mão, que é o pedido. E ela
+              se repete em CADA nível da navegação, que é o que faltava. */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 4 }}>{col.rot}</div>
+            <div style={{ fontSize: 13, lineHeight: 1.7, fontVariantNumeric: 'tabular-nums', wordBreak: 'break-word' }}>
+              = <Expr l={l} linhas={linhas} col={col} />
             </div>
-          ))}
+            <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+              = {fmtL(l, col.val[l.id])}
+            </div>
+          </div>
 
           <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '16px 0 2px' }}>Os termos</div>
           <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>
-            ▸ abre a memória do próprio termo, quando ele também se decompõe.
+            ↳ entra na memória do próprio termo, quando ele também se decompõe.
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
                   <th style={{ textAlign: 'left', padding: '0 8px 6px 0', fontWeight: 600 }}>Linha</th>
-                  {cols.map(c => <th key={c.rot} style={{ textAlign: 'right', padding: '0 0 6px 14px', fontWeight: 600, whiteSpace: 'nowrap' }}>{c.rot}</th>)}
+                  <th style={{ textAlign: 'right', padding: '0 0 6px 14px', fontWeight: 600, whiteSpace: 'nowrap' }}>{col.rot}</th>
                 </tr>
               </thead>
               <tbody>
-                {filhos.map(f => <No key={f.id} l={f} linhas={linhas} cols={cols} prof={0} caminho={[l.id]} />)}
+                {filhos.map((f, i) => <Termo key={f.id + i} l={f} linhas={linhas} col={col}
+                  onEntrar={(fid: string) => setPilha([...pilha, fid])} />)}
                 <tr style={{ borderTop: '2px solid var(--line)', fontWeight: 700 }}>
-                  <td style={{ padding: '8px 8px 0 20px' }}>{l.descricao}</td>
-                  {cols.map(c => (
-                    <td key={c.rot} style={{ padding: '8px 0 0 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                      {fmtL(l, c.val[l.id])}
-                    </td>
-                  ))}
+                  <td style={{ padding: '8px 8px 0 0' }}>{l.descricao}</td>
+                  <td style={{ padding: '8px 0 0 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                    {fmtL(l, col.val[l.id])}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -208,6 +253,8 @@ export function MemoriaModal({ id, linhas, cols, onClose, nota }: {
           <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 12, lineHeight: 1.6 }}>
             ⚠ Os valores saem do motor com o <strong>sinal econômico cru</strong> — despesa é negativa —,
             que é o sinal com que a fórmula realmente é avaliada. No resto da tela a despesa aparece positiva.
+            <br />Os nomes em roxo são <strong>linhas do relatório</strong>, não contas orçamentárias.
+            {raiz && raiz.id !== l.id && <> A composição segue no recorte de <strong>{raiz.descricao}</strong>.</>}
           </div>
         </>
       )}

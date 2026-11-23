@@ -1458,8 +1458,30 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   literalmente, e é a conta literal que se foi conferir. O modal **diz isso**, senão quem confere
   acha defeito.
   ⚠ **Linha escopada usa a árvore do escopo dela**, nas duas telas — mesma regra da ponte.
-  ⚠ **Guarda de ciclo no render** (`caminho`): `=[A]` dentro de A travaria a tela. O motor tem a
-  dele; esta recursão é de TELA e precisa da sua.
+  ⚠⚠ **EXPANDIR NÃO ERA ENTRAR, e foi o Ricardo quem viu.** A 1ª versão abria o termo **inline**
+  e mostrava só a fórmula dele **com nomes** — sem os valores substituídos nem o resultado, que é
+  o que torna a memória conferível. Quem procurou *"a memória da fórmula de dentro"* não a achou
+  porque ela não existia: existia um esboço dela. Aninhar o tratamento completo em vários níveis
+  é ilegível, então o termo **NAVEGA** (`↳`), e cada nível recebe a peça inteira.
+  ⚠ A **trilha mostra o percurso todo e cada degrau é clicável** — com 3 ou 4 níveis, um "voltar"
+  só obriga a refazer a descida para trocar de ramo. Ela vive **dentro do modal**, que nenhuma
+  recarga desmonta (os valores já chegaram prontos) — ao contrário da ponte, cuja trilha teve de
+  subir para a página.
+  ⚠ **Termo que não se decompõe não é clicável** — a ausência do botão já diz que a estrutura
+  acaba ali e o número vem do fato. Oferecer e então recusar é o erro que o `↳` da ponte evitou.
+  ⚠⚠ **UMA COLUNA DE CADA VEZ, por pílula** (decisão do Ricardo ao ver as duas juntas). Orçado e
+  realizado lado a lado viram duas substituições longas na mesma tela, e a leitura aqui é
+  **sequencial** ("confiro esta conta"), não comparativa — comparar é o que a **ponte** faz. Com
+  as duas, perde-se a linha que se estava seguindo no meio da expressão. A pílula some sozinha com
+  uma coluna só.
+  ⚠ **`ModalPanel` ganhou `semAplicar`.** *"Aplicar e fechar"* faz sentido num modal de filtros,
+  onde há escolha pendente a confirmar; num modal de **leitura** ele promete uma ação que não
+  existe e a pessoa fica procurando o que foi aplicado. Ali o X é a saída certa.
+  ⚠⚠ **A substituição põe NEGATIVO ENTRE PARÊNTESES.** Sem isso ela produzia `+-379.650` e
+  `--42.813` — sequências que ninguém lê como conta, numa tela cuja única função é ser conferida.
+  E **−0 vira 0** (`v === 0` é true para −0): a mesma armadilha do total do rateio.
+  ⚠ Os nomes em roxo são **linhas do relatório**, não contas orçamentárias — a pergunta foi feita
+  ao ler a tela, então a resposta passou a estar nela.
   **Em DUAS telas, um componente só** — o dashboard e o relatório perguntam a mesma coisa, e duas
   implementações dariam duas respostas, com a do relatório sendo justamente a que se confronta
   com a DRE. No **acompanhamento** abre no clique do cartão do indicador; no **relatório** é o
