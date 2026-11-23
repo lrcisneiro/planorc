@@ -6,6 +6,7 @@ import { computeCenario, computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo, RawValues } from '../../lib/engine'
 import { PeriodPicker } from './PeriodPicker'
 import { totaisRelatorio, totaisRelatorioArv } from '../../lib/relatorioTotais'
+import { MemoriaModal } from '../../lib/MemoriaCalculo'
 import type { RLData } from '../../lib/relatorioTotais'
 import { ResponsiveBar } from '@nivo/bar'
 import { fmtEixo } from '../../lib/fmtEixo'
@@ -220,6 +221,12 @@ export default function DashboardPage() {
   const [vNivel, setVNivel] = useState<number | 'folhas'>(1)
   const [vNat, setVNat] = useState<'TODAS' | 'RECEITA' | 'DESPESA'>('TODAS')
   const [linhasRel, setLinhasRel] = useState<RL[]>([])
+  const [memoria, setMemoria] = useState<string | null>(null)   // id da linha com a memória aberta
+  // ⚠ O cartão ARRASTA e agora também ABRE. O `click` do HTML5 drag não é
+  // confiável como separador (alguns navegadores o emitem depois do drop), e
+  // perder o arrasto para ganhar o modal seria trocar um gesto por outro.
+  // Quem separa é o DESLOCAMENTO: abaixo de 5px foi clique, acima foi arrasto.
+  const toqueInd = useRef<{ x: number; y: number } | null>(null)
   // ⚠ `val` aplica `fatorExibicao` — despesa sai POSITIVA, como no resto do
   // produto. O ranking usa isso; a ponte, não (lá o sinal é econômico cru, e
   // é exceção declarada). São as duas convenções do CLAUDE.md convivendo na
@@ -844,12 +851,18 @@ export default function DashboardPage() {
               <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '16px 0 8px' }}>
                 Indicadores do relatório
                 <span data-noexport style={{ marginLeft: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, color: 'var(--faint)' }}>
-                  arraste para reordenar
+                  clique para a memória de cálculo · arraste para reordenar
                 </span>
               </div>
               <div style={S.kpis}>
                 {vis.map(c => (
                   <div key={c.id} draggable
+                    onPointerDown={e => { toqueInd.current = { x: e.clientX, y: e.clientY } }}
+                    onClick={e => {
+                      const t = toqueInd.current
+                      if (t && Math.abs(e.clientX - t.x) < 5 && Math.abs(e.clientY - t.y) < 5) setMemoria(c.id)
+                    }}
+                    title="clique para ver a memória de cálculo · arraste para reordenar"
                     onDragStart={e => { setArrInd(c.id); e.dataTransfer.effectAllowed = 'move' }}
                     onDragEnd={() => { setArrInd(null); setSobreInd(null) }}
                     onDragOver={e => { e.preventDefault(); if (sobreInd !== c.id) setSobreInd(c.id) }}
@@ -868,6 +881,23 @@ export default function DashboardPage() {
           {/* ⚠ Depois dos indicadores, de propósito: os cartões respondem
               "quanto", a ponte responde "de onde vem" — e a segunda pergunta
               só faz sentido depois da primeira. */}
+          {/* ⚠⚠ A MEMÓRIA NÃO É A PONTE, e a diferença é a pergunta: a ponte
+              decompõe a VARIAÇÃO entre dois números, a memória decompõe o
+              NÚMERO. Quem confere uma fórmula quer a segunda — e a primeira
+              exige um comparativo que pode nem fazer sentido.
+              ⚠ As colunas saem da ÁRVORE ESCOPADA quando a linha tem
+              `filtro_escopo`: mesma razão da ponte, mesma fonte. */}
+          {memoria && totais && (() => {
+            const lm = linhasRel.find(l => l.id === memoria)
+            const esc = !!totais.arvOrc[memoria]
+            return <MemoriaModal id={memoria} linhas={linhasRel as any} onClose={() => setMemoria(null)}
+              nota={esc ? `Recorte próprio de ${lm?.descricao ?? 'linha'} — os termos abaixo são calculados no escopo dela.` : undefined}
+              cols={[
+                { rot: versoes.find(v => v.id === versaoId)?.codigo || 'Orçado', val: totais.arvOrc[memoria] || totais.orc },
+                { rot: 'Realizado', val: totais.arvReal[memoria] || totais.real },
+              ]} />
+          })()}
+
           {totais && pCfg.resultado && (() => {
             // ⚠⚠ LINHA ESCOPADA NÃO SE DECOMPÕE COM OS COMPONENTES DA TELA.
             // `totais.orc/real` dá à linha com `filtro_escopo` o valor do

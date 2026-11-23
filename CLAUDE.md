@@ -1437,6 +1437,41 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ Some sozinho abaixo de 2 valores: atalho com uma opção é enfeite ocupando a linha mais
   visível da tela.
 
+- ⚠⚠ **MEMÓRIA DE CÁLCULO ≠ PONTE, e a diferença é a PERGUNTA (`lib/MemoriaCalculo.tsx`,
+  23/nov).** A ponte foi a primeira resposta a *"como ter a memória de cálculo de uma fórmula?"*
+  e está errada para isso: ela decompõe a **VARIAÇÃO entre dois números** ("por que saiu de
+  3,9 mi e chegou em 4,3 mi"); quem confere uma fórmula quer a composição **do número** ("de que
+  4,3 mi é feito"). E a ponte **exige um comparativo**, que pode não existir nem fazer sentido.
+  Os dois quadros ficam — são perguntas diferentes, e agora cada uma tem a sua peça.
+  **O modal mostra três coisas:** a fórmula com os **nomes** no lugar dos códigos, a mesma
+  fórmula com os **valores** substituídos (uma por cenário) e o resultado — dá para refazer a
+  conta à mão, que é o pedido —, e a tabela de termos, onde **cada termo abre a própria
+  memória** enquanto houver o que descer.
+  ⚠ **Uma travessia só da expressão** (`tokensDe`): nomes e valores saem dos MESMOS tokens, então
+  as duas linhas não podem divergir. Provado por **round-trip exato** em 7 casos — incluindo
+  `SE(...)`, `ANTERIOR()` e colchete sem fechar —, que é o que garante que a substituição não
+  perde um pedaço da fórmula em silêncio.
+  ⚠ **`componentesMem` repete o filtro do `SOMAR_FILHOS` do motor** (sem INDICADOR, ESPACO,
+  desativada nem `nao_soma`) e tem de andar com ele: memória que inclui linha que a soma ignora
+  não é memória, é outra conta.
+  ⚠ **Sinal econômico CRU**, como na ponte — com `fatorExibicao` a conta deixaria de fechar
+  literalmente, e é a conta literal que se foi conferir. O modal **diz isso**, senão quem confere
+  acha defeito.
+  ⚠ **Linha escopada usa a árvore do escopo dela**, nas duas telas — mesma regra da ponte.
+  ⚠ **Guarda de ciclo no render** (`caminho`): `=[A]` dentro de A travaria a tela. O motor tem a
+  dele; esta recursão é de TELA e precisa da sua.
+  **Em DUAS telas, um componente só** — o dashboard e o relatório perguntam a mesma coisa, e duas
+  implementações dariam duas respostas, com a do relatório sendo justamente a que se confronta
+  com a DRE. No **acompanhamento** abre no clique do cartão do indicador; no **relatório** é o
+  botão *Memória* da linha selecionada, com **uma coluna por cenário** no período da tela.
+  ⚠⚠ **O cartão ARRASTA e agora também ABRE — o `click` do HTML5 drag não separa os dois** (há
+  navegador que o emite depois do drop). Quem separa é o **deslocamento**: abaixo de 5px foi
+  clique. Perder o arrasto para ganhar o modal seria trocar um gesto por outro.
+  ⚠ **O botão do relatório só aparece onde há o que abrir** — linha analítica vem do lançamento,
+  e o botão abriria um modal dizendo "não há fórmula": oferecer e então recusar.
+  ⚠ No relatório, o alvo da seleção passou a importar **em todos os modos**: mover/indentar são
+  de Estrutura, mas conferir a fórmula é de quem **consulta**.
+
 - **A ponte É a memória de cálculo da fórmula (23/nov)** — a pergunta que a criou foi
   justamente essa, e ela respondeu com dois defeitos à vista.
   ⚠⚠ **O SINAL DO TERMO NA FÓRMULA ERA IGNORADO.** A ponte somava `destino − origem` de cada

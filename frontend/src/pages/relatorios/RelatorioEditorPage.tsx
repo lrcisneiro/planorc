@@ -24,6 +24,8 @@ import { AlertTriangle,
   ChevronLeft, ChevronDown, ChevronRight, Plus, Trash2, Settings2, X,
   Sigma, FunctionSquare, Percent, Minus, Type, Download, Upload, Link2, ChevronsUpDown, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Pencil, Eye, EyeOff, Strikethrough, ListTree, History, RotateCcw, RefreshCw, Save, GitCompareArrows, ListFilter } from 'lucide-react'
 
+import { MemoriaModal } from '../../lib/MemoriaCalculo'
+
 declare const XLSX: any
 
 // ─── Types ───────────────────────────────────────────────────
@@ -1191,6 +1193,25 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   )
 
   // ── Colunas conforme view
+  // ── Memória de cálculo da linha selecionada ─────────────────────────────
+  // ⚠ É O MESMO COMPONENTE do dashboard (`lib/MemoriaCalculo`). Duas telas
+  // perguntam "de que este número é feito" e duas implementações dariam duas
+  // respostas — e a do relatório seria a que as pessoas confrontam com a DRE.
+  // ⚠ Uma coluna por CENÁRIO, no período que está na tela: é o que o leitor
+  // está vendo na linha, então a memória confere com a célula ao lado.
+  const [memoriaId, setMemoriaId] = useState<string | null>(null)
+  // ⚠ Linha com `filtro_escopo` precisa da ÁRVORE do escopo dela — os termos
+  // vêm de outro universo se forem lidos do total da tela. `scopedComputed` já
+  // tem o cenário escopado calculado; aqui só se pede o total dele.
+  const arvoreMem = (lid: string, cen: string): Record<string, number> | null => {
+    const sig = escSig[lid]; if (!sig) return null
+    const sc = scopedComputed[`${cen}::${sig}`]; if (!sc) return null
+    return computeTotais(linhasCalcReal, sc, displayedMeses)
+  }
+  const memDecompoe = (l: any) => !!l && (l.tipo_linha === 'SOMAR_FILHOS'
+    ? linhas.some(c => c.pai_id === l.id && c.tipo_linha !== 'INDICADOR' && c.tipo_linha !== 'ESPACO' && !c.desativada && !c.nao_soma)
+    : !!l.expressao)
+
   const cenarioLabel = (key: string) => key === REALIZADO ? 'Real.' : ehRealAnt(key) ? `Real. ${anoRealAnt}` : ehRealAno(key) ? `Real. ${anoDeRealAno(key)}` : (versoes.find(v => v.id === key)?.codigo ?? '—')
   // Lista de cenários EXIBIDOS (colunas): no overlay expande 'REALIZADO' por ano.
   const censDisplay = useMemo(() => expandirCens(view.cenarios), [view.cenarios, cicloMode, anos, versoes]) // eslint-disable-line
@@ -1911,12 +1932,22 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                     <ChevronLeft size={13} /> Só último período
                   </button>
             )}
-            {/* o alvo da seleção só interessa onde existem ações sobre a linha
-                (mover, indentar, editar, excluir) — todas são de Estrutura */}
-            {podeEstrutura && <>{sep}
+            {/* ⚠ O alvo da seleção passou a interessar em TODOS os modos: as
+                ações de mover/indentar/excluir são de Estrutura, mas a MEMÓRIA
+                DE CÁLCULO é de quem consulta — é ali que se confere a fórmula
+                contra a DRE que está na tela. */}
+            {sep}
             <span style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {sel ? <>Linha: <b style={{ color: 'var(--text)' }}>{sel.descricao}</b></> : 'Selecione uma linha'}
-            </span></>}
+            </span>
+            {/* ⚠ Só aparece onde há o que abrir. Linha analítica vem do
+                lançamento e o botão abriria um modal que diz "não há fórmula" —
+                oferecer e então recusar. */}
+            {memDecompoe(sel) && (
+              <button style={{ ...ab, color: 'var(--violet)', cursor: 'pointer' }}
+                title="Memória de cálculo — a composição deste número, termo a termo"
+                onClick={() => sel && setMemoriaId(sel.id)}><Sigma size={13} /> Memória</button>
+            )}
             <div style={{ flex: 1 }} />
             {podeEstrutura && (<>
             <button style={ab} title="Mover para cima" onClick={act(l => moveLinha(l, -1))}><ArrowUp size={13} /></button>
@@ -2118,6 +2149,18 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         </div>
       )}
 
+      {/* ⚠ MESMO COMPONENTE do dashboard: duas telas perguntam "de que este
+          número é feito", e duas implementações dariam duas respostas — a do
+          relatório sendo justamente a que se confronta com a DRE. */}
+      {memoriaId && (() => {
+        const lm: any = linhas.find(x => x.id === memoriaId)
+        return <MemoriaModal id={memoriaId} linhas={linhas as any} onClose={() => setMemoriaId(null)}
+          nota={escSig[memoriaId] ? `Recorte próprio de ${lm?.descricao ?? 'linha'} — os termos abaixo são calculados no escopo dela.` : undefined}
+          cols={cenariosExpandidos.map(cen => ({
+            rot: cenarioLabel(cen),
+            val: arvoreMem(memoriaId, cen) || totalByCen[cen] || {},
+          }))} />
+      })()}
       {linhaModal && <LinhaModal linha={{ ...linhaModal, expressao: toDisplay(linhaModal.expressao) }} refLinhas={linhas.map(x => ({ codigo: x.codigo, descricao: x.descricao }))} ccs={ccs as any} somenteLeitura={!capImp.can('estrutura')} onClose={() => setLinhaModal(null)} onSave={saveLinha} />}
       {viewModal && <ViewModal view={viewModal} versoes={versoes} onClose={() => setViewModal(null)} onSave={saveView} />}
       {razao && <RazaoModal {...razao} moedaSlot={moedaView} matOrc={matOrc} moedaCod={moedaCod} onConciliar={setConcil} onClose={() => setRazao(null)} />}
