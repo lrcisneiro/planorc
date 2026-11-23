@@ -34,14 +34,71 @@ export const S_PONTE: Record<string, CSSProperties> = {
 
 const vivas = (linhas: LinhaRel[]) => linhas.filter(x => !x.desativada)
 
+/**
+ * O SINAL de cada termo da expressão — e isto não é refinamento.
+ *
+ * ⚠⚠ A ponte somava `destino − origem` de cada componente IGNORANDO se o termo
+ * é somado ou subtraído na fórmula. Em `=([1]-[111]+[130])+([2]-[205])+[X]`,
+ * `[111]` (Reembolso) e `[205]` (Viagens) entravam com o sinal trocado — e o
+ * erro vale **o DOBRO** deles, porque além de não subtrair, somava.
+ * Medido na Margem Sustentação de 2026: Viagens 454.965 e Reembolso 130.906,
+ * logo 2 × 585.871 = **1.171.742** — exatamente o "não explicado" que a ponte
+ * exibia. O resíduo acusava "subtotal junto com componente"; era isto.
+ *
+ * ⚠ Parênteses propagam: em `-([2]-[205])` o `[2]` é negativo e o `[205]`
+ * positivo. Por isso o sinal é acumulado numa PILHA, não lido do caractere
+ * anterior.
+ */
+function sinaisDaExpressao(expr: string): Record<string, number> {
+  const out: Record<string, number> = {}
+  const pilha: number[] = [1]      // sinal herdado do parêntese corrente
+  let sinal = 1                    // sinal do próximo termo
+  for (let i = 0; i < expr.length; i++) {
+    const c = expr[i]
+    if (c === ' ' || c === '=') continue
+    if (c === '+') { sinal = 1; continue }
+    if (c === '-') { sinal = -1; continue }
+    if (c === '(') { pilha.push(pilha[pilha.length - 1] * sinal); sinal = 1; continue }
+    if (c === ')') { pilha.pop(); sinal = 1; continue }
+    if (c === '[') {
+      const fim = expr.indexOf(']', i)
+      if (fim < 0) break
+      out[expr.slice(i + 1, fim)] = pilha[pilha.length - 1] * sinal
+      i = fim; sinal = 1; continue
+    }
+    sinal = 1                      // número, função, vírgula: zera o prefixo
+  }
+  return out
+}
+
+/** ⚠ Multiplicação e divisão NÃO se decompõem em cascata: em `[130]*([111]/[1])`
+ *  nenhum termo contribui com o próprio Δ. A ponte não deve oferecê-las —
+ *  "offer and then refuse" é o que o `↳` existe para evitar. */
+export function ehDecomponivel(l: LinhaRel | undefined): boolean {
+  if (!l) return false
+  if (l.tipo_linha === 'SOMAR_FILHOS') return true
+  if (!l.expressao) return false
+  return !/[*/]/.test(l.expressao)
+}
+
 export function componentesDe(l: LinhaRel | undefined, linhas: LinhaRel[]): string[] {
   if (!l) return []
   if ((l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR') && l.expressao) {
-    const cods = new Set(Array.from(l.expressao.matchAll(/\[([^\]]+)\]/g), m => m[1]))
+    if (!ehDecomponivel(l)) return []
+    const cods = new Set(Object.keys(sinaisDaExpressao(l.expressao)))
     return vivas(linhas).filter(x => cods.has(x.codigo)).map(x => x.id)
   }
   if (l.tipo_linha === 'SOMAR_FILHOS') return vivas(linhas).filter(x => x.pai_id === l.id).map(x => x.id)
   return []
+}
+
+/** Sinal por ID de linha, para a ponte aplicar ao Δ de cada componente. */
+export function sinaisDe(l: LinhaRel | undefined, linhas: LinhaRel[]): Record<string, number> {
+  if (!l?.expressao || l.tipo_linha === 'SOMAR_FILHOS') return {}
+  const porCod = sinaisDaExpressao(l.expressao)
+  const out: Record<string, number> = {}
+  for (const x of linhas) if (porCod[x.codigo] !== undefined) out[x.id] = porCod[x.codigo]
+  return out
 }
 
 
@@ -123,7 +180,7 @@ export function Ponte({ S: Sx, cfg, setCfg, linhas, nome, origem, destino, rotOr
   // de nomes — nome chumbado funciona nesta DRE e quebra na próxima.
   const podeDescer = (id: string) => {
     const l = byIdAll[id]
-    if (!l || (l as any).formato === 'PERCENTUAL') return false
+    if (!l || (l as any).formato === 'PERCENTUAL' || !ehDecomponivel(l)) return false
     return componentesDe(l, linhas).length > 0
   }
   // ⚠⚠ CARD ANTIGO SE CONSERTA SOZINHO. Com o seletor de componentes removido,
@@ -176,8 +233,12 @@ export function Ponte({ S: Sx, cfg, setCfg, linhas, nome, origem, destino, rotOr
     }
     return nat
   }, [linhas])
+  // ⚠ O Δ de cada componente entra com o SINAL que ele tem NA FÓRMULA.
+  const sinal = useMemo(() => sinaisDe(byIdAll[resId], linhas), [resId, linhas, byIdAll])
   const itens = cfg.sel.filter((id: string) => id !== resId && !desativadas.has(id))
-    .map((id: string) => ({ id, nome: nome(id), d: v(destino, id) - v(origem, id) }))
+    .map((id: string) => ({ id, nome: nome(id),
+                            d: (sinal[id] ?? 1) * (v(destino, id) - v(origem, id)),
+                            neg: (sinal[id] ?? 1) < 0 }))
     .filter((x: any) => Math.abs(x.d) > 0.005)
     .sort((a: any, b: any) => Math.abs(b.d) - Math.abs(a.d))
 
@@ -453,7 +514,9 @@ export function Ponte({ S: Sx, cfg, setCfg, linhas, nome, origem, destino, rotOr
                         <CornerDownRight size={13} />
                       </button>
                     )}
-                    {b.nome}</td>
+                    {b.nome}
+                    {b.neg && <span title="Este termo é SUBTRAÍDO na fórmula — o Δ aparece com o sinal invertido, que é a contribuição real dele ao resultado."
+                      style={{ marginLeft: 6, fontSize: 10, color: 'var(--muted)' }}>(−)</span>}</td>
                     {/* ⚠ O VALOR abre o razão; o `↳` do nome desce na ponte.
                         Dois gestos, dois destinos — o mesmo par que o drill do
                         relatório já usa ("clique no nome para descer; clique

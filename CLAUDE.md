@@ -1437,6 +1437,31 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ Some sozinho abaixo de 2 valores: atalho com uma opção é enfeite ocupando a linha mais
   visível da tela.
 
+- **A ponte É a memória de cálculo da fórmula (23/nov)** — a pergunta que a criou foi
+  justamente essa, e ela respondeu com dois defeitos à vista.
+  ⚠⚠ **O SINAL DO TERMO NA FÓRMULA ERA IGNORADO.** A ponte somava `destino − origem` de cada
+  componente como se toda fórmula fosse soma. Em
+  `=([1]-[111]+[130])+([2]-[205])+[Lmqrzyy5k]`, `[111]` (reembolso) e `[205]` (viagens) entram
+  **subtraídos** — e entravam com o sinal trocado, que é **duas vezes** o erro:
+  `2 × (454.965 + 130.906) = 1.171.742`, **exatamente** o "não explicado" que aparecia na tela.
+  O resíduo denunciava, como foi desenhado para fazer; o que faltava era ler o denunciante.
+  `sinaisDaExpressao` percorre a expressão com uma pilha de parênteses, então `-([2]-[205])`
+  inverte os dois termos de dentro. ⚠ Termo subtraído leva `(−)` ao lado do nome: sem isso a
+  linha mostra o número certo e o leitor não sabe de que lado ele entrou.
+  ⚠⚠ **Fórmula com `*` ou `/` NÃO decompõe, e a ponte deixou de oferecê-la** (`ehDecomponivel`):
+  numa razão não existe "quanto cada componente contribuiu" que some ao total — era oferecer e
+  então errar em silêncio. É mais estreito que `formato = PERCENTUAL`, que é campo de exibição e
+  está incompleto na base.
+  ⚠⚠ **E a ponte do ACOMPANHAMENTO lia outra verdade que o cartão ao lado.** Ela recebia
+  `tOrc`/`tReal` — `computeTotais` sobre o agregado cru, que **ignora o `filtro_escopo` da
+  linha** —, enquanto o cartão vem de `totaisRelatorio`. *Margem Sustentação* (escopo
+  `cc:[317]`) dizia **4.312.927** no cartão e **28.064.670** na ponte, a margem da empresa
+  inteira: mesma linha, mesma tela, 6× de diferença e nenhuma pista de qual era qual. Hoje
+  `setTotais` recebe os totais escopados, que saíram de dentro do `if (indicLines.length)` —
+  a ponte precisa deles mesmo num relatório sem indicador.
+  ⚠ **A regra geral é a do drill:** peça que decompõe um total tem de ler **a mesma fonte** do
+  total que a abriu. Duas funções que "passam pelo motor" não são a mesma fonte.
+
 - **A ponte NAVEGA (19/nov).** Trocar a linha no seletor era o único caminho, e analisar
   "de onde veio" é descer. Ícone `↳` na linha da tabela desce; a **trilha** acima do gráfico
   sobe. Medido: **54 das 170 linhas** se decompõem (27 por subtotal, 27 por fórmula) e a

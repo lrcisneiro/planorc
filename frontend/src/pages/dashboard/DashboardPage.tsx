@@ -343,7 +343,15 @@ export default function DashboardPage() {
       // cards dinâmicos: linhas de apoio/indicador do relatório (respeita visivel_dashboard) — usa o helper p/ escopo de CC
       const indicLines = linhas.filter(l => (l.tipo_linha === 'INDICADOR' || l.nao_soma) && l.visivel_dashboard !== false)
         .sort((a, b) => (seqOrd[a.id] ?? 9999) - (seqOrd[b.id] ?? 9999))
-      if (indicLines.length) {
+      // ⚠⚠ ESTES TOTAIS RESPEITAM O `filtro_escopo` DA LINHA, e `tOrc`/`tReal`
+      // não. Eram "duas verdades" convivendo: o cartão de *Margem Sustentação*
+      // (escopo `cc:[317]`) mostrava 4.312.927 e a PONTE, lendo `tOrc`,
+      // mostrava 28.064.670 — a margem da empresa inteira. Mesma linha, mesma
+      // tela, 6× de diferença.
+      // Por isso saíram de dentro do `if (indicLines.length)`: a ponte e os
+      // quadros precisam deles mesmo num relatório sem indicador.
+      let iOrcG: Record<string, number> = {}, iRealG: Record<string, number> = {}
+      {
         const ccPermI = (ccs as any).every((c: any) => acessoDash.canSee('centro_custo', c.id)) ? null : (ccs as any).filter((c: any) => acessoDash.canSee('centro_custo', c.id)).map((c: any) => c.id)
         const baseI = { linhas: linhas as RLData[], ccs: ccs as any, empresas: empIds, meses, filialFilter: filFilter, ccFilter, ccPermitidos: ccPermI, slot: moedaSlot }
         const [iOrc, iReal, iPrev] = await Promise.all([
@@ -354,8 +362,9 @@ export default function DashboardPage() {
         if (myseq !== loadSeq.current) return   // carga mais nova já começou → não sobrescreve com dados antigos
         const byIdI: Record<string, RL> = {}; linhas.forEach(l => { byIdI[l.id] = l })
         const natOfI = (id: string | null): string | null => { if (!id) return null; const l = byIdI[id]; if (!l) return null; return (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : natOfI(l.pai_id) }
-        setIndicCards(indicLines.map(l => { const f = natOfI(l.id) === 'DESPESA' ? -1 : 1; return { id: l.id, label: l.descricao, isPct: l.formato === 'PERCENTUAL', desp: natOfI(l.id) === 'DESPESA', casas: l.casas_decimais ?? (l.formato === 'PERCENTUAL' ? 1 : 0), formato: l.formato, R: f * (iReal[l.id] || 0), O: f * (iOrc[l.id] || 0), P: f * (iPrev[l.id] || 0) } }))
-      } else if (myseq === loadSeq.current) setIndicCards([])
+        iOrcG = iOrc; iRealG = iReal
+        setIndicCards(indicLines.length ? indicLines.map(l => { const f = natOfI(l.id) === 'DESPESA' ? -1 : 1; return { id: l.id, label: l.descricao, isPct: l.formato === 'PERCENTUAL', desp: natOfI(l.id) === 'DESPESA', casas: l.casas_decimais ?? (l.formato === 'PERCENTUAL' ? 1 : 0), formato: l.formato, R: f * (iReal[l.id] || 0), O: f * (iOrc[l.id] || 0), P: f * (iPrev[l.id] || 0) } }) : [])
+      }
 
       // orçado/realizado ESCOPADOS ao nó; lineEmp FULL (p/ EBITDA = fórmula do relatório inteiro)
       // ⚠⚠ O VALOR E O PERCENTUAL SÃO DUAS LINHAS, e o `find` antigo pegava a
@@ -621,10 +630,15 @@ export default function DashboardPage() {
       setOrcRealMes(orMes); setResMes(resMesArr); setAccLines(acc); setComposicao(comps); setCompOcultas(childrenOcultas); setFilhasMes(fMes); setCascata(steps)
       setRecAreaLinhas(recAreaLinhasD); setRecDespLinhas(recDespLinhasD); setRecAreaBar(recAreaBarD); setDespAreaBar(despAreaBarD); setDespCcBar(despCcBarD); setRecCcBar(recCcBarD)
       setPorEmpresa(pe); setEbitdaEmp(eb); setEbitdaPctEmp(ebPct); setDesvios(desv)
-      // ⚠ `tOrc`/`tReal` já passaram pelo motor (fórmulas resolvidas) — são os
-      // mesmos números do KPI, que bate com o relatório. A ponte não recalcula
-      // nada: decompõe o que a tela já mostra.
-      setTotais({ orc: tOrc, real: tReal })
+      // ⚠⚠ A ponte e os quadros leem os totais de `totaisRelatorio`, NÃO
+      // `tOrc`/`tReal`: os dois passaram pelo motor, mas só o primeiro aplica o
+      // `filtro_escopo` da linha. Com `tOrc`, *Margem Sustentação* (escopo
+      // `cc:[317]`) abria a ponte em 28.064.670 — a margem da empresa inteira —
+      // enquanto o cartão ao lado dizia 4.312.927. **Mesma linha, mesma tela,
+      // 6× de diferença, e nada na tela dizia qual era qual.**
+      // A ponte não recalcula nada: ela decompõe o que o cartão mostra, então
+      // tem de ler da mesma fonte que ele.
+      setTotais({ orc: iOrcG, real: iRealG })
       // ⚠⚠ ZERO CONSULTA NOVA. `lineEmpR` (empresa × linha) e `ccAggRows`
       // (cc × linha × mês) já trazem `orcado` E `realizado` e já eram
       // carregados por esta tela — o quadro "quem causou" só precisava que
