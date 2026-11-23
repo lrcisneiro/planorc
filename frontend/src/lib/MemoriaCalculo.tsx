@@ -26,7 +26,9 @@ export type LinhaMem = {
   tipo_linha: any; expressao: string | null; desativada?: boolean
   nao_soma?: boolean; formato?: any; casas_decimais?: number; linha_orc_id?: string | null
 }
-export type ColMem = { rot: string; val: Record<string, number> }
+// `cen` é opaco para este componente: ele só o devolve ao chamador no razão,
+// que é quem sabe o que é um cenário nesta tela.
+export type ColMem = { rot: string; val: Record<string, number>; cen?: string }
 
 type Tok = { t: 'txt' | 'ref'; v: string }
 
@@ -89,9 +91,14 @@ const fmtSub = (l: LinhaMem | undefined, v: number | undefined) => {
 }
 
 // ── a expressão escrita, com nomes ou com valores no lugar das referências ──
-function Expr({ l, linhas, col }: { l: LinhaMem; linhas: LinhaMem[]; col?: ColMem }) {
+function Expr({ l, linhas, col, ocultos }: { l: LinhaMem; linhas: LinhaMem[]; col?: ColMem; ocultos?: Set<string> }) {
   if (l.tipo_linha === 'SOMAR_FILHOS') {
-    const f = componentesMem(l, linhas)
+    // ⚠ A expressão do subtotal é SINTETIZADA aqui (a linha não tem `expressao`),
+    // então dá para omitir as filhas sem lançamento — `+ 0 + 0 + 0 + 0 + 0 + 0`
+    // é ruído que empurra os números que importam para fora da vista.
+    // ⚠⚠ Na FÓRMULA isso não vale: ali a expressão é TEXTO do cadastro e
+    // apagar um termo dela seria mostrar uma fórmula que não é a da linha.
+    const f = componentesMem(l, linhas).filter(c => !ocultos?.has(c.id))
     if (!f.length) return <em style={{ color: 'var(--muted)' }}>soma das filhas (nenhuma ativa)</em>
     return <>{f.map((c, i) => (
       <span key={c.id}>{i > 0 ? ' + ' : ''}
@@ -115,8 +122,8 @@ function Expr({ l, linhas, col }: { l: LinhaMem; linhas: LinhaMem[]; col?: ColMe
 // procurou "a memória da fórmula de dentro" não a achou, porque ela não
 // existia: existia um esboço dela. Aninhar o tratamento completo em vários
 // níveis é ilegível; **navegar** entrega a peça inteira em cada nível.
-function Termo({ l, linhas, col, onEntrar }: {
-  l: LinhaMem; linhas: LinhaMem[]; col: ColMem; onEntrar: (id: string) => void
+function Termo({ l, linhas, col, onEntrar, onRazao }: {
+  l: LinhaMem; linhas: LinhaMem[]; col: ColMem; onEntrar: (id: string) => void; onRazao?: () => void
 }) {
   const desce = componentesMem(l, linhas).length > 0
   return (
@@ -134,15 +141,27 @@ function Termo({ l, linhas, col, onEntrar }: {
         ) : <span style={{ color: 'var(--text-mid)' }}>{l.descricao}</span>}
         {l.desativada && <span style={{ fontSize: 10.5, color: 'var(--orange)', marginLeft: 6 }}>desativada</span>}
       </td>
+      {/* ⚠⚠ O RAZÃO FECHA A DESCIDA, e só na FOLHA: ali a estrutura acabou e
+          o que há embaixo são os lançamentos. Nos níveis de cima o gesto é
+          `↳`, descer — oferecer os dois na mesma linha faria a pessoa escolher
+          entre duas coisas que ela ainda não sabe distinguir.
+          ⚠ Mesma gramática da ponte: nome = descer, valor = razão. */}
       <td style={{ padding: '7px 0 7px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-        {fmtL(l, col.val[l.id])}
+        {!desce && onRazao ? (
+          <button onClick={onRazao} title={`Abrir o razão de ${l.descricao}`}
+            style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: 'inherit',
+                     font: 'inherit', textDecoration: 'underline', textDecorationStyle: 'dotted' }}>
+            {fmtL(l, col.val[l.id])}
+          </button>
+        ) : fmtL(l, col.val[l.id])}
       </td>
     </tr>
   )
 }
 
-export function MemoriaModal({ id, linhas, cols, onClose, nota }: {
+export function MemoriaModal({ id, linhas, cols, onClose, nota, onRazao }: {
   id: string; linhas: LinhaMem[]; cols: ColMem[]; onClose: () => void; nota?: string
+  onRazao?: (lineId: string, col: ColMem) => void
 }) {
   // ⚠ A trilha vive AQUI: o modal não é desmontado por recarga nenhuma (os
   // valores já vieram prontos), então o estado local é seguro — ao contrário
@@ -158,7 +177,12 @@ export function MemoriaModal({ id, linhas, cols, onClose, nota }: {
   const raiz = linhas.find(z => z.id === id)
   if (!l) return null
   const col = cols[Math.min(ci, cols.length - 1)] || { rot: '—', val: {} }
-  const filhos = componentesMem(l, linhas)
+  const todos = componentesMem(l, linhas)
+  // ⚠⚠ ZERO EM **TODAS** AS COLUNAS, não só na selecionada. Pela coluna, a
+  // lista mudaria ao trocar a pílula — linha some ao ver o orçado e volta ao
+  // ver o realizado —, e aí o que se está conferindo deixa de ser estável.
+  const ocultos = new Set(todos.filter(c => cols.every(x => !(x.val[c.id] || 0))).map(c => c.id))
+  const filhos = todos.filter(c => !ocultos.has(c.id))
   return (
     <ModalPanel titulo={`Memória de cálculo · ${l.descricao}`} onClose={onClose} semAplicar
                 width="min(820px, calc(100vw - 40px))">
@@ -205,7 +229,7 @@ export function MemoriaModal({ id, linhas, cols, onClose, nota }: {
         <>
           <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, marginBottom: 6 }}>A fórmula</div>
           <div style={{ fontSize: 13, lineHeight: 1.7, marginBottom: 14, wordBreak: 'break-word' }}>
-            = <Expr l={l} linhas={linhas} />
+            = <Expr l={l} linhas={linhas} ocultos={ocultos} />
           </div>
 
           {/* ⚠ UMA SUBSTITUIÇÃO POR COLUNA. É a memória propriamente dita: a
@@ -215,7 +239,7 @@ export function MemoriaModal({ id, linhas, cols, onClose, nota }: {
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 4 }}>{col.rot}</div>
             <div style={{ fontSize: 13, lineHeight: 1.7, fontVariantNumeric: 'tabular-nums', wordBreak: 'break-word' }}>
-              = <Expr l={l} linhas={linhas} col={col} />
+              = <Expr l={l} linhas={linhas} col={col} ocultos={ocultos} />
             </div>
             <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
               = {fmtL(l, col.val[l.id])}
@@ -223,8 +247,13 @@ export function MemoriaModal({ id, linhas, cols, onClose, nota }: {
           </div>
 
           <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '16px 0 2px' }}>Os termos</div>
+          {/* ⚠ O corte é DITO. Lista que encolhe calada faz quem confere
+              procurar a linha que sumiu — e aqui ela some por ser zero, não
+              por erro. Mesma regra do teto de contas em Cadastros. */}
           <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>
             ↳ entra na memória do próprio termo, quando ele também se decompõe.
+            {onRazao && ' Clique no valor de uma folha para abrir o razão.'}
+            {ocultos.size > 0 && <> · <strong>{ocultos.size}</strong> linha(s) sem lançamento ocultada(s).</>}
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -236,7 +265,8 @@ export function MemoriaModal({ id, linhas, cols, onClose, nota }: {
               </thead>
               <tbody>
                 {filhos.map((f, i) => <Termo key={f.id + i} l={f} linhas={linhas} col={col}
-                  onEntrar={(fid: string) => setPilha([...pilha, fid])} />)}
+                  onEntrar={(fid: string) => setPilha([...pilha, fid])}
+                  onRazao={onRazao ? () => onRazao(f.id, col) : undefined} />)}
                 <tr style={{ borderTop: '2px solid var(--line)', fontWeight: 700 }}>
                   <td style={{ padding: '8px 8px 0 0' }}>{l.descricao}</td>
                   <td style={{ padding: '8px 0 0 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>

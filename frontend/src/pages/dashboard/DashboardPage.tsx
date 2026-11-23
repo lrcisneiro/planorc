@@ -892,6 +892,21 @@ export default function DashboardPage() {
             const esc = !!totais.arvOrc[memoria]
             return <MemoriaModal id={memoria} linhas={linhasRel as any} onClose={() => setMemoria(null)}
               nota={esc ? `Recorte próprio de ${lm?.descricao ?? 'linha'} — os termos abaixo são calculados no escopo dela.` : undefined}
+              // ⚠ O razão fecha a descida: na folha da estrutura não há mais
+              // fórmula, há lançamento. É o MESMO `DrillModal` da ponte.
+              // ⚠⚠ Mas ele herda o RECORTE DA LINHA quando ela é escopada —
+              // abrir com o filtro da tela daria um número maior que o da
+              // linha que o abriu, que é o defeito do drill já registrado.
+              onRazao={qparams ? (lid: string) => {
+                const e = (lm as any)?.filtro_escopo
+                let cc: string[] | null | undefined = undefined
+                if (e && Object.values(e).some((a: any) => (a || []).length)) {
+                  let x = effectiveCcFilter(ccs as any, e.cc || [], e.area || [], e.divisao || [], e.bu || [])
+                  if (qparams.ccFilter) x = x === null ? [...qparams.ccFilter] : x.filter(z => qparams.ccFilter!.includes(z))
+                  cc = x ?? undefined
+                }
+                setDrill({ nodeId: lid, ...(cc !== undefined ? { ccFilter: cc } : {}) })
+              } : undefined}
               cols={[
                 { rot: versoes.find(v => v.id === versaoId)?.codigo || 'Orçado', val: totais.arvOrc[memoria] || totais.orc },
                 { rot: 'Realizado', val: totais.arvReal[memoria] || totais.real },

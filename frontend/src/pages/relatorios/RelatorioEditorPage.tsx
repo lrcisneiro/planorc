@@ -1118,7 +1118,11 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     rec(rootId)
     return out
   }
-  const abrirRazao = (l: Linha, period: Period, cen: string) => {
+  // ⚠⚠ `ccEscopo` existe para o razão aberto DE DENTRO da memória de uma linha
+  // escopada: ali os valores são do escopo dela, e abrir o razão com o filtro
+  // da tela daria um número maior que o da linha que o abriu — o defeito do
+  // drill de novo ("detalhe que não soma o total de onde veio é outro número").
+  const abrirRazao = (l: Linha, period: Period, cen: string, ccEscopo?: string[] | null) => {
     if (l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR' || l.tipo_linha === 'ESPACO') return
     if (!empresaFiltro.length) return
     const filialFilter0 = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
@@ -1131,7 +1135,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       return f.filter(idd => permitidos.includes(idd))
     }
     const filialFilter = aplicaEscopo(filialFilter0, filiais, 'filial')
-    const ccFilter = aplicaEscopo(ccFilter0, ccs as any, 'centro_custo')
+    const ccFilter = ccEscopo !== undefined ? ccEscopo : aplicaEscopo(ccFilter0, ccs as any, 'centro_custo')
     const meses: Periodo[] = period === 'TOTAL' ? displayedMeses : (buckets[period as number]?.meses ?? [])
     // O eixo exibe tudo no ano de referência, mas o razão precisa do ANO REAL do
     // cenário: no ciclo é o ano da versão, e no "realizado do ano anterior" é o
@@ -1207,6 +1211,20 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const sig = escSig[lid]; if (!sig) return null
     const sc = scopedComputed[`${cen}::${sig}`]; if (!sc) return null
     return computeTotais(linhasCalcReal, sc, displayedMeses)
+  }
+  // O recorte de CC da linha cuja memória está aberta — `undefined` quando ela
+  // não tem escopo próprio, e aí o razão segue o filtro da tela, como sempre.
+  const ccDaMemoria = (): string[] | null | undefined => {
+    const raiz: any = memoriaId && linhas.find(x => x.id === memoriaId)
+    const e = raiz?.filtro_escopo
+    if (!e || !Object.values(e).some((a: any) => (a || []).length)) return undefined
+    let cc = effectiveCcFilter(ccs as any, e.cc || [], e.area || [], e.divisao || [], e.bu || [])
+    const tela = effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel)
+    if (tela) cc = cc === null ? [...tela] : cc.filter((x: string) => tela.includes(x))
+    // ⚠ Cruza também com o escopo VER, como `aplicaEscopo` faz: sem isso o
+    // razão mostraria CC que a pessoa não alcança — e o RLS devolveria vazio,
+    // que parece ausência de lançamento.
+    return cc === null ? undefined : cc.filter((x: string) => acesso.canSee('centro_custo', x))
   }
   const memDecompoe = (l: any) => !!l && (l.tipo_linha === 'SOMAR_FILHOS'
     ? linhas.some(c => c.pai_id === l.id && c.tipo_linha !== 'INDICADOR' && c.tipo_linha !== 'ESPACO' && !c.desativada && !c.nao_soma)
@@ -2156,8 +2174,14 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
         const lm: any = linhas.find(x => x.id === memoriaId)
         return <MemoriaModal id={memoriaId} linhas={linhas as any} onClose={() => setMemoriaId(null)}
           nota={escSig[memoriaId] ? `Recorte próprio de ${lm?.descricao ?? 'linha'} — os termos abaixo são calculados no escopo dela.` : undefined}
+          // ⚠ `cen` volta ao chamador no razão: a pílula escolhida diz QUAL
+          // cenário abrir, e sem ele o razão abriria sempre o primeiro.
+          onRazao={(lid: string, c: any) => {
+            const alvo = linhas.find(x => x.id === lid)
+            if (alvo && c.cen) abrirRazao(alvo as any, 'TOTAL', c.cen, ccDaMemoria())
+          }}
           cols={cenariosExpandidos.map(cen => ({
-            rot: cenarioLabel(cen),
+            rot: cenarioLabel(cen), cen,
             val: arvoreMem(memoriaId, cen) || totalByCen[cen] || {},
           }))} />
       })()}

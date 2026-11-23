@@ -1482,6 +1482,23 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   E **−0 vira 0** (`v === 0` é true para −0): a mesma armadilha do total do rateio.
   ⚠ Os nomes em roxo são **linhas do relatório**, não contas orçamentárias — a pergunta foi feita
   ao ler a tela, então a resposta passou a estar nela.
+  ⚠⚠ **O RAZÃO FECHA A DESCIDA, e só na FOLHA.** Ali a estrutura acabou e o que há embaixo são os
+  lançamentos. Nos níveis de cima o gesto é `↳`, descer — oferecer os dois na mesma linha faria
+  escolher entre duas coisas que ainda não se sabe distinguir. **Mesma gramática da ponte:** nome
+  = descer, valor = razão.
+  ⚠⚠ **E ele herda o RECORTE DA LINHA ESCOPADA**, nas duas telas: abrir com o filtro da tela
+  daria um número maior que o da linha que o abriu — o defeito do drill de novo. No editor isso
+  é o 4º argumento de `abrirRazao`; no dashboard, o `ccFilter` do `DrillModal`. ⚠ O recorte é
+  cruzado com o escopo **VER** também, senão o razão pediria CC que a pessoa não alcança e o RLS
+  devolveria vazio — que parece ausência de lançamento.
+  ⚠⚠ **Linha sem lançamento SOME, e o corte é DITO.** Um subtotal de receitas tinha
+  `+ 0 + 0 + 0 + 0 + 0 + 0 + 0 + 0 + 0` empurrando os três números que importam para fora da
+  vista. O critério é **zero em TODAS as colunas**, não na selecionada: pela coluna, a linha
+  sumiria ao ver o orçado e voltaria ao ver o realizado, e o que se confere deixaria de ser
+  estável. O rodapé diz quantas ficaram de fora.
+  ⚠⚠ **Só a expressão do SUBTOTAL pode perder termos** — ela é sintetizada aqui (a linha não tem
+  `expressao`). Na **FÓRMULA** a expressão é TEXTO do cadastro, e apagar um termo dela seria
+  exibir uma fórmula que não é a da linha.
   **Em DUAS telas, um componente só** — o dashboard e o relatório perguntam a mesma coisa, e duas
   implementações dariam duas respostas, com a do relatório sendo justamente a que se confronta
   com a DRE. No **acompanhamento** abre no clique do cartão do indicador; no **relatório** é o
