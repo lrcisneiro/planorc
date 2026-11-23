@@ -1629,14 +1629,29 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ **Headcount por VIGÊNCIA, não por situação** — quem sai em 11/2026 aparece no quadro de hoje
   e gera zero em 2027. ⚠ **Intercâmbio fora das horas** (10,6% do total, até 50% em alguém): é
   receita de outra empresa do grupo, com contrapartida em *Repasses*.
-  ⚠⚠ **TERCEIROS EXTERNOS fica FORA da capacidade e das duas margens oficiais.** É custo direto
-  mas **elástico** — contratado sob demanda. Somá-lo à capacidade faria a capacidade crescer com
-  a contratação, e a pergunta *"cabe na equipe?"* deixaria de existir.
-  ⚠ **Ele vem POR ÚLTIMO na cascata** (direta → área → com terceiros), não no meio: assim a
-  *margem da área* continua sendo a mesma coisa que a `Margem Serviço` do DRE. Com terceiros
-  entre as duas, nenhuma das margens era comparável com o que já se reporta.
-  ⚠ As margens vão em **cascata**, não em cartões: três percentuais lado a lado para "margem de
-  serviços" parecem contradição; em cascata, cada uma é a anterior menos um custo nomeado.
+  ⚠⚠ **TUDO SOBRE A RECEITA LÍQUIDA, e o imposto é PROPORCIONAL às linhas marcadas.** É o mesmo
+  raciocínio do `[130]*([111]/[1])` da fórmula `Margem Serviço` do DRE: tirando o reembolso da
+  receita, o imposto que incidia sobre ele sai junto. Aqui a conta é a recíproca — do imposto da
+  área fica a fração que cabe à receita escolhida.
+  ⚠ **A fórmula do DRE não tem erro no numerador** (`[1]-[111]+[130]` já é líquido); o que falta
+  lá é o **denominador** do `%` usar a mesma base, senão o percentual sai subestimado.
+  ⚠⚠ **O quadro ESTAVA EXCLUINDO as outras despesas da área** — só somava `origem POSTO` e
+  terceiros, então aluguel, software e administrativas ficavam de fora e a margem da área saía
+  **superestimada**. Hoje *Demais despesas* é o **RESTO** (total da área − pessoal − terceiros −
+  viagens): somar linha a linha exigiria marcar dezenas e qualquer esquecimento viraria margem a
+  mais, calado.
+  ⚠ **Viagens sai dos DOIS lados** (`[2]-[205]` do DRE): o reembolso saiu da receita, então a
+  despesa reembolsável sai junto.
+  ⚠ **A cascata é "quem executa" → "quem apoia"**: receita líquida → pessoal próprio
+  (**margem direta**) → terceiros (**margem com terceiros**) → demais despesas (**margem da
+  área**). Terceiro é **mão de obra contratada**, quase tão direto quanto o próprio — agrupá-lo
+  com aluguel e software esconderia que a entrega depende dele. ⚠ Mas fica **fora da
+  capacidade**: somá-lo ali faria a capacidade crescer com a contratação, e a pergunta
+  *"cabe na equipe?"* deixaria de existir.
+  ⚠ As margens vão em **cascata**, não em cartões: percentuais lado a lado para "margem de
+  serviços" parecem contradição; em cascata, cada um é o anterior menos um custo nomeado.
+  ⚠ **Os totais saem de `totaisRelatorio` recortado pela ÁREA**, não de `base` (filtro da tela):
+  é a mesma função do relatório, então batem com a DRE por construção — `filtro_escopo` incluído.
   ⚠⚠ **O quadro é o que está no FILTRO, e ele diz isso.** Sem recorte de CC soma a empresa
   inteira e chama de Serviços — a capacidade triplicaria e a conta fecharia, errada e plausível.
   ⚠⚠ **A ÁREA É UM SELETOR DO QUADRO, e o recorte vai na CHAMADA.** A primeira versão só

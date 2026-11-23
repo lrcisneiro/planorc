@@ -17,7 +17,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { useUserAccess } from '../../hooks/useUserAccess'
-import { totaisRelatorioMes } from '../../lib/relatorioTotais'
+import { totaisRelatorio, totaisRelatorioMes } from '../../lib/relatorioTotais'
 import { COLS_LINHA, emArvore, fatorExibicao, linhasConciliaveis, type LinhaRel } from '../../lib/refRelatorio'
 import { Ponte, componentesDe } from '../../lib/Ponte'
 import {
@@ -202,6 +202,13 @@ export default function OrcamentoDashPage() {
   // é o caso de hoje; o seletor é o que torna o quadro reusável nas outras
   // áreas, que é o próximo passo pedido.
   const [capArea, setCapArea] = useState<string>(sv.capArea || '3')
+  const [capTot, setCapTot] = useState<Record<string, number> | null>(null)
+  // Linhas do imposto e da despesa da área, e o que sai das despesas (viagens).
+  // ⚠ Viagens sai dos DOIS lados: o reembolso saiu da receita, então a despesa
+  // reembolsável tem de sair junto — é o `[2]-[205]` da fórmula do DRE.
+  const [capImp, setCapImp] = useState<string[]>(sv.capImp || [])
+  const [capDesp, setCapDesp] = useState<string[]>(sv.capDesp || [])
+  const [capExcl, setCapExcl] = useState<string[]>(sv.capExcl || [])
   const [capPar, setCapPar] = useState<any>(sv.capPar || {
     PRODUCAO:    { horas: 160, fator: null, valor: 200 },
     COORDENACAO: { horas: 160, fator: null, valor: 250 },
@@ -247,6 +254,9 @@ export default function OrcamentoDashPage() {
     if (f.capLinhas || f.capLinha) setCapLinhas(umaLista(f.capLinhas, f.capLinha))
     if (f.capTercs || f.capTerc) setCapTercs(umaLista(f.capTercs, f.capTerc))
     if (f.capArea) setCapArea(f.capArea)
+    if (f.capImp) setCapImp(f.capImp)
+    if (f.capDesp) setCapDesp(f.capDesp)
+    if (f.capExcl) setCapExcl(f.capExcl)
     if (f.capPar) setCapPar(f.capPar)
     f.aba && setAba(f.aba); Array.isArray(f.indicSel) && setIndicSel(f.indicSel); Array.isArray(f.linhaSel) && setLinhaSel(f.linhaSel); f.empLinha !== undefined && setEmpLinha(f.empLinha)
     if (f.mesIni) setMesIni(f.mesIni); if (f.mesFim) setMesFim(f.mesFim)
@@ -347,14 +357,14 @@ export default function OrcamentoDashPage() {
   const estado = () => ({
     relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel, empLinha,
     empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, sentidoOrigem,
-    capLinhas, capTercs, capArea, capPar,
+    capLinhas, capTercs, capArea, capImp, capDesp, capExcl, capPar,
     secPonte, secVar, secAcur, secOrc,
   })
   useEffect(() => {
     if (cardId) return   // vendo um card: não contaminar o estado próprio da tela
     localStorage.setItem(SAVE, JSON.stringify(estado()))
   }, [cardId, relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel, empLinha,
-      empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, sentidoOrigem, capLinhas, capTercs, capArea, capPar, secPonte, secVar, secAcur, secOrc]) // eslint-disable-line
+      empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, sentidoOrigem, capLinhas, capTercs, capArea, capImp, capDesp, capExcl, capPar, secPonte, secVar, secAcur, secOrc]) // eslint-disable-line
 
   const meses = useMemo(() => Array.from({ length: Math.max(0, mesFim - mesIni + 1) }, (_, i) => mesIni + i), [mesIni, mesFim])
   // os meses DEPOIS do período, até dezembro
@@ -423,6 +433,20 @@ export default function OrcamentoDashPage() {
     // quadro some — é um quadro de Serviços, não aparece olhando Comercial.
     const ccsArea = (ccs as any[]).filter(c => c.area_cod === capArea).map(c => c.id)
     const ccsCap = ccFilter ? ccFilter.filter((id: string) => ccsArea.includes(id)) : ccsArea
+    // ⚠⚠ OS TOTAIS DO QUADRO SÃO DA ÁREA, não do filtro da tela. Usar `base`
+    // misturava capacidade recortada com receita e despesa da empresa inteira
+    // — e, pior, deixava de fora TODAS as despesas que não são pessoal
+    // (aluguel, software, administrativas): a margem da área saía
+    // superestimada, porque o quadro só somava `origem POSTO` e terceiros.
+    // ⚠ É a MESMA função do relatório (`totaisRelatorio`), então os números
+    // batem com a DRE por construção — inclusive o `filtro_escopo` das linhas.
+    if (linhas.length) {
+      totaisRelatorio({
+        linhas, ccs, cen: vBase, anos: [anoBase], meses,
+        empresas: empFiltradas, filialFilter, ccFilter: ccsCap, ccPermitidos: null,
+        slot: 1,
+      }).then(t => { if (vivo) setCapTot(t) }).catch(() => { if (vivo) setCapTot(null) })
+    }
     supabase.rpc('servico_capacidade_agg', {
       p_versao: vBase, p_ano: anoBase,
       p_empresas: empFiltradas, p_filiais: filialFilter, p_ccs: ccsCap,
@@ -899,7 +923,9 @@ export default function OrcamentoDashPage() {
                   parecer válida para todas. */}
               {dados && <CapacidadeServicos S={S} cap={cap} linhas={linhas} base={dados.base} val={val}
                 capLinhas={capLinhas} setCapLinhas={setCapLinhas} capTercs={capTercs} setCapTercs={setCapTercs}
-                capArea={capArea} setCapArea={setCapArea} ccs={ccs}
+                capArea={capArea} setCapArea={setCapArea} ccs={ccs} tot={capTot}
+                capImp={capImp} setCapImp={setCapImp} capDesp={capDesp} setCapDesp={setCapDesp}
+                capExcl={capExcl} setCapExcl={setCapExcl}
                 par={capPar} setPar={setCapPar}
                 rotulo={versao(vBase)?.codigo ?? ''} ano={anoBase} />}
             </>
@@ -1858,7 +1884,8 @@ const PAPEL_ROT: Record<string, string> = {
   ESTRUTURA: 'Estrutura', SEM_PAPEL: 'Sem papel definido',
 }
 function CapacidadeServicos({ S, cap, linhas, base, val, capLinhas, setCapLinhas,
-                              capTercs, setCapTercs, capArea, setCapArea, ccs,
+                              capTercs, setCapTercs, capArea, setCapArea, ccs, tot,
+                              capImp, setCapImp, capDesp, setCapDesp, capExcl, setCapExcl,
                               par, setPar, rotulo, ano }: any) {
   const fmt = (n: number) => Math.round(n).toLocaleString('pt-BR')
   const [abrir, setAbrir] = useState(false)
@@ -1868,11 +1895,14 @@ function CapacidadeServicos({ S, cap, linhas, base, val, capLinhas, setCapLinhas
     return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([cod, nome]) => ({ cod, nome }))
   }, [ccs])
 
-  // Candidatas: qualquer linha com valor. Em árvore, para a agrupadora e as
-  // filhas aparecerem na relação em que estão.
+  // ⚠ `vArea` lê os totais DA ÁREA; `val`/`base` (filtro da tela) ficam só
+  // como reserva enquanto a carta da área não chegou — sem isso o quadro
+  // piscaria com o número da empresa inteira antes de se corrigir, e quem
+  // olhasse rápido leria o errado.
+  const vArea = (id: string) => Math.abs((tot ? tot[id] : val(base, id)) ?? 0)
   const opcoes = useMemo(() => emArvore(linhas as any)
-    .filter((l: any) => !l.desativada && Math.abs(val(base, l.id)) > 0.005)
-    .map((l: any) => ({ id: l.id, nome: l.descricao, prof: l.prof })), [linhas, base, val])
+    .filter((l: any) => !l.desativada && Math.abs((tot ? tot[l.id] : val(base, l.id)) ?? 0) > 0.005)
+    .map((l: any) => ({ id: l.id, nome: l.descricao, prof: l.prof })), [linhas, base, val, tot])
 
   // ⚠⚠ MARCAR A AGRUPADORA JUNTO COM AS FILHAS CONTA DUAS VEZES — é o mesmo
   // defeito da ponte e do botão Seções, e aqui seria pior: a receita dobraria
@@ -1895,7 +1925,7 @@ function CapacidadeServicos({ S, cap, linhas, base, val, capLinhas, setCapLinhas
     set([...sel.filter(x => !fora.has(x)), id])
   }
 
-  const soma = (ids: string[]) => ids.reduce((a, id) => a + Math.abs(val(base, id)), 0)
+  const soma = (ids: string[]) => ids.reduce((a, id) => a + vArea(id), 0)
 
   const Picker = ({ titulo, sel, set }: any) => {
     const [open, setOpen] = useState(false)
@@ -1919,7 +1949,7 @@ function CapacidadeServicos({ S, cap, linhas, base, val, capLinhas, setCapLinhas
                                            paddingLeft: 6 + o.prof * 12 }}>
                   <input type="checkbox" checked={sel.includes(o.id)} onChange={() => alterna(sel, set)(o.id)} />
                   <span style={{ flex: 1 }}>{o.nome}</span>
-                  <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--muted)' }}>{fmt(Math.abs(val(base, o.id)))}</span>
+                  <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--muted)' }}>{fmt(vArea(o.id))}</span>
                 </label>
               ))}
               <div style={{ fontSize: 11, color: 'var(--faint)', padding: '6px 6px 2px', borderTop: '1px solid var(--border)' }}>
@@ -1946,6 +1976,21 @@ function CapacidadeServicos({ S, cap, linhas, base, val, capLinhas, setCapLinhas
     const a = opcoes.find((o: any) => /terceiro/i.test(o.nome) && /extern/i.test(o.nome))
     if (a) setCapTercs([a.id])
   }, [opcoes]) // eslint-disable-line
+  useEffect(() => {
+    if (capImp.length || !opcoes.length) return
+    const a = opcoes.find((o: any) => /imposto/i.test(o.nome) && /fatura/i.test(o.nome))
+    if (a) setCapImp([a.id])
+  }, [opcoes]) // eslint-disable-line
+  useEffect(() => {
+    if (capDesp.length || !opcoes.length) return
+    const a = opcoes.find((o: any) => /^despesas$/i.test(o.nome.trim()))
+    if (a) setCapDesp([a.id])
+  }, [opcoes]) // eslint-disable-line
+  useEffect(() => {
+    if (capExcl.length || !opcoes.length) return
+    const a = opcoes.find((o: any) => /^viagens$/i.test(o.nome.trim()))
+    if (a) setCapExcl([a.id])
+  }, [opcoes]) // eslint-disable-line
 
   const receita = soma(capLinhas)
   const linhasCap = (cap || []) as any[]
@@ -1968,7 +2013,6 @@ function CapacidadeServicos({ S, cap, linhas, base, val, capLinhas, setCapLinhas
   const horasAno = calc.reduce((a, x) => a + x.horasAno, 0)
   const custoVende = vende.reduce((a, p) => a + Number(de(p)?.custo || 0), 0)
   const custoArea = linhasCap.reduce((a, x) => a + Number(x.custo || 0), 0)
-  const naoVende = custoArea - custoVende
   // ⚠⚠ TERCEIROS EXTERNOS É CUSTO DIRETO, MAS ELÁSTICO — contratado sob
   // demanda. Por isso ele NÃO entra na margem direta (que mede a eficiência da
   // equipe própria) e aparece numa margem PRÓPRIA logo abaixo: assim dá para
@@ -1978,8 +2022,25 @@ function CapacidadeServicos({ S, cap, linhas, base, val, capLinhas, setCapLinhas
   // capacidade crescer com a contratação, e a pergunta "cabe na equipe?"
   // deixaria de existir.
   const terceiros = soma(capTercs)
-  const gap = capacidade - receita
-  const implicito = horasAno > 0 ? receita / horasAno : 0
+
+  // ⚠⚠ O IMPOSTO É PROPORCIONAL ÀS LINHAS MARCADAS, não o total da área. É o
+  // mesmo raciocínio do `[130]*([111]/[1])` da fórmula do DRE: tirando o
+  // reembolso da receita, o imposto que incidia sobre ele tem de sair junto.
+  // Aqui a conta é a recíproca — do imposto da área, fica a fração que cabe à
+  // receita escolhida.
+  const recTotArea = soma(opcoes.filter((o: any) => /receita/i.test(o.nome) && o.prof === 1).map((o: any) => o.id))
+  const impArea = soma(capImp)
+  const imposto = recTotArea > 0 ? impArea * (receita / recTotArea) : 0
+  const recLiq = receita - imposto
+
+  // ⚠ "Demais despesas" é o RESTO: total da área, menos o que já foi nomeado.
+  // Somar linha a linha exigiria marcar dezenas delas e qualquer esquecimento
+  // viraria margem a mais, em silêncio. Como resto, tudo que existe entra.
+  const despArea = soma(capDesp) - soma(capExcl)
+  const demais = Math.max(0, despArea - custoVende - terceiros)
+
+  const gap = capacidade - recLiq
+  const implicito = horasAno > 0 ? recLiq / horasAno : 0
 
   const num = (v: any, on: (n: number) => void, suf?: string) => (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
@@ -2096,9 +2157,13 @@ function CapacidadeServicos({ S, cap, linhas, base, val, capLinhas, setCapLinhas
             // meio, a "margem da área" deixava de ser a mesma coisa que a
             // `Margem Serviço` do DRE e nenhuma das duas era comparável com o
             // que já se reporta.
-            const m1 = receita - custoVende          // própria
-            const m2 = m1 - naoVende                 // + estrutura = a área
-            const m3 = m2 - terceiros                // + o elástico
+            // ⚠ TERCEIROS LOGO APÓS O PESSOAL: ele é MÃO DE OBRA contratada,
+            // quase tão direto quanto o próprio — agrupá-lo com aluguel e
+            // software esconderia que a entrega depende dele. A sequência é
+            // "quem executa" → "quem apoia", não "fixo" → "variável".
+            const m1 = recLiq - custoVende           // só de pessoas próprias
+            const m2 = m1 - terceiros                 // + mão de obra contratada
+            const m3 = m2 - demais                    // + todo o resto = a área
             const lin = (rot: string, val: number, det: string, forte = false, margem = false) => (
               <tr key={rot}>
                 <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit',
@@ -2109,19 +2174,24 @@ function CapacidadeServicos({ S, cap, linhas, base, val, capLinhas, setCapLinhas
                              color: margem ? (val >= 0 ? 'var(--text)' : 'var(--red)') : 'var(--muted)' }}>
                   {margem ? fmt(val) : `− ${fmt(val)}`}
                 </td>
+                {/* ⚠ O percentual é sobre a RECEITA LÍQUIDA, não a bruta — é a
+                    calibragem que faltava também na fórmula do DRE, onde o
+                    numerador já era líquido e o denominador não. */}
                 <td style={{ ...S.td, width: 70, color: 'var(--muted)' }}>
-                  {margem && receita ? `${(val / receita * 100).toFixed(1)}%` : ''}
+                  {margem && recLiq ? `${(val / recLiq * 100).toFixed(1)}%` : ''}
                 </td>
               </tr>
             )
             return [
-              lin('Receita de serviços', receita, '', true, true),
+              lin('Receita de serviços', receita, 'linhas marcadas', false, true),
+              lin('Impostos s/ faturamento', imposto, `proporcional — ${recTotArea ? (receita / recTotArea * 100).toFixed(0) : 0}% da receita da área`),
+              lin('= Receita líquida', recLiq, 'a base de todas as margens abaixo', true, true),
               lin('Pessoal próprio direto', custoVende, 'produção + coordenação'),
-              lin('= Margem direta', m1, 'eficiência da equipe própria', true, true),
-              lin('Estrutura', naoVende, 'diretoria, gerência executiva, sem papel'),
-              lin('= Margem da área', m2, 'a margem que a DRE reporta', true, true),
-              lin('Terceiros externos', terceiros, 'contratados sob demanda — a parte elástica'),
-              lin('= Margem com terceiros', m3, 'a entrega inteira, com o elástico', true, true),
+              lin('= Margem direta', m1, 'só da equipe própria', true, true),
+              lin('Terceiros externos', terceiros, 'mão de obra contratada sob demanda — a parte elástica'),
+              lin('= Margem com terceiros', m2, 'toda a mão de obra que entrega', true, true),
+              lin('Demais despesas da área', demais, 'estrutura e tudo mais, sem viagens'),
+              lin('= Margem da área', m3, 'a margem que a DRE reporta', true, true),
             ]
           })()}
         </tbody>
@@ -2130,6 +2200,12 @@ function CapacidadeServicos({ S, cap, linhas, base, val, capLinhas, setCapLinhas
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>Terceiros externos:</span>
         <Picker titulo="linhas" sel={capTercs} set={setCapTercs} />
         <strong style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{fmt(terceiros)}</strong>
+        <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 10 }}>Impostos:</span>
+        <Picker titulo="linhas" sel={capImp} set={setCapImp} />
+        <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 10 }}>Despesas da área:</span>
+        <Picker titulo="linhas" sel={capDesp} set={setCapDesp} />
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>menos</span>
+        <Picker titulo="viagens etc." sel={capExcl} set={setCapExcl} />
       </div>
 
       <div data-noexport style={{ marginTop: 10, fontSize: 11.5, color: 'var(--violet)', cursor: 'pointer' }}
