@@ -1621,6 +1621,18 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ Vem **depois dos indicadores** de propósito: os cartões respondem "quanto", a ponte "de onde
   vem" — e a segunda pergunta só faz sentido depois da primeira.
 
+- **Ordenar coluna no "Quem causou" (23/nov).** `Tabela` já ordenava por clique desde sempre,
+  então *O que mudou* e *Acurácia* já tinham; faltava o *Quem causou*, que é `<table>` à mão por
+  causa das linhas que expandem no clique.
+  ⚠⚠ **A SELEÇÃO DOS 12 CONTINUA POR IMPACTO — a ordenação só reordena esses.** Ordenar antes de
+  cortar mudaria o significado de *outros*: por nome, os 12 primeiros seriam os alfabéticos, e o
+  quadro passaria a esconder as áreas que mais mexeram no resultado **justamente quando se
+  ordena por outra coluna**.
+  ⚠ Três cliques (desc → asc → volta ao impacto): sem o terceiro estado não há como desfazer a
+  ordenação sem recarregar.
+  ⚠ **"% do Δ" não ordena**: é o `delta` sobre uma constante, então daria exatamente a mesma
+  ordem — coluna clicável que repete outra ensina que o clique não faz nada.
+
 - **Os TRÊS quadros de variação agora servem às duas telas (23/nov).** `lib/Ponte.tsx` e
   `lib/AnaliseVariacao.tsx` (ranking *O que mudou* + *Quem causou a variação*, com `Tabela`,
   `useCorte` e a partição em nível) saíram de `OrcamentoDashPage`, que caiu de **2.495 para

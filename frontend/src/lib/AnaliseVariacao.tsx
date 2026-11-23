@@ -236,6 +236,21 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
                       rotOrigem, rotDestino, dTotal, dim, setDim, ano }: any) {
   const S = Sx || S_PONTE
   const [aberta, setAberta] = useState<string | null>(null)
+  // Três cliques: desc → asc → volta ao impacto (o default). Sem o terceiro
+  // estado não há como desfazer a ordenação sem recarregar a tela.
+  const [ordQ, setOrdQ] = useState<{ k: string; dir: 1 | -1 } | null>(null)
+  const thOrd = (k: string, label: string, esq = false) => {
+    const ativo = ordQ?.k === k
+    return (
+      <th onClick={() => setOrdQ(o => o?.k === k ? (o.dir === -1 ? { k, dir: 1 } : null) : { k, dir: -1 })}
+        title="Clique para ordenar — o terceiro clique volta à ordem por impacto"
+        style={{ ...S.th, textAlign: esq ? 'left' : 'right', cursor: 'pointer', userSelect: 'none',
+                 color: ativo ? 'var(--violet)' : undefined }}>
+        {label}
+        {ativo && (ordQ!.dir === -1 ? <ChevronDown size={11} style={{ verticalAlign: -1 }} /> : <ChevronUp size={11} style={{ verticalAlign: -1 }} />)}
+      </th>
+    )
+  }
 
   // Agrupa o bruto (empresa_id / cc_id) na dimensão pedida. Empresa e CC são
   // chaves diretas; área, divisão e BU são ATRIBUTOS do CC — é por isso que os
@@ -336,8 +351,24 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
   // RPCs. Mostrar sem o resíduo seria afirmar que tudo foi atribuído.
   const naoAtrib = (dTotal || 0) - somaDim
   const temResid = Math.abs(naoAtrib) > Math.max(1, Math.abs(dTotal || 0) * 0.005)
-  const mostra = linhasQ.slice(0, MAX_QUEM)
+  // ⚠⚠ A SELEÇÃO DOS 12 CONTINUA POR IMPACTO; a ordenação só reordena ESSES.
+  // Ordenar antes de cortar mudaria o significado de "outros": por nome, os 12
+  // primeiros seriam os alfabéticos e "outros" viraria uma sobra arbitrária —
+  // o quadro passaria a esconder as áreas que mais mexeram no resultado
+  // justamente quando se ordena por outra coluna.
+  const top = linhasQ.slice(0, MAX_QUEM)
   const resto = linhasQ.slice(MAX_QUEM)
+  const mostra = useMemo(() => {
+    if (!ordQ) return top
+    const val = (x: any) => ordQ.k === 'k' ? x.k
+      : ordQ.k === 'origem' ? x.origem : ordQ.k === 'destino' ? x.destino : x.delta
+    return [...top].sort((a, b) => {
+      const va = val(a), vb = val(b)
+      return typeof va === 'string'
+        ? String(va).localeCompare(String(vb), 'pt-BR') * ordQ.dir
+        : ((Number(va) || 0) - (Number(vb) || 0)) * ordQ.dir
+    })
+  }, [top, ordQ])
   const somaResto = resto.reduce((s: number, x: any) => s + x.delta, 0)
 
   return (
@@ -376,10 +407,14 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
        : !linhasQ.length ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Sem movimento nesta dimensão.</div> : (
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>
-            <th style={{ ...S.th, textAlign: 'left' }}>{DIMS_QUEM.find(d => d[0] === dim)?.[1]}</th>
-            <th style={S.th}>{rotOrigem}</th>
-            <th style={S.th}>{rotDestino}</th>
-            <th style={S.th}>efeito no resultado</th>
+            {thOrd('k', String(DIMS_QUEM.find(d => d[0] === dim)?.[1] ?? ''), true)}
+            {thOrd('origem', String(rotOrigem))}
+            {thOrd('destino', String(rotDestino))}
+            {thOrd('delta', 'efeito no resultado')}
+            {/* ⚠ "% do Δ" não ordena por si: é o `delta` dividido por uma
+                constante, então ordenar por ela dá exatamente a mesma ordem.
+                Coluna clicável que repete outra ensina que o clique não faz
+                nada. */}
             <th style={S.th}>% do Δ</th>
           </tr></thead>
           <tbody>
