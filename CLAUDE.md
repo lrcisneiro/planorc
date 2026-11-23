@@ -1605,6 +1605,29 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `filtro_escopo` próprio (o agregado por dimensão não o aplica), projeção ligada e recorte de
   empresa entre as duas RPCs. Aparece como linha, igual ao resíduo da ponte.
 
+- **A PONTE virou `lib/Ponte.tsx` e entrou no acompanhamento (23/nov).** A extração custou pouco
+  porque a Ponte **já havia deixado de saber o que é orçado**: recebe `origem`/`destino` e quem
+  decide qual lado é qual é a página — foi a mudança do *sentido da leitura* (22/nov) que a
+  tornou portátil, um dia antes de precisarmos disso.
+  ⚠ **O que a prendia era o ESTILO, não a lógica**: ela usava 3 chaves de um objeto `S` da tela.
+  Hoje `S` é prop **opcional** com `S_PONTE` de fallback, então a análise continua passando o
+  dela (aparência intacta) e o acompanhamento não passa nada.
+  ⚠ **No acompanhamento o sentido é FIXO** (orçado → realizado): lá a tela faz uma pergunta só, e
+  seletor com uma resposta é controle morto. Na análise ele é escolhido porque a comparação pode
+  ser entre dois orçamentos.
+  ⚠ Usa `tOrc`/`tReal`, que já passaram pelo motor e são os mesmos números do KPI — **a ponte não
+  recalcula nada, decompõe o que a tela já mostra**. Trilha e navegação ficam na **página**:
+  `loading` troca o conteúdo inteiro e desmontaria o componente com o caminho percorrido junto.
+  ⚠ Vem **depois dos indicadores** de propósito: os cartões respondem "quanto", a ponte "de onde
+  vem" — e a segunda pergunta só faz sentido depois da primeira.
+
+- **Indicadores do acompanhamento reordenam por arrasto (23/nov) — sem campo novo.** `indicSel`
+  **já era** a lista de quais exibir, já persistida no localStorage e no preset do card; só não
+  era usada como ORDEM, porque a renderização filtrava `indicCards` (ordem da estrutura) em vez
+  de percorrer a seleção. O array guardava a ordem e a tela a ignorava.
+  ⚠ `.filter(Boolean)` ao percorrer: id de indicador que não existe mais (relatório trocado) some,
+  como o filtro antigo fazia de graça.
+
 - **"% EBITDA por empresa" no lugar de "Relatório inteiro por empresa" (22/nov).** O card da
   esquerda somava as folhas de cada empresa — no escopo "Relatório inteiro" isso **não é número
   de lugar nenhum da DRE**, o mesmo defeito do gráfico mensal. E pior: ao lado do *EBITDA por

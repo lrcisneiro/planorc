@@ -9,6 +9,7 @@ import { totaisRelatorio } from '../../lib/relatorioTotais'
 import type { RLData } from '../../lib/relatorioTotais'
 import { ResponsiveBar } from '@nivo/bar'
 import { fmtEixo } from '../../lib/fmtEixo'
+import { Ponte } from '../../lib/Ponte'
 import { nivoTheme } from '../../lib/nivoTheme'
 import { ResponsiveLine } from '@nivo/line'
 import { Link } from 'react-router-dom'
@@ -194,6 +195,41 @@ export default function DashboardPage() {
   const [cascata, setCascata] = useState<any[]>([])
   const [porEmpresa, setPorEmpresa] = useState<any[]>([])
   const [ebitdaPctEmp, setEbitdaPctEmp] = useState<any[]>([])
+  // ── a ponte (mesmo componente do dash de análise, extraído em 23/nov)
+  // ⚠⚠ O SENTIDO AQUI É FIXO: orçado → realizado. Na análise ele é escolhido
+  // porque lá a comparação pode ser entre dois orçamentos; aqui a tela faz UMA
+  // pergunta — "planejei X, o que aconteceu?" —, e um seletor com uma resposta
+  // só é controle morto.
+  const [totais, setTotais] = useState<{ orc: Record<string, number>; real: Record<string, number> } | null>(null)
+  const [pCfg, setPCfg] = useState<any>({ sel: [], pct: 10, minPctTotal: 0.5, resultado: '' })
+  // ⚠ Trilha e navegação na PÁGINA, não no componente: `loading` troca o
+  // conteúdo inteiro e desmontaria a Ponte, levando o caminho percorrido
+  // junto. Mesma razão documentada no dash de análise.
+  const [pTrilha, setPTrilha] = useState<string[]>([])
+  const pNav = useRef<string | null>(null)
+  const [pNat, setPNat] = useState<'TODAS' | 'RECEITA' | 'DESPESA'>('TODAS')
+  const [pAte, setPAte] = useState<number | 'tudo'>(1)
+  const [linhasRel, setLinhasRel] = useState<RL[]>([])
+  // ── arrastar os indicadores para reordenar (mesmo gesto do dash de análise)
+  // ⚠ `indicSel` JÁ ERA a lista de quais exibir, já persistida no localStorage
+  // e no preset do card — só não era usada como ORDEM: a renderização filtrava
+  // `indicCards` (ordem da estrutura) em vez de percorrer a seleção. Então
+  // reordenar não exigiu campo novo, nem migration: exigiu ler o array na
+  // ordem em que ele já estava gravado.
+  const [arrInd, setArrInd] = useState<string | null>(null)
+  const [sobreInd, setSobreInd] = useState<string | null>(null)
+  const soltarInd = (destinoId: string) => {
+    const origemId = arrInd
+    setArrInd(null); setSobreInd(null)
+    if (!origemId || origemId === destinoId) return
+    setIndicSel(p => {
+      const o = [...p]
+      const de = o.indexOf(origemId), para = o.indexOf(destinoId)
+      if (de < 0 || para < 0) return p
+      o.splice(para, 0, ...o.splice(de, 1))
+      return o
+    })
+  }
   const [ebitdaEmp, setEbitdaEmp] = useState<any[]>([])
   const [desvios, setDesvios] = useState<any[]>([])
   // gráficos por Área / Centro de Custo (cruzam CC × natureza da linha)
@@ -569,6 +605,14 @@ export default function DashboardPage() {
       setOrcRealMes(orMes); setResMes(resMesArr); setAccLines(acc); setComposicao(comps); setCompOcultas(childrenOcultas); setFilhasMes(fMes); setCascata(steps)
       setRecAreaLinhas(recAreaLinhasD); setRecDespLinhas(recDespLinhasD); setRecAreaBar(recAreaBarD); setDespAreaBar(despAreaBarD); setDespCcBar(despCcBarD); setRecCcBar(recCcBarD)
       setPorEmpresa(pe); setEbitdaEmp(eb); setEbitdaPctEmp(ebPct); setDesvios(desv)
+      // ⚠ `tOrc`/`tReal` já passaram pelo motor (fórmulas resolvidas) — são os
+      // mesmos números do KPI, que bate com o relatório. A ponte não recalcula
+      // nada: decompõe o que a tela já mostra.
+      setTotais({ orc: tOrc, real: tReal })
+      setLinhasRel(linhas)
+      // A linha de partida acompanha o escopo: sem agrupadora, o Resultado
+      // Líquido — o mesmo nó do gráfico mensal e do cartão.
+      setPCfg((p: any) => (p.resultado && linhas.some(l => l.id === p.resultado)) ? p : { ...p, resultado: noGraf || '' })
       setTemDados(Object.keys(omM).length > 0 || Object.keys(rmM).length > 0)
     } catch (e: any) { if (myseq === loadSeq.current) setErro(e?.message ?? String(e)) }
     if (myseq === loadSeq.current) setLoading(false)
@@ -731,14 +775,50 @@ export default function DashboardPage() {
             <Gauge label="Execução Despesa" pct={pctOf(kpi.despReal, kpi.despOrc)} desp />
           </div>
 
-          {(() => { const vis = indicCards.filter(c => indicSel.includes(c.id)); return vis.length > 0 && (
+          {/* ⚠ PERCORRE `indicSel`, não filtra `indicCards`. Filtrando, a ordem
+              era sempre a da estrutura do relatório e o arrasto não teria onde
+              aparecer — o array já guardava a ordem, a tela é que a ignorava.
+              O `.filter(Boolean)` descarta id de indicador que não existe mais
+              (relatório trocado), como o filtro antigo fazia de graça. */}
+          {(() => {
+            const vis = indicSel.map(id => indicCards.find(c => c.id === id)).filter(Boolean) as IC[]
+            return vis.length > 0 && (
             <>
-              <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '16px 0 8px' }}>Indicadores do relatório</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '16px 0 8px' }}>
+                Indicadores do relatório
+                <span data-noexport style={{ marginLeft: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, color: 'var(--faint)' }}>
+                  arraste para reordenar
+                </span>
+              </div>
               <div style={S.kpis}>
-                {vis.map(c => <IndicCard key={c.id} c={c} anoPrev={(anosSel.length ? Math.min(...anosSel) : 0) - 1} meta={resolverMeta(metas, c.id, anosSel.length ? Math.max(...anosSel) : 0, empresaSel.length === 1 ? empresaSel[0] : null)} />)}
+                {vis.map(c => (
+                  <div key={c.id} draggable
+                    onDragStart={e => { setArrInd(c.id); e.dataTransfer.effectAllowed = 'move' }}
+                    onDragEnd={() => { setArrInd(null); setSobreInd(null) }}
+                    onDragOver={e => { e.preventDefault(); if (sobreInd !== c.id) setSobreInd(c.id) }}
+                    onDrop={e => { e.preventDefault(); soltarInd(c.id) }}
+                    style={{ cursor: 'grab', borderRadius: 12,
+                             opacity: arrInd === c.id ? 0.45 : 1,
+                             outline: sobreInd === c.id && arrInd && arrInd !== c.id ? '2px dashed var(--violet)' : 'none',
+                             outlineOffset: 2, transition: 'opacity .12s' }}>
+                    <IndicCard c={c} anoPrev={(anosSel.length ? Math.min(...anosSel) : 0) - 1} meta={resolverMeta(metas, c.id, anosSel.length ? Math.max(...anosSel) : 0, empresaSel.length === 1 ? empresaSel[0] : null)} />
+                  </div>
+                ))}
               </div>
             </>
           ) })()}
+
+          {/* ⚠ Depois dos indicadores, de propósito: os cartões respondem
+              "quanto", a ponte responde "de onde vem" — e a segunda pergunta
+              só faz sentido depois da primeira. */}
+          {totais && pCfg.resultado && (
+            <Ponte linhas={linhasRel} nome={(id: string) => linhasRel.find(l => l.id === id)?.descricao ?? '—'}
+              cfg={pCfg} setCfg={setPCfg}
+              origem={totais.orc} destino={totais.real}
+              rotOrigem={versoes.find(v => v.id === versaoId)?.codigo || 'Orçado'} rotDestino="Realizado"
+              trilha={pTrilha} setTrilha={setPTrilha} navRef={pNav}
+              nat={pNat} setNat={setPNat} ate={pAte} setAte={setPAte} />
+          )}
 
           <div style={S.grid2}>
             <div style={S.card}>
