@@ -1621,6 +1621,24 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ Vem **depois dos indicadores** de propósito: os cartões respondem "quanto", a ponte "de onde
   vem" — e a segunda pergunta só faz sentido depois da primeira.
 
+- **A ponte abre o RAZÃO (23/nov).** Clicar no **valor** (ou na barra) de um componente abre o
+  `DrillModal` daquela linha; o `↳` do nome continua descendo na ponte. É o mesmo par de gestos
+  que o drill do relatório já usa — *"clique no nome para descer; clique numa barra/valor para o
+  razão"* —, e o sublinhado pontilhado é o que diz que ali há um clique.
+  ⚠ **A Ponte NÃO sabe o que o drill faz.** `onDrill` é opcional e só avisa que houve clique:
+  quem conhece relatório, versão, período e filtros é a **página**, que já monta o modal com o
+  recorte certo. Trazer esses parâmetros para dentro do componente devolveria o acoplamento que
+  o impedia de viver fora de uma tela.
+  ⚠ Resíduo e *outros (N)* não abrem — não são linha de relatório —, e o cursor não promete que
+  abrem.
+  ⚠⚠ **`soOrcado` deixou de ser fixo na análise.** A tela abre o drill de vários pontos que só
+  falam de orçado (por área, por empresa), e lá o realizado é ruído; vindo da ponte em
+  `Orçado × Realizado`, o razão é justamente o que se foi buscar. O `drill` passou a carregar
+  `comReal`.
+  ⚠ **E só quando os anos COINCIDEM:** o `DrillModal` recebe UM conjunto de anos e lê os dois
+  lados dele. Com `Orçado2027 × Realizado 2026`, pedir o realizado de 2027 devolveria vazio — e
+  vazio parece *"não houve movimento"*, não *"perguntei o ano errado"*.
+
 - **Ordenar coluna no "Quem causou" (23/nov).** `Tabela` já ordenava por clique desde sempre,
   então *O que mudou* e *Acurácia* já tinham; faltava o *Quem causou*, que é `<table>` à mão por
   causa das linhas que expandem no clique.

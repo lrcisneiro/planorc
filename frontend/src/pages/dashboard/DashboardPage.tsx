@@ -857,7 +857,8 @@ export default function DashboardPage() {
               origem={totais.orc} destino={totais.real}
               rotOrigem={versoes.find(v => v.id === versaoId)?.codigo || 'Orçado'} rotDestino="Realizado"
               trilha={pTrilha} setTrilha={setPTrilha} navRef={pNav}
-              nat={pNat} setNat={setPNat} ate={pAte} setAte={setPAte} />
+              nat={pNat} setNat={setPNat} ate={pAte} setAte={setPAte}
+              onDrill={qparams ? (id: string) => setDrill({ nodeId: id }) : undefined} />
           )}
 
           {/* ⚠ A MESMA variação, por três eixos: a ponte por LINHA, o "quem

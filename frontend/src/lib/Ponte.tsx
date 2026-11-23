@@ -83,8 +83,13 @@ export function profDe(linhas: LinhaRel[]): (l: LinhaRel) => number {
 // o caminho de um ao outro — quem decide qual lado é qual é a PÁGINA, porque a
 // resposta depende da pergunta que a tela está fazendo. Foi o que permitiu o
 // sentido virar um botão em vez de um `if` espalhado pelo componente.
+// ⚠ `onDrill` é OPCIONAL e a Ponte NÃO sabe o que ele faz. Quem conhece
+// relatório, versão, período e filtros é a PÁGINA — ela já monta o
+// `DrillModal` com o recorte certo. Trazer esses parâmetros para cá seria dar
+// ao componente um contexto que ele não tem como manter coerente, e é esse
+// tipo de acoplamento que o impedia de viver fora de uma tela.
 export function Ponte({ S: Sx, cfg, setCfg, linhas, nome, origem, destino, rotOrigem, rotDestino,
-                 trilha, setTrilha, navRef, nat, setNat, ate, setAte }: any) {
+                 trilha, setTrilha, navRef, nat, setNat, ate, setAte, onDrill }: any) {
   const S = Sx || S_PONTE
   // ⚠ SINAL ECONÔMICO, não o de exibição. O resto da tela mostra despesa
   // positiva (fatorExibicao inverte), mas numa ponte isso quebra tudo: uma
@@ -139,6 +144,9 @@ export function Ponte({ S: Sx, cfg, setCfg, linhas, nome, origem, destino, rotOr
     setTrilha(nova)
     setCfg({ ...cfg, resultado: id, sel: componentesDe(byIdAll[id], linhas) })
   }
+  // Sintético do gráfico e resíduo não são linhas do relatório: não abrem.
+  const podeDrill = (id: string) => !!onDrill && id !== '__resid' && id !== '__outros'
+
   const ini = resId ? v(origem, resId) : 0
   const fim = resId ? v(destino, resId) : 0
 
@@ -296,6 +304,7 @@ export function Ponte({ S: Sx, cfg, setCfg, linhas, nome, origem, destino, rotOr
             barra mostra o efeito no <strong>resultado</strong>, não a convenção do resto da tela, onde despesa é
             positiva. Por isso as linhas de despesa trazem <strong>↑ gasto</strong> ou <strong>↓ gasto</strong> ao
             lado do número.
+            {onDrill && <> ⚠ <strong>Clique no valor</strong> (ou na barra) para abrir o <strong>razão</strong> daquela linha; o <strong>↳</strong> do nome desce na ponte.</>}
             {' '}⚠ Aqui o nível é <strong>cumulativo</strong>: <em>até 2</em> oferece os níveis 1 <em>e</em> 2 —
             é um seletor de ponto de partida, não um corte. Em <em>O que mudou</em> o mesmo botão
             significa outra coisa.
@@ -353,7 +362,11 @@ export function Ponte({ S: Sx, cfg, setCfg, linhas, nome, origem, destino, rotOr
                   const cor = c.tot ? 'var(--violet)' : c.id === '__resid' ? 'var(--orange)' : c.v >= 0 ? 'var(--green)' : 'var(--red)'
                   return (
                     <g key={i}>
-                      <rect x={i * W + 12} y={y0} width={W - 26} height={Math.max(3, y1 - y0)} fill={cor} rx={3} opacity={c.tot ? 1 : .9} />
+                      <rect x={i * W + 12} y={y0} width={W - 26} height={Math.max(3, y1 - y0)} fill={cor} rx={3} opacity={c.tot ? 1 : .9}
+                        onClick={() => c.id && podeDrill(c.id) && onDrill(c.id)}
+                        style={{ cursor: c.id && podeDrill(c.id) ? 'pointer' : undefined }}>
+                        {c.id && podeDrill(c.id) && <title>Abrir o razão de {c.lab}</title>}
+                      </rect>
                       <text x={i * W + (W - 2) / 2} y={Math.max(11, y0 - 5)} textAnchor="middle" fontSize={10} fill="var(--text-mid)" fontFamily="monospace">
                         {c.tot ? fmt(c.v) : `${c.v >= 0 ? '+' : ''}${fmt(c.v)}`}
                       </text>
@@ -441,7 +454,17 @@ export function Ponte({ S: Sx, cfg, setCfg, linhas, nome, origem, destino, rotOr
                       </button>
                     )}
                     {b.nome}</td>
-                    <td style={{ ...S.td, color: b.id === '__resid' ? 'var(--orange)' : b.d >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                    {/* ⚠ O VALOR abre o razão; o `↳` do nome desce na ponte.
+                        Dois gestos, dois destinos — o mesmo par que o drill do
+                        relatório já usa ("clique no nome para descer; clique
+                        numa barra/valor para o razão"). O sublinhado pontilhado
+                        é o que diz que ali há um clique. */}
+                    <td onClick={() => podeDrill(b.id) && onDrill(b.id)}
+                      title={podeDrill(b.id) ? 'Abrir o razão desta linha' : undefined}
+                      style={{ ...S.td, color: b.id === '__resid' ? 'var(--orange)' : b.d >= 0 ? 'var(--green)' : 'var(--red)',
+                               cursor: podeDrill(b.id) ? 'pointer' : undefined,
+                               textDecoration: podeDrill(b.id) ? 'underline dotted var(--border-strong)' : undefined,
+                               textUnderlineOffset: 3 }}>
                       {b.d >= 0 ? '+' : ''}{fmt(b.d)}
                     </td>
                     <td style={{ ...S.td, textAlign: 'left', paddingLeft: 5, fontSize: 11, fontFamily: 'inherit', color: 'var(--muted)' }}

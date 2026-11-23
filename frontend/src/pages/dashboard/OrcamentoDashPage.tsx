@@ -154,7 +154,15 @@ export default function OrcamentoDashPage() {
   // os lados pelo que eles SÃO, não pelo papel que ocupam na leitura.
   const [dimBruto, setDimBruto] = useState<DimBruto>({ emp: {}, cc: {} })
   const [porArea, setPorArea] = useState<{ rec: any[]; desp: any[]; ccRec: any[]; ccDesp: any[]; mes: any[] }>({ rec: [], desp: [], ccRec: [], ccDesp: [], mes: [] })
-  const [drill, setDrill] = useState<{ nodeId: string; ccFilter?: string[] | null } | null>(null)
+  // ⚠⚠ `comReal` NÃO é "mostrar mais uma coluna": é dizer que o drill tem o
+  // que mostrar. Esta tela abre o drill de vários pontos que só falam de
+  // ORÇADO (por área, por empresa), e lá o realizado seria ruído. Vindo da
+  // ponte em Orçado × Realizado, o razão é justamente o que se foi buscar.
+  // ⚠ E só quando os anos COINCIDEM: o `DrillModal` recebe UM conjunto de
+  // anos e lê os dois lados dele. Com Orçado2027 × Realizado 2026, pedir o
+  // realizado de 2027 devolveria vazio — e vazio parece "não houve
+  // movimento", não "perguntei o ano errado".
+  const [drill, setDrill] = useState<{ nodeId: string; ccFilter?: string[] | null; comReal?: boolean } | null>(null)
   const [secPonte, setSecPonte] = useState<SecCfg>(SEC_PADRAO)
   // ⚠⚠ A TRILHA DA PONTE MORA AQUI, não dentro do `Ponte`. Enquanto
   // `carregando` é true esta tela troca TODO o conteúdo por "Calculando…" — o
@@ -849,7 +857,8 @@ export default function OrcamentoDashPage() {
           <Ponte S={S} cfg={secPonte} setCfg={setSecPonte} linhas={linhas} nome={nome}
             trilha={trilhaPonte} setTrilha={setTrilhaPonte} navRef={navPonte}
             nat={ponteNat} setNat={setPonteNat} ate={ponteAte} setAte={setPonteAte}
-            origem={pOrigem} destino={pDestino} rotOrigem={rotOrigem} rotDestino={rotDestino} />
+            origem={pOrigem} destino={pDestino} rotOrigem={rotOrigem} rotDestino={rotDestino}
+            onDrill={(id: string) => setDrill({ nodeId: id, comReal: modo === 'REAL' && anoBase === anoComp })} />
 
           <QuemCausou S={S} linhas={linhas} nome={nome} bruto={dimBruto} empresas={empresas} ccs={ccs}
             resId={secPonte.resultado} componentes={secPonte.sel} invertido={origemAnalisado}
@@ -878,7 +887,7 @@ export default function OrcamentoDashPage() {
       {drill && (
         <DrillModal relId={relId} versaoId={vBase} empIds={empFiltradas} anos={[anoBase!]} meses={meses}
           filFilter={filialFilter} ccFilter={drill.ccFilter !== undefined ? drill.ccFilter : ccFilter}
-          startNodeId={drill.nodeId} slot={1} soOrcado onClose={() => setDrill(null)} />
+          startNodeId={drill.nodeId} slot={1} soOrcado={!drill.comReal} onClose={() => setDrill(null)} />
       )}
     </div>
   )
