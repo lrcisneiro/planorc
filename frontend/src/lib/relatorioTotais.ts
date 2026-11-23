@@ -28,6 +28,23 @@ export async function totaisRelatorio(o: Opts): Promise<Record<string, number>> 
   return (await totaisRelatorioMes(o)).total
 }
 
+/** Totais + a ÁRVORE INTEIRA calculada no escopo de cada linha escopada.
+ *
+ *  ⚠⚠ EXISTE PORQUE UMA LINHA ESCOPADA NÃO SE DECOMPÕE COM OS COMPONENTES DA
+ *  TELA. `total` dá a cada linha com `filtro_escopo` o valor do escopo dela e a
+ *  todas as outras o valor do filtro da tela — certo para exibir, e **incapaz
+ *  de fechar uma ponte**: *Margem Sustentação* (CC 317) vale 4.312.927, mas
+ *  `Receitas` e `Despesas` ao lado são da empresa inteira. Medido na tela: Δ de
+ *  353.052 com resíduo de 5.736.247 — **1625%**.
+ *  `arvore[idDaLinhaEscopada]` devolve TODAS as linhas no escopo DELA, que é o
+ *  conjunto que soma.
+ *  ⚠ ZERO consulta nova: `tSc` já era calculado e descartado — a leitura do
+ *  grupo é `mapAll: true`, então a árvore inteira já vinha do banco. */
+export async function totaisRelatorioArv(o: Opts): Promise<{ total: Record<string, number>; arvore: Record<string, Record<string, number>> }> {
+  const r = await totaisRelatorioMes(o)
+  return { total: r.total, arvore: r.arvore }
+}
+
 /** O mesmo cálculo, devolvendo TAMBÉM o valor de cada período separado.
  *
  *  ⚠⚠ EXISTE PARA MATAR N CHAMADAS. `relatorio_orcado_agg` já devolve `mes` na
@@ -39,11 +56,11 @@ export async function totaisRelatorio(o: Opts): Promise<Record<string, number>> 
  *  ⚠ O valor mensal não é idêntico ao de uma chamada com `meses: [m]`, e é
  *  MELHOR: as fórmulas são avaliadas com o período inteiro em mãos, então
  *  `=ANTERIOR()` resolve. Isolado num mês só, ela não tinha de onde resolver. */
-export async function totaisRelatorioMes(o: Opts): Promise<{ total: Record<string, number>; mes: Record<string, number[]> }> {
+export async function totaisRelatorioMes(o: Opts): Promise<{ total: Record<string, number>; mes: Record<string, number[]>; arvore: Record<string, Record<string, number>> }> {
   const { linhas, ccs, cen, empresas, anos, meses, filialFilter, ccFilter } = o
   const slot = o.slot ?? 1
   const masterIds = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
-  if (!masterIds.length || !empresas.length || !anos.length || !meses.length) return { total: {}, mes: {} }
+  if (!masterIds.length || !empresas.length || !anos.length || !meses.length) return { total: {}, mes: {}, arvore: {} }
 
   const rlOfMaster: Record<string, string> = {}
   linhas.forEach(l => { if (l.linha_orc_id && !l.nao_soma) rlOfMaster[l.linha_orc_id] = l.id })
@@ -120,6 +137,7 @@ export async function totaisRelatorioMes(o: Opts): Promise<{ total: Record<strin
   ])
 
   const mesEsc: Record<string, number[]> = {}
+  const arvore: Record<string, Record<string, number>> = {}   // por linha escopada: a árvore TODA no escopo dela
   for (let gi = 0; gi < gruposArr.length; gi++) {
     const g = gruposArr[gi]
     const rawSc = rawsSc[gi]
@@ -131,6 +149,7 @@ export async function totaisRelatorioMes(o: Opts): Promise<{ total: Record<strin
     for (const id of g.ids) {
       escopados.add(id); totEsc[id] = tSc[id]; valEsc[id] = cenSc[id] || {}
       mesEsc[id] = perSc.map(t => t[id] ?? 0)
+      arvore[id] = tSc   // ⚠ compartilhado entre as linhas do grupo: é o MESMO cenário, não se copia
     }
   }
 
@@ -159,5 +178,5 @@ export async function totaisRelatorioMes(o: Opts): Promise<{ total: Record<strin
   for (const id in out) mesG[id] = Array(periodos.length).fill(0)   // escopo vazio = zero em todo mês
 
   // o total da própria linha escopada vem do cenário dela (percentual se recalcula, não se soma)
-  return { total: { ...totG, ...totEsc, ...out }, mes: { ...mesG, ...mesEsc } }
+  return { total: { ...totG, ...totEsc, ...out }, mes: { ...mesG, ...mesEsc }, arvore }
 }

@@ -5,7 +5,7 @@ import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { computeCenario, computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo, RawValues } from '../../lib/engine'
 import { PeriodPicker } from './PeriodPicker'
-import { totaisRelatorio } from '../../lib/relatorioTotais'
+import { totaisRelatorio, totaisRelatorioArv } from '../../lib/relatorioTotais'
 import type { RLData } from '../../lib/relatorioTotais'
 import { ResponsiveBar } from '@nivo/bar'
 import { fmtEixo } from '../../lib/fmtEixo'
@@ -202,7 +202,8 @@ export default function DashboardPage() {
   // porque lá a comparação pode ser entre dois orçamentos; aqui a tela faz UMA
   // pergunta — "planejei X, o que aconteceu?" —, e um seletor com uma resposta
   // só é controle morto.
-  const [totais, setTotais] = useState<{ orc: Record<string, number>; real: Record<string, number> } | null>(null)
+  const [totais, setTotais] = useState<{ orc: Record<string, number>; real: Record<string, number>
+    arvOrc: Record<string, Record<string, number>>; arvReal: Record<string, Record<string, number>> } | null>(null)
   const [pCfg, setPCfg] = useState<any>({ sel: [], pct: 10, minPctTotal: 0.5, resultado: '' })
   // ⚠ Trilha e navegação na PÁGINA, não no componente: `loading` troca o
   // conteúdo inteiro e desmontaria a Ponte, levando o caminho percorrido
@@ -351,18 +352,20 @@ export default function DashboardPage() {
       // Por isso saíram de dentro do `if (indicLines.length)`: a ponte e os
       // quadros precisam deles mesmo num relatório sem indicador.
       let iOrcG: Record<string, number> = {}, iRealG: Record<string, number> = {}
+      let arvOrcG: Record<string, Record<string, number>> = {}, arvRealG: Record<string, Record<string, number>> = {}
       {
         const ccPermI = (ccs as any).every((c: any) => acessoDash.canSee('centro_custo', c.id)) ? null : (ccs as any).filter((c: any) => acessoDash.canSee('centro_custo', c.id)).map((c: any) => c.id)
         const baseI = { linhas: linhas as RLData[], ccs: ccs as any, empresas: empIds, meses, filialFilter: filFilter, ccFilter, ccPermitidos: ccPermI, slot: moedaSlot }
-        const [iOrc, iReal, iPrev] = await Promise.all([
-          totaisRelatorio({ ...baseI, cen: versaoId, anos }),
-          totaisRelatorio({ ...baseI, cen: 'REALIZADO', anos }),
+        const [rOrc, rReal, iPrev] = await Promise.all([
+          totaisRelatorioArv({ ...baseI, cen: versaoId, anos }),
+          totaisRelatorioArv({ ...baseI, cen: 'REALIZADO', anos }),
           totaisRelatorio({ ...baseI, cen: 'REALIZADO', anos: anos.map(a => a - 1) }),
         ])
+        const iOrc = rOrc.total, iReal = rReal.total
         if (myseq !== loadSeq.current) return   // carga mais nova já começou → não sobrescreve com dados antigos
         const byIdI: Record<string, RL> = {}; linhas.forEach(l => { byIdI[l.id] = l })
         const natOfI = (id: string | null): string | null => { if (!id) return null; const l = byIdI[id]; if (!l) return null; return (l.natureza === 'RECEITA' || l.natureza === 'DESPESA') ? l.natureza : natOfI(l.pai_id) }
-        iOrcG = iOrc; iRealG = iReal
+        iOrcG = iOrc; iRealG = iReal; arvOrcG = rOrc.arvore; arvRealG = rReal.arvore
         setIndicCards(indicLines.length ? indicLines.map(l => { const f = natOfI(l.id) === 'DESPESA' ? -1 : 1; return { id: l.id, label: l.descricao, isPct: l.formato === 'PERCENTUAL', desp: natOfI(l.id) === 'DESPESA', casas: l.casas_decimais ?? (l.formato === 'PERCENTUAL' ? 1 : 0), formato: l.formato, R: f * (iReal[l.id] || 0), O: f * (iOrc[l.id] || 0), P: f * (iPrev[l.id] || 0) } }) : [])
       }
 
@@ -638,7 +641,7 @@ export default function DashboardPage() {
       // 6× de diferença, e nada na tela dizia qual era qual.**
       // A ponte não recalcula nada: ela decompõe o que o cartão mostra, então
       // tem de ler da mesma fonte que ele.
-      setTotais({ orc: iOrcG, real: iRealG })
+      setTotais({ orc: iOrcG, real: iRealG, arvOrc: arvOrcG, arvReal: arvRealG })
       // ⚠⚠ ZERO CONSULTA NOVA. `lineEmpR` (empresa × linha) e `ccAggRows`
       // (cc × linha × mês) já trazem `orcado` E `realizado` e já eram
       // carregados por esta tela — o quadro "quem causou" só precisava que
@@ -865,15 +868,31 @@ export default function DashboardPage() {
           {/* ⚠ Depois dos indicadores, de propósito: os cartões respondem
               "quanto", a ponte responde "de onde vem" — e a segunda pergunta
               só faz sentido depois da primeira. */}
-          {totais && pCfg.resultado && (
+          {totais && pCfg.resultado && (() => {
+            // ⚠⚠ LINHA ESCOPADA NÃO SE DECOMPÕE COM OS COMPONENTES DA TELA.
+            // `totais.orc/real` dá à linha com `filtro_escopo` o valor do
+            // escopo dela e a todas as outras o valor do filtro da tela — e aí
+            // *Margem Sustentação* (CC 317) ficava ao lado de `Receitas` da
+            // empresa inteira: Δ de 353.052 com resíduo de 5.736.247, 1625%.
+            // `arvOrc/arvReal` trazem a árvore TODA no escopo da linha.
+            // ⚠ O escopo vem do PONTO DE ENTRADA (`trilha[0]`), não da linha
+            // atual: descendo de Margem Sustentação para Receitas, a linha de
+            // destino não tem escopo próprio e a ponte saltaria de volta para a
+            // empresa inteira **no meio da navegação**, sem dizer nada.
+            const raiz = pTrilha[0] ?? pCfg.resultado
+            const aOrc = totais.arvOrc[raiz], aReal = totais.arvReal[raiz]
+            const lr = linhasRel.find((l: any) => l.id === raiz)
+            return (
             <Ponte linhas={linhasRel} nome={(id: string) => linhasRel.find(l => l.id === id)?.descricao ?? '—'}
               cfg={pCfg} setCfg={setPCfg}
-              origem={totais.orc} destino={totais.real}
+              nota={aOrc ? `Recorte próprio de ${lr?.descricao ?? 'linha'} — os componentes abaixo são calculados no mesmo escopo dela, senão a ponte não fecha.` : undefined}
+              origem={aOrc || totais.orc} destino={aReal || totais.real}
               rotOrigem={versoes.find(v => v.id === versaoId)?.codigo || 'Orçado'} rotDestino="Realizado"
               trilha={pTrilha} setTrilha={setPTrilha} navRef={pNav}
               nat={pNat} setNat={setPNat} ate={pAte} setAte={setPAte}
               onDrill={qparams ? (id: string) => setDrill({ nodeId: id }) : undefined} />
-          )}
+            )
+          })()}
 
           {/* ⚠ A MESMA variação, por três eixos: a ponte por LINHA, o "quem
               causou" por DIMENSÃO e o "o que mudou" como RANKING. Os três

@@ -1461,6 +1461,26 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   a ponte precisa deles mesmo num relatório sem indicador.
   ⚠ **A regra geral é a do drill:** peça que decompõe um total tem de ler **a mesma fonte** do
   total que a abriu. Duas funções que "passam pelo motor" não são a mesma fonte.
+  ⚠⚠ **E ler a mesma FUNÇÃO ainda não bastava: LINHA ESCOPADA NÃO SE DECOMPÕE COM OS
+  COMPONENTES DA TELA.** `totaisRelatorio` dá à linha com `filtro_escopo` o valor do escopo dela
+  e a **todas as outras** o valor do filtro da tela — correto para exibir, e incapaz de fechar
+  uma ponte: *Margem Sustentação* valia 4.312.927 no CC 317 e `Receitas`/`Despesas` ao lado eram
+  da empresa inteira. Medido na tela: Δ de **353.052** com resíduo de **5.736.247 — 1625%**.
+  `totaisRelatorioArv` devolve, por linha escopada, **a árvore toda no escopo dela** (`tSc` já era
+  calculado e descartado — a leitura do grupo é `mapAll: true`, então **zero consulta nova**).
+  ⚠ **O escopo vem do PONTO DE ENTRADA (`trilha[0]`), não da linha atual** — descendo de *Margem
+  Sustentação* para `Receitas`, que não tem escopo próprio, a ponte saltaria de volta para a
+  empresa inteira **no meio da navegação**, calada.
+  ⚠ **A projeção acompanha a árvore** no *Orçamento — análise*: projetar só o total deixaria as
+  duas pontas projetadas sobre componentes que não são, e a ponte deixaria de fechar **exatamente
+  quando a projeção está ligada**.
+  ⚠ *O que mudou* **não** usa a árvore escopada: é um RANKING entre linhas, não a decomposição de
+  uma — ali cada linha vale pelo escopo dela.
+  ⚠ *Quem causou* continua lendo o agregado por dimensão, que **não aplica `filtro_escopo`** —
+  limitação já declarada no resíduo daquele quadro. O que mudou foi o `dTotal`, que agora é o Δ
+  escopado.
+  ⚠ **O recorte é dito NA PONTE** (prop `nota`), não só no cabeçalho da tela: os números são de
+  um universo mais estreito que o do filtro, e sem a frase a ponte discorda da DRE em silêncio.
 
 - **A ponte NAVEGA (19/nov).** Trocar a linha no seletor era o único caminho, e analisar
   "de onde veio" é descer. Ícone `↳` na linha da tabela desce; a **trilha** acima do gráfico

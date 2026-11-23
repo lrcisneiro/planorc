@@ -241,6 +241,8 @@ export default function OrcamentoDashPage() {
     base: Record<string, number>; comp: Record<string, number>
     orcAnt: Record<string, number>; realAnt: Record<string, number>
     mensalBase: Record<string, number[]>
+    // árvore inteira no escopo de cada linha com `filtro_escopo` — ver a ponte
+    arvBase: Record<string, Record<string, number>>; arvComp: Record<string, Record<string, number>>
   }>(null)
   const [carregando, setCarregando] = useState(false)
   const { cardId, nome: cardNome } = useCardPreset('/dashboards/orcamento', (f: any) => {
@@ -517,9 +519,10 @@ export default function OrcamentoDashPage() {
       // 1 + 5 RPCs sob RLS (a DRE Gerencial tem 5 grupos de escopo próprio),
       // a ~1 s cada. Guardar a PROMESSA, e não o resultado, é o que faz o
       // segundo pedido entrar de carona num voo já levantado.
-      const voos = new Map<string, Promise<{ total: Record<string, number>; mes: Record<string, number[]> }>>()
-      const chamarMes = (cen: string, anos: number[], ms: number[]) => {
-        if (!ms.length) return Promise.resolve({ total: {} as Record<string, number>, mes: {} as Record<string, number[]> })
+      type Resp = { total: Record<string, number>; mes: Record<string, number[]>; arvore: Record<string, Record<string, number>> }
+      const voos = new Map<string, Promise<Resp>>()
+      const chamarMes = (cen: string, anos: number[], ms: number[]): Promise<Resp> => {
+        if (!ms.length) return Promise.resolve({ total: {}, mes: {}, arvore: {} } as Resp)
         const k = `${cen}|${anos.join(',')}|${ms.join(',')}`
         let p = voos.get(k)
         if (!p) { p = totaisRelatorioMes({ ...base, cen, anos, meses: ms }); voos.set(k, p) }
@@ -530,24 +533,34 @@ export default function OrcamentoDashPage() {
       // Uma SÉRIE = o período pedido, mais a projeção dos meses seguintes até
       // dezembro. A projeção se compõe de outra leitura com faixa de meses
       // diferente, vezes um fator — não precisa de dado mensal cru.
-      const serie = async (cen: string, ano: number): Promise<Record<string, number>> => {
-        const periodo = await chamar(cen, [ano], meses)
+      // ⚠ A ÁRVORE ESCOPADA ACOMPANHA A PROJEÇÃO. Ela é a ponte de uma linha
+      // com `filtro_escopo` (ver o cartão), e projetar só o total deixaria o
+      // começo e o fim da ponte projetados sobre componentes que não são —
+      // a ponte deixaria de fechar exatamente quando a projeção está ligada.
+      const serie = async (cen: string, ano: number): Promise<Resp> => {
+        const periodo = await chamarMes(cen, [ano], meses)
         if (!mesesProj.length) return periodo
-        let fonte: Record<string, number>, fator: number
+        let fonte: Resp, fator: number
         if (proj === 'ORCADO' && cen === 'REALIZADO') {
           // a estimativa da própria empresa para aqueles meses
-          fonte = await chamar(vComp, [ano], mesesProj); fator = 1
+          fonte = await chamarMes(vComp, [ano], mesesProj); fator = 1
         } else if (proj === 'MEDIA3') {
           const u3 = meses.slice(-3)
-          fonte = await chamar(cen, [ano], u3); fator = u3.length ? mesesProj.length / u3.length : 0
+          fonte = await chamarMes(cen, [ano], u3); fator = u3.length ? mesesProj.length / u3.length : 0
         } else if (proj === 'MEDIAPER') {
           fonte = periodo; fator = meses.length ? mesesProj.length / meses.length : 0
         } else {  // ULTIMO
-          fonte = await chamar(cen, [ano], [mesFim]); fator = mesesProj.length
+          fonte = await chamarMes(cen, [ano], [mesFim]); fator = mesesProj.length
         }
-        const out = { ...periodo }
-        for (const k in fonte) out[k] = (out[k] || 0) + fonte[k] * fator
-        return out
+        const total = { ...periodo.total }
+        for (const k in fonte.total) total[k] = (total[k] || 0) + fonte.total[k] * fator
+        const arvore: Record<string, Record<string, number>> = {}
+        for (const lid in periodo.arvore) {
+          const t = { ...periodo.arvore[lid] }, f = fonte.arvore[lid] || {}
+          for (const k in f) t[k] = (t[k] || 0) + f[k] * fator
+          arvore[lid] = t
+        }
+        return { total, mes: periodo.mes, arvore }
       }
 
       const [b, c, oa, ra, det] = await Promise.all([
@@ -564,10 +577,11 @@ export default function OrcamentoDashPage() {
         chamarMes(vBase, [anoBase!], meses),
       ])
 
-      const comp = c
+      const comp = c.total
       const mensalBase = det.mes
 
-      setDados({ base: b, comp, orcAnt: oa, realAnt: ra, mensalBase })
+      setDados({ base: b.total, comp, orcAnt: oa, realAnt: ra, mensalBase,
+                 arvBase: b.arvore, arvComp: c.arvore })
 
       // ── orçado por empresa (aba Orçamento)
       // Uma chamada só e o motor roda por empresa, em vez de N chamadas de
@@ -719,8 +733,22 @@ export default function OrcamentoDashPage() {
   // ninguém faz essa pergunta. Quem leu errado foi o próprio dono da regra,
   // que é o sinal de que não era preferência.
   const origemAnalisado = sentidoOrigem ? sentidoOrigem === 'ANALISADO' : modo === 'REAL'
-  const pOrigem = origemAnalisado ? dados?.base : dados?.comp
-  const pDestino = origemAnalisado ? dados?.comp : dados?.base
+  // ⚠⚠ LINHA ESCOPADA NÃO SE DECOMPÕE COM OS COMPONENTES DA TELA. `base`/
+  // `comp` dão à linha com `filtro_escopo` o valor do escopo dela e a todas as
+  // outras o valor do filtro da tela: *Margem Sustentação* (CC 317) ao lado de
+  // `Receitas` da empresa inteira dava resíduo de 1625% da variação.
+  // ⚠ O escopo vem do PONTO DE ENTRADA (`trilha[0]`), não da linha atual —
+  // descendo para um componente sem escopo próprio, a ponte saltaria de volta
+  // para a empresa inteira no meio da navegação, calada.
+  const ponteRaiz = trilhaPonte[0] ?? secPonte.resultado
+  const arvB = ponteRaiz ? dados?.arvBase[ponteRaiz] : undefined
+  const arvC = ponteRaiz ? dados?.arvComp[ponteRaiz] : undefined
+  const ponteNota = arvB
+    ? `Recorte próprio de ${nome(ponteRaiz)} — os componentes abaixo são calculados no mesmo escopo dela, senão a ponte não fecha.`
+    : undefined
+  const pBase = arvB || dados?.base, pComp = arvC || dados?.comp
+  const pOrigem = origemAnalisado ? pBase : pComp
+  const pDestino = origemAnalisado ? pComp : pBase
   const rotOrigem = origemAnalisado ? rotuloBase : rotuloComp
   const rotDestino = origemAnalisado ? rotuloComp : rotuloBase
 
@@ -942,7 +970,7 @@ export default function OrcamentoDashPage() {
           <Ponte S={S} cfg={secPonte} setCfg={setSecPonte} linhas={linhas} nome={nome}
             trilha={trilhaPonte} setTrilha={setTrilhaPonte} navRef={navPonte}
             nat={ponteNat} setNat={setPonteNat} ate={ponteAte} setAte={setPonteAte}
-            origem={pOrigem} destino={pDestino} rotOrigem={rotOrigem} rotDestino={rotDestino}
+            origem={pOrigem} destino={pDestino} rotOrigem={rotOrigem} rotDestino={rotDestino} nota={ponteNota}
             onDrill={(id: string) => setDrill({ nodeId: id, comReal: modo === 'REAL' && anoBase === anoComp })} />
 
           <QuemCausou S={S} linhas={linhas} nome={nome} bruto={dimBruto} empresas={empresas} ccs={ccs}
@@ -954,7 +982,8 @@ export default function OrcamentoDashPage() {
           <Variacao S={S} cfg={secVar} setCfg={setSecVar} linhas={linhas} nome={nome} fac={fac}
             aba={varAba} setAba={setVarAba} nivel={varNivel} setNivel={setVarNivel}
             nat={varNat} setNat={setVarNat}
-            origem={pOrigem} destino={pDestino} val={val} rotOrigem={rotOrigem} rotDestino={rotDestino} />
+            origem={origemAnalisado ? dados.base : dados.comp} destino={origemAnalisado ? dados.comp : dados.base}
+            val={val} rotOrigem={rotOrigem} rotDestino={rotDestino} />
 
           <Acuracia S={S} cfg={secAcur} setCfg={setSecAcur} linhas={linhas} nome={nome}
             aba={acurAba} setAba={setAcurAba} nivel={acurNivel} setNivel={setAcurNivel}

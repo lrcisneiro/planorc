@@ -146,7 +146,7 @@ export function profDe(linhas: LinhaRel[]): (l: LinhaRel) => number {
 // ao componente um contexto que ele não tem como manter coerente, e é esse
 // tipo de acoplamento que o impedia de viver fora de uma tela.
 export function Ponte({ S: Sx, cfg, setCfg, linhas, nome, origem, destino, rotOrigem, rotDestino,
-                 trilha, setTrilha, navRef, nat, setNat, ate, setAte, onDrill }: any) {
+                 trilha, setTrilha, navRef, nat, setNat, ate, setAte, onDrill, nota }: any) {
   const S = Sx || S_PONTE
   // ⚠ SINAL ECONÔMICO, não o de exibição. O resto da tela mostra despesa
   // positiva (fatorExibicao inverte), mas numa ponte isso quebra tudo: uma
@@ -403,6 +403,12 @@ export function Ponte({ S: Sx, cfg, setCfg, linhas, nome, origem, destino, rotOr
           </span>
         </div>
       </div>
+
+      {/* ⚠ O recorte da linha escopada é dito AQUI, não só no cabeçalho da
+          tela: os números abaixo são de um universo mais estreito que o do
+          filtro, e ponte sem essa frase é ponte que discorda da DRE em
+          silêncio. */}
+      {nota && <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>{nota}</div>}
 
       {!resId ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Escolha a linha de resultado a decompor.</div>
        : !barras.length ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Sem variação nos componentes escolhidos.</div> : (
