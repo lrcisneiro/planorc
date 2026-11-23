@@ -182,6 +182,18 @@ export default function OrcamentoDashPage() {
   // INTENÇÃO e estado do preset do relatório: gravar o sentido já resolvido
   // faria a escolha automática virar escolha fixa no primeiro salvamento.
   const [sentidoOrigem, setSentidoOrigem] = useState<'ANALISADO' | 'COMPARADO' | undefined>(sv.sentidoOrigem)
+  // ── capacidade de serviços (v3_199..201)
+  // ⚠⚠ OS PARÂMETROS SÃO DA SIMULAÇÃO, não do cadastro: vão para o PRESET do
+  // card, não para uma tabela. É o uso real — cada diretor salva o cenário
+  // dele e a conversa é comparar os cards. Virando número oficial um dia,
+  // migra para tabela por versão; antes disso seria cadastro sem dono.
+  const [cap, setCap] = useState<any[] | null>(null)
+  const [capLinha, setCapLinha] = useState<string>(sv.capLinha || '')
+  const [capTerc, setCapTerc] = useState<string>(sv.capTerc || '')
+  const [capPar, setCapPar] = useState<any>(sv.capPar || {
+    PRODUCAO:    { horas: 160, fator: null, valor: 200 },
+    COORDENACAO: { horas: 160, fator: null, valor: 250 },
+  })
   // ⚠ Mesma razão da trilha: `carregando` desmonta o cartão inteiro, e estado
   // local de `Variacao` morreria a cada troca de nível — que é justamente o
   // que dispara a recarga.
@@ -220,6 +232,9 @@ export default function OrcamentoDashPage() {
     // `setPonteOrig(undefined)` aqui apagaria a escolha de quem já estava na
     // tela ao abrir um card antigo, que não decidiu nada sobre isso.
     if (f.sentidoOrigem) setSentidoOrigem(f.sentidoOrigem)
+    if (f.capLinha) setCapLinha(f.capLinha)
+    if (f.capTerc) setCapTerc(f.capTerc)
+    if (f.capPar) setCapPar(f.capPar)
     f.aba && setAba(f.aba); Array.isArray(f.indicSel) && setIndicSel(f.indicSel); Array.isArray(f.linhaSel) && setLinhaSel(f.linhaSel); f.empLinha !== undefined && setEmpLinha(f.empLinha)
     if (f.mesIni) setMesIni(f.mesIni); if (f.mesFim) setMesFim(f.mesFim)
     f.empresaSel && setEmpresaSel(f.empresaSel); f.filialSel && setFilialSel(f.filialSel)
@@ -319,13 +334,14 @@ export default function OrcamentoDashPage() {
   const estado = () => ({
     relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel, empLinha,
     empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, sentidoOrigem,
+    capLinha, capTerc, capPar,
     secPonte, secVar, secAcur, secOrc,
   })
   useEffect(() => {
     if (cardId) return   // vendo um card: não contaminar o estado próprio da tela
     localStorage.setItem(SAVE, JSON.stringify(estado()))
   }, [cardId, relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel, empLinha,
-      empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, sentidoOrigem, secPonte, secVar, secAcur, secOrc]) // eslint-disable-line
+      empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, sentidoOrigem, capLinha, capTerc, capPar, secPonte, secVar, secAcur, secOrc]) // eslint-disable-line
 
   const meses = useMemo(() => Array.from({ length: Math.max(0, mesFim - mesIni + 1) }, (_, i) => mesIni + i), [mesIni, mesFim])
   // os meses DEPOIS do período, até dezembro
@@ -382,6 +398,17 @@ export default function OrcamentoDashPage() {
       // deixaria a tela em "Calculando…" para sempre.
       if (error) { setErro(error.message); setErroPess(error.message); setPess([]) }
       else { setErroPess(null); setPess(data || []) }
+    })
+    // ⚠ Chamada SEPARADA de propósito: se a capacidade falhar (RPC ainda não
+    // aplicada noutro tenant, por exemplo), a análise de pessoas continua —
+    // uma peça nova não pode derrubar a que já funcionava.
+    supabase.rpc('servico_capacidade_agg', {
+      p_versao: vBase, p_ano: anoBase,
+      p_empresas: empFiltradas, p_filiais: filialFilter, p_ccs: ccFilter,
+      p_ano_apont: null,
+    }).then(({ data, error }) => {
+      if (!vivo) return
+      setCap(error ? [] : (data || []))
     })
     return () => { vivo = false }
   }, [aba, vBase, anoBase, empFiltradas.join(','), filialFilter?.join(','), ccFilter?.join(',')]) // eslint-disable-line
@@ -843,7 +870,17 @@ export default function OrcamentoDashPage() {
       ) : aba === 'pessoas' ? (
         carregPess || !pess
           ? <div style={{ ...S.sec, textAlign: 'center', color: 'var(--muted)', padding: 48 }}>Calculando…</div>
-          : <VisaoPessoas S={S} linhas={pess} erro={erroPess} rotulo={versao(vBase)?.codigo ?? ''} ano={anoBase} />
+          : <>
+              <VisaoPessoas S={S} linhas={pess} erro={erroPess} rotulo={versao(vBase)?.codigo ?? ''} ano={anoBase} />
+              {/* ⚠ Depois do que já existe, como grupo próprio: "quanto de
+                  cada área é gente" descreve a empresa toda; a capacidade é
+                  uma pergunta de UMA área. Misturar os dois faria a segunda
+                  parecer válida para todas. */}
+              {dados && <CapacidadeServicos S={S} cap={cap} linhas={linhas} base={dados.base} val={val}
+                capLinha={capLinha} setCapLinha={setCapLinha} capTerc={capTerc} setCapTerc={setCapTerc}
+                par={capPar} setPar={setCapPar} ccFilter={ccFilter}
+                rotulo={versao(vBase)?.codigo ?? ''} ano={anoBase} />}
+            </>
       ) : !dados ? null : aba === 'orcamento' ? (
         <VisaoOrcamento S={S} cfg={secOrc} setCfg={setSecOrc} linhas={linhas} nome={nome} val={val} fac={fac}
           base={dados.base} comp={dados.comp} mensal={dados.mensalBase} meses={meses} MES={MES}
@@ -1772,6 +1809,267 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
         </table>
       </div>
     </>
+  )
+}
+
+// ── CAPACIDADE PRODUTIVA · SERVIÇOS ─────────────────────────
+// Confronta o TAMANHO DA EQUIPE com a RECEITA ORÇADA: o orçamento de serviços
+// cabe nesta gente? A resposta sai como **valor-hora implícito**, que é
+// comparável com o preço praticado — um gap em reais ninguém sabe interpretar.
+//
+// ⚠⚠ O FATOR É A ALAVANCA, e por isso é editável. Medido no apontamento de
+// 2026 (sem intercâmbio), a produção dá 162 h/mês — 101% sobre 160. Isso NÃO é
+// utilização faturável: inclui hora extra e hora em projeto interno. A
+// literatura põe IT services em 70–80%. Com 80%, a capacidade da produção cai
+// de R$ 55,5 mi para R$ 43,9 mi e o quadro INVERTE, de folga para déficit. O
+// medido informa; quem decide é quem simula.
+//
+// ⚠ Três papéis (v3_201): PRODUCAO e COORDENACAO vendem hora e entram na
+// margem DIRETA; ESTRUTURA não vende e entra só na margem da ÁREA. A diferença
+// entre as duas margens é exatamente o custo de quem não vende hora.
+//
+// ⚠ A receita sai de `base`, que já respeita o filtro da tela. Somar a linha
+// direto do banco incluiria a Bolívia (R$ 7,4 mi, sem equipe no CC 3) e o
+// quadro ficaria 13% otimista — erro que eu cometi ao desenhar este quadro.
+const PAPEL_ROT: Record<string, string> = {
+  PRODUCAO: 'Produção', COORDENACAO: 'Coordenação',
+  ESTRUTURA: 'Estrutura', SEM_PAPEL: 'Sem papel definido',
+}
+function CapacidadeServicos({ S, cap, linhas, base, val, capLinha, setCapLinha,
+                              capTerc, setCapTerc, par, setPar, ccFilter, rotulo, ano }: any) {
+  const fmt = (n: number) => Math.round(n).toLocaleString('pt-BR')
+  const [abrir, setAbrir] = useState(false)
+
+  // Candidatas a "receita de serviços": linhas de receita com valor.
+  const opcoes = useMemo(() => (linhas as LinhaRel[])
+    .filter(l => !l.desativada && Math.abs(val(base, l.id)) > 0.005)
+    .map(l => ({ id: l.id, nome: l.descricao })), [linhas, base, val])
+
+  // ⚠ Heurística de nome UMA vez, só para o default — o seletor manda. Mesmo
+  // padrão do `resNode` do acompanhamento.
+  useEffect(() => {
+    if (capLinha || !opcoes.length) return
+    const alvo = opcoes.find(o => /servi/i.test(o.nome) && !/reembolso/i.test(o.nome))
+    if (alvo) setCapLinha(alvo.id)
+  }, [opcoes]) // eslint-disable-line
+  useEffect(() => {
+    if (capTerc || !opcoes.length) return
+    const alvo = opcoes.find(o => /terceiro/i.test(o.nome) && /extern/i.test(o.nome))
+    if (alvo) setCapTerc(alvo.id)
+  }, [opcoes]) // eslint-disable-line
+
+  const receita = capLinha ? Math.abs(val(base, capLinha)) : 0
+  const linhasCap = (cap || []) as any[]
+  const de = (p: string) => linhasCap.find(x => x.papel === p)
+  const vende = ['PRODUCAO', 'COORDENACAO']
+
+  const calc = vende.map(p => {
+    const d = de(p)
+    const pr = par[p] || { horas: 160, fator: null, valor: 0 }
+    const medido = d?.horas_mes ? (d.horas_mes / (pr.horas || 160)) * 100 : null
+    // Sem fator escolhido vale o MEDIDO; sem medido, 100% — e a tela diz qual
+    // dos dois está em uso, porque a conclusão depende disso.
+    const fator = pr.fator != null ? pr.fator : (medido ?? 100)
+    const fte = Number(d?.fte || 0)
+    const horasAno = fte * (pr.horas || 160) * (fator / 100) * 12
+    return { papel: p, d, pr, medido, fator, fte, horasAno, capac: horasAno * (pr.valor || 0) }
+  })
+
+  const capacidade = calc.reduce((a, x) => a + x.capac, 0)
+  const horasAno = calc.reduce((a, x) => a + x.horasAno, 0)
+  const custoVende = vende.reduce((a, p) => a + Number(de(p)?.custo || 0), 0)
+  const custoArea = linhasCap.reduce((a, x) => a + Number(x.custo || 0), 0)
+  const naoVende = custoArea - custoVende
+  // ⚠⚠ TERCEIROS EXTERNOS É CUSTO DIRETO, MAS ELÁSTICO — contratado sob
+  // demanda. Por isso ele NÃO entra na margem direta (que mede a eficiência da
+  // equipe própria) e aparece numa margem PRÓPRIA logo abaixo: assim dá para
+  // ver quanto da entrega depende de gente que não está no quadro.
+  // ⚠ Ele também não entra na CAPACIDADE: quem está no `posto` é quem a
+  // empresa tem; terceiro é a válvula para o que não cabe. Somá-lo ali faria a
+  // capacidade crescer com a contratação, e a pergunta "cabe na equipe?"
+  // deixaria de existir.
+  const terceiros = capTerc ? Math.abs(val(base, capTerc)) : 0
+  const gap = capacidade - receita
+  const implicito = horasAno > 0 ? receita / horasAno : 0
+
+  const num = (v: any, on: (n: number) => void, suf?: string) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+      <input type="number" value={v ?? ''} onChange={e => on(Number(e.target.value))}
+        style={{ width: 58, padding: '2px 4px', fontSize: 12.5, textAlign: 'right', fontFamily: 'monospace',
+                 background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 6 }} />
+      {suf && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{suf}</span>}
+    </span>
+  )
+  const setP = (p: string, k: string, v: number) => setPar({ ...par, [p]: { ...par[p], [k]: v } })
+
+  if (!linhasCap.length) return null
+  return (
+    <div style={{ ...S.sec, marginTop: 18 }}>
+      <div><div style={S.secT}>Capacidade produtiva — Serviços</div>
+        <div style={S.secD}>
+          {rotulo} · {ano}. O orçamento de serviços cabe nesta equipe? A resposta é o
+          {' '}<strong>valor-hora implícito</strong>, comparável com o que você pratica.
+          {' '}<strong>Os parâmetros são editáveis</strong> — mexa neles para simular.
+          {' '}⚠ <strong>Estrutura</strong> (diretoria, gerência executiva) não vende hora: entra só na
+          margem da área. ⚠ Reembolso de despesas fica fora desta conta.
+        </div></div>
+
+      {/* ⚠⚠ O QUADRO É O QUE ESTÁ NO FILTRO, e isso precisa estar dito. Sem
+          recorte de CC ele soma a EMPRESA INTEIRA e chama de "Serviços": os
+          411 cargos de produção da base toda entrariam, a capacidade
+          triplicaria e a conta fecharia — errada e plausível, que é o pior
+          caso. O aviso some assim que há recorte. */}
+      {!ccFilter?.length && (
+        <div style={{ fontSize: 12, color: 'var(--orange)', marginTop: 10, lineHeight: 1.6 }}>
+          ⚠ <strong>Sem recorte de centro de custo</strong>, este quadro soma a empresa inteira — não
+          a área de Serviços. Marque <strong>Serviços</strong> na pílula de Área (ou escolha os CCs
+          em Filtros) para que capacidade, custo e receita falem da mesma equipe.
+        </div>
+      )}
+
+      <div style={{ ...S.secBarra }}>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Receita de serviços:</span>
+        <select value={capLinha} onChange={e => setCapLinha(e.target.value)}
+          style={{ padding: '5px 8px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg-soft)', color: 'var(--text)', maxWidth: 280 }}>
+          <option value="">— escolha a linha —</option>
+          {opcoes.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+        </select>
+        <strong style={{ fontFamily: 'monospace' }}>{fmt(receita)}</strong>
+      </div>
+
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead><tr>
+          <th style={{ ...S.th, textAlign: 'left' }}>grupo</th>
+          <th style={S.th}>FTE</th><th style={S.th}>h/mês</th><th style={S.th}>fator</th>
+          <th style={S.th}>R$/h</th><th style={S.th}>horas/ano</th>
+          <th style={S.th}>capacidade</th><th style={S.th}>custo</th>
+        </tr></thead>
+        <tbody>
+          {calc.map(x => (
+            <tr key={x.papel}>
+              <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit' }}>{PAPEL_ROT[x.papel]}</td>
+              <td style={S.td}>{x.fte.toFixed(1)}</td>
+              <td style={S.td}>{num(x.pr.horas, v => setP(x.papel, 'horas', v))}</td>
+              <td style={S.td}>
+                {num(x.pr.fator ?? Math.round(x.fator), v => setP(x.papel, 'fator', v), '%')}
+                {/* ⚠ O medido fica à VISTA ao lado do campo: o número tem de
+                    ter origem, senão a simulação vira chute com casas decimais. */}
+                <div style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'inherit' }}>
+                  {x.d?.horas_mes ? `medido ${Math.round(x.d.horas_mes)}h · ${Math.round(x.medido!)}%` : 'sem apontamento'}
+                </div>
+              </td>
+              <td style={S.td}>{num(x.pr.valor, v => setP(x.papel, 'valor', v))}</td>
+              <td style={S.td}>{fmt(x.horasAno)}</td>
+              <td style={{ ...S.td, fontWeight: 600 }}>{fmt(x.capac)}</td>
+              <td style={{ ...S.td, color: 'var(--muted)' }}>{fmt(Number(x.d?.custo || 0))}</td>
+            </tr>
+          ))}
+          {linhasCap.filter(x => !vende.includes(x.papel)).map(x => (
+            <tr key={x.papel}>
+              <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--muted)' }}>
+                {PAPEL_ROT[x.papel] || x.papel}
+                <span style={{ fontSize: 11, marginLeft: 6 }}>não vende hora</span>
+              </td>
+              <td style={S.td}>{Number(x.fte).toFixed(1)}</td>
+              <td style={S.td} colSpan={4} />
+              <td style={S.td}>—</td>
+              <td style={{ ...S.td, color: 'var(--muted)' }}>{fmt(Number(x.custo || 0))}</td>
+            </tr>
+          ))}
+          <tr>
+            <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontWeight: 700 }}>capacidade instalada</td>
+            <td style={S.td} colSpan={5} />
+            <td style={{ ...S.td, fontWeight: 700 }}>{fmt(capacidade)}</td>
+            <td style={{ ...S.td, fontWeight: 700 }}>{fmt(custoArea)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 10, marginTop: 14 }}>
+        {[
+          { r: gap >= 0 ? 'Folga de capacidade' : 'Déficit de capacidade',
+            v: `${gap >= 0 ? '+' : ''}${fmt(gap)}  ${receita ? `(${(gap / receita * 100).toFixed(0)}%)` : ''}`,
+            c: gap >= 0 ? 'var(--green)' : 'var(--red)', d: 'capacidade − receita orçada' },
+          { r: 'Valor-hora implícito', v: `R$ ${implicito.toFixed(2)}`, c: 'var(--violet)',
+            d: 'receita ÷ horas vendáveis — compare com o praticado' },
+        ].map(k => (
+          <div key={k.r} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px' }}>
+            <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>{k.r}</div>
+            <div style={{ fontSize: 17, fontWeight: 700, fontFamily: 'monospace', color: k.c, marginTop: 2 }}>{k.v}</div>
+            {k.d && <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 2 }}>{k.d}</div>}
+          </div>
+        ))}
+      </div>
+
+      {/* ⚠ CASCATA, não cartões soltos: cada margem é a anterior menos um
+          custo, e a ordem conta a história — primeiro a equipe própria, depois
+          o elástico, por último a estrutura. Em cartões lado a lado, três
+          percentuais diferentes para "margem de serviços" parecem contradição. */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 14 }}>
+        <tbody>
+          {(() => {
+            const m1 = receita - custoVende
+            const m2 = m1 - terceiros
+            const m3 = m2 - naoVende
+            const lin = (rot: string, val: number, det: string, forte = false, margem = false) => (
+              <tr key={rot}>
+                <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit',
+                             fontWeight: forte ? 700 : 400, color: margem ? 'var(--text)' : 'var(--muted)' }}>
+                  {rot}<span style={{ fontSize: 11, color: 'var(--faint)', marginLeft: 8 }}>{det}</span>
+                </td>
+                <td style={{ ...S.td, fontWeight: forte ? 700 : 400,
+                             color: margem ? (val >= 0 ? 'var(--text)' : 'var(--red)') : 'var(--muted)' }}>
+                  {margem ? fmt(val) : `− ${fmt(val)}`}
+                </td>
+                <td style={{ ...S.td, width: 70, color: 'var(--muted)' }}>
+                  {margem && receita ? `${(val / receita * 100).toFixed(1)}%` : ''}
+                </td>
+              </tr>
+            )
+            return [
+              lin('Receita de serviços', receita, '', true, true),
+              lin('Pessoal próprio direto', custoVende, 'produção + coordenação'),
+              lin('= Margem direta', m1, 'eficiência da equipe própria', true, true),
+              lin('Terceiros externos', terceiros, 'contratados sob demanda — a parte elástica'),
+              lin('= Margem após terceiros', m2, 'o que sobra da entrega inteira', true, true),
+              lin('Estrutura', naoVende, 'diretoria, gerência executiva, sem papel'),
+              lin('= Margem da área', m3, 'tudo que a área consome', true, true),
+            ]
+          })()}
+        </tbody>
+      </table>
+      <div style={{ ...S.secBarra, marginTop: 6 }}>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Terceiros externos:</span>
+        <select value={capTerc} onChange={e => setCapTerc(e.target.value)}
+          style={{ padding: '5px 8px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg-soft)', color: 'var(--text)', maxWidth: 280 }}>
+          <option value="">— nenhum —</option>
+          {opcoes.map((o: any) => <option key={o.id} value={o.id}>{o.nome}</option>)}
+        </select>
+      </div>
+
+      <div data-noexport style={{ marginTop: 10, fontSize: 11.5, color: 'var(--violet)', cursor: 'pointer' }}
+        onClick={() => setAbrir(v => !v)}>
+        {abrir ? '▾' : '▸'} composição dos grupos
+      </div>
+      {abrir && (
+        <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
+          {linhasCap.map(x => (
+            <div key={x.papel}>
+              <strong style={{ color: 'var(--text-mid)' }}>{PAPEL_ROT[x.papel] || x.papel}</strong>
+              {' · '}{x.pessoas} pessoa(s) · FTE {Number(x.fte).toFixed(1)}
+              {' · '}{x.com_hora} com apontamento
+              {x.horas_mes ? ` · ${Math.round(x.horas_mes)} h/mês` : ' · sem horas'}
+              {' · R$ '}{fmt(Number(x.custo || 0))}
+            </div>
+          ))}
+          <div style={{ marginTop: 6, color: 'var(--faint)' }}>
+            ⚠ O papel vem do <strong>cargo</strong> e pode ser ajustado por pessoa no cadastro do posto.
+            Quem aparece em <em>Sem papel definido</em> está sem cargo — some do grupo, mas continua
+            no custo da área.
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -1605,6 +1605,43 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `filtro_escopo` próprio (o agregado por dimensão não o aplica), projeção ligada e recorte de
   empresa entre as duas RPCs. Aparece como linha, igual ao resíduo da ponte.
 
+- ⚠⚠ **CAPACIDADE PRODUTIVA · SERVIÇOS (`v3_199..201`, 23/nov).** Confronta o tamanho da equipe
+  com a receita orçada, e a resposta sai como **valor-hora implícito** (receita ÷ horas
+  vendáveis), que é comparável com o preço praticado — um gap em reais ninguém sabe interpretar.
+  **TRÊS PAPÉIS, e o terceiro custou uma migration extra.** `PRODUCAO` e `COORDENACAO` vendem
+  hora (R$ 200 e 250) e entram na margem direta; `ESTRUTURA` não vende e entra só na margem da
+  área. A v3_199 nasceu com dois e **fundiu naturezas diferentes**: medido, *Coordenador de
+  Projetos* aponta 99 h/mês e *Gerente Executivo* e *Diretor* apontam **ZERO** — com os dois a
+  R$ 250/h o quadro criaria **R$ 5,8 mi de capacidade inexistente**, e o erro seria invisível
+  porque a conta fecharia. ⚠ `ESTRUTURA aponta: nenhuma hora` é a conferência que prova o corte.
+  ⚠ **Nem o CC nem a área funcional distinguem** — analista e coordenador dividem os dois. Quem
+  distingue é o **cargo**: `cargo.papel_servico` é a regra e `posto.papel_servico` a exceção, com
+  precedência `posto → cargo` (a mesma de `posto.recebe_hora`). ⚠ **Nulo no posto é "siga o
+  cargo"**, por isso ele nasce nulo em todos: semear em massa congelaria a regra e mudar o cargo
+  deixaria de surtir efeito, calado.
+  ⚠ **A regra de nome SEMEIA, não governa** — roda uma vez na migration. `GERENTE` sozinho
+  pegaria o *gerente de projeto*, que vende hora; o que distingue é o par `GERENTE EXECUTIVO`.
+  ⚠⚠ **O FATOR DE UTILIZAÇÃO É A ALAVANCA, e é editável.** O apontamento dá 162 h/mês na produção
+  (101% sobre 160), mas isso **não é utilização faturável**: inclui hora extra e projeto interno,
+  e a literatura põe IT services em 70–80%. Com 80% a capacidade cai de R$ 55,5 mi para 43,9 mi
+  e **o quadro inverte, de folga para déficit**. O medido fica à vista ao lado do campo: número
+  sem origem vira chute com casas decimais.
+  ⚠ **Headcount por VIGÊNCIA, não por situação** — quem sai em 11/2026 aparece no quadro de hoje
+  e gera zero em 2027. ⚠ **Intercâmbio fora das horas** (10,6% do total, até 50% em alguém): é
+  receita de outra empresa do grupo, com contrapartida em *Repasses*.
+  ⚠⚠ **TERCEIROS EXTERNOS fica FORA da capacidade e da margem direta, com margem PRÓPRIA.** É
+  custo direto mas **elástico** — contratado sob demanda. Somá-lo à capacidade faria a capacidade
+  crescer com a contratação, e a pergunta *"cabe na equipe?"* deixaria de existir. As margens vão
+  em **cascata** (própria → após terceiros → da área): em cartões lado a lado, três percentuais
+  para "margem de serviços" parecem contradição.
+  ⚠⚠ **O quadro é o que está no FILTRO, e ele diz isso.** Sem recorte de CC soma a empresa
+  inteira e chama de Serviços — a capacidade triplicaria e a conta fecharia, errada e plausível.
+  ⚠ A receita sai de `base` (já filtrada), não do banco: somando a linha direto, a **Bolívia**
+  entrava com R$ 7,4 mi **sem equipe no CC 3** e o quadro ficava 13% otimista — erro que eu
+  cometi ao desenhar este quadro.
+  ⚠ Os parâmetros vão para o **preset do card**, não para tabela: cada diretor salva o cenário
+  dele e a conversa é comparar os cards.
+
 - **A PONTE virou `lib/Ponte.tsx` e entrou no acompanhamento (23/nov).** A extração custou pouco
   porque a Ponte **já havia deixado de saber o que é orçado**: recebe `origem`/`destino` e quem
   decide qual lado é qual é a página — foi a mudança do *sentido da leitura* (22/nov) que a
