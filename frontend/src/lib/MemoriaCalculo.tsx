@@ -178,18 +178,14 @@ export function MemoriaModal({ id, linhas, cols, onClose, nota, onRazao }: {
   if (!l) return null
   const col = cols[Math.min(ci, cols.length - 1)] || { rot: '—', val: {} }
   const todos = componentesMem(l, linhas)
-  // ⚠⚠ ZERO NA COLUNA SELECIONADA, não nas duas. A 1ª versão exigia zero em
-  // TODAS as colunas para a lista não mudar ao trocar a pílula — e o efeito
-  // medido foi o contrário do pretendido: `Receita de Serviços` seguia com
-  // `+ 0 + 0 + 0` à vista, porque aquelas três linhas têm realizado e não
-  // têm orçado. Estabilidade de lista não vale o ruído que ela preserva.
-  // ⚠ A pílula já fez desta tela uma leitura de UMA coluna por vez; esconder
-  // por coluna é a mesma decisão levada até o fim.
-  const ocultos = new Set(todos.filter(c => !(col.val[c.id] || 0)).map(c => c.id))
-  // ⚠ Quantas das ocultas têm valor em OUTRA coluna. Sem isso, "0 no orçado"
-  // e "não existe" viram a mesma coisa na tela, e quem confere o realizado
-  // procura uma linha que o modal escondeu sem dizer que ela tem número.
-  const noutra = todos.filter(c => ocultos.has(c.id) && cols.some(x => x !== col && (x.val[c.id] || 0))).length
+  // ⚠⚠ ZERO EM **TODAS** AS COLUNAS — some só a linha que não tem nada em
+  // lugar nenhum. Decisão do Ricardo depois de ver as duas: esconder pela
+  // coluna selecionada tirava da vista linha que **tem realizado e não tem
+  // orçado**, e é justamente essa que interessa — o zero ali é informação
+  // ("não foi orçado"), e a pílula é o que mostra o outro lado.
+  // ⚠ Some quem não tem nem num nem noutro: aí o zero não informa nada,
+  // é linha de estrutura que nunca recebeu lançamento.
+  const ocultos = new Set(todos.filter(c => cols.every(x => !(x.val[c.id] || 0))).map(c => c.id))
   const filhos = todos.filter(c => !ocultos.has(c.id))
   return (
     <ModalPanel titulo={`Memória de cálculo · ${l.descricao}`} onClose={onClose} semAplicar
@@ -261,8 +257,9 @@ export function MemoriaModal({ id, linhas, cols, onClose, nota, onRazao }: {
           <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>
             ↳ entra na memória do próprio termo, quando ele também se decompõe.
             {onRazao && ' Clique no valor de uma folha para abrir o razão.'}
-            {ocultos.size > 0 && <> · <strong>{ocultos.size}</strong> linha(s) zerada(s) em {col.rot} ocultada(s)
-              {noutra > 0 && <> — <strong>{noutra}</strong> com valor em outra coluna</>}.</>}
+            {ocultos.size > 0 && <> · <strong>{ocultos.size}</strong> linha(s) sem lançamento em
+              coluna nenhuma ocultada(s); o <strong>0</strong> que fica significa que aquela linha
+              tem valor na outra coluna.</>}
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
