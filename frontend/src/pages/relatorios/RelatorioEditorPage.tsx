@@ -163,7 +163,12 @@ const S: Record<string, CSSProperties> = {
   newInput:  { flex: 1, padding: '6px 10px', fontSize: 13, border: '1px solid var(--green)', borderRadius: 6, outline: 'none' },
   btnGreen:  { padding: '6px 14px', background: 'var(--green)', color: '#ffffff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
   btnGray:   { padding: '6px 10px', background: 'none', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
-  overlay:   { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
+  // ⚠⚠ 1600 PORQUE O `ModalPanel` COMPARTILHADO É 1500. Os modais deste
+  // arquivo (razão, linha, contas) podem ser abertos DE DENTRO de um
+  // `ModalPanel` — a memória de cálculo abre o razão na folha —, e em 1000 o
+  // razão renderizava ATRÁS dela: ordem no DOM só decide empate de z-index.
+  // A regra: modal aberto a partir de outro modal fica ACIMA dele.
+  overlay:   { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1600 },
   // `position: sticky` em vez de reestruturar o JSX: os dois modais deste
   // arquivo têm formas diferentes por dentro (um é envolvido por `fieldset`),
   // e grudar a barra no topo do container que rola dá o mesmo resultado sem

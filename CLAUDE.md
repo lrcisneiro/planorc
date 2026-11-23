@@ -1501,6 +1501,12 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   recebeu lançamento.
   ⚠ O rodapé diz quantas ficaram de fora **e o que significa o `0` que fica** (tem valor na outra
   coluna), senão *"0 no orçado"* e *"não existe"* parecem a mesma coisa.
+  ⚠⚠ **MODAL ABERTO A PARTIR DE OUTRO MODAL FICA ACIMA DELE — e ordem no DOM não resolve**, ela
+  só decide empate de `z-index`. O razão do editor usava `z 1000` e o `ModalPanel` compartilhado
+  usa **1500**, então o razão aberto da memória renderizava **atrás** dela, com o overlay por
+  cima: parecia que o clique não tinha feito nada. `S.overlay` do editor passou a **1600**. No
+  dashboard já estava certo por acaso — o `DrillModal` é **2000**.
+
   ⚠⚠ **Só a expressão do SUBTOTAL pode perder termos** — ela é sintetizada aqui (a linha não tem
   `expressao`). Na **FÓRMULA** a expressão é TEXTO do cadastro, e apagar um termo dela seria
   exibir uma fórmula que não é a da linha.
