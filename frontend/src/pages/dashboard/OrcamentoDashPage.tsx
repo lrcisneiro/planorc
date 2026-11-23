@@ -2073,7 +2073,7 @@ function CapacidadeServicos({ S, cap, linhas, base, val, capLinhas, setCapLinhas
             v: `${gap >= 0 ? '+' : ''}${fmt(gap)}  ${receita ? `(${(gap / receita * 100).toFixed(0)}%)` : ''}`,
             c: gap >= 0 ? 'var(--green)' : 'var(--red)', d: 'capacidade − receita orçada' },
           { r: 'Valor-hora implícito', v: `R$ ${implicito.toFixed(2)}`, c: 'var(--violet)',
-            d: 'receita ÷ horas vendáveis — compare com o praticado' },
+            d: 'receita / horas vendáveis — compare com o praticado' },
         ].map(k => (
           <div key={k.r} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px' }}>
             <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>{k.r}</div>
@@ -2090,9 +2090,15 @@ function CapacidadeServicos({ S, cap, linhas, base, val, capLinhas, setCapLinhas
       <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 14 }}>
         <tbody>
           {(() => {
-            const m1 = receita - custoVende
-            const m2 = m1 - terceiros
-            const m3 = m2 - naoVende
+            // ⚠⚠ TERCEIROS POR ÚLTIMO, e não no meio. As duas margens que a
+            // empresa já usa — a direta e a da área — ficam LIMPAS do custo
+            // elástico, e aí a terceira mostra o efeito dele. Com terceiros no
+            // meio, a "margem da área" deixava de ser a mesma coisa que a
+            // `Margem Serviço` do DRE e nenhuma das duas era comparável com o
+            // que já se reporta.
+            const m1 = receita - custoVende          // própria
+            const m2 = m1 - naoVende                 // + estrutura = a área
+            const m3 = m2 - terceiros                // + o elástico
             const lin = (rot: string, val: number, det: string, forte = false, margem = false) => (
               <tr key={rot}>
                 <td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit',
@@ -2112,10 +2118,10 @@ function CapacidadeServicos({ S, cap, linhas, base, val, capLinhas, setCapLinhas
               lin('Receita de serviços', receita, '', true, true),
               lin('Pessoal próprio direto', custoVende, 'produção + coordenação'),
               lin('= Margem direta', m1, 'eficiência da equipe própria', true, true),
-              lin('Terceiros externos', terceiros, 'contratados sob demanda — a parte elástica'),
-              lin('= Margem após terceiros', m2, 'o que sobra da entrega inteira', true, true),
               lin('Estrutura', naoVende, 'diretoria, gerência executiva, sem papel'),
-              lin('= Margem da área', m3, 'tudo que a área consome', true, true),
+              lin('= Margem da área', m2, 'a margem que a DRE reporta', true, true),
+              lin('Terceiros externos', terceiros, 'contratados sob demanda — a parte elástica'),
+              lin('= Margem com terceiros', m3, 'a entrega inteira, com o elástico', true, true),
             ]
           })()}
         </tbody>

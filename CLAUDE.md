@@ -1629,11 +1629,14 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ **Headcount por VIGÊNCIA, não por situação** — quem sai em 11/2026 aparece no quadro de hoje
   e gera zero em 2027. ⚠ **Intercâmbio fora das horas** (10,6% do total, até 50% em alguém): é
   receita de outra empresa do grupo, com contrapartida em *Repasses*.
-  ⚠⚠ **TERCEIROS EXTERNOS fica FORA da capacidade e da margem direta, com margem PRÓPRIA.** É
-  custo direto mas **elástico** — contratado sob demanda. Somá-lo à capacidade faria a capacidade
-  crescer com a contratação, e a pergunta *"cabe na equipe?"* deixaria de existir. As margens vão
-  em **cascata** (própria → após terceiros → da área): em cartões lado a lado, três percentuais
-  para "margem de serviços" parecem contradição.
+  ⚠⚠ **TERCEIROS EXTERNOS fica FORA da capacidade e das duas margens oficiais.** É custo direto
+  mas **elástico** — contratado sob demanda. Somá-lo à capacidade faria a capacidade crescer com
+  a contratação, e a pergunta *"cabe na equipe?"* deixaria de existir.
+  ⚠ **Ele vem POR ÚLTIMO na cascata** (direta → área → com terceiros), não no meio: assim a
+  *margem da área* continua sendo a mesma coisa que a `Margem Serviço` do DRE. Com terceiros
+  entre as duas, nenhuma das margens era comparável com o que já se reporta.
+  ⚠ As margens vão em **cascata**, não em cartões: três percentuais lado a lado para "margem de
+  serviços" parecem contradição; em cascata, cada uma é a anterior menos um custo nomeado.
   ⚠⚠ **O quadro é o que está no FILTRO, e ele diz isso.** Sem recorte de CC soma a empresa
   inteira e chama de Serviços — a capacidade triplicaria e a conta fecharia, errada e plausível.
   ⚠⚠ **A ÁREA É UM SELETOR DO QUADRO, e o recorte vai na CHAMADA.** A primeira versão só
