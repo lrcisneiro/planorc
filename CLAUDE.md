@@ -1621,6 +1621,22 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ Vem **depois dos indicadores** de propósito: os cartões respondem "quanto", a ponte "de onde
   vem" — e a segunda pergunta só faz sentido depois da primeira.
 
+- **Os TRÊS quadros de variação agora servem às duas telas (23/nov).** `lib/Ponte.tsx` e
+  `lib/AnaliseVariacao.tsx` (ranking *O que mudou* + *Quem causou a variação*, com `Tabela`,
+  `useCorte` e a partição em nível) saíram de `OrcamentoDashPage`, que caiu de **2.495 para
+  1.946 linhas**. A mesma variação por três eixos — por LINHA (ponte), por DIMENSÃO (quem
+  causou) e como RANKING (o que mudou) —, os três fechando no mesmo Δ, que é o que permite ler
+  um contra o outro.
+  ⚠ **A extração só foi barata por causa do que veio antes:** os três já recebiam
+  `origem`/`destino` e não sabiam qual lado era o orçado. O que os prendia era o **objeto de
+  estilo da página** — hoje `S` é prop opcional com `S_PONTE` de fallback.
+  ⚠⚠ **No acompanhamento isso custou ZERO consulta.** `relatorio_linha_empresa_agg` e
+  `dashboard_cc_agg` já traziam `orcado` **e** `realizado` e já eram carregados ali — faltava
+  alguém guardar os dois lados em vez de descartar um.
+  ⚠ As duas convenções de sinal convivem na mesma tela, cada peça com a sua: o ranking usa
+  `val`/`fatorExibicao` (despesa positiva) e a ponte usa o sinal econômico cru, que é a exceção
+  já declarada neste documento.
+
 - **Indicadores do acompanhamento reordenam por arrasto (23/nov) — sem campo novo.** `indicSel`
   **já era** a lista de quais exibir, já persistida no localStorage e no preset do card; só não
   era usada como ORDEM, porque a renderização filtrava `indicCards` (ordem da estrutura) em vez

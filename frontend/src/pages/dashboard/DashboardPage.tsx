@@ -10,6 +10,8 @@ import type { RLData } from '../../lib/relatorioTotais'
 import { ResponsiveBar } from '@nivo/bar'
 import { fmtEixo } from '../../lib/fmtEixo'
 import { Ponte } from '../../lib/Ponte'
+import { QuemCausou, Variacao, SEC_PADRAO, type SecCfg, type DimBruto, type DimQuem, type LadoPorMaster } from '../../lib/AnaliseVariacao'
+import { fatorExibicao } from '../../lib/refRelatorio'
 import { nivoTheme } from '../../lib/nivoTheme'
 import { ResponsiveLine } from '@nivo/line'
 import { Link } from 'react-router-dom'
@@ -209,7 +211,21 @@ export default function DashboardPage() {
   const pNav = useRef<string | null>(null)
   const [pNat, setPNat] = useState<'TODAS' | 'RECEITA' | 'DESPESA'>('TODAS')
   const [pAte, setPAte] = useState<number | 'tudo'>(1)
+  // ── "quem causou" e "o que mudou", os mesmos dois da análise
+  const [dimBruto, setDimBruto] = useState<DimBruto>({ emp: {}, cc: {} })
+  const [quemDim, setQuemDim] = useState<DimQuem>('area')
+  const [vCfg, setVCfg] = useState<SecCfg>(SEC_PADRAO)
+  const [vAba, setVAba] = useState<'LINHA' | 'INDIC'>('LINHA')
+  const [vNivel, setVNivel] = useState<number | 'folhas'>(1)
+  const [vNat, setVNat] = useState<'TODAS' | 'RECEITA' | 'DESPESA'>('TODAS')
   const [linhasRel, setLinhasRel] = useState<RL[]>([])
+  // ⚠ `val` aplica `fatorExibicao` — despesa sai POSITIVA, como no resto do
+  // produto. O ranking usa isso; a ponte, não (lá o sinal é econômico cru, e
+  // é exceção declarada). São as duas convenções do CLAUDE.md convivendo na
+  // mesma tela, cada peça com a sua.
+  const byIdRel = useMemo(() => Object.fromEntries(linhasRel.map(l => [l.id, l])) as any, [linhasRel])
+  const facRel = (id: string) => fatorExibicao(id, byIdRel)
+  const valRel = (src: Record<string, number> | undefined, id: string) => (src?.[id] ?? 0) * facRel(id)
   // ── arrastar os indicadores para reordenar (mesmo gesto do dash de análise)
   // ⚠ `indicSel` JÁ ERA a lista de quais exibir, já persistida no localStorage
   // e no preset do card — só não era usada como ORDEM: a renderização filtrava
@@ -609,6 +625,30 @@ export default function DashboardPage() {
       // mesmos números do KPI, que bate com o relatório. A ponte não recalcula
       // nada: decompõe o que a tela já mostra.
       setTotais({ orc: tOrc, real: tReal })
+      // ⚠⚠ ZERO CONSULTA NOVA. `lineEmpR` (empresa × linha) e `ccAggRows`
+      // (cc × linha × mês) já trazem `orcado` E `realizado` e já eram
+      // carregados por esta tela — o quadro "quem causou" só precisava que
+      // alguém guardasse os dois lados em vez de descartar um.
+      // `b` = orçado, `c` = realizado; `invertido` diz à peça que a ORIGEM é o
+      // lado `b`, que aqui é sempre o plano.
+      const dEmp: LadoPorMaster = {}, dCc: LadoPorMaster = {}
+      const acum = (alvo: LadoPorMaster, chave: string | null, master: string, campo: 'b' | 'c', v: number) => {
+        if (!v) return
+        const m = (alvo[chave || '__sem'] = alvo[chave || '__sem'] || {})
+        const cel = (m[master] = m[master] || { b: 0, c: 0 })
+        cel[campo] += v
+      }
+      for (const x of lineEmpR.data || []) {
+        if (!empSet.has(x.empresa_id) || disabledMasters.has(x.linha_id)) continue
+        acum(dEmp, x.empresa_id, x.linha_id, 'b', Number(x.orcado) || 0)
+        acum(dEmp, x.empresa_id, x.linha_id, 'c', Number(x.realizado) || 0)
+      }
+      for (const r of ccAggRows) {
+        if (disabledMasters.has(r.linha_id)) continue
+        acum(dCc, r.cc_id, r.linha_id, 'b', Number(r.orcado) || 0)
+        acum(dCc, r.cc_id, r.linha_id, 'c', Number(r.realizado) || 0)
+      }
+      setDimBruto({ emp: dEmp, cc: dCc })
       setLinhasRel(linhas)
       // A linha de partida acompanha o escopo: sem agrupadora, o Resultado
       // Líquido — o mesmo nó do gráfico mensal e do cartão.
@@ -818,6 +858,26 @@ export default function DashboardPage() {
               rotOrigem={versoes.find(v => v.id === versaoId)?.codigo || 'Orçado'} rotDestino="Realizado"
               trilha={pTrilha} setTrilha={setPTrilha} navRef={pNav}
               nat={pNat} setNat={setPNat} ate={pAte} setAte={setPAte} />
+          )}
+
+          {/* ⚠ A MESMA variação, por três eixos: a ponte por LINHA, o "quem
+              causou" por DIMENSÃO e o "o que mudou" como RANKING. Os três
+              fecham no mesmo Δ, e é isso que permite ler um contra o outro. */}
+          {totais && pCfg.resultado && (
+            <QuemCausou linhas={linhasRel} nome={(id: string) => linhasRel.find(l => l.id === id)?.descricao ?? '—'}
+              bruto={dimBruto} empresas={empresas} ccs={ccs}
+              resId={pCfg.resultado} componentes={pCfg.sel} invertido
+              rotOrigem={versoes.find(v => v.id === versaoId)?.codigo || 'Orçado'} rotDestino="Realizado"
+              dim={quemDim} setDim={setQuemDim} ano={anosSel.length ? Math.max(...anosSel) : 0}
+              dTotal={(totais.real[pCfg.resultado] ?? 0) - (totais.orc[pCfg.resultado] ?? 0)} />
+          )}
+
+          {totais && (
+            <Variacao cfg={vCfg} setCfg={setVCfg} linhas={linhasRel}
+              nome={(id: string) => linhasRel.find(l => l.id === id)?.descricao ?? '—'}
+              origem={totais.orc} destino={totais.real} val={valRel} fac={facRel}
+              rotOrigem={versoes.find(v => v.id === versaoId)?.codigo || 'Orçado'} rotDestino="Realizado"
+              aba={vAba} setAba={setVAba} nivel={vNivel} setNivel={setVNivel} nat={vNat} setNat={setVNat} />
           )}
 
           <div style={S.grid2}>
