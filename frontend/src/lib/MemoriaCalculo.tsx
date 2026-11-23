@@ -178,10 +178,18 @@ export function MemoriaModal({ id, linhas, cols, onClose, nota, onRazao }: {
   if (!l) return null
   const col = cols[Math.min(ci, cols.length - 1)] || { rot: '—', val: {} }
   const todos = componentesMem(l, linhas)
-  // ⚠⚠ ZERO EM **TODAS** AS COLUNAS, não só na selecionada. Pela coluna, a
-  // lista mudaria ao trocar a pílula — linha some ao ver o orçado e volta ao
-  // ver o realizado —, e aí o que se está conferindo deixa de ser estável.
-  const ocultos = new Set(todos.filter(c => cols.every(x => !(x.val[c.id] || 0))).map(c => c.id))
+  // ⚠⚠ ZERO NA COLUNA SELECIONADA, não nas duas. A 1ª versão exigia zero em
+  // TODAS as colunas para a lista não mudar ao trocar a pílula — e o efeito
+  // medido foi o contrário do pretendido: `Receita de Serviços` seguia com
+  // `+ 0 + 0 + 0` à vista, porque aquelas três linhas têm realizado e não
+  // têm orçado. Estabilidade de lista não vale o ruído que ela preserva.
+  // ⚠ A pílula já fez desta tela uma leitura de UMA coluna por vez; esconder
+  // por coluna é a mesma decisão levada até o fim.
+  const ocultos = new Set(todos.filter(c => !(col.val[c.id] || 0)).map(c => c.id))
+  // ⚠ Quantas das ocultas têm valor em OUTRA coluna. Sem isso, "0 no orçado"
+  // e "não existe" viram a mesma coisa na tela, e quem confere o realizado
+  // procura uma linha que o modal escondeu sem dizer que ela tem número.
+  const noutra = todos.filter(c => ocultos.has(c.id) && cols.some(x => x !== col && (x.val[c.id] || 0))).length
   const filhos = todos.filter(c => !ocultos.has(c.id))
   return (
     <ModalPanel titulo={`Memória de cálculo · ${l.descricao}`} onClose={onClose} semAplicar
@@ -253,7 +261,8 @@ export function MemoriaModal({ id, linhas, cols, onClose, nota, onRazao }: {
           <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>
             ↳ entra na memória do próprio termo, quando ele também se decompõe.
             {onRazao && ' Clique no valor de uma folha para abrir o razão.'}
-            {ocultos.size > 0 && <> · <strong>{ocultos.size}</strong> linha(s) sem lançamento ocultada(s).</>}
+            {ocultos.size > 0 && <> · <strong>{ocultos.size}</strong> linha(s) zerada(s) em {col.rot} ocultada(s)
+              {noutra > 0 && <> — <strong>{noutra}</strong> com valor em outra coluna</>}.</>}
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>

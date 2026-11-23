@@ -1493,9 +1493,15 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   devolveria vazio — que parece ausência de lançamento.
   ⚠⚠ **Linha sem lançamento SOME, e o corte é DITO.** Um subtotal de receitas tinha
   `+ 0 + 0 + 0 + 0 + 0 + 0 + 0 + 0 + 0` empurrando os três números que importam para fora da
-  vista. O critério é **zero em TODAS as colunas**, não na selecionada: pela coluna, a linha
-  sumiria ao ver o orçado e voltaria ao ver o realizado, e o que se confere deixaria de ser
-  estável. O rodapé diz quantas ficaram de fora.
+  vista. O critério é **zero na coluna SELECIONADA**.
+  ⚠ A 1ª tentativa exigia zero em **todas** as colunas, para a lista não mudar ao trocar a
+  pílula — e o medido foi o contrário do pretendido: `Receita de Serviços` seguia com
+  `+ 0 + 0 + 0` à vista, porque aquelas três linhas têm **realizado e não têm orçado**.
+  **Estabilidade de lista não vale o ruído que ela preserva**, e a pílula já fez desta tela uma
+  leitura de uma coluna por vez — esconder por coluna é a mesma decisão levada até o fim.
+  ⚠ O rodapé diz quantas ficaram de fora **e quantas têm valor em outra coluna**: sem isso,
+  *"0 no orçado"* e *"não existe"* viram a mesma coisa, e quem procura a linha no realizado não
+  descobre que basta trocar a pílula.
   ⚠⚠ **Só a expressão do SUBTOTAL pode perder termos** — ela é sintetizada aqui (a linha não tem
   `expressao`). Na **FÓRMULA** a expressão é TEXTO do cadastro, e apagar um termo dela seria
   exibir uma fórmula que não é a da linha.
