@@ -188,8 +188,20 @@ export default function OrcamentoDashPage() {
   // dele e a conversa é comparar os cards. Virando número oficial um dia,
   // migra para tabela por versão; antes disso seria cadastro sem dono.
   const [cap, setCap] = useState<any[] | null>(null)
-  const [capLinha, setCapLinha] = useState<string>(sv.capLinha || '')
-  const [capTerc, setCapTerc] = useState<string>(sv.capTerc || '')
+  // ⚠ LISTA, não uma linha só: a receita de serviços pode ser a agrupadora ou
+  // várias filhas (Horas Abertas + Banco de Horas + Projetos Fechados…), e o
+  // mesmo vale para os terceiros. `capLinha`/`capTerc` no singular sobrevivem
+  // na leitura, para o preset salvo antes não abrir vazio.
+  const umaLista = (v: any, velho: any) => Array.isArray(v) ? v : (velho ? [velho] : [])
+  const [capLinhas, setCapLinhas] = useState<string[]>(umaLista(sv.capLinhas, sv.capLinha))
+  const [capTercs, setCapTercs] = useState<string[]>(umaLista(sv.capTercs, sv.capTerc))
+  // ⚠ A ÁREA É ESCOLHIDA, não chumbada. "3 = Serviços" é cadastro desta
+  // instalação — o mesmo eixo que o `filtro_escopo` da linha *Margem Serviço*
+  // já usa (`{"area":["3"]}`). Fixar `'3'` no código repetiria a regra num
+  // lugar onde ninguém a encontraria ao mudar o cadastro. Default no 3 porque
+  // é o caso de hoje; o seletor é o que torna o quadro reusável nas outras
+  // áreas, que é o próximo passo pedido.
+  const [capArea, setCapArea] = useState<string>(sv.capArea || '3')
   const [capPar, setCapPar] = useState<any>(sv.capPar || {
     PRODUCAO:    { horas: 160, fator: null, valor: 200 },
     COORDENACAO: { horas: 160, fator: null, valor: 250 },
@@ -232,8 +244,9 @@ export default function OrcamentoDashPage() {
     // `setPonteOrig(undefined)` aqui apagaria a escolha de quem já estava na
     // tela ao abrir um card antigo, que não decidiu nada sobre isso.
     if (f.sentidoOrigem) setSentidoOrigem(f.sentidoOrigem)
-    if (f.capLinha) setCapLinha(f.capLinha)
-    if (f.capTerc) setCapTerc(f.capTerc)
+    if (f.capLinhas || f.capLinha) setCapLinhas(umaLista(f.capLinhas, f.capLinha))
+    if (f.capTercs || f.capTerc) setCapTercs(umaLista(f.capTercs, f.capTerc))
+    if (f.capArea) setCapArea(f.capArea)
     if (f.capPar) setCapPar(f.capPar)
     f.aba && setAba(f.aba); Array.isArray(f.indicSel) && setIndicSel(f.indicSel); Array.isArray(f.linhaSel) && setLinhaSel(f.linhaSel); f.empLinha !== undefined && setEmpLinha(f.empLinha)
     if (f.mesIni) setMesIni(f.mesIni); if (f.mesFim) setMesFim(f.mesFim)
@@ -334,14 +347,14 @@ export default function OrcamentoDashPage() {
   const estado = () => ({
     relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel, empLinha,
     empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, sentidoOrigem,
-    capLinha, capTerc, capPar,
+    capLinhas, capTercs, capArea, capPar,
     secPonte, secVar, secAcur, secOrc,
   })
   useEffect(() => {
     if (cardId) return   // vendo um card: não contaminar o estado próprio da tela
     localStorage.setItem(SAVE, JSON.stringify(estado()))
   }, [cardId, relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel, empLinha,
-      empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, sentidoOrigem, capLinha, capTerc, capPar, secPonte, secVar, secAcur, secOrc]) // eslint-disable-line
+      empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, sentidoOrigem, capLinhas, capTercs, capArea, capPar, secPonte, secVar, secAcur, secOrc]) // eslint-disable-line
 
   const meses = useMemo(() => Array.from({ length: Math.max(0, mesFim - mesIni + 1) }, (_, i) => mesIni + i), [mesIni, mesFim])
   // os meses DEPOIS do período, até dezembro
@@ -402,16 +415,24 @@ export default function OrcamentoDashPage() {
     // ⚠ Chamada SEPARADA de propósito: se a capacidade falhar (RPC ainda não
     // aplicada noutro tenant, por exemplo), a análise de pessoas continua —
     // uma peça nova não pode derrubar a que já funcionava.
+    // ⚠⚠ O RECORTE DA ÁREA VAI NA CHAMADA, não num aviso. Sem ele a RPC
+    // devolvia os 570 postos da empresa e o quadro mostrava 247 FTE de
+    // "produção de serviços" — número plausível e errado, que é o pior tipo.
+    // ⚠ INTERSEÇÃO com o filtro da tela: quem filtra "Serviços › Base" tem de
+    // ver só aquilo. Interseção vazia (filtrou outra área) devolve zero e o
+    // quadro some — é um quadro de Serviços, não aparece olhando Comercial.
+    const ccsArea = (ccs as any[]).filter(c => c.area_cod === capArea).map(c => c.id)
+    const ccsCap = ccFilter ? ccFilter.filter((id: string) => ccsArea.includes(id)) : ccsArea
     supabase.rpc('servico_capacidade_agg', {
       p_versao: vBase, p_ano: anoBase,
-      p_empresas: empFiltradas, p_filiais: filialFilter, p_ccs: ccFilter,
+      p_empresas: empFiltradas, p_filiais: filialFilter, p_ccs: ccsCap,
       p_ano_apont: null,
     }).then(({ data, error }) => {
       if (!vivo) return
       setCap(error ? [] : (data || []))
     })
     return () => { vivo = false }
-  }, [aba, vBase, anoBase, empFiltradas.join(','), filialFilter?.join(','), ccFilter?.join(',')]) // eslint-disable-line
+  }, [aba, vBase, anoBase, capArea, empFiltradas.join(','), filialFilter?.join(','), ccFilter?.join(',')]) // eslint-disable-line
 
   // ⚠ Os dois lados compartilham a versão da projeção: os meses projetados
   // ficam idênticos POR CONSTRUÇÃO e a variação neles é zero de mentira.
@@ -877,8 +898,9 @@ export default function OrcamentoDashPage() {
                   uma pergunta de UMA área. Misturar os dois faria a segunda
                   parecer válida para todas. */}
               {dados && <CapacidadeServicos S={S} cap={cap} linhas={linhas} base={dados.base} val={val}
-                capLinha={capLinha} setCapLinha={setCapLinha} capTerc={capTerc} setCapTerc={setCapTerc}
-                par={capPar} setPar={setCapPar} ccFilter={ccFilter}
+                capLinhas={capLinhas} setCapLinhas={setCapLinhas} capTercs={capTercs} setCapTercs={setCapTercs}
+                capArea={capArea} setCapArea={setCapArea} ccs={ccs}
+                par={capPar} setPar={setCapPar}
                 rotulo={versao(vBase)?.codigo ?? ''} ano={anoBase} />}
             </>
       ) : !dados ? null : aba === 'orcamento' ? (
@@ -1835,30 +1857,97 @@ const PAPEL_ROT: Record<string, string> = {
   PRODUCAO: 'Produção', COORDENACAO: 'Coordenação',
   ESTRUTURA: 'Estrutura', SEM_PAPEL: 'Sem papel definido',
 }
-function CapacidadeServicos({ S, cap, linhas, base, val, capLinha, setCapLinha,
-                              capTerc, setCapTerc, par, setPar, ccFilter, rotulo, ano }: any) {
+function CapacidadeServicos({ S, cap, linhas, base, val, capLinhas, setCapLinhas,
+                              capTercs, setCapTercs, capArea, setCapArea, ccs,
+                              par, setPar, rotulo, ano }: any) {
   const fmt = (n: number) => Math.round(n).toLocaleString('pt-BR')
   const [abrir, setAbrir] = useState(false)
+  const areasCc = useMemo(() => {
+    const m = new Map<string, string>()
+    ;(ccs as any[]).forEach(c => { if (c.area_cod) m.set(c.area_cod, c.area_nome || c.area_cod) })
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([cod, nome]) => ({ cod, nome }))
+  }, [ccs])
 
-  // Candidatas a "receita de serviços": linhas de receita com valor.
-  const opcoes = useMemo(() => (linhas as LinhaRel[])
-    .filter(l => !l.desativada && Math.abs(val(base, l.id)) > 0.005)
-    .map(l => ({ id: l.id, nome: l.descricao })), [linhas, base, val])
+  // Candidatas: qualquer linha com valor. Em árvore, para a agrupadora e as
+  // filhas aparecerem na relação em que estão.
+  const opcoes = useMemo(() => emArvore(linhas as any)
+    .filter((l: any) => !l.desativada && Math.abs(val(base, l.id)) > 0.005)
+    .map((l: any) => ({ id: l.id, nome: l.descricao, prof: l.prof })), [linhas, base, val])
+
+  // ⚠⚠ MARCAR A AGRUPADORA JUNTO COM AS FILHAS CONTA DUAS VEZES — é o mesmo
+  // defeito da ponte e do botão Seções, e aqui seria pior: a receita dobraria
+  // e a capacidade pareceria insuficiente por um erro de seleção.
+  // Ao marcar uma linha, somem os ancestrais e os descendentes dela.
+  const ancestrais = useMemo(() => {
+    const byId: Record<string, any> = Object.fromEntries((linhas as LinhaRel[]).map(l => [l.id, l]))
+    return (id: string) => { const o: string[] = []; let p = byId[id]?.pai_id
+                             while (p && byId[p]) { o.push(p); p = byId[p].pai_id } return o }
+  }, [linhas])
+  const descendentes = useMemo(() => {
+    const filhos: Record<string, string[]> = {}
+    ;(linhas as LinhaRel[]).forEach(l => { if (l.pai_id) (filhos[l.pai_id] = filhos[l.pai_id] || []).push(l.id) })
+    return (id: string) => { const o: string[] = []; const fila = [...(filhos[id] || [])]
+                             while (fila.length) { const x = fila.shift()!; o.push(x); fila.push(...(filhos[x] || [])) } return o }
+  }, [linhas])
+  const alterna = (sel: string[], set: (v: string[]) => void) => (id: string) => {
+    if (sel.includes(id)) return set(sel.filter(x => x !== id))
+    const fora = new Set([...ancestrais(id), ...descendentes(id)])
+    set([...sel.filter(x => !fora.has(x)), id])
+  }
+
+  const soma = (ids: string[]) => ids.reduce((a, id) => a + Math.abs(val(base, id)), 0)
+
+  const Picker = ({ titulo, sel, set }: any) => {
+    const [open, setOpen] = useState(false)
+    return (
+      <span style={{ position: 'relative', display: 'inline-block' }}>
+        <button onClick={() => setOpen(v => !v)}
+          style={{ padding: '5px 9px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 7,
+                   background: 'var(--bg-soft)', color: 'var(--text)', cursor: 'pointer' }}>
+          {titulo} ({sel.length}) ▾
+        </button>
+        {open && (
+          <>
+            <span style={{ position: 'fixed', inset: 0, zIndex: 60 }} onClick={() => setOpen(false)} />
+            <span style={{ position: 'absolute', top: '100%', left: 0, zIndex: 61, marginTop: 4, width: 330,
+                           maxHeight: 300, overflow: 'auto', display: 'block',
+                           background: 'var(--panel)', border: '1px solid var(--border-strong)',
+                           borderRadius: 10, boxShadow: '0 12px 30px rgba(0,0,0,.3)', padding: 6 }}>
+              {opcoes.map((o: any) => (
+                <label key={o.id} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '3px 6px',
+                                           fontSize: 12.5, cursor: 'pointer',
+                                           paddingLeft: 6 + o.prof * 12 }}>
+                  <input type="checkbox" checked={sel.includes(o.id)} onChange={() => alterna(sel, set)(o.id)} />
+                  <span style={{ flex: 1 }}>{o.nome}</span>
+                  <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--muted)' }}>{fmt(Math.abs(val(base, o.id)))}</span>
+                </label>
+              ))}
+              <div style={{ fontSize: 11, color: 'var(--faint)', padding: '6px 6px 2px', borderTop: '1px solid var(--border)' }}>
+                ⚠ Marcar uma linha desmarca a agrupadora dela e as filhas — somar os dois contaria o
+                mesmo dinheiro duas vezes.
+              </div>
+            </span>
+          </>
+        )}
+      </span>
+    )
+  }
 
   // ⚠ Heurística de nome UMA vez, só para o default — o seletor manda. Mesmo
   // padrão do `resNode` do acompanhamento.
+  // ⚠ Heurística de nome só para o DEFAULT, uma vez — o checkbox manda.
   useEffect(() => {
-    if (capLinha || !opcoes.length) return
-    const alvo = opcoes.find(o => /servi/i.test(o.nome) && !/reembolso/i.test(o.nome))
-    if (alvo) setCapLinha(alvo.id)
+    if (capLinhas.length || !opcoes.length) return
+    const a = opcoes.find((o: any) => /receita de servi/i.test(o.nome))
+    if (a) setCapLinhas([a.id])
   }, [opcoes]) // eslint-disable-line
   useEffect(() => {
-    if (capTerc || !opcoes.length) return
-    const alvo = opcoes.find(o => /terceiro/i.test(o.nome) && /extern/i.test(o.nome))
-    if (alvo) setCapTerc(alvo.id)
+    if (capTercs.length || !opcoes.length) return
+    const a = opcoes.find((o: any) => /terceiro/i.test(o.nome) && /extern/i.test(o.nome))
+    if (a) setCapTercs([a.id])
   }, [opcoes]) // eslint-disable-line
 
-  const receita = capLinha ? Math.abs(val(base, capLinha)) : 0
+  const receita = soma(capLinhas)
   const linhasCap = (cap || []) as any[]
   const de = (p: string) => linhasCap.find(x => x.papel === p)
   const vende = ['PRODUCAO', 'COORDENACAO']
@@ -1888,7 +1977,7 @@ function CapacidadeServicos({ S, cap, linhas, base, val, capLinha, setCapLinha,
   // empresa tem; terceiro é a válvula para o que não cabe. Somá-lo ali faria a
   // capacidade crescer com a contratação, e a pergunta "cabe na equipe?"
   // deixaria de existir.
-  const terceiros = capTerc ? Math.abs(val(base, capTerc)) : 0
+  const terceiros = soma(capTercs)
   const gap = capacidade - receita
   const implicito = horasAno > 0 ? receita / horasAno : 0
 
@@ -1912,28 +2001,21 @@ function CapacidadeServicos({ S, cap, linhas, base, val, capLinha, setCapLinha,
           {' '}<strong>Os parâmetros são editáveis</strong> — mexa neles para simular.
           {' '}⚠ <strong>Estrutura</strong> (diretoria, gerência executiva) não vende hora: entra só na
           margem da área. ⚠ Reembolso de despesas fica fora desta conta.
+          {' '}⚠⚠ <strong>Capacidade e custo</strong> são da área escolhida; a <strong>receita</strong> é a
+          do filtro da tela. Medido em 2027: <strong>99%</strong> da receita de serviços está na área 3,
+          então a diferença é pequena — mas ela existe, e cresce se a receita for lançada fora da área.
         </div></div>
 
-      {/* ⚠⚠ O QUADRO É O QUE ESTÁ NO FILTRO, e isso precisa estar dito. Sem
-          recorte de CC ele soma a EMPRESA INTEIRA e chama de "Serviços": os
-          411 cargos de produção da base toda entrariam, a capacidade
-          triplicaria e a conta fecharia — errada e plausível, que é o pior
-          caso. O aviso some assim que há recorte. */}
-      {!ccFilter?.length && (
-        <div style={{ fontSize: 12, color: 'var(--orange)', marginTop: 10, lineHeight: 1.6 }}>
-          ⚠ <strong>Sem recorte de centro de custo</strong>, este quadro soma a empresa inteira — não
-          a área de Serviços. Marque <strong>Serviços</strong> na pílula de Área (ou escolha os CCs
-          em Filtros) para que capacidade, custo e receita falem da mesma equipe.
-        </div>
-      )}
-
       <div style={{ ...S.secBarra }}>
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Receita de serviços:</span>
-        <select value={capLinha} onChange={e => setCapLinha(e.target.value)}
-          style={{ padding: '5px 8px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg-soft)', color: 'var(--text)', maxWidth: 280 }}>
-          <option value="">— escolha a linha —</option>
-          {opcoes.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+        {/* O recorte é do QUADRO e não da tela: trocar a área aqui não mexe nos
+            outros cartões da aba, que falam da empresa inteira. */}
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Área:</span>
+        <select value={capArea} onChange={e => setCapArea(e.target.value)}
+          style={{ padding: '5px 8px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg-soft)', color: 'var(--text)' }}>
+          {areasCc.map((a: any) => <option key={a.cod} value={a.cod}>{a.cod} · {a.nome}</option>)}
         </select>
+        <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 8 }}>Receita:</span>
+        <Picker titulo="linhas de receita" sel={capLinhas} set={setCapLinhas} />
         <strong style={{ fontFamily: 'monospace' }}>{fmt(receita)}</strong>
       </div>
 
@@ -2040,11 +2122,8 @@ function CapacidadeServicos({ S, cap, linhas, base, val, capLinha, setCapLinha,
       </table>
       <div style={{ ...S.secBarra, marginTop: 6 }}>
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>Terceiros externos:</span>
-        <select value={capTerc} onChange={e => setCapTerc(e.target.value)}
-          style={{ padding: '5px 8px', fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 7, background: 'var(--bg-soft)', color: 'var(--text)', maxWidth: 280 }}>
-          <option value="">— nenhum —</option>
-          {opcoes.map((o: any) => <option key={o.id} value={o.id}>{o.nome}</option>)}
-        </select>
+        <Picker titulo="linhas" sel={capTercs} set={setCapTercs} />
+        <strong style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{fmt(terceiros)}</strong>
       </div>
 
       <div data-noexport style={{ marginTop: 10, fontSize: 11.5, color: 'var(--violet)', cursor: 'pointer' }}

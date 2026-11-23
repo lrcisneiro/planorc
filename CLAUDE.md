@@ -1636,6 +1636,20 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   para "margem de serviços" parecem contradição.
   ⚠⚠ **O quadro é o que está no FILTRO, e ele diz isso.** Sem recorte de CC soma a empresa
   inteira e chama de Serviços — a capacidade triplicaria e a conta fecharia, errada e plausível.
+  ⚠⚠ **A ÁREA É UM SELETOR DO QUADRO, e o recorte vai na CHAMADA.** A primeira versão só
+  avisava "sem filtro de CC isto soma a empresa inteira" — e mostrava **247 FTE de produção**
+  quando a área tem 143: número plausível e errado, o pior tipo. Hoje a RPC recebe os CCs da
+  área escolhida, **interseccionados com o filtro da tela** (quem filtra "Serviços › Base" vê só
+  aquilo); interseção vazia esconde o quadro, que é um quadro de Serviços. ⚠ `'3'` não fica
+  chumbado: é cadastro desta instalação, o mesmo eixo do `filtro_escopo` da *Margem Serviço*
+  (`{"area":["3"]}`), e o seletor é o que torna o quadro reusável nas outras áreas.
+  ⚠⚠ **Receita e terceiros são LISTAS de linha, com proteção contra dupla contagem.** Uma linha
+  só era restritivo — a receita pode ser a agrupadora **ou** várias filhas (Horas Abertas + Banco
+  de Horas + Projetos Fechados…). Marcar uma linha **desmarca a agrupadora dela e as filhas**:
+  é o defeito da ponte e do botão *Seções* outra vez, e aqui seria pior — a receita dobraria e a
+  capacidade pareceria insuficiente por um erro de seleção.
+  ⚠ **Capacidade e custo são da ÁREA; a receita é do filtro da tela.** Medido: 99% da receita de
+  serviços de 2027 está na área 3, então a diferença é pequena — mas existe, e o quadro a declara.
   ⚠ A receita sai de `base` (já filtrada), não do banco: somando a linha direto, a **Bolívia**
   entrava com R$ 7,4 mi **sem equipe no CC 3** e o quadro ficava 13% otimista — erro que eu
   cometi ao desenhar este quadro.
