@@ -5,7 +5,7 @@ import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { PostosPills, usePassoLabel } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro, useMoedaView, MoedaSelect } from '../dashboard/DashFiltros'
-import { BotaoDiscreto, useDiscreto, idsRestritos, filtroSemRestritos } from '../../lib/discricao'
+import { BotaoDiscreto, temRestrito, useDiscreto, idsRestritos, filtroSemRestritos } from '../../lib/discricao'
 import { ConciliacaoFolha } from './ConciliacaoFolha'
 import { ConciliacaoContabil } from './ConciliacaoContabil'
 import { ConciliacaoApontamento } from './ConciliacaoApontamento'
@@ -304,8 +304,12 @@ export default function ConciliacaoFolhaPage() {
         <div style={S.fld}><span style={S.lbl}>Linhas do relatório</span>
           <LinhasPicker linhas={ofertadas} sel={linhasSel} setSel={setLinhasSel} />
         </div></>}
-        <div style={S.fld}><span style={S.lbl}>Filtros</span>
+        {temRestrito(ccs as any) && (
+          <div style={S.fld}><span style={S.lbl}>Apresentação</span>
           <BotaoDiscreto ccs={ccs as any} onde="nas telas de Postos" />
+          </div>
+        )}
+        <div style={S.fld}><span style={S.lbl}>Filtros</span>
           <FiltrosButton empresas={acesso.filterPessoas('empresa', empresas)} filiais={acesso.filterPessoas('filial', filiais)} ccs={acesso.filterPessoas('centro_custo', ccs as any) as any}
             empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel}
             areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />

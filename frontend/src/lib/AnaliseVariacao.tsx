@@ -288,7 +288,7 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
       }
       // ⚠⚠ MODO DISCRETO. No grão de CC o restrito cai direto em "Outros".
       // Nas dimensões agregadas (área/divisão/BU) vale a REGRA DE DOMINÂNCIA
-      // (ver `discricao.ts`): o grupo é mascarado quando os restritos
+      // (ver `discricao.tsx`): o grupo é mascarado quando os restritos
       // respondem por 80%+ do valor dele. Exigir 100% deixou a área 4
       // "Diretoria" à vista por causa de R$ 66.955 num CC legado.
       const r: Set<string> = restritos || new Set()

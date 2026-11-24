@@ -149,9 +149,16 @@ export function filtroSemRestritos(
  *  ⚠ `onde` entra no título: a máscara não cobre o produto inteiro, e um botão
  *  que não diz onde vale promete mais do que entrega.
  */
+/** Existe CC restrito ALCANÇÁVEL nesta lista? Exportado porque o rótulo do
+ *  campo vive na tela (os estilos são locais de cada página) e precisa sumir
+ *  junto com o botão — senão sobra um "Apresentação" sem nada embaixo. */
+export function temRestrito(ccs: CcRestr[]): boolean {
+  return (ccs as any[]).some(c => c.restrito)
+}
+
 export function BotaoDiscreto({ ccs, onde }: { ccs: CcRestr[]; onde?: string }) {
   const on = useDiscreto()
-  if (!(ccs as any[]).some(c => c.restrito)) return null
+  if (!temRestrito(ccs)) return null
   const alcance = onde || 'nesta tela'
   return (
     <button onClick={() => setDiscreto(!on)} data-noexport

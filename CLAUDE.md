@@ -1525,6 +1525,10 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   não alcança o cadastro, e por isso passaria inteiro por uma máscara que só olhasse o cadastro.
   Some pelo CC de **ORIGEM**.
   ⚠ `ApontamentoPage` (o importador) fica de fora: é tela de carga, não de apresentação.
+  ⚠ **Nas telas de Postos a barra é LABEL + CAMPO**, não uma fileira de botões como nos
+  dashboards — enfiar o botão dentro do campo *Filtros* empilhou os dois sob o mesmo rótulo e
+  deslocou a linha inteira. Ele tem campo próprio (*Apresentação*), e o campo só existe quando
+  `temRestrito(ccs)`: rótulo que fica sem nada embaixo é pior que ausência.
   ⚠ **O botão mudou de casa**: nasceu em `DashFiltros` porque só os dashboards o usavam, e no dia
   em que Postos precisou dele a tela de gente teria de importar os filtros de dashboard para ter
   um interruptor. **Peça que atravessa seções pertence à `lib`** — hoje em `lib/discricao.tsx`,

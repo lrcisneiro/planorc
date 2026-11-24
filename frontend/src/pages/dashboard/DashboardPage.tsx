@@ -585,7 +585,7 @@ export default function DashboardPage() {
       const despAreaB: Record<string, { o: number; r: number }> = {}        // 4
       // ⚠ `pes` = magnitude por CC dentro da barra. A barra é o NÍVEL 2 e
       // agrega vários CCs; a regra de dominância do modo discreto precisa
-      // saber quanto de cada um, não só quais são (ver `lib/discricao.ts`).
+      // saber quanto de cada um, não só quais são (ver `lib/discricao.tsx`).
       const despCcB: Record<string, { o: number; r: number; ccs: Set<string>; pes: Record<string, number> }> = {}   // 5 (despesa nível 2 do CC)
       const recCcB: Record<string, { o: number; r: number; ccs: Set<string>; pes: Record<string, number> }> = {}    // 6 (receita nível 2 do CC)
       for (const row of ccAggRows) {

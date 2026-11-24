@@ -8,7 +8,7 @@ import { nomeCurto } from '../../lib/nomePessoa'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
-import { BotaoDiscreto, useDiscreto, idsRestritos } from '../../lib/discricao'
+import { BotaoDiscreto, temRestrito, useDiscreto, idsRestritos } from '../../lib/discricao'
 import { calcularPosto, regimeAplica, paisAplica, verbasDoRegime, CATEGORIAS } from '../../lib/motorFolha'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
 import { ClipboardCheck, Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil, Undo2 } from 'lucide-react'
@@ -1887,10 +1887,12 @@ export default function PostosGradePage() {
             {busca && <X size={14} style={{ position: 'absolute', right: 8, top: 9, color: 'var(--muted)', cursor: 'pointer' }} onClick={() => setBusca('')} />}
           </div>
         </div>
-        <div style={S.fld}><span style={S.lbl}>Filtros</span>
-          <div style={S.fld}><span style={S.lbl}>&nbsp;</span>
-            <BotaoDiscreto ccs={ccs as any} onde="no quadro, no organograma e na memória" />
+        {temRestrito(ccs as any) && (
+          <div style={S.fld}><span style={S.lbl}>Apresentação</span>
+          <BotaoDiscreto ccs={ccs as any} onde="no quadro, no organograma e na memória" />
           </div>
+        )}
+        <div style={S.fld}><span style={S.lbl}>Filtros</span>
           <FiltrosButton
             empresas={acesso.filterPessoas('empresa', empresas)} filiais={acesso.filterPessoas('filial', filiais)} ccs={acesso.filterPessoas('centro_custo', ccs as any) as any}
             empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel}

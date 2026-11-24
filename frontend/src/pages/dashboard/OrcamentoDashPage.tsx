@@ -412,7 +412,7 @@ export default function OrcamentoDashPage() {
   const [erroPess, setErroPess] = useState<string | null>(null)
   const [pessRestr, setPessRestr] = useState<any[]>([])   // a parcela restrita, por área — ver abaixo
   // ⚠⚠ ÁREA DOMINADA por CC restrito vira "Outros" — a mesma regra de
-  // `discricao.ts`, 80% em magnitude. Aqui também a 1ª versão exigiu 99,9% e
+  // `discricao.tsx`, 80% em magnitude. Aqui também a 1ª versão exigiu 99,9% e
   // a área 4 "Diretoria" passou batida por R$ 66.955 num CC legado.
   // ⚠ |valor|, porque uma área com +100 restrito e −100 livre soma zero e
   // passaria pelo teste ingênuo.
@@ -1193,7 +1193,7 @@ function agregarPorArea(rows: any[], linhas: LinhaRel[], ccs: CC[]) {
   }
 
   // ⚠ `pes` = magnitude por CC dentro da barra. O modo discreto decide por
-  // DOMINÂNCIA (ver `lib/discricao.ts`), então o conjunto de ids não basta:
+  // DOMINÂNCIA (ver `lib/discricao.tsx`), então o conjunto de ids não basta:
   // precisa de quanto cada um vale.
   type Bal = { v: number; ccs: Set<string>; pes: Record<string, number> }
   const recA: Record<string, Bal> = {}, despA: Record<string, Bal> = {}

@@ -5,7 +5,7 @@ import { carregarVersoes } from '../../lib/escopoDados'
 import { PostosPills } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
-import { BotaoDiscreto, useDiscreto, idsRestritos } from '../../lib/discricao'
+import { BotaoDiscreto, temRestrito, useDiscreto, idsRestritos } from '../../lib/discricao'
 import { calcularPosto, CATEGORIAS } from '../../lib/motorFolha'
 import { usePostoCtx } from '../../lib/postoCtx'
 import { pageAll } from '../../lib/pageAll'
@@ -226,8 +226,12 @@ export default function PostosMemoriaPage() {
             {versoes.map((v: any) => <option key={v.id} value={v.id}>{v.codigo}</option>)}
           </select>
         </div>
-        <div style={S.fld}><span style={S.lbl}>Filtros</span>
+        {temRestrito(ccs as any) && (
+          <div style={S.fld}><span style={S.lbl}>Apresentação</span>
           <BotaoDiscreto ccs={ccs as any} onde="nas telas de Postos" />
+          </div>
+        )}
+        <div style={S.fld}><span style={S.lbl}>Filtros</span>
           <FiltrosButton empresas={acesso.filterPessoas('empresa', empresas)} filiais={acesso.filterPessoas('filial', filiais)} ccs={acesso.filterPessoas('centro_custo', ccs as any) as any}
             empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel}
             areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />

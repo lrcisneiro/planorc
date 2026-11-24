@@ -8,7 +8,7 @@ import { resolverPessoas } from '../../lib/pessoaChave'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { situacaoPosto, SeletorSituacao, corSit, tagSit, type Situacao } from '../../lib/situacaoPosto'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro, ModalPanel, Checklist } from '../dashboard/DashFiltros'
-import { BotaoDiscreto, useDiscreto, idsRestritos } from '../../lib/discricao'
+import { BotaoDiscreto, temRestrito, useDiscreto, idsRestritos } from '../../lib/discricao'
 import { ChevronDown, ChevronRight, X, Maximize2, Minimize2, Pencil, Briefcase, Users } from 'lucide-react'
 
 // ============================================================
@@ -912,9 +912,13 @@ export default function OrganogramaPage() {
             })}
           </select>
         </div>
+        {temRestrito(ccs as any) && (
+          <div style={S.fld}><span style={S.lbl}>Apresentação</span>
+          <BotaoDiscreto ccs={ccs as any} onde="nas telas de Postos" />
+          </div>
+        )}
         <div style={S.fld}>
           <span style={S.lbl}>Filtros</span>
-          <BotaoDiscreto ccs={ccs as any} onde="nas telas de Postos" />
           <FiltrosButton empresas={acesso.filterList('empresa', empresas)} filiais={acesso.filterList('filial', filiais)}
                          ccs={acesso.filterList('centro_custo', ccs as any) as any}
                          empresaSel={empresaSel} setEmpresaSel={setEmpresaSel}
