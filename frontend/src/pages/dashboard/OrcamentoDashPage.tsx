@@ -1023,7 +1023,7 @@ export default function OrcamentoDashPage() {
           <QuemCausou S={S} linhas={linhas} nome={nome} bruto={dimBruto} empresas={empresas} ccs={ccs}
             resId={secPonte.resultado} componentes={secPonte.sel} invertido={origemAnalisado}
             rotOrigem={rotOrigem} rotDestino={rotDestino} dim={quemDim} setDim={setQuemDim}
-            restritos={restritos}
+            restritos={restritos} projMeses={mesesProj.length} periodoMeses={meses.length}
             ano={anoBase} dTotal={secPonte.resultado
               ? (pDestino?.[secPonte.resultado] ?? 0) - (pOrigem?.[secPonte.resultado] ?? 0) : 0} />
 

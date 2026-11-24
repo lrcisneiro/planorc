@@ -2382,17 +2382,29 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ Escopo com janela vazia projeta **zero**, que é a resposta certa, e vai contado num aviso:
   sumir da projeção sem explicação parece dado perdido.
 
+- ⚠⚠ **RESÍDUO DO *Quem causou*: A PROJEÇÃO É A CAUSA MAIS COMUM, E ERA A MENOS DITA**
+  (24/nov). A ponte soma **período + projeção**; o quadro por dimensão lê **só o período real**,
+  porque o agregado por dimensão não projeta. Medido com período **jan–out** e projeção até
+  dezembro, na linha `Receitas TOTVS`: cada coluna do quadro deu **exatamente 10/12** da ponte
+  — 51.342.649 → **42.785.541** e 55.411.679 → **46.176.399** —, e o resíduo (+678.172) era o Δ
+  de nov+dez. Hoje a linha do resíduo **diz a fração**, em vez de deixar o `title` listar três
+  causas sem apontar qual.
+  ⚠⚠ **E eu atribuí esse caso à paginação, errado.** O `.range` fixo era defeito real e está
+  corrigido, mas medido depois: `dashboard_cc_agg` devolve **2.572** linhas em 2026 e **3.392**
+  em 2027, longe do teto de 10.000 — **não era o que estava na tela**. Juntei dois achados num
+  só. **Resíduo que cabe numa causa plausível é o jeito mais fácil de atribuí-lo à errada**:
+  a prova é a aritmética fechar, não a causa soar razoável.
+  ⚠ O que o descartou, nesta ordem e tudo medido: o valor estava **100% em Comercial** (não era
+  classificação), **zero** lançamento sem CC, **zero** célula com `expressao`, **zero** master
+  duplicado entre linhas, e as duas RPCs **têm `ORDER BY`** (paginar por `range` é seguro nelas).
+
 - ⚠⚠ **`.range(0, N)` FIXO É PAGINAÇÃO QUE MENTE** (24/nov). Em *Orçamento — análise*, as duas
   leituras do lado BASE paginavam em laço e as do lado COMPARADO (orçado × orçado) tinham
   `.range(0, 4999)` e `.range(0, 9999)` **sem laço** — um teto alto o bastante para parecer
   generoso e baixo o bastante para cortar.
-  Medido, Orçado2026 × Orçado2027 na linha `Receitas`: a ponte dizia **118.461.444** de 2026 e o
-  *Quem causou* por área somava **48.442.225**, com **−50.525.093** em "não atribuído a nenhum
-  grupo". Era **Serviços**, truncado — e o quadro que existe justamente para dizer *quem causou*
-  jogava a maior área no resíduo.
-  ⚠ **O resíduo fez o trabalho dele**: denunciou. O que faltou foi ler a cifra em vez de aceitar
-  as três causas já documentadas ali — resíduo que cabe numa explicação conhecida é o jeito mais
-  fácil de um defeito novo passar.
+  Um teto alto não é paginação: ele só adia o corte até a base crescer, e aí corta **calado**.
+  ⚠ **Não confundir com o caso do resíduo acima** — lá a causa era a projeção, e eu atribuí a
+  este defeito por ele ser plausível. Este é real e vale por si; não era aquele sintoma.
   ⚠ Hoje as quatro leituras passam pelo **mesmo laço** (`lerTudo`), não por convenção de quem
   chama — é a lição do `pageAll` outra vez: **convenção volta a faltar na próxima chamada.**
 

@@ -234,7 +234,7 @@ export type DimQuem = typeof DIMS_QUEM[number][0]
 const MAX_QUEM = 12
 
 export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, componentes, invertido,
-                      rotOrigem, rotDestino, dTotal, dim, setDim, ano, restritos }: any) {
+                      rotOrigem, rotDestino, dTotal, dim, setDim, ano, restritos, projMeses, periodoMeses }: any) {
   const S = Sx || S_PONTE
   const [aberta, setAberta] = useState<string | null>(null)
   // Três cliques: desc → asc → volta ao impacto (o default). Sem o terceiro
@@ -506,10 +506,26 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
                 <td style={{ ...S.td, color: 'var(--muted)' }}>{somaResto >= 0 ? '+' : ''}{fmt(somaResto)}</td>
                 <td style={S.td} /></tr>
             )}
+            {/* ⚠⚠ A PROJEÇÃO É A CAUSA MAIS COMUM E ERA A MENOS DITA. A ponte
+                  soma período + projeção; este quadro lê **só o período real**,
+                  porque o agregado por dimensão não projeta. Medido em 24/nov,
+                  período jan–out com projeção até dezembro: cada coluna daqui
+                  deu exatamente **10/12** da ponte (51.342.649 → 42.785.541 e
+                  55.411.679 → 46.176.399), e o resíduo era o Δ de nov+dez.
+                  Custou uma investigação porque o rótulo só dizia "não
+                  atribuído" e o `title` listava três causas sem dizer qual.
+                  Dizer a fração na própria linha é o que transforma um resíduo
+                  misterioso num fato conferível. */}
             {temResid && (
               <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--orange)' }}
                     title="Linha com filtro de escopo próprio, projeção ligada ou recorte de empresa — o agregado por dimensão não os reproduz.">
-                não atribuído a nenhum grupo</td>
+                não atribuído a nenhum grupo
+                {projMeses > 0 && (
+                  <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', fontWeight: 400 }}>
+                    a ponte inclui a projeção de {projMeses} mês(es); este quadro lê só os {periodoMeses} do período
+                    {periodoMeses > 0 && ` — ${periodoMeses}/${periodoMeses + projMeses} do total`}
+                  </span>
+                )}</td>
                 <td style={S.td} /><td style={S.td} />
                 <td style={{ ...S.td, color: 'var(--orange)' }}>{naoAtrib >= 0 ? '+' : ''}{fmt(naoAtrib)}</td>
                 <td style={S.td} /></tr>
