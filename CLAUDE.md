@@ -2382,6 +2382,20 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ Escopo com janela vazia projeta **zero**, que é a resposta certa, e vai contado num aviso:
   sumir da projeção sem explicação parece dado perdido.
 
+- ⚠⚠ **`.range(0, N)` FIXO É PAGINAÇÃO QUE MENTE** (24/nov). Em *Orçamento — análise*, as duas
+  leituras do lado BASE paginavam em laço e as do lado COMPARADO (orçado × orçado) tinham
+  `.range(0, 4999)` e `.range(0, 9999)` **sem laço** — um teto alto o bastante para parecer
+  generoso e baixo o bastante para cortar.
+  Medido, Orçado2026 × Orçado2027 na linha `Receitas`: a ponte dizia **118.461.444** de 2026 e o
+  *Quem causou* por área somava **48.442.225**, com **−50.525.093** em "não atribuído a nenhum
+  grupo". Era **Serviços**, truncado — e o quadro que existe justamente para dizer *quem causou*
+  jogava a maior área no resíduo.
+  ⚠ **O resíduo fez o trabalho dele**: denunciou. O que faltou foi ler a cifra em vez de aceitar
+  as três causas já documentadas ali — resíduo que cabe numa explicação conhecida é o jeito mais
+  fácil de um defeito novo passar.
+  ⚠ Hoje as quatro leituras passam pelo **mesmo laço** (`lerTudo`), não por convenção de quem
+  chama — é a lição do `pageAll` outra vez: **convenção volta a faltar na próxima chamada.**
+
 - **Paginação obrigatória:** o PostgREST corta em **1000 linhas por chamada, sem erro**. Todo `.select()` numa tabela que cresce com o negócio (fatos `fat_*`, plano de contas `conta_contabil`/`conta_orcamentaria`, junções `posto_verba`/`posto_rateio`, dropdowns de competência distinct) DEVE usar o helper `pageAll()` de `frontend/src/lib/pageAll.ts`. Dispensam: `.single()`/`.maybeSingle()`, `.in(ids.slice(...))` já em lotes, e catálogos naturalmente pequenos (empresa, filial, versão, sindicato). Sintoma de esquecer: "sumiu gente/conta" que só aparece quando a base passa de 1000.
 
 ## Como rodar

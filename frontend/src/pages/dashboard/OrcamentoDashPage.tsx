@@ -637,40 +637,43 @@ export default function OrcamentoDashPage() {
       const masters = [...new Set(linhas.map(l => l.linha_orc_id).filter(Boolean))] as string[]
       // `le` vive fora do `if`: o quadro "quem causou" o relê depois, e
       // declarado dentro ele não chegaria lá.
-      const le: any[] = []
-      if (masters.length) {
-        // ⚠ PAGINAR. O agregado devolve EMPRESA × LINHA: com 13 empresas e
-        // ~270 masters passa de 3.500 linhas, e o PostgREST corta em 1000 sem
-        // erro nenhum. O sintoma é o gráfico vir com menos empresas do que
-        // existe — ou vazio, se as que sobraram forem as sem valor.
+      // ⚠⚠ PAGINAR, SEMPRE — e num helper, porque a convenção falhou.
+      // O PostgREST corta em 1000 sem erro nenhum; estas RPCs devolvem
+      // EMPRESA × LINHA e CC × LINHA × MÊS, e passam disso com folga. As duas
+      // leituras do lado BASE paginavam em laço; as do lado COMPARADO (orçado
+      // × orçado) tinham `.range(0, 4999)` e `.range(0, 9999)` fixos — **sem
+      // laço**, truncando calado.
+      // Medido em 24/nov, Orçado2026 × Orçado2027 na linha `Receitas`: a ponte
+      // dizia 118.461.444 no lado de 2026 e o *Quem causou* por área somava
+      // **48.442.225**, com **−50.525.093** caindo em "não atribuído a nenhum
+      // grupo" — era Serviços, truncado no corte das 10 mil linhas.
+      // ⚠ É a mesma lição do `pageAll`: convenção de chamador volta a faltar
+      // na próxima chamada. Aqui todas passam pelo mesmo laço.
+      const lerTudo = async (rpc: string, args: any): Promise<any[]> => {
+        const out: any[] = []
         for (let from = 0; ; from += 1000) {
-          const { data, error } = await supabase.rpc('relatorio_linha_empresa_agg', {
-            p_versao: vBase, p_anos: [anoBase!], p_meses: meses,
-            p_linhas: masters, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: 1,
-          }).range(from, from + 999)
+          const { data, error } = await supabase.rpc(rpc, args).range(from, from + 999)
           if (error || !data?.length) break
-          le.push(...data)
+          out.push(...data)
           if (data.length < 1000) break
         }
-        setLinhaEmpBruto(le)
-      } else setLinhaEmpBruto([])
+        return out
+      }
+
+      const le: any[] = masters.length ? await lerTudo('relatorio_linha_empresa_agg', {
+        p_versao: vBase, p_anos: [anoBase!], p_meses: meses,
+        p_linhas: masters, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: 1,
+      }) : []
+      setLinhaEmpBruto(le)
 
 
       // ── por ÁREA e por CC (só orçado)
       // `dashboard_cc_agg` devolve cc × linha × mês e passa de mil linhas fácil,
       // então pagina — o PostgREST corta em 1000 sem avisar.
-      const ccAgg: any[] = []
-      if (masters.length) {
-        for (let from = 0; ; from += 1000) {
-          const { data, error } = await supabase.rpc('dashboard_cc_agg', {
-            p_versao: vBase, p_empresas: empFiltradas, p_anos: [anoBase!], p_meses: meses,
-            p_linhas: masters, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: 1,
-          }).range(from, from + 999)
-          if (error || !data?.length) break
-          ccAgg.push(...data)
-          if (data.length < 1000) break
-        }
-      }
+      const ccAgg: any[] = masters.length ? await lerTudo('dashboard_cc_agg', {
+        p_versao: vBase, p_empresas: empFiltradas, p_anos: [anoBase!], p_meses: meses,
+        p_linhas: masters, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: 1,
+      }) : []
       setPorArea(agregarPorArea(ccAgg, linhas, ccs))
 
       // ── bruto por dimensão (quadro "quem causou")
@@ -703,20 +706,20 @@ export default function OrcamentoDashPage() {
         const vLado = modo === 'ORC' ? vComp : vBase
         const campoLado = modo === 'ORC' ? 'orcado' : 'realizado'
         const [leC, ccC] = await Promise.all([
-          supabase.rpc('relatorio_linha_empresa_agg', {
+          lerTudo('relatorio_linha_empresa_agg', {
             p_versao: vLado, p_anos: [anoComp!], p_meses: meses,
             p_linhas: masters, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: 1,
-          }).range(0, 4999),
-          supabase.rpc('dashboard_cc_agg', {
+          }),
+          lerTudo('dashboard_cc_agg', {
             p_versao: vLado, p_empresas: empFiltradas, p_anos: [anoComp!], p_meses: meses,
             p_linhas: masters, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: 1,
-          }).range(0, 9999),
+          }),
         ])
-        for (const x of (leC.data || []) as any[]) {
+        for (const x of leC) {
           if (!empFiltradas.includes(x.empresa_id)) continue
           por(emp, x.empresa_id, x.linha_id, 'c', Number(x[campoLado]) || 0)
         }
-        for (const r of (ccC.data || []) as any[]) por(cc, r.cc_id, r.linha_id, 'c', Number(r[campoLado]) || 0)
+        for (const r of ccC) por(cc, r.cc_id, r.linha_id, 'c', Number(r[campoLado]) || 0)
       }
       setDimBruto({ emp, cc })
     } catch (e: any) {
