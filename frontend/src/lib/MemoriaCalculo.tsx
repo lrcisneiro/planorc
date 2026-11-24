@@ -159,9 +159,10 @@ function Termo({ l, linhas, col, onEntrar, onRazao }: {
   )
 }
 
-export function MemoriaModal({ id, linhas, cols, onClose, nota, onRazao }: {
+export function MemoriaModal({ id, linhas, cols, onClose, nota, onRazao, colInicial }: {
   id: string; linhas: LinhaMem[]; cols: ColMem[]; onClose: () => void; nota?: string
   onRazao?: (lineId: string, col: ColMem) => void
+  colInicial?: number   // ⚠ a coluna do número que foi CLICADO — ver abaixo
 }) {
   // ⚠ A trilha vive AQUI: o modal não é desmontado por recarga nenhuma (os
   // valores já vieram prontos), então o estado local é seguro — ao contrário
@@ -170,7 +171,12 @@ export function MemoriaModal({ id, linhas, cols, onClose, nota, onRazao }: {
   // substituições longas na mesma tela, e a leitura é sequencial — "confiro
   // esta conta" —, não comparativa: comparar é o que a PONTE faz. Com as duas,
   // a pessoa perde a linha que estava seguindo no meio da expressão.
-  const [ci, setCi] = useState(0)
+  // ⚠⚠ ABRE NA COLUNA DO NÚMERO QUE FOI CLICADO, não na primeira. O cartão do
+  // acompanhamento lidera com o REALIZADO (30,60%) e o modal abria no orçado
+  // (38,43%): os dois certos, de colunas diferentes, e parecendo erro de conta.
+  // ⚠ A ORDEM das pílulas continua plano → resultado, que é a semântica; o que
+  // muda é só qual nasce selecionada.
+  const [ci, setCi] = useState(colInicial ?? 0)
   const [pilha, setPilha] = useState<string[]>([id])
   const atual = pilha[pilha.length - 1]
   const l = linhas.find(z => z.id === atual)

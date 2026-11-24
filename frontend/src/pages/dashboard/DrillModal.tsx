@@ -49,12 +49,22 @@ const S: Record<string, CSSProperties> = {
   rowBtn: { cursor: 'pointer' },
   btn: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' },
 }
+// ⚠ Rótulo único para a linha somada. Ele é o que diz que o razão está
+// agregado — razão que esconde sem avisar faz quem confere procurar o
+// lançamento que sumiu.
+const RESTRITO = '(centros de custo não detalhados)'
 const crumbItem = (last: boolean): CSSProperties => ({ cursor: last ? 'default' : 'pointer', color: last ? 'var(--text)' : '#3b5bdb', fontWeight: last ? 600 : 400 })
 
 // `soOrcado`: aberto a partir de uma tela que só fala de orçamento. Mostrar
 // "Realizado 0" e um Δ vermelho ali não é neutro — lê-se como se a despesa não
 // tivesse acontecido, quando o ano nem começou. Some a coluna, o Δ e a série.
-export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFilter, ccFilter, startNodeId, slot = 1, soOrcado = false, onClose }: Props & { soOrcado?: boolean }) {
+// ⚠⚠ `restritos`: MODO DISCRETO. O razão é o lugar mais exposto do produto —
+// o histórico de um lançamento de pró-labore diz nome e valor. Aqui as linhas
+// de CC restrito não são escondidas uma a uma: viram UMA linha somada, para o
+// total do razão continuar fechando com o da tela que o abriu. Esconder sem
+// somar faria o detalhe não bater com o total, que é o defeito do drill já
+// registrado neste projeto.
+export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFilter, ccFilter, startNodeId, slot = 1, soOrcado = false, restritos, onClose }: Props & { soOrcado?: boolean; restritos?: Set<string> }) {
   const [tree, setTree] = useState<{ byId: Record<string, RL>; childrenByPai: Record<string, RL[]>; valR: Record<string, number>; valO: Record<string, number>; disabledMasters: Set<string> } | null>(null)
   const [stack, setStack] = useState<string[]>([startNodeId])
   const [razao, setRazao] = useState<any[] | null>(null)
@@ -123,18 +133,19 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
     if (medida === 'Orçado') {
       // orçado é por LINHA (fat_orcado.linha_id = master), sem conta
       const rows = await fetchAll(() => {
-        let q = supabase.from('fat_orcado').select('empresa_id,filial_id,valor,val_m2,val_m3,val_m4,val_m5,dims').eq('versao_id', versaoId).in('linha_id', masters).in('empresa_id', empIds).in('ano', anos).in('mes', meses)
+        let q = supabase.from('fat_orcado').select('empresa_id,filial_id,cc_id,valor,val_m2,val_m3,val_m4,val_m5,dims').eq('versao_id', versaoId).in('linha_id', masters).in('empresa_id', empIds).in('ano', anos).in('mes', meses)
         if (filFilter) q = q.in('filial_id', filFilter)
         if (ccFilter) q = q.in('cc_id', ccFilter)
         return q
       })
       for (const r of rows) {
-        const hist = (r.dims && (r.dims.historico || r.dims.hist)) || ''
+        const oculto = !!restritos?.size && !!r.cc_id && restritos.has(r.cc_id)
+        const hist = oculto ? RESTRITO : ((r.dims && (r.dims.historico || r.dims.hist)) || '')
         const v = f * sv(r)
-        const k = `${r.empresa_id || ''}|${r.filial_id || ''}|${hist}`
+        const k = oculto ? RESTRITO : `${r.empresa_id || ''}|${r.filial_id || ''}|${hist}`
         const c = agg.get(k)
         if (c) c.valor += v
-        else agg.set(k, { conta: '—', contaDesc: '', empresa: empCod[r.empresa_id] || '', filial: filCod[r.filial_id] || '', data: '', documento: '', lote: '', sublote: '', historico: hist, valor: v })
+        else agg.set(k, { conta: '—', contaDesc: '', empresa: oculto ? '' : (empCod[r.empresa_id] || ''), filial: oculto ? '' : (filCod[r.filial_id] || ''), data: '', documento: '', lote: '', sublote: '', historico: hist, valor: v })
       }
     } else {
       // realizado é por CONTA (resolve via conta_linha) + exclui lotes ignorados
@@ -149,7 +160,7 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
       let rows: any[] = []
       if (contaIds.length) {
         rows = await fetchAll(() => {
-          let q = supabase.from('fat_realizado').select('conta_id,empresa_id,filial_id,historico,valor,val_m2,val_m3,val_m4,val_m5,lote,sublote,data,documento').in('conta_id', contaIds).in('empresa_id', empIds).in('ano', anos).in('mes', meses)
+          let q = supabase.from('fat_realizado').select('conta_id,empresa_id,filial_id,cc_id,historico,valor,val_m2,val_m3,val_m4,val_m5,lote,sublote,data,documento').in('conta_id', contaIds).in('empresa_id', empIds).in('ano', anos).in('mes', meses)
           if (filFilter) q = q.in('filial_id', filFilter)
           if (ccFilter) q = q.in('cc_id', ccFilter)
           return q
@@ -157,10 +168,13 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
       }
       for (const r of rows) {
         if (ignora(r)) continue
+        const oculto = !!restritos?.size && !!r.cc_id && restritos.has(r.cc_id)
         const v = f * sv(r) * (sinalByConta[r.conta_id] ?? 1)
-        const k = `${r.conta_id}|${r.empresa_id || ''}|${r.filial_id || ''}|${r.data || ''}|${r.documento || ''}|${r.lote || ''}|${r.sublote || ''}|${r.historico || ''}`
+        const k = oculto ? RESTRITO
+          : `${r.conta_id}|${r.empresa_id || ''}|${r.filial_id || ''}|${r.data || ''}|${r.documento || ''}|${r.lote || ''}|${r.sublote || ''}|${r.historico || ''}`
         const c = agg.get(k)
         if (c) c.valor += v
+        else if (oculto) agg.set(k, { conta: '—', contaDesc: '', empresa: '', filial: '', data: '', documento: '', lote: '', sublote: '', historico: RESTRITO, valor: v })
         else agg.set(k, { conta: contaInfo[r.conta_id]?.codigo || '—', contaDesc: contaInfo[r.conta_id]?.descricao || '', empresa: empCod[r.empresa_id] || '', filial: filCod[r.filial_id] || '', data: r.data || '', documento: r.documento || '', lote: r.lote || '', sublote: r.sublote || '', historico: r.historico || '', valor: v })
       }
     }

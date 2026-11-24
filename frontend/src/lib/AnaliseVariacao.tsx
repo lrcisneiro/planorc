@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useState, Fragment } from 'react'
 import { ChevronDown, ChevronUp, Download } from 'lucide-react'
 import { downloadSheet } from './planilha'
+import { ROTULO_OUTROS, grupoTodoRestrito } from './discricao'
 import { type LinhaRel } from './refRelatorio'
 import { computeTotais, pkey, type Computed, type LinhaCalc, type Periodo } from './engine'
 import { type CC } from '../pages/dashboard/DashFiltros'
@@ -233,7 +234,7 @@ export type DimQuem = typeof DIMS_QUEM[number][0]
 const MAX_QUEM = 12
 
 export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, componentes, invertido,
-                      rotOrigem, rotDestino, dTotal, dim, setDim, ano }: any) {
+                      rotOrigem, rotDestino, dTotal, dim, setDim, ano, restritos }: any) {
   const S = Sx || S_PONTE
   const [aberta, setAberta] = useState<string | null>(null)
   // Três cliques: desc → asc → volta ao impacto (o default). Sem o terceiro
@@ -267,6 +268,9 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
     if (dim === 'emp') {
       const nomeEmp: Record<string, string> = {}
       ;(empresas as any[]).forEach(e => { nomeEmp[e.id] = `${e.codigo} · ${e.descricao}` })
+      // ⚠ Empresa não é recortável por CC restrito: o restrito é um atributo do
+      // CC e a leitura por empresa não o carrega. Fica declarado — por empresa
+      // o grão não é o que se quer esconder.
       for (const id in bruto.emp) junta(nomeEmp[id] || '(empresa desconhecida)', bruto.emp[id])
     } else {
       const ccById: Record<string, CC> = Object.fromEntries((ccs as CC[]).map(c => [c.id, c]))
@@ -280,10 +284,31 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
         const n = dim === 'area' ? c.area_nome : dim === 'divisao' ? c.divisao_nome : c.bu_nome
         return n || `(sem ${dim === 'area' ? 'área' : dim === 'divisao' ? 'divisão' : 'BU'})`
       }
-      for (const id in bruto.cc) junta(rot(id), bruto.cc[id])
+      // ⚠⚠ MODO DISCRETO. No grão de CC o restrito cai direto em "Outros".
+      // Nas dimensões agregadas (área/divisão/BU) o grupo só é mascarado
+      // quando TODO o valor dele vem de CC restrito — medido, a área 4
+      // "Diretoria" é exatamente isso, e conferir por CONTAGEM de CCs diria
+      // que ela "mistura" e a deixaria exposta.
+      const r: Set<string> = restritos || new Set()
+      const peso: Record<string, Record<string, number>> = {}   // label → ccId → |valor|
+      for (const id in bruto.cc) {
+        const lbl = (dim === 'cc' && r.has(id)) ? ROTULO_OUTROS : rot(id)
+        junta(lbl, bruto.cc[id])
+        if (r.size) {
+          let p = 0
+          for (const m in bruto.cc[id]) p += Math.abs(bruto.cc[id][m].b) + Math.abs(bruto.cc[id][m].c)
+          ;(peso[lbl] = peso[lbl] || {})[id] = (peso[lbl][id] || 0) + p
+        }
+      }
+      if (r.size && dim !== 'cc') {
+        for (const lbl in peso) {
+          if (lbl === ROTULO_OUTROS || !grupoTodoRestrito(peso[lbl], r)) continue
+          const m = out[lbl]; delete out[lbl]; junta(ROTULO_OUTROS, m)
+        }
+      }
     }
     return out
-  }, [bruto, dim, empresas, ccs])
+  }, [bruto, dim, empresas, ccs, restritos])
 
   // Roda o motor dentro de cada grupo e devolve o total da linha de resultado
   // e o de cada componente — os mesmos componentes da ponte, para o detalhe de

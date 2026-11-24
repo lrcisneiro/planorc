@@ -7,6 +7,7 @@ import type { LinhaCalc, Computed, Periodo, RawValues } from '../../lib/engine'
 import { PeriodPicker } from './PeriodPicker'
 import { totaisRelatorio, totaisRelatorioArv } from '../../lib/relatorioTotais'
 import { MemoriaModal } from '../../lib/MemoriaCalculo'
+import { useDiscreto, idsRestritos, mascararLinhas, ROTULO_OUTROS } from '../../lib/discricao'
 import type { RLData } from '../../lib/relatorioTotais'
 import { ResponsiveBar } from '@nivo/bar'
 import { fmtEixo } from '../../lib/fmtEixo'
@@ -22,7 +23,7 @@ import IndicCard from './IndicCard'
 import type { IC } from './IndicCard'
 import { carregarMetas, resolverMeta } from '../../lib/indicadorMeta'
 import type { IndicadorMeta } from '../../lib/indicadorMeta'
-import { Checklist, effectiveCcFilter, escopoFiltro, ExportarButton, FiltrosButton, ModalPanel, MoedaSelect, PeriodoButton, PillsDim, SalvarCardButton, useCardPreset, useMoedaView } from './DashFiltros'
+import { Checklist, effectiveCcFilter, escopoFiltro, ExportarButton, FiltrosButton, ModalPanel, MoedaSelect, PeriodoButton, PillsDim, SalvarCardButton, useCardPreset, useMoedaView, BotaoDiscreto } from './DashFiltros'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { ListChecks } from 'lucide-react'
 
@@ -222,6 +223,18 @@ export default function DashboardPage() {
   const [vNat, setVNat] = useState<'TODAS' | 'RECEITA' | 'DESPESA'>('TODAS')
   const [linhasRel, setLinhasRel] = useState<RL[]>([])
   const [memoria, setMemoria] = useState<string | null>(null)   // id da linha com a memória aberta
+  // ⚠⚠ O MODO DISCRETO NÃO RECARREGA NADA. Os totais pedidos ao banco são os
+  // mesmos — o pedido é justamente que eles não mudem —, e o que muda é só o
+  // DESENHO. Por isso a máscara é `useMemo` sobre o estado já carregado, nunca
+  // dependência da carga (lição do "seleção dentro de um cartão não recarrega").
+  const discreto = useDiscreto()
+  const restritos = useMemo(() => idsRestritos(ccs as any, discreto), [ccs, discreto])
+  // Uma barra do gráfico é o NÍVEL 2 e agrega vários CCs; só vira "Outros"
+  // quando TODOS os dela são restritos — a mesma regra do grupo de dimensão.
+  const mascararBarras = (arr: any[]) => mascararLinhas<any>(arr, b => (b._ccs || []), restritos,
+    (acc, b) => acc
+      ? { ...acc, 'Orçado': acc['Orçado'] + b['Orçado'], 'Realizado': acc['Realizado'] + b['Realizado'], 'Δ': acc['Δ'] + b['Δ'], _ccs: [...acc._ccs, ...b._ccs] }
+      : { ...b, cc: ROTULO_OUTROS })
   // ⚠ O cartão ARRASTA e agora também ABRE. O `click` do HTML5 drag não é
   // confiável como separador (alguns navegadores o emitem depois do drop), e
   // perder o arrasto para ganhar o modal seria trocar um gesto por outro.
@@ -263,6 +276,11 @@ export default function DashboardPage() {
   const [despAreaBar, setDespAreaBar] = useState<any[]>([])       // 4: despesas por área O×R+Δ (barras)
   const [despCcBar, setDespCcBar] = useState<any[]>([])           // 5: despesas por CC (nível 2) O×R+Δ
   const [recCcBar, setRecCcBar] = useState<any[]>([])             // 6: receitas por CC (nível 2) O×R+Δ
+  const despCcVis = useMemo(() => mascararBarras(despCcBar), [despCcBar, restritos])   // eslint-disable-line
+  const recCcVis  = useMemo(() => mascararBarras(recCcBar),  [recCcBar, restritos])    // eslint-disable-line
+  // ⚠ A barra "Outros" NÃO abre: ela é um balde, e abrir entregaria no drill
+  // exatamente o grão que a barra agregou para esconder.
+  const podeDrill = (ids: string[]) => !ids.some(id => restritos.has(id))
   const [temDados, setTemDados] = useState(false)
   const [drill, setDrill] = useState<{ nodeId: string; meses?: number[]; ccFilter?: string[] | null } | null>(null)
   const [qparams, setQparams] = useState<{ empIds: string[]; anos: number[]; meses: number[]; filFilter: string[] | null; ccFilter: string[] | null } | null>(null)
@@ -273,7 +291,7 @@ export default function DashboardPage() {
     supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
     carregarMetas().then(setMetas)
     supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => setFiliais(r.data || []))
-    supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo').then(r => setCcs(r.data || []))
+    supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome,restrito').order('codigo').then(r => setCcs(r.data || []))
   }, []) // eslint-disable-line
 
   useEffect(() => { if (cardId) return; localStorage.setItem(SAVE, JSON.stringify({ relId, versaoId, agrupId, periodosSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel })) }, [cardId, relId, versaoId, agrupId, periodosSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel])
@@ -795,6 +813,7 @@ export default function DashboardPage() {
             <AnoMesGrid periodosSel={periodosSel} setPeriodosSel={setPeriodosSel} />
           </div>
         </PeriodoButton>
+        <BotaoDiscreto ccs={acessoDash.filterList('centro_custo', ccs as any) as any} />
         <FiltrosButton empresas={acessoDash.filterList('empresa', empresas)} filiais={acessoDash.filterList('filial', filiais)} ccs={acessoDash.filterList('centro_custo', ccs as any) as any} empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel} areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
         <MoedaSelect moedas={moedas} slot={moedaSlot} setSlot={setMoedaSlot} />
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
@@ -907,6 +926,7 @@ export default function DashboardPage() {
                 }
                 setDrill({ nodeId: lid, ...(cc !== undefined ? { ccFilter: cc } : {}) })
               } : undefined}
+              colInicial={1}   // o cartão lidera com o realizado; abrir no orçado parecia erro de conta
               cols={[
                 { rot: versoes.find(v => v.id === versaoId)?.codigo || 'Orçado', val: totais.arvOrc[memoria] || totais.orc },
                 { rot: 'Realizado', val: totais.arvReal[memoria] || totais.real },
@@ -947,6 +967,7 @@ export default function DashboardPage() {
               bruto={dimBruto} empresas={empresas} ccs={ccs}
               resId={pCfg.resultado} componentes={pCfg.sel} invertido
               rotOrigem={versoes.find(v => v.id === versaoId)?.codigo || 'Orçado'} rotDestino="Realizado"
+            restritos={restritos}
               dim={quemDim} setDim={setQuemDim} ano={anosSel.length ? Math.max(...anosSel) : 0}
               dTotal={(totais.real[pCfg.resultado] ?? 0) - (totais.orc[pCfg.resultado] ?? 0)} />
           )}
@@ -1165,10 +1186,10 @@ export default function DashboardPage() {
           </div>
 
           <div style={S.card}>
-            <div style={S.cardT}>Despesas por centro de custo (nível 2 — área/divisão) <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · acumulado · clique p/ detalhar)</span></div>
+            <div style={S.cardT}>Despesas por centro de custo (nível 2 — área/divisão) <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · acumulado · clique p/ detalhar){despCcVis.ocultadas > 0 && ` · ${despCcVis.ocultadas} agrupado(s) em "${ROTULO_OUTROS}"`}</span></div>
             <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: 340 }}>
-              <ResponsiveBar theme={nivoTheme()} data={despCcBar} keys={['Orçado', 'Realizado', 'Δ']} indexBy="cc" groupMode="grouped"
-                onClick={(d: any) => { const ids = (d.data?._ccs || []) as string[]; if (ids.length) drillPorCcs(ids) }}
+              <ResponsiveBar theme={nivoTheme()} data={despCcVis.linhas} keys={['Orçado', 'Realizado', 'Δ']} indexBy="cc" groupMode="grouped"
+                onClick={(d: any) => { const ids = (d.data?._ccs || []) as string[]; if (ids.length && podeDrill(ids)) drillPorCcs(ids) }}
                 margin={{ top: 18, right: 10, bottom: 110, left: 56 }} padding={0.3} innerPadding={1}
                 colors={(b: any) => b.id === 'Orçado' ? '#9aa0aa' : b.id === 'Realizado' ? '#3b5bdb' : '#1098ad'} borderRadius={2}
                 axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }} axisBottom={{ tickRotation: -45 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
@@ -1178,10 +1199,10 @@ export default function DashboardPage() {
           </div>
 
           <div style={S.card}>
-            <div style={S.cardT}>Receitas por centro de custo (nível 2 — área/divisão) <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · bruta · clique p/ detalhar)</span></div>
+            <div style={S.cardT}>Receitas por centro de custo (nível 2 — área/divisão) <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · bruta · clique p/ detalhar){recCcVis.ocultadas > 0 && ` · ${recCcVis.ocultadas} agrupado(s) em "${ROTULO_OUTROS}"`}</span></div>
             <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: 340 }}>
-              <ResponsiveBar theme={nivoTheme()} data={recCcBar} keys={['Orçado', 'Realizado', 'Δ']} indexBy="cc" groupMode="grouped"
-                onClick={(d: any) => { const ids = (d.data?._ccs || []) as string[]; if (ids.length) drillPorCcs(ids) }}
+              <ResponsiveBar theme={nivoTheme()} data={recCcVis.linhas} keys={['Orçado', 'Realizado', 'Δ']} indexBy="cc" groupMode="grouped"
+                onClick={(d: any) => { const ids = (d.data?._ccs || []) as string[]; if (ids.length && podeDrill(ids)) drillPorCcs(ids) }}
                 margin={{ top: 18, right: 10, bottom: 110, left: 56 }} padding={0.3} innerPadding={1}
                 colors={(b: any) => b.id === 'Orçado' ? '#9aa0aa' : b.id === 'Realizado' ? '#3b5bdb' : '#1098ad'} borderRadius={2}
                 axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }} axisBottom={{ tickRotation: -45 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
@@ -1193,7 +1214,7 @@ export default function DashboardPage() {
       )}
 
       {drill && qparams && (
-        <DrillModal relId={relId} versaoId={versaoId} empIds={qparams.empIds} anos={qparams.anos} meses={drill.meses || qparams.meses}
+        <DrillModal relId={relId} versaoId={versaoId} empIds={qparams.empIds} anos={qparams.anos} meses={drill.meses || qparams.meses} restritos={restritos}
           filFilter={qparams.filFilter} ccFilter={drill.ccFilter !== undefined ? drill.ccFilter : qparams.ccFilter} startNodeId={drill.nodeId} slot={moedaSlot} onClose={() => setDrill(null)} />
       )}
     </div>

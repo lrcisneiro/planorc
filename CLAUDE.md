@@ -1422,6 +1422,57 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `todos`, a comparação daria sempre "sem restrição" e **o escopo pararia de ser aplicado**. A
   crua alimenta o cálculo; a recortada, a interface.
 
+- ⚠⚠ **MODO DISCRETO — esconder o GRÃO, não o dado (`v3_202`, 24/nov).** `lib/discricao.ts`.
+  **Não é controle de acesso, e a distinção é o desenho inteiro:** quem está na tela TEM direito
+  ao dado; o que se protege é a **SALA**. A mesma pessoa que apresenta para gerentes e outras
+  diretorias precisa mostrar o grão da Diretoria num conselho. Esconder de uma PESSOA é o escopo
+  de acesso, no banco desde a v3_129 — aqui **nenhuma política de RLS muda**, e quem tiver o
+  token alcança a API igual. Está escrito no topo do arquivo porque alguém vai confundir.
+  **A regra, em uma frase:** com o modo ligado, o CC restrito **não existe como grão em lugar
+  nenhum** — nem no eixo, nem no drill, nem no razão, nem na lista de filtro. Só no total, que
+  **não muda**: os totais pedidos ao banco são os mesmos, e por isso a máscara é `useMemo` sobre
+  o estado já carregado, **nunca dependência da carga** (lição do "seleção dentro de um cartão
+  não recarrega").
+  ⚠⚠ **O BALDE CHAMA-SE "Outros" e é o MESMO dos gráficos**, nunca "restrito": nome próprio
+  convida à subtração (`total − visíveis`), e misturado com os CCs pequenos legítimos a conta
+  não fecha para quem assiste.
+  ⚠⚠ **GRUPO DE DIMENSÃO cujo valor venha TODO de CC restrito também é mascarado — e a medição
+  é por VALOR, não por contagem.** Medido: a área 4 "Diretoria" tem **4 CCs cadastrados** e
+  **todo o valor dela é do 411** (−6.859.342 de −6.859.342; os outros três estão zerados).
+  Conferir por contagem diria que ela "mistura" e a deixaria exposta — foi o que a minha primeira
+  conferência fez. Tolerância de 0,1% e em **magnitude**: um grupo com +100 restrito e −100 livre
+  soma zero e passaria no teste ingênuo.
+  ⚠ Por isso **a área NÃO é marcada no cadastro**: a regra é derivada e continua valendo se
+  alguém criar um CC novo ali. Marcar à mão seria um segundo lugar dizendo a mesma coisa.
+  ⚠ **`centro_custo.restrito` é cadastro**, semeado uma vez com `411 · 210 · 220 · 310 · 320`
+  (Diretoria e os quatro dos diretores). Lista fixa em código é a armadilha já registrada em
+  área/subárea de cargo. Escrita segue a da tabela: a v3_174 vale para **decisão**, e marcar um
+  CC não dá nem tira acesso a nada.
+  **Default DESLIGADO** (decisão do Ricardo, 24/nov): é ato deliberado antes da reunião. Eu
+  recomendei o contrário — o erro caro é esquecer de **ligar**, porque aí já foi visto — e ficou
+  registrado que a rede contra o esquecimento é humana. O estado vive em **módulo**, não em
+  `localStorage` (aba nova começa desligada) e não em estado de página (ele atravessa rotas:
+  ligar no acompanhamento e navegar para a análise não pode desligar sozinho).
+  **Onde vale** (medido, não suposto): `DashboardPage` (os dois gráficos por CC, *Quem causou*,
+  o destino do drill), `OrcamentoDashPage` (*Quem causou*, drill, **Análise Pessoas**),
+  `DrillModal` (razão) e a lista de CC em `DashFiltros`. Executivo, Comparativo anual, CAGR,
+  Indicadores e Balanço **não quebram por CC**.
+  ⚠⚠ **No RAZÃO as linhas restritas viram UMA linha somada**, não somem: o razão é o lugar mais
+  exposto do produto (o histórico de um pró-labore diz nome e valor), e esconder **sem somar**
+  faria o detalhe não bater com o total que o abriu — o defeito do drill de novo.
+  ⚠⚠ **Análise Pessoas mede por valor com uma SEGUNDA chamada da mesma RPC.**
+  `analise_pessoas_agg` agrupa por ÁREA e não devolve CC, então a linha não diz se é restrita.
+  Chamá-la de novo com `p_ccs` = só os restritos responde quanto de cada área vem deles — mesma
+  função, logo não há duas verdades. Só acontece com o modo **ligado**.
+  ⚠ **Limitação declarada da 1ª fase:** área, divisão e BU **continuam** no filtro. Excluí-los do
+  recorte mudaria os totais, e o pedido é que eles não mudem; selecionar "Diretoria" é ato
+  deliberado. O **desenho** mascara o grupo; o **filtro** não. Está no tooltip do botão, junto do
+  aviso de que relatório, Orçar e Postos seguem com o grão à vista — **máscara parcial anunciada
+  como proteção é pior que máscara nenhuma**.
+  ⚠ A exportação PDF/PNG sai mascarada **sem código nenhum**: ela rasteriza a tela renderizada.
+  ⚠ O modo **não entra no preset do card** — é sobre a sala, não sobre a análise, como a trilha
+  da ponte.
+
 - **Atalho de dimensão: `PillsDim` em `DashFiltros.tsx` (nov/2026).** "Por área" e "por divisão"
   são as perguntas do dia a dia, e chegar nelas custava cinco gestos: abrir o modal, achar a
   coluna certa entre seis, marcar, aplicar, fechar. As pílulas filtram num clique.

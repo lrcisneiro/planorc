@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import type { CSSProperties, RefObject } from 'react'
-import { Filter, X, CalendarRange, Bookmark, Download, Image as ImageIcon, FileText } from 'lucide-react'
+import { Filter, X, CalendarRange, Bookmark, Download, Image as ImageIcon, FileText, EyeOff, Eye } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
@@ -8,6 +8,7 @@ import { supabase, TENANT_ID } from '../../lib/supabase'
 import { exportarPng, exportarPdf } from '../../lib/exportarDash'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { papelMaisAlto } from '../../lib/capacidades'
+import { useDiscreto, setDiscreto, idsRestritos, ccVisiveis } from '../../lib/discricao'
 import { CompartilharCard, gravarAlvo } from './CompartilharCard'
 
 export type Item = { id: string; codigo: string; descricao: string }
@@ -173,6 +174,31 @@ export function PillsDim({ ccs, codKey, nomeKey, titulo, sel, setSel }: {
   )
 }
 
+/** Liga/desliga o modo discreto. Mora aqui porque ~10 dashboards importam
+ *  deste arquivo — copiá-lo em cada um é o jeito de eles divergirem.
+ *
+ *  ⚠ Só aparece quando existe CC restrito no cadastro ALCANÇÁVEL por quem
+ *  olha: para quem não vê nenhum, o botão não faria nada e ainda ocuparia a
+ *  linha mais visível da tela.
+ *  ⚠ `data-noexport` NÃO: o botão some do PNG/PDF como as outras barras, e o
+ *  que sai exportado já vem mascarado porque a exportação rasteriza a tela. */
+export function BotaoDiscreto({ ccs }: { ccs: CC[] }) {
+  const on = useDiscreto()
+  const temRestrito = (ccs as any[]).some(c => c.restrito)
+  if (!temRestrito) return null
+  return (
+    <button onClick={() => setDiscreto(!on)} data-noexport
+      title={on
+        ? 'Modo discreto LIGADO: centros de custo restritos aparecem agregados em "Outros", sem drill nem razão. Vale nos dashboards — no relatório, em Orçar e em Postos o grão continua à vista.'
+        : 'Modo discreto desligado: o grão dos centros de custo restritos está à vista. Ligue antes de projetar a tela.'}
+      style={{ ...btn, borderColor: on ? 'var(--violet)' : 'var(--orange)',
+               background: on ? 'rgba(139,92,246,0.16)' : 'rgba(251,191,36,0.14)',
+               color: on ? 'var(--violet)' : 'var(--orange)', fontWeight: 600 }}>
+      {on ? <EyeOff size={13} /> : <Eye size={13} />} {on ? 'Discreto' : 'Grão à vista'}
+    </button>
+  )
+}
+
 export function FiltrosButton({ empresas, filiais, ccs, empresaSel, setEmpresaSel, filialSel, setFilialSel, ccSel, setCcSel, areaSel, setAreaSel, divisaoSel, setDivisaoSel, buSel, setBuSel }: {
   empresas: Item[]; filiais: Item[]; ccs: CC[]
   empresaSel: string[]; setEmpresaSel: (v: string[]) => void
@@ -183,9 +209,25 @@ export function FiltrosButton({ empresas, filiais, ccs, empresaSel, setEmpresaSe
   buSel: string[]; setBuSel: (v: string[]) => void
 }) {
   const [open, setOpen] = useState(false)
-  const areas = opcoesAttr(ccs, 'area_cod', 'area_nome')
-  const divisoes = opcoesAttr(ccs, 'divisao_cod', 'divisao_nome')
-  const bus = opcoesAttr(ccs, 'bu_cod', 'bu_nome')
+  // ⚠⚠ O CC RESTRITO SAI DA LISTA — deixá-lo aqui seria oferecer justamente o
+  // caminho que o modo existe para fechar: selecioná-lo sozinho faz o total da
+  // tela virar o valor dele.
+  // ⚠ Área, divisão e BU CONTINUAM, e isto é limitação declarada da 1ª fase:
+  // são agregados, e selecioná-los é ato deliberado. O desenho mascara o grupo
+  // cujo valor é todo restrito; o FILTRO não, porque excluir o CC do recorte
+  // mudaria os totais — e o pedido é justamente que eles não mudem.
+  const discreto = useDiscreto()
+  const restritos = idsRestritos(ccs as any, discreto)
+  const ccsUI = ccVisiveis(ccs as any, restritos) as CC[]
+  // ⚠ Seleção VELHA de CC restrito é limpa ao ligar o modo: sem isso o chip
+  // continuaria recortando a tela por um CC que não aparece em lugar nenhum,
+  // e o número ficaria sem explicação possível.
+  useEffect(() => {
+    if (restritos.size && ccSel.some(id => restritos.has(id))) setCcSel(ccSel.filter(id => !restritos.has(id)))
+  }, [discreto, ccSel.join(',')])   // eslint-disable-line
+  const areas = opcoesAttr(ccsUI, 'area_cod', 'area_nome')
+  const divisoes = opcoesAttr(ccsUI, 'divisao_cod', 'divisao_nome')
+  const bus = opcoesAttr(ccsUI, 'bu_cod', 'bu_nome')
   const n = empresaSel.length + filialSel.length + ccSel.length + areaSel.length + divisaoSel.length + buSel.length
   return (
     <div style={{ position: 'relative' }}>
@@ -198,7 +240,7 @@ export function FiltrosButton({ empresas, filiais, ccs, empresaSel, setEmpresaSe
             <Checklist titulo="Divisão" items={divisoes} sel={divisaoSel} setSel={setDivisaoSel} />
             <Checklist titulo="BU" items={bus} sel={buSel} setSel={setBuSel} />
             <Checklist titulo="Filial" items={filiais} sel={filialSel} setSel={setFilialSel} />
-            <Checklist titulo="Centro de custo" items={ccs} sel={ccSel} setSel={setCcSel} />
+            <Checklist titulo="Centro de custo" items={ccsUI} sel={ccSel} setSel={setCcSel} />
           </div>
         </ModalPanel>
       )}

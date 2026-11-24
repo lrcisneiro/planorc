@@ -589,6 +589,20 @@ function CentroCustoTab() {
     setAdding(false); setEditId(null); load()
   }
 
+  // ⚠ Modo discreto: marca o CC cujo GRÃO não deve ser desenhado numa
+  // apresentação. **Não é permissão** — quem abre a tela continua tendo o dado;
+  // esconder de uma PESSOA é escopo de acesso, em Configurações.
+  // ⚠ Confere o RETORNO: `UPDATE` barrado por RLS não dá erro, afeta zero
+  // linhas e volta sucesso — a marca pareceria salva e não estaria.
+  const toggleRestrito = async (c: any) => {
+    setErro(null)
+    const { data: ok, error } = await supabase.from('centro_custo')
+      .update({ restrito: !c.restrito }).eq('id', c.id).select('id')
+    if (error) { setErro(error.message); return }
+    if (!ok?.length) { setErro('Sem permissão para alterar este centro de custo.'); return }
+    load()
+  }
+
   const del = async (id: string) => {
     if (!confirm('Excluir centro de custo?')) return
     const { error } = await supabase.from('centro_custo').delete().eq('id', id)
@@ -674,11 +688,11 @@ function CentroCustoTab() {
       </div>
       <table style={S.table}>
         <thead><tr>
-          <th style={S.th}>Código</th><th style={S.th}>Descrição</th><th style={S.th}>Tipo</th><th style={S.th}>Pai</th><th style={S.th}>Área</th><th style={S.th}>Divisão</th><th style={S.th}>BU</th><th style={S.th}>Status</th><th style={S.th}></th>
+          <th style={S.th}>Código</th><th style={S.th}>Descrição</th><th style={S.th}>Tipo</th><th style={S.th}>Pai</th><th style={S.th}>Área</th><th style={S.th}>Divisão</th><th style={S.th}>BU</th><th style={S.th} title="Modo discreto: o grão deste CC não é desenhado em gráfico, drill nem razão enquanto o modo estiver ligado nos dashboards. Não é permissão.">Discreto</th><th style={S.th}>Status</th><th style={S.th}></th>
         </tr></thead>
         <tbody>
           {adding && <AddRow cols={CC_COLS} onSave={save} onCancel={() => setAdding(false)} />}
-          {filtered.length === 0 && !adding && <tr><td colSpan={9} style={S.empty}>{busca ? 'Nenhum resultado para a busca.' : <>Nenhum centro de custo cadastrado.<br /><small>Use "Importar Excel" (TOTVS ou modelo).</small></>}</td></tr>}
+          {filtered.length === 0 && !adding && <tr><td colSpan={10} style={S.empty}>{busca ? 'Nenhum resultado para a busca.' : <>Nenhum centro de custo cadastrado.<br /><small>Use "Importar Excel" (TOTVS ou modelo).</small></>}</td></tr>}
           {filtered.map(c => {
             const isSint = c.tipo === 'SINTETICA'
             return editId === c.id ? (
@@ -692,6 +706,16 @@ function CentroCustoTab() {
                 <td style={{ ...S.td, color: 'var(--text-mid)' }}>{c.area_nome || '—'}</td>
                 <td style={{ ...S.td, color: 'var(--muted)' }}>{c.divisao_nome || '—'}</td>
                 <td style={{ ...S.td, color: 'var(--muted)' }}>{c.bu_nome || '—'}</td>
+                <td style={S.td}>
+                  <button onClick={() => toggleRestrito(c)}
+                    title={c.restrito ? 'Restrito: o grão some dos dashboards com o modo discreto ligado. Clique para liberar.' : 'Clique para marcar como restrito'}
+                    style={{ cursor: 'pointer', border: '1px solid ' + (c.restrito ? 'var(--violet)' : 'var(--border)'),
+                             background: c.restrito ? 'rgba(139,92,246,0.16)' : 'transparent',
+                             color: c.restrito ? 'var(--violet)' : 'var(--faint)',
+                             borderRadius: 999, padding: '1px 9px', fontSize: 11, fontWeight: 600 }}>
+                    {c.restrito ? 'restrito' : '—'}
+                  </button>
+                </td>
                 <td style={S.td}><span style={S.badge(c.ativo)}>{c.ativo ? 'Ativo' : 'Inativo'}</span></td>
                 <td style={{ ...S.td, width: 70, whiteSpace: 'nowrap' }}>
                   <button style={{ ...S.btnDel, color: 'var(--muted)' }} title="Editar" onClick={() => { setEditId(c.id); setAdding(false); setErro(null) }}><Pencil size={14} /></button>

@@ -18,11 +18,12 @@ import { supabase } from '../../lib/supabase'
 import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { totaisRelatorio, totaisRelatorioMes } from '../../lib/relatorioTotais'
+import { useDiscreto, idsRestritos, ROTULO_OUTROS } from '../../lib/discricao'
 import { COLS_LINHA, emArvore, fatorExibicao, linhasConciliaveis, type LinhaRel } from '../../lib/refRelatorio'
 import { Ponte, componentesDe } from '../../lib/Ponte'
 import {
   ExportarButton, FiltrosButton, PillsDim, SalvarCardButton, useCardPreset,
-  effectiveCcFilter, escopoFiltro, type CC,
+  effectiveCcFilter, escopoFiltro, BotaoDiscreto, type CC,
 } from './DashFiltros'
 import { ChevronLeft, AlertTriangle, Info, ChevronUp, ChevronDown, ListChecks } from 'lucide-react'
 import { ResponsiveBar } from '@nivo/bar'
@@ -302,7 +303,7 @@ export default function OrcamentoDashPage() {
       setEmpresaSel(p => { const vivos = p.filter(id => ids.includes(id)); return vivos.length ? vivos : ids })
     })
     supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo').then(r => setFiliais(r.data || []))
-    supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').order('codigo')
+    supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome,restrito').order('codigo')
       .then(r => setCcs((r.data || []) as CC[]))
   }, [])
 
@@ -391,6 +392,10 @@ export default function OrcamentoDashPage() {
   // recortada, a interface.
   // (Indicadores, CAGR e Executivo já faziam isto; esta tela tinha ficado para trás.)
   const ccsVisiveis = useMemo(() => acesso.filterList('centro_custo', ccs as any) as CC[], [ccs, acesso])
+  // ⚠ Modo discreto: máscara de DESENHO, nenhuma recarga — os totais pedidos
+  // ao banco são os mesmos, que é o pedido.
+  const discreto = useDiscreto()
+  const restritos = useMemo(() => idsRestritos(ccs as any, discreto), [ccs, discreto])
   const empFiltradas = useMemo(() => empresaSel.filter(id => acesso.canSee('empresa', id)), [empresaSel, acesso])
 
   // ── Análise Pessoas: carga PREGUIÇOSA ────────────────────────────────────
@@ -405,6 +410,23 @@ export default function OrcamentoDashPage() {
   // que não é esse. Mensagem que afirma uma causa não verificada custa a
   // tarde de quem acredita nela.
   const [erroPess, setErroPess] = useState<string | null>(null)
+  const [pessRestr, setPessRestr] = useState<any[]>([])   // a parcela restrita, por área — ver abaixo
+  // ⚠⚠ ÁREA CUJO VALOR É TODO RESTRITO vira "Outros". Em magnitude, com 0,1%
+  // de tolerância: o que importa é "na prática é só isso", não a igualdade
+  // exata — um CC irrelevante junto não deixa de revelar o número. E
+  // |valor|, porque uma área com +100 restrito e −100 livre soma zero e
+  // passaria pelo teste ingênuo.
+  // ⚠ A máscara é de EXIBIÇÃO: as linhas continuam somando no total da aba,
+  // que é o que não pode mudar. Só o RÓTULO delas muda.
+  const pessVis = useMemo(() => {
+    if (!restritos.size || !pessRestr.length || !pess) return pess
+    const mag = (arr: any[]) => { const m: Record<string, number> = {}
+      for (const l of arr) m[l.area_nome || ''] = (m[l.area_nome || ''] || 0) + Math.abs(Number(l.valor) || 0); return m }
+    const todo = mag(pess as any[]), rest = mag(pessRestr)
+    const mascarar = new Set(Object.keys(rest).filter(a => todo[a] > 0 && rest[a] >= todo[a] * 0.999))
+    if (!mascarar.size) return pess
+    return (pess as any[]).map((l: any) => mascarar.has(l.area_nome || '') ? { ...l, area_nome: ROTULO_OUTROS } : l)
+  }, [pess, pessRestr, restritos])
   useEffect(() => {
     if (aba !== 'pessoas' || !vBase || !anoBase || !empFiltradas.length) { setPess([]); return }
     let vivo = true
@@ -424,6 +446,23 @@ export default function OrcamentoDashPage() {
       if (error) { setErro(error.message); setErroPess(error.message); setPess([]) }
       else { setErroPess(null); setPess(data || []) }
     })
+    // ⚠⚠ O LADO RESTRITO, MEDIDO POR VALOR — não deduzido do cadastro.
+    // `analise_pessoas_agg` agrupa por ÁREA e não devolve CC, então não dá
+    // para saber pela linha se ela é restrita. A área 4 "Diretoria" tem 4 CCs
+    // cadastrados e **todo o valor dela é do 411**: conferir por contagem de
+    // CCs diria que ela "mistura" e a deixaria exposta, com headcount e custo
+    // médio dos diretores à vista.
+    // A mesma função, com `p_ccs` = só os restritos, responde quanto de cada
+    // área vem deles. É a mesma fonte, logo não há duas verdades.
+    // ⚠ Chamada só com o modo LIGADO: no uso normal ela não existe.
+    if (restritos.size) {
+      const alvo = (ccFilter ?? (ccs as any[]).map(c => c.id)).filter((id: string) => restritos.has(id))
+      if (alvo.length) {
+        supabase.rpc('analise_pessoas_agg', {
+          p_versao: vBase, p_ano: anoBase, p_empresas: empFiltradas, p_filiais: filialFilter, p_ccs: alvo,
+        }).then(({ data, error }) => { if (vivo && !error) setPessRestr(data || []) })
+      } else setPessRestr([])
+    } else setPessRestr([])
     // ⚠ Chamada SEPARADA de propósito: se a capacidade falhar (RPC ainda não
     // aplicada noutro tenant, por exemplo), a análise de pessoas continua —
     // uma peça nova não pode derrubar a que já funcionava.
@@ -878,6 +917,7 @@ export default function OrcamentoDashPage() {
             </select></div>
         )}
 
+        <BotaoDiscreto ccs={ccsVisiveis as any} />
         <FiltrosButton empresas={acesso.filterList('empresa', empresas)}
           filiais={acesso.filterList('filial', filiais)} ccs={ccsVisiveis}
           empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel}
@@ -944,7 +984,7 @@ export default function OrcamentoDashPage() {
         carregPess || !pess
           ? <div style={{ ...S.sec, textAlign: 'center', color: 'var(--muted)', padding: 48 }}>Calculando…</div>
           : <>
-              <VisaoPessoas S={S} linhas={pess} erro={erroPess} rotulo={versao(vBase)?.codigo ?? ''} ano={anoBase} />
+              <VisaoPessoas S={S} linhas={pessVis} erro={erroPess} rotulo={versao(vBase)?.codigo ?? ''} ano={anoBase} />
               {/* ⚠ Depois do que já existe, como grupo próprio: "quanto de
                   cada área é gente" descreve a empresa toda; a capacidade é
                   uma pergunta de UMA área. Misturar os dois faria a segunda
@@ -976,6 +1016,7 @@ export default function OrcamentoDashPage() {
           <QuemCausou S={S} linhas={linhas} nome={nome} bruto={dimBruto} empresas={empresas} ccs={ccs}
             resId={secPonte.resultado} componentes={secPonte.sel} invertido={origemAnalisado}
             rotOrigem={rotOrigem} rotDestino={rotDestino} dim={quemDim} setDim={setQuemDim}
+            restritos={restritos}
             ano={anoBase} dTotal={secPonte.resultado
               ? (pDestino?.[secPonte.resultado] ?? 0) - (pOrigem?.[secPonte.resultado] ?? 0) : 0} />
 
@@ -999,7 +1040,7 @@ export default function OrcamentoDashPage() {
           reescrever: ele abre a linha do relatório, desce pela árvore e chega
           ao razão. Aqui entra escopado ao CC ou à área clicada. */}
       {drill && (
-        <DrillModal relId={relId} versaoId={vBase} empIds={empFiltradas} anos={[anoBase!]} meses={meses}
+        <DrillModal relId={relId} versaoId={vBase} empIds={empFiltradas} anos={[anoBase!]} meses={meses} restritos={restritos}
           filFilter={filialFilter} ccFilter={drill.ccFilter !== undefined ? drill.ccFilter : ccFilter}
           startNodeId={drill.nodeId} slot={1} soOrcado={!drill.comReal} onClose={() => setDrill(null)} />
       )}
