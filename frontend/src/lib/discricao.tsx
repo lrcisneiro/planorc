@@ -28,6 +28,7 @@
 // acompanhamento e navegar para a análise não pode desligar sozinho.
 // ============================================================
 import { useSyncExternalStore } from 'react'
+import { EyeOff, Eye } from 'lucide-react'
 
 let ligado = false
 const inscritos = new Set<() => void>()
@@ -132,4 +133,37 @@ export function filtroSemRestritos(
   if (!restritos.size) return ccFilter
   const base = ccFilter ?? todos.map(c => c.id)
   return base.filter(id => !restritos.has(id))
+}
+
+
+/** Liga/desliga o modo discreto.
+ *
+ *  ⚠ Mora AQUI, junto da regra, e não no `DashFiltros`: ele nasceu lá porque
+ *  só os dashboards o usavam, e no dia em que Postos precisou do mesmo botão
+ *  a tela de gente teria de importar os filtros de dashboard para ter um
+ *  interruptor. Peça que atravessa seções pertence à `lib`.
+ *
+ *  ⚠ Só aparece quando existe CC restrito ALCANÇÁVEL por quem olha: para quem
+ *  não vê nenhum o botão não faria nada e ainda ocuparia a linha mais visível
+ *  da tela.
+ *  ⚠ `onde` entra no título: a máscara não cobre o produto inteiro, e um botão
+ *  que não diz onde vale promete mais do que entrega.
+ */
+export function BotaoDiscreto({ ccs, onde }: { ccs: CcRestr[]; onde?: string }) {
+  const on = useDiscreto()
+  if (!(ccs as any[]).some(c => c.restrito)) return null
+  const alcance = onde || 'nesta tela'
+  return (
+    <button onClick={() => setDiscreto(!on)} data-noexport
+      title={on
+        ? `Modo discreto LIGADO ${alcance}: o grão dos centros de custo restritos não aparece. Fora daqui — relatório, Orçar — ele continua à vista.`
+        : 'Modo discreto desligado: o grão dos centros de custo restritos está à vista. Ligue antes de projetar a tela.'}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13,
+               borderRadius: 6, cursor: 'pointer', fontWeight: 600,
+               border: '1px solid ' + (on ? 'var(--violet)' : 'var(--orange)'),
+               background: on ? 'rgba(139,92,246,0.16)' : 'rgba(251,191,36,0.14)',
+               color: on ? 'var(--violet)' : 'var(--orange)' }}>
+      {on ? <EyeOff size={13} /> : <Eye size={13} />} {on ? 'Discreto' : 'Grão à vista'}
+    </button>
+  )
 }

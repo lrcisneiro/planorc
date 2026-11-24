@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import type { CSSProperties, RefObject } from 'react'
-import { Filter, X, CalendarRange, Bookmark, Download, Image as ImageIcon, FileText, EyeOff, Eye } from 'lucide-react'
+import { Filter, X, CalendarRange, Bookmark, Download, Image as ImageIcon, FileText } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
@@ -8,7 +8,7 @@ import { supabase, TENANT_ID } from '../../lib/supabase'
 import { exportarPng, exportarPdf } from '../../lib/exportarDash'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { papelMaisAlto } from '../../lib/capacidades'
-import { useDiscreto, setDiscreto, idsRestritos, ccVisiveis } from '../../lib/discricao'
+import { useDiscreto, idsRestritos, ccVisiveis } from '../../lib/discricao'
 import { CompartilharCard, gravarAlvo } from './CompartilharCard'
 
 export type Item = { id: string; codigo: string; descricao: string }
@@ -198,30 +198,7 @@ export function PillsDim({ ccs, codKey, nomeKey, titulo, sel, setSel }: {
   )
 }
 
-/** Liga/desliga o modo discreto. Mora aqui porque ~10 dashboards importam
- *  deste arquivo — copiá-lo em cada um é o jeito de eles divergirem.
- *
- *  ⚠ Só aparece quando existe CC restrito no cadastro ALCANÇÁVEL por quem
- *  olha: para quem não vê nenhum, o botão não faria nada e ainda ocuparia a
- *  linha mais visível da tela.
- *  ⚠ `data-noexport` NÃO: o botão some do PNG/PDF como as outras barras, e o
- *  que sai exportado já vem mascarado porque a exportação rasteriza a tela. */
-export function BotaoDiscreto({ ccs }: { ccs: CC[] }) {
-  const on = useDiscreto()
-  const temRestrito = (ccs as any[]).some(c => c.restrito)
-  if (!temRestrito) return null
-  return (
-    <button onClick={() => setDiscreto(!on)} data-noexport
-      title={on
-        ? 'Modo discreto LIGADO: centros de custo restritos aparecem agregados em "Outros", sem drill nem razão. Vale nos dashboards — no relatório, em Orçar e em Postos o grão continua à vista.'
-        : 'Modo discreto desligado: o grão dos centros de custo restritos está à vista. Ligue antes de projetar a tela.'}
-      style={{ ...btn, borderColor: on ? 'var(--violet)' : 'var(--orange)',
-               background: on ? 'rgba(139,92,246,0.16)' : 'rgba(251,191,36,0.14)',
-               color: on ? 'var(--violet)' : 'var(--orange)', fontWeight: 600 }}>
-      {on ? <EyeOff size={13} /> : <Eye size={13} />} {on ? 'Discreto' : 'Grão à vista'}
-    </button>
-  )
-}
+export { BotaoDiscreto } from '../../lib/discricao'
 
 export function FiltrosButton({ empresas, filiais, ccs, empresaSel, setEmpresaSel, filialSel, setFilialSel, ccSel, setCcSel, areaSel, setAreaSel, divisaoSel, setDivisaoSel, buSel, setBuSel }: {
   empresas: Item[]; filiais: Item[]; ccs: CC[]

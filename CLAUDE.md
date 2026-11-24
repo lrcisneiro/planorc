@@ -1508,6 +1508,27 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   deliberado. O **desenho** mascara o grupo; o **filtro** não. Está no tooltip do botão, junto do
   aviso de que relatório, Orçar e Postos seguem com o grão à vista — **máscara parcial anunciada
   como proteção é pior que máscara nenhuma**.
+  ⚠⚠ **EM POSTOS O GRÃO É UMA PESSOA** (24/nov), e a regra muda de forma conforme o que o total
+  significa naquela tela:
+  · **Grade de Postos** — a LINHA some e os **KPIs ficam inteiros** (decisão do Ricardo): ali o
+    total é *"o quadro da empresa"*, e encolhê-lo faria a tela mostrar uma empresa menor do que é.
+    A soma das linhas fica menor que o topo **de propósito**, e a tela diz isso. Subtrair dá a
+    **média** dos ocultos, nunca o salário de alguém. ⚠ `tot` segue lendo `filtrados`, não
+    `listados` — "corrigir" isso faria o headcount discordar de toda outra tela.
+  · **Organograma, Memória e Folha realizada** — o corte entra **dentro do `filtrados`**, porque
+    tudo ali deriva dele e filtrar depois deixaria algum agregado lendo a lista cheia.
+  · **Conciliação** — o corte vai no **`ccFilter` pedido ao banco**, não no desenho: as três abas
+    comparam DOIS lados, e tirar linha de um só criaria **divergência de mentira** — o resíduo
+    acusaria uma diferença que não existe.
+  ⚠⚠ **O RATEIO É A PORTA DOS FUNDOS.** Um posto da Diretoria que rateia para um CC visível
+  aparece em *"Chegam por rateio"* com **nome e valor**, lidos de `dims` — funciona até para quem
+  não alcança o cadastro, e por isso passaria inteiro por uma máscara que só olhasse o cadastro.
+  Some pelo CC de **ORIGEM**.
+  ⚠ `ApontamentoPage` (o importador) fica de fora: é tela de carga, não de apresentação.
+  ⚠ **O botão mudou de casa**: nasceu em `DashFiltros` porque só os dashboards o usavam, e no dia
+  em que Postos precisou dele a tela de gente teria de importar os filtros de dashboard para ter
+  um interruptor. **Peça que atravessa seções pertence à `lib`** — hoje em `lib/discricao.tsx`,
+  com `DashFiltros` só reexportando.
   ⚠ A exportação PDF/PNG sai mascarada **sem código nenhum**: ela rasteriza a tela renderizada.
   ⚠ O modo **não entra no preset do card** — é sobre a sala, não sobre a análise, como a trilha
   da ponte.

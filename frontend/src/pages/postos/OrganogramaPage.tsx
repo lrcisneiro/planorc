@@ -8,6 +8,7 @@ import { resolverPessoas } from '../../lib/pessoaChave'
 import { useLocalPref } from '../../lib/uiPrefs'
 import { situacaoPosto, SeletorSituacao, corSit, tagSit, type Situacao } from '../../lib/situacaoPosto'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro, ModalPanel, Checklist } from '../dashboard/DashFiltros'
+import { BotaoDiscreto, useDiscreto, idsRestritos } from '../../lib/discricao'
 import { ChevronDown, ChevronRight, X, Maximize2, Minimize2, Pencil, Briefcase, Users } from 'lucide-react'
 
 // ============================================================
@@ -621,7 +622,7 @@ export default function OrganogramaPage() {
     try {
     const [pd, cd, gd, ed, fd, ad, qd] = await Promise.all([
       pageAll(() => supabase.from('posto_v').select('id,codigo,nome,matricula,cargo_id,cc_id,empresa_id,filial_id,fte,ativo,regime,area_func_id,funcionario_id,afast_ini_ano,afast_ini_mes,afast_fim_ano,afast_fim_mes,afast_motivo,sit_folha')),
-      pageAll(() => supabase.from('centro_custo').select('id,codigo,descricao,pai_id,area_nome,divisao_nome,bu_nome,area_cod,divisao_cod,bu_cod').eq('ativo', true).order('codigo')),
+      pageAll(() => supabase.from('centro_custo').select('id,codigo,descricao,pai_id,area_nome,divisao_nome,bu_nome,area_cod,divisao_cod,bu_cod,restrito').eq('ativo', true).order('codigo')),
       pageAll(() => supabase.from('cargo').select('id,nome')),
       supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => r.data || []),
       supabase.from('filial').select('id,codigo,descricao').order('codigo').then(r => r.data || []),
@@ -643,11 +644,20 @@ export default function OrganogramaPage() {
   // Filtro genérico (mesmo componente dos dashboards e da Memória) cruzado com
   // o escopo do usuário, mais um corte por cargo. `escopoFiltro` faz a
   // interseção: filtro de tela ∩ o que a pessoa pode ver.
+  // ⚠⚠ MODO DISCRETO: o posto de CC restrito sai da lista — aqui o grão é uma
+  // PESSOA, com nome, cargo e salário, e é isso que não pode ser projetado.
+  // ⚠ Entra DENTRO do `filtrados` de propósito: tudo nesta tela deriva dele,
+  // e filtrar depois deixaria algum agregado lendo a lista cheia. (Na grade de
+  // Postos é diferente: lá os KPIs ficam inteiros por decisão explícita.)
+  const discreto = useDiscreto()
+  const restritos = useMemo(() => idsRestritos(ccs as any, discreto), [ccs, discreto])
+
   const filtrados = useMemo(() => {
     const empF = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSeePessoas)
     const filF = escopoFiltro((filialSel.length && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSeePessoas)
     const ccF  = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSeePessoas)
     return postos.filter(p =>
+      !(restritos.size && p.cc_id && restritos.has(p.cc_id)) &&
       sits.includes(situacaoPosto(p)) &&
       (!empF || (p.empresa_id && empF.includes(p.empresa_id))) &&
       (!filF || (p.filial_id && filF.includes(p.filial_id))) &&
@@ -656,7 +666,7 @@ export default function OrganogramaPage() {
         ? cargoSel.includes(p.cargo_id || '')
         : !cargoSel.includes(p.cargo_id || ''))))
   }, [postos, sits, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, cargoSel, cargoModo,
-      empresas, filiais, ccs, acesso])
+      empresas, filiais, ccs, acesso, restritos])
 
   // Headcount: a regra de "quem é uma pessoa" mora em `resolverPessoas` — a
   // mesma que a grade usa, senão os dois números discordam. Não é matrícula:
@@ -904,6 +914,7 @@ export default function OrganogramaPage() {
         </div>
         <div style={S.fld}>
           <span style={S.lbl}>Filtros</span>
+          <BotaoDiscreto ccs={ccs as any} onde="nas telas de Postos" />
           <FiltrosButton empresas={acesso.filterList('empresa', empresas)} filiais={acesso.filterList('filial', filiais)}
                          ccs={acesso.filterList('centro_custo', ccs as any) as any}
                          empresaSel={empresaSel} setEmpresaSel={setEmpresaSel}

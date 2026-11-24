@@ -5,6 +5,7 @@ import { carregarVersoes } from '../../lib/escopoDados'
 import { PostosPills } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
+import { BotaoDiscreto, useDiscreto, idsRestritos } from '../../lib/discricao'
 import { calcularPosto, CATEGORIAS } from '../../lib/motorFolha'
 import { usePostoCtx } from '../../lib/postoCtx'
 import { pageAll } from '../../lib/pageAll'
@@ -86,7 +87,7 @@ export default function PostosMemoriaPage() {
       const [e, f, c, ct, vs, vb, si] = await Promise.all([
         supabase.from('empresa').select('id,codigo,descricao,pais').eq('ativo', true).order('codigo'),
         supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
-        supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
+        supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome,restrito').eq('ativo', true).order('codigo'),
         pageAll(() => supabase.from('conta_orcamentaria').select('id,codigo,descricao')),
         carregarVersoes().then(data => ({ data })),
         supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,calendario,verba_ref,conta_destino_id,incide_encargos,mantem_afastado,regime,pais,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
@@ -153,15 +154,23 @@ export default function PostosMemoriaPage() {
   // dali em diante ele é lembrado como antes.
   const [sits, setSits] = useLocalPref<Situacao[]>('planorc_memoria_situacoes_v2', ['ativo', 'afastado', 'ferias'])
 
+  // ⚠⚠ MODO DISCRETO: o posto de CC restrito sai da lista — aqui o grão é uma
+  // PESSOA, com nome, cargo e salário, e é isso que não pode ser projetado.
+  // ⚠ Entra DENTRO do `filtrados` de propósito: tudo nesta tela deriva dele,
+  // e filtrar depois deixaria algum agregado lendo a lista cheia. (Na grade de
+  // Postos é diferente: lá os KPIs ficam inteiros por decisão explícita.)
+  const discreto = useDiscreto()
+  const restritos = useMemo(() => idsRestritos(ccs as any, discreto), [ccs, discreto])
+
   const filtrados = useMemo(() => {
     const empF = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSeePessoas)
     const filF = escopoFiltro((filialSel.length && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSeePessoas)
     const ccF = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSeePessoas)
     const sEmp = empF ? new Set(empF) : null, sFil = filF ? new Set(filF) : null, sCc = ccF ? new Set(ccF) : null
     const q = busca.trim().toLowerCase()
-    return postos.filter(p => sits.includes(situacaoPosto(p as any)) && (!sEmp || sEmp.has(p.empresa_id)) && (!sFil || (p.filial_id != null && sFil.has(p.filial_id))) && (!sCc || (p.cc_id != null && sCc.has(p.cc_id)))
+    return postos.filter(p => !(restritos.size && p.cc_id && restritos.has(p.cc_id)) && sits.includes(situacaoPosto(p as any)) && (!sEmp || sEmp.has(p.empresa_id)) && (!sFil || (p.filial_id != null && sFil.has(p.filial_id))) && (!sCc || (p.cc_id != null && sCc.has(p.cc_id)))
       && (!q || [p.nome, p.codigo, p.cargo?.nome, p.centro_custo?.codigo, p.centro_custo?.descricao].some(x => (x || '').toLowerCase().includes(q))))
-  }, [postos, sits, busca, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs, acesso.loading]) // eslint-disable-line
+  }, [postos, sits, busca, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, empresas, filiais, ccs, acesso.loading, restritos]) // eslint-disable-line
 
   // agregados do escopo
   const agg = useMemo(() => {
@@ -218,6 +227,7 @@ export default function PostosMemoriaPage() {
           </select>
         </div>
         <div style={S.fld}><span style={S.lbl}>Filtros</span>
+          <BotaoDiscreto ccs={ccs as any} onde="nas telas de Postos" />
           <FiltrosButton empresas={acesso.filterPessoas('empresa', empresas)} filiais={acesso.filterPessoas('filial', filiais)} ccs={acesso.filterPessoas('centro_custo', ccs as any) as any}
             empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel}
             areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />

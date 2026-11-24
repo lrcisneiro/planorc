@@ -5,6 +5,7 @@ import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { PostosPills, usePassoLabel } from './PostosPills'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro, useMoedaView, MoedaSelect } from '../dashboard/DashFiltros'
+import { BotaoDiscreto, useDiscreto, idsRestritos, filtroSemRestritos } from '../../lib/discricao'
 import { ConciliacaoFolha } from './ConciliacaoFolha'
 import { ConciliacaoContabil } from './ConciliacaoContabil'
 import { ConciliacaoApontamento } from './ConciliacaoApontamento'
@@ -97,11 +98,25 @@ export default function ConciliacaoFolhaPage() {
   // aba que não existe mais neste tenant
   const abaSel: Aba = abaRaw === 'apontamento' && !flags.usa_apontamento ? 'orcado' : abaRaw
   const { moedas, slot: moedaSlot, setSlot: setMoedaSlot } = useMoedaView()
+
+
   const [versoes, setVersoes] = useState<any[]>([])
   const [versaoSel, setVersaoSel] = usePostoCtx('versaoId', '')
   const [empresas, setEmpresas] = useState<any[]>([])
   const [filiais, setFiliais] = useState<any[]>([])
   const [ccs, setCcs] = useState<any[]>([])
+
+  // ⚠⚠ NA CONCILIAÇÃO O CORTE VAI NO PEDIDO, NÃO NO DESENHO. As três abas
+  // comparam DOIS lados (folha × orçado, folha × contábil, folha ×
+  // apontamento); tirar linha só de um deles criaria divergência de mentira —
+  // o resíduo acusaria uma diferença que não existe. Recortando o `ccFilter`,
+  // os dois lados encolhem juntos e a conciliação continua verdadeira sobre o
+  // que está listado.
+  // ⚠ É a diferença para a grade de Postos, onde os KPIs ficam inteiros: lá o
+  // total é "o quadro da empresa"; aqui é a soma do que se está conciliando.
+  const discreto = useDiscreto()
+  const restritos = useMemo(() => idsRestritos(ccs as any, discreto), [ccs, discreto])
+  const ccDiscreto = (f: string[] | null) => filtroSemRestritos(f, ccs as any, restritos)
   const [comps, setComps] = useState<string[]>([])
   const [compSel, setCompSel] = usePostoCtx('compSel', '')
   const [empresaSel, setEmpresaSel] = usePostoCtx('empresaSel', [])
@@ -155,7 +170,7 @@ export default function ConciliacaoFolhaPage() {
         carregarVersoes().then(data => ({ data })),
         supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
         supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
-        supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
+        supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome,restrito').eq('ativo', true).order('codigo'),
         pageAll(() => supabase.from('fat_folha').select('ano,mes').eq('tipo', 'REALIZADO').order('ano', { ascending: false }).order('mes', { ascending: false })),
       ])
       setVersoes(v.data || []); if (v.data?.length) setVersaoSel(prev => v.data.some((x: any) => x.id === prev) ? prev : v.data[0].id)
@@ -178,7 +193,7 @@ export default function ConciliacaoFolhaPage() {
         versaoId: versaoSel, empresas: empEsc ?? empresas.map((x: any) => x.id),
         anos: [a], meses: [m],
         filialFilter: escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSee),
-        ccFilter: escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee),
+        ccFilter: ccDiscreto(escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee)),
         ccPermitidos: acesso.filterList('centro_custo', ccs as any).map((x: any) => x.id),
         slot: moedaSlot,
       }).catch(() => null)
@@ -198,7 +213,7 @@ export default function ConciliacaoFolhaPage() {
     // Quem cuida de gente da empresa inteira orça só o próprio centro.
     const empEsc = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSeePessoas)
     const filialFilter = escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSeePessoas)
-    const ccFilter = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSeePessoas)
+    const ccFilter = ccDiscreto(escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSeePessoas))
     return {
       titulo: linhasSel.length ? `${linhasSel.length} linha(s) do relatório` : 'Todas as contas',
       versaoId: versaoSel, versaoLabel: versoes.find(v => v.id === versaoSel)?.codigo || '',
@@ -223,7 +238,7 @@ export default function ConciliacaoFolhaPage() {
       ano: a, mes: m, versaoId: versaoSel, relatorioId: relSel, ref,
       empresaSel: escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSee) ?? [],
       filialFilter: escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSee),
-      ccFilter: escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee),
+      ccFilter: ccDiscreto(escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSee)),
     }
   }, [compSel, versaoSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, filiais, empresas, ccs, acesso.loading, relSel, ref]) // eslint-disable-line
 
@@ -239,7 +254,7 @@ export default function ConciliacaoFolhaPage() {
       ano: a, mes: m,
       empresaSel: escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSeePessoas) ?? [],
       filialFilter: escopoFiltro((filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais, 'filial', acesso.canSeePessoas),
-      ccFilter: escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSeePessoas),
+      ccFilter: ccDiscreto(escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSeePessoas)),
     }
   }, [compSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, filiais, empresas, ccs, acesso.loading]) // eslint-disable-line
 
@@ -290,6 +305,7 @@ export default function ConciliacaoFolhaPage() {
           <LinhasPicker linhas={ofertadas} sel={linhasSel} setSel={setLinhasSel} />
         </div></>}
         <div style={S.fld}><span style={S.lbl}>Filtros</span>
+          <BotaoDiscreto ccs={ccs as any} onde="nas telas de Postos" />
           <FiltrosButton empresas={acesso.filterPessoas('empresa', empresas)} filiais={acesso.filterPessoas('filial', filiais)} ccs={acesso.filterPessoas('centro_custo', ccs as any) as any}
             empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel}
             areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />

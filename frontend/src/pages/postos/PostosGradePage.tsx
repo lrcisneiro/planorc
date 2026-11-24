@@ -8,6 +8,7 @@ import { nomeCurto } from '../../lib/nomePessoa'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
+import { BotaoDiscreto, useDiscreto, idsRestritos } from '../../lib/discricao'
 import { calcularPosto, regimeAplica, paisAplica, verbasDoRegime, CATEGORIAS } from '../../lib/motorFolha'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
 import { ClipboardCheck, Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil, Undo2 } from 'lucide-react'
@@ -293,7 +294,7 @@ export default function PostosGradePage() {
     const [e, f, c, cg, vs, vb, si, rr, rd, af] = await Promise.all([
       supabase.from('empresa').select('id,codigo,descricao,pais').eq('ativo', true).order('codigo'),
       supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
-      supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
+      supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome,restrito').eq('ativo', true).order('codigo'),
       pageAll(() => supabase.from('cargo').select('id,codigo,nome,sub_cod,ativo').order('nome')).then(data => ({ data })),
       carregarVersoes('id,codigo,ano,descricao,bloqueada,aprovado_em,aprovado_por,aprovacao_nota,origem_versao_id').then(data => ({ data })),
       supabase.from('verba_folha').select('id,codigo,descricao,tipo_calculo,parametro,calendario,verba_ref,conta_destino_id,incide_encargos,mantem_afastado,regime,pais,ordem,categoria').eq('ativo', true).order('ordem', { nullsFirst: false }),
@@ -1537,15 +1538,35 @@ export default function PostosGradePage() {
     return m
   }, [chegRaw])
 
+  const discreto = useDiscreto()
+  const restritos = useMemo(() => idsRestritos(ccs as any, discreto), [ccs, discreto])
+
   const chegadas = useMemo(() => {
     if (!verRateio) return []
     const aqui = new Set(filtrados.map(p => p.id))
     const byId = new Map(postos.map(p => [p.id, p]))
     return chegRaw
+      // ⚠⚠ O RATEIO É A PORTA DOS FUNDOS: um posto da Diretoria que rateia
+      // para um CC visível aparece aqui com NOME e VALOR, vindo de `dims` —
+      // funciona até para quem não alcança o cadastro, e por isso passaria
+      // inteiro pela máscara da grade. Some pelo CC de ORIGEM.
+      .filter(c => !(restritos.size && byId.get(c.pid)?.cc_id && restritos.has(byId.get(c.pid)!.cc_id!)))
       .filter(c => !aqui.has(c.pid) && c.ano)
       .map(c => ({ ...c, posto: byId.get(c.pid) || null }))   // null = RLS não deixa ler o cadastro
       .sort((a, b) => b.ano - a.ano)
-  }, [verRateio, chegRaw, filtrados, postos])
+  }, [verRateio, chegRaw, filtrados, postos, restritos])
+
+  // ⚠⚠ MODO DISCRETO EM POSTOS: a LINHA some, o KPI NÃO. Aqui o grão é uma
+  // PESSOA — nome, cargo e salário —, e é isso que não pode ser projetado.
+  // Os totais do topo continuam os do quadro inteiro (decisão do Ricardo,
+  // 24/nov), que é a mesma invariante dos dashboards: o grão some, o total
+  // fica. Subtrair dá a MÉDIA dos ocultos, nunca o salário de alguém.
+  // ⚠ `tot` segue lendo `filtrados`, de propósito. Se um dia alguém "corrigir"
+  // isso para `listados`, o headcount passa a discordar de toda outra tela.
+  const listados = useMemo(
+    () => restritos.size ? filtrados.filter(p => !(p.cc_id && restritos.has(p.cc_id))) : filtrados,
+    [filtrados, restritos])
+  const naoListados = filtrados.length - listados.length
 
   const grupos = useMemo(() => {
     const porCc = agruparPor === 'cc'
@@ -1556,16 +1577,16 @@ export default function PostosGradePage() {
     // precisar de um segundo caminho.
     if (agruparPor === 'nenhum') {
       const todos = colOrdem
-        ? [...filtrados].sort((a, b) => {
+        ? [...listados].sort((a, b) => {
             const x = valorDe(a, colOrdem!), y = valorDe(b, colOrdem!)
             return sinal0 * (typeof x === 'number' && typeof y === 'number'
               ? x - y : String(x).localeCompare(String(y), 'pt-BR'))
           })
-        : filtrados
+        : listados
       return [{ key: '__todos', cod: '', desc: 'Todos os postos', postos: todos, custoAno: custo(todos) }]
     }
     const m = new Map<string, { key: string; cod: string; desc: string; postos: Posto[] }>()
-    for (const p of filtrados) {
+    for (const p of listados) {
       const k = (porCc ? p.cc_id : p.cargo_id) || '__sem'
       if (!m.has(k)) m.set(k, {
         key: k, cod: porCc ? (p.centro_custo?.codigo || '') : '',
@@ -1590,7 +1611,7 @@ export default function PostosGradePage() {
         : g.postos,
     }))
     return ordenados.sort((a, b) => (a.cod || a.desc || 'zzz').localeCompare(b.cod || b.desc || 'zzz'))
-  }, [filtrados, agruparPor, custos, ordem]) // eslint-disable-line
+  }, [listados, agruparPor, custos, ordem]) // eslint-disable-line
   const toggle = (k: string) => setFechados(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
   const gruposKeys = useMemo(() => grupos.map(g => 'a:' + g.key), [grupos])
   const algumAberto = gruposKeys.some(k => !fechados.has(k))
@@ -1867,6 +1888,9 @@ export default function PostosGradePage() {
           </div>
         </div>
         <div style={S.fld}><span style={S.lbl}>Filtros</span>
+          <div style={S.fld}><span style={S.lbl}>&nbsp;</span>
+            <BotaoDiscreto ccs={ccs as any} onde="no quadro, no organograma e na memória" />
+          </div>
           <FiltrosButton
             empresas={acesso.filterPessoas('empresa', empresas)} filiais={acesso.filterPessoas('filial', filiais)} ccs={acesso.filterPessoas('centro_custo', ccs as any) as any}
             empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel}
@@ -2063,6 +2087,18 @@ export default function PostosGradePage() {
               zerados" para conferir a lista.
             </div>
           )}
+          {/* ⚠ O corte é DITO e SEM o valor — quantos postos, nunca quanto
+              custam. E diz que os KPIs continuam inteiros, senão quem soma a
+              grade e compara com o topo acha defeito. */}
+          {naoListados > 0 && (
+            <div style={{ fontSize: 12.5, color: 'var(--violet)', background: 'rgba(139,92,246,0.10)',
+                          border: '1px solid rgba(139,92,246,0.40)', borderRadius: 10,
+                          padding: '10px 13px', marginBottom: 14, lineHeight: 1.65 }}>
+              <b>Modo discreto.</b> {naoListados} posto(s) de centro de custo restrito não
+              aparecem na grade. <b>Os KPIs acima seguem inteiros</b> — são do quadro todo —,
+              então a soma das linhas é menor que o total, de propósito.
+            </div>
+          )}
           {verRateio && (
             <div style={{ fontSize: 12.5, color: 'var(--text)', background: 'rgba(139,92,246,0.10)',
                           border: '1px solid rgba(139,92,246,0.40)', borderRadius: 10,
@@ -2145,7 +2181,7 @@ export default function PostosGradePage() {
                   </Fragment>
                 )
               })}
-              {!filtrados.length && <tr><td colSpan={nCols} style={S.empty}>
+              {!listados.length && <tr><td colSpan={nCols} style={S.empty}>
                 {postos.length ? 'Nenhum posto para o filtro.'
                   : podeImportar ? 'Nenhum posto ainda. Use "Importar postos (RH)" para carregar do cadastro convertido.'
                   : 'Nenhum posto ainda — a carga do RH é feita por quem tem essa permissão.'}

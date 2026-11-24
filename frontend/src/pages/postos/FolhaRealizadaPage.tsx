@@ -11,6 +11,7 @@ import { fimDoMes, taxaRealizada, materializa } from '../../lib/cambio'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
+import { BotaoDiscreto, useDiscreto, idsRestritos } from '../../lib/discricao'
 import { Upload, CheckCircle2, AlertCircle, ChevronDown, ChevronRight, Search, X, FileDown, Trash2 } from 'lucide-react'
 
 // Folha realizada (F5.2, pill 3) — importa fat_folha do folha_realizada.csv e lista
@@ -131,7 +132,7 @@ export default function FolhaRealizadaPage() {
       const [e, f, c] = await Promise.all([
         supabase.from('empresa').select('id,codigo,descricao').eq('ativo', true).order('codigo'),
         supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
-        supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome').eq('ativo', true).order('codigo'),
+        supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome,restrito').eq('ativo', true).order('codigo'),
       ])
       setEmpresas(e.data || []); setFiliais(f.data || []); setCcs(c.data || [])
       supabase.from('moeda').select('slot,codigo').eq('ativo', true).order('slot').then(r => setMoedas(r.data || []))
@@ -176,14 +177,22 @@ export default function FolhaRealizadaPage() {
     } finally { setExcluindo(false) }
   }
 
+  // ⚠⚠ MODO DISCRETO: o posto de CC restrito sai da lista — aqui o grão é uma
+  // PESSOA, com nome, cargo e salário, e é isso que não pode ser projetado.
+  // ⚠ Entra DENTRO do `filtrados` de propósito: tudo nesta tela deriva dele,
+  // e filtrar depois deixaria algum agregado lendo a lista cheia. (Na grade de
+  // Postos é diferente: lá os KPIs ficam inteiros por decisão explícita.)
+  const discreto = useDiscreto()
+  const restritos = useMemo(() => idsRestritos(ccs as any, discreto), [ccs, discreto])
+
   const filtrados = useMemo(() => {
     const empF = escopoFiltro(empresaSel.length ? empresaSel : null, empresas, 'empresa', acesso.canSeePessoas)
     const ccF = escopoFiltro(effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo', acesso.canSeePessoas)
     const sEmp = empF ? new Set(empF) : null, sCc = ccF ? new Set(ccF) : null
     const q = busca.trim().toLowerCase()
-    return rows.filter(r => (!sEmp || sEmp.has(r.empresa_id)) && (!sCc || (r.cc_id != null && sCc.has(r.cc_id)))
+    return rows.filter(r => !(restritos.size && r.cc_id && restritos.has(r.cc_id)) && (!sEmp || sEmp.has(r.empresa_id)) && (!sCc || (r.cc_id != null && sCc.has(r.cc_id)))
       && (!q || (r.nome || '').toLowerCase().includes(q) || (r.matricula || '').toLowerCase().includes(q)))
-  }, [rows, busca, empresaSel, ccSel, areaSel, divisaoSel, buSel, empresas, ccs, acesso.loading]) // eslint-disable-line
+  }, [rows, busca, empresaSel, ccSel, areaSel, divisaoSel, buSel, empresas, ccs, acesso.loading, restritos]) // eslint-disable-line
 
   const empById = useMemo(() => new Map(empresas.map(e => [e.id, e])), [empresas])
   const filById = useMemo(() => new Map(filiais.map(f => [f.id, f])), [filiais])
@@ -485,6 +494,7 @@ export default function FolhaRealizadaPage() {
           )}
         </div>
         <div style={S.fld}><span style={S.lbl}>Filtros</span>
+          <BotaoDiscreto ccs={ccs as any} onde="nas telas de Postos" />
           <FiltrosButton empresas={acesso.filterPessoas('empresa', empresas)} filiais={acesso.filterPessoas('filial', filiais)} ccs={acesso.filterPessoas('centro_custo', ccs as any) as any}
             empresaSel={empresaSel} setEmpresaSel={setEmpresaSel} filialSel={filialSel} setFilialSel={setFilialSel} ccSel={ccSel} setCcSel={setCcSel}
             areaSel={areaSel} setAreaSel={setAreaSel} divisaoSel={divisaoSel} setDivisaoSel={setDivisaoSel} buSel={buSel} setBuSel={setBuSel} />
