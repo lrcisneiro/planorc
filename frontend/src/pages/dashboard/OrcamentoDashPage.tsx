@@ -18,7 +18,7 @@ import { supabase } from '../../lib/supabase'
 import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { totaisRelatorio, totaisRelatorioMes } from '../../lib/relatorioTotais'
-import { useDiscreto, idsRestritos, ROTULO_OUTROS } from '../../lib/discricao'
+import { useDiscreto, idsRestritos, ROTULO_OUTROS, DOMINANCIA } from '../../lib/discricao'
 import { COLS_LINHA, emArvore, fatorExibicao, linhasConciliaveis, type LinhaRel } from '../../lib/refRelatorio'
 import { Ponte, componentesDe } from '../../lib/Ponte'
 import {
@@ -411,10 +411,10 @@ export default function OrcamentoDashPage() {
   // tarde de quem acredita nela.
   const [erroPess, setErroPess] = useState<string | null>(null)
   const [pessRestr, setPessRestr] = useState<any[]>([])   // a parcela restrita, por área — ver abaixo
-  // ⚠⚠ ÁREA CUJO VALOR É TODO RESTRITO vira "Outros". Em magnitude, com 0,1%
-  // de tolerância: o que importa é "na prática é só isso", não a igualdade
-  // exata — um CC irrelevante junto não deixa de revelar o número. E
-  // |valor|, porque uma área com +100 restrito e −100 livre soma zero e
+  // ⚠⚠ ÁREA DOMINADA por CC restrito vira "Outros" — a mesma regra de
+  // `discricao.ts`, 80% em magnitude. Aqui também a 1ª versão exigiu 99,9% e
+  // a área 4 "Diretoria" passou batida por R$ 66.955 num CC legado.
+  // ⚠ |valor|, porque uma área com +100 restrito e −100 livre soma zero e
   // passaria pelo teste ingênuo.
   // ⚠ A máscara é de EXIBIÇÃO: as linhas continuam somando no total da aba,
   // que é o que não pode mudar. Só o RÓTULO delas muda.
@@ -423,7 +423,7 @@ export default function OrcamentoDashPage() {
     const mag = (arr: any[]) => { const m: Record<string, number> = {}
       for (const l of arr) m[l.area_nome || ''] = (m[l.area_nome || ''] || 0) + Math.abs(Number(l.valor) || 0); return m }
     const todo = mag(pess as any[]), rest = mag(pessRestr)
-    const mascarar = new Set(Object.keys(rest).filter(a => todo[a] > 0 && rest[a] >= todo[a] * 0.999))
+    const mascarar = new Set(Object.keys(rest).filter(a => todo[a] > 0 && rest[a] >= todo[a] * DOMINANCIA))
     if (!mascarar.size) return pess
     return (pess as any[]).map((l: any) => mascarar.has(l.area_nome || '') ? { ...l, area_nome: ROTULO_OUTROS } : l)
   }, [pess, pessRestr, restritos])

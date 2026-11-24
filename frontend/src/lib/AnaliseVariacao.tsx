@@ -16,7 +16,7 @@
 import { useEffect, useMemo, useState, Fragment } from 'react'
 import { ChevronDown, ChevronUp, Download } from 'lucide-react'
 import { downloadSheet } from './planilha'
-import { ROTULO_OUTROS, grupoTodoRestrito } from './discricao'
+import { ROTULO_OUTROS, grupoDominado } from './discricao'
 import { type LinhaRel } from './refRelatorio'
 import { computeTotais, pkey, type Computed, type LinhaCalc, type Periodo } from './engine'
 import { type CC } from '../pages/dashboard/DashFiltros'
@@ -285,10 +285,10 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
         return n || `(sem ${dim === 'area' ? 'área' : dim === 'divisao' ? 'divisão' : 'BU'})`
       }
       // ⚠⚠ MODO DISCRETO. No grão de CC o restrito cai direto em "Outros".
-      // Nas dimensões agregadas (área/divisão/BU) o grupo só é mascarado
-      // quando TODO o valor dele vem de CC restrito — medido, a área 4
-      // "Diretoria" é exatamente isso, e conferir por CONTAGEM de CCs diria
-      // que ela "mistura" e a deixaria exposta.
+      // Nas dimensões agregadas (área/divisão/BU) vale a REGRA DE DOMINÂNCIA
+      // (ver `discricao.ts`): o grupo é mascarado quando os restritos
+      // respondem por 80%+ do valor dele. Exigir 100% deixou a área 4
+      // "Diretoria" à vista por causa de R$ 66.955 num CC legado.
       const r: Set<string> = restritos || new Set()
       const peso: Record<string, Record<string, number>> = {}   // label → ccId → |valor|
       for (const id in bruto.cc) {
@@ -302,7 +302,7 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
       }
       if (r.size && dim !== 'cc') {
         for (const lbl in peso) {
-          if (lbl === ROTULO_OUTROS || !grupoTodoRestrito(peso[lbl], r)) continue
+          if (lbl === ROTULO_OUTROS || !grupoDominado(peso[lbl], r)) continue
           const m = out[lbl]; delete out[lbl]; junta(ROTULO_OUTROS, m)
         }
       }

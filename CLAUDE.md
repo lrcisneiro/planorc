@@ -1436,12 +1436,25 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠⚠ **O BALDE CHAMA-SE "Outros" e é o MESMO dos gráficos**, nunca "restrito": nome próprio
   convida à subtração (`total − visíveis`), e misturado com os CCs pequenos legítimos a conta
   não fecha para quem assiste.
-  ⚠⚠ **GRUPO DE DIMENSÃO cujo valor venha TODO de CC restrito também é mascarado — e a medição
-  é por VALOR, não por contagem.** Medido: a área 4 "Diretoria" tem **4 CCs cadastrados** e
-  **todo o valor dela é do 411** (−6.859.342 de −6.859.342; os outros três estão zerados).
-  Conferir por contagem diria que ela "mistura" e a deixaria exposta — foi o que a minha primeira
-  conferência fez. Tolerância de 0,1% e em **magnitude**: um grupo com +100 restrito e −100 livre
-  soma zero e passaria no teste ingênuo.
+  ⚠⚠ **GRUPO DE DIMENSÃO dominado por CC restrito também é mascarado — por VALOR, nunca por
+  contagem.** Medido: a área 4 "Diretoria" tem **4 CCs cadastrados** e o valor é praticamente
+  todo do 411. Conferir por contagem diria que ela "mistura" e a deixaria exposta — foi o que a
+  minha primeira conferência fez. Em **magnitude**: um grupo com +100 restrito e −100 livre soma
+  zero e passaria no teste ingênuo.
+  ⚠⚠ **O LIMIAR DE 99,9% FALHOU NO PRIMEIRO USO REAL (`v3_203`, 24/nov).** Com o modo ligado, o
+  *Quem causou* por ÁREA seguia mostrando **Diretoria** separada. Medido na área 4 em 2026:
+  `411` tem −14,7 mi de realizado e `400 Diretoria(Legado)` tem **−66.955** fora da marca — a
+  parte livre é **0,33%**, abaixo da tolerância. **Um lançamento perdido num CC legado
+  desmascarava um grupo de R$ 14 milhões**: controle que falha aberto no ruído não é controle.
+  Hoje vale a **regra de dominância** (`DOMINANCIA = 0.80`), que é a *dominance rule* do controle
+  estatístico de divulgação — célula sensível quando poucos contribuintes respondem por mais de
+  k% dela, k usual entre 70 e 90. Medido: área 4 = **98,56%**, Comercial 2,09%, Serviços 1,97%,
+  divisões Novos/Base 3,23%/1,45% — **a escolha não fica sentada numa borda**.
+  ⚠ Custo aceito: um grupo 85% restrito é mascarado inteiro e os 15% legítimos perdem a quebra.
+  O **valor não some** — vai em "Outros".
+  ⚠ E o conserto do limiar **não dispensa o cadastro**: a `v3_203` marca os outros CCs da área 4
+  (todos chamados "Diretoria"), deixando-a 100% restrita e independente de limiar. Um resolve o
+  caso que ainda não aconteceu, o outro o que já existe.
   ⚠ Por isso **a área NÃO é marcada no cadastro**: a regra é derivada e continua valendo se
   alguém criar um CC novo ali. Marcar à mão seria um segundo lugar dizendo a mesma coisa.
   ⚠ **`centro_custo.restrito` é cadastro**, semeado uma vez com `411 · 210 · 220 · 310 · 320`

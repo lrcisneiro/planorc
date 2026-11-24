@@ -58,13 +58,13 @@ export function idsRestritos(ccs: CcRestr[], on: boolean): Set<string> {
 
 export const ROTULO_OUTROS = 'Outros'
 
-/** Soma num único item "Outros" tudo o que cair em CC restrito.
- *  `ccsDe` devolve os CCs que compõem a linha — uma barra do gráfico por
- *  nível 2 agrega vários, e a linha só é mascarada quando **todos** são
- *  restritos (é a mesma regra do grupo de dimensão, um nível abaixo). */
+/** Soma num único item "Outros" toda linha DOMINADA por CC restrito.
+ *  `pesosDe` devolve `{ ccId: |valor| }` da linha — uma barra do gráfico por
+ *  nível 2 agrega vários CCs, e a decisão é a mesma de um grupo de dimensão,
+ *  um nível abaixo. */
 export function mascararLinhas<T>(
   linhas: T[],
-  ccsDe: (l: T) => string[],
+  pesosDe: (l: T) => Record<string, number>,
   restritos: Set<string>,
   juntar: (acc: T | null, l: T) => T,
 ): { linhas: T[]; ocultadas: number } {
@@ -72,9 +72,7 @@ export function mascararLinhas<T>(
   const fora: T[] = []
   let balde: T | null = null
   for (const l of linhas) {
-    const cs = ccsDe(l)
-    const todoRestrito = cs.length > 0 && cs.every(c => restritos.has(c))
-    if (todoRestrito) balde = juntar(balde, l)
+    if (grupoDominado(pesosDe(l), restritos)) balde = juntar(balde, l)
     else fora.push(l)
   }
   if (balde === null) return { linhas, ocultadas: 0 }
@@ -82,12 +80,29 @@ export function mascararLinhas<T>(
   return { linhas: [...fora, balde], ocultadas: n }
 }
 
-/** Um grupo (área, divisão, BU, nível 2 do CC…) é mascarado quando **todo o
- *  valor dele** vem de CC restrito. Tolerância de 0,1% porque o que importa é
- *  "na prática é só isso", não a igualdade exata — um CC irrelevante junto não
- *  deixa de revelar o número.
+/** ⚠⚠ REGRA DE DOMINÂNCIA — não "todo o valor".
+ *  Um grupo (área, divisão, BU, nível 2 do CC…) é mascarado quando os CCs
+ *  restritos **dominam** o valor dele: mostrá-lo é mostrar o número que se
+ *  queria esconder.
+ *
+ *  A 1ª versão exigia 99,9% — equivalência exata com folga de arredondamento —
+ *  e **falhou no primeiro uso real**: a área 4 "Diretoria" tem R$ 14,7 mi no
+ *  CC 411 e **R$ 66.955 num CC legado** fora da marca, o que dá 99,67% e a
+ *  deixou à vista inteira. **Um lançamento perdido desmascarava um grupo de
+ *  R$ 14 mi** — controle que falha aberto no ruído não é controle.
+ *
+ *  80% é a *dominance rule* do controle estatístico de divulgação (uma célula
+ *  é sensível quando poucos contribuintes respondem por mais de k% dela, com k
+ *  usual entre 70 e 90). Medido nesta base: área 4 = **98,56%**, Comercial =
+ *  2,09%, Serviços = 1,97%, divisões Novos/Base = 3,23%/1,45% — a escolha não
+ *  fica sentada numa borda.
+ *  ⚠ O custo é conhecido e aceito: um grupo 85% restrito é mascarado inteiro,
+ *  e os 15% legítimos perdem o detalhe. O **valor não se perde** — vai em
+ *  "Outros" —, o que se perde é a quebra dele.
  *  ⚠ `|valor|`: um grupo com +100 restrito e −100 livre soma zero e passaria. */
-export function grupoTodoRestrito(
+export const DOMINANCIA = 0.80
+
+export function grupoDominado(
   porCc: Record<string, number>,
   restritos: Set<string>,
 ): boolean {
@@ -98,7 +113,7 @@ export function grupoTodoRestrito(
     tot += v
     if (restritos.has(id)) rest += v
   }
-  return tot > 0 && rest >= tot * 0.999
+  return tot > 0 && rest >= tot * DOMINANCIA
 }
 
 /** A lista de CCs que o seletor de filtros deve oferecer.

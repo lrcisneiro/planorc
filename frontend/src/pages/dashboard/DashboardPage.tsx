@@ -231,9 +231,9 @@ export default function DashboardPage() {
   const restritos = useMemo(() => idsRestritos(ccs as any, discreto), [ccs, discreto])
   // Uma barra do gráfico é o NÍVEL 2 e agrega vários CCs; só vira "Outros"
   // quando TODOS os dela são restritos — a mesma regra do grupo de dimensão.
-  const mascararBarras = (arr: any[]) => mascararLinhas<any>(arr, b => (b._ccs || []), restritos,
+  const mascararBarras = (arr: any[]) => mascararLinhas<any>(arr, b => (b._pes || {}), restritos,
     (acc, b) => acc
-      ? { ...acc, 'Orçado': acc['Orçado'] + b['Orçado'], 'Realizado': acc['Realizado'] + b['Realizado'], 'Δ': acc['Δ'] + b['Δ'], _ccs: [...acc._ccs, ...b._ccs] }
+      ? { ...acc, 'Orçado': acc['Orçado'] + b['Orçado'], 'Realizado': acc['Realizado'] + b['Realizado'], 'Δ': acc['Δ'] + b['Δ'], _ccs: [...acc._ccs, ...b._ccs], _pes: { ...acc._pes, ...b._pes } }
       : { ...b, cc: ROTULO_OUTROS })
   // ⚠ O cartão ARRASTA e agora também ABRE. O `click` do HTML5 drag não é
   // confiável como separador (alguns navegadores o emitem depois do drop), e
@@ -280,6 +280,8 @@ export default function DashboardPage() {
   const recCcVis  = useMemo(() => mascararBarras(recCcBar),  [recCcBar, restritos])    // eslint-disable-line
   // ⚠ A barra "Outros" NÃO abre: ela é um balde, e abrir entregaria no drill
   // exatamente o grão que a barra agregou para esconder.
+  // ⚠ A barra "Outros" NÃO abre, e basta UM CC restrito nela: o drill não
+  // agrega, ele lista — e listaria exatamente o grão que a barra escondeu.
   const podeDrill = (ids: string[]) => !ids.some(id => restritos.has(id))
   const [temDados, setTemDados] = useState(false)
   const [drill, setDrill] = useState<{ nodeId: string; meses?: number[]; ccFilter?: string[] | null } | null>(null)
@@ -568,8 +570,11 @@ export default function DashboardPage() {
       const recMesT: Record<number, number> = {}, despMesT: Record<number, number> = {}  // 3
       const recAreaB: Record<string, { o: number; r: number }> = {}         // 2
       const despAreaB: Record<string, { o: number; r: number }> = {}        // 4
-      const despCcB: Record<string, { o: number; r: number; ccs: Set<string> }> = {}   // 5 (despesa nível 2 do CC)
-      const recCcB: Record<string, { o: number; r: number; ccs: Set<string> }> = {}    // 6 (receita nível 2 do CC)
+      // ⚠ `pes` = magnitude por CC dentro da barra. A barra é o NÍVEL 2 e
+      // agrega vários CCs; a regra de dominância do modo discreto precisa
+      // saber quanto de cada um, não só quais são (ver `lib/discricao.ts`).
+      const despCcB: Record<string, { o: number; r: number; ccs: Set<string>; pes: Record<string, number> }> = {}   // 5 (despesa nível 2 do CC)
+      const recCcB: Record<string, { o: number; r: number; ccs: Set<string>; pes: Record<string, number> }> = {}    // 6 (receita nível 2 do CC)
       for (const row of ccAggRows) {
         if (!leafMasters.has(row.linha_id)) continue   // só folhas válidas (igual ao card; exclui desativada/não-soma)
         const nat = natByMaster[row.linha_id]
@@ -583,11 +588,13 @@ export default function DashboardPage() {
           ;(recAreaMesAOrc[area] = recAreaMesAOrc[area] || {})[row.mes] = (recAreaMesAOrc[area]?.[row.mes] || 0) + od
           recMesT[row.mes] = (recMesT[row.mes] || 0) + rd
           const b = (recAreaB[area] = recAreaB[area] || { o: 0, r: 0 }); b.o += od; b.r += rd
-          const cnr = nivel2De(row.cc_id); const bcr = (recCcB[cnr] = recCcB[cnr] || { o: 0, r: 0, ccs: new Set<string>() }); bcr.o += od; bcr.r += rd; if (row.cc_id) bcr.ccs.add(row.cc_id)
+          const cnr = nivel2De(row.cc_id); const bcr = (recCcB[cnr] = recCcB[cnr] || { o: 0, r: 0, ccs: new Set<string>(), pes: {} }); bcr.o += od; bcr.r += rd
+          if (row.cc_id) { bcr.ccs.add(row.cc_id); bcr.pes[row.cc_id] = (bcr.pes[row.cc_id] || 0) + Math.abs(od) + Math.abs(rd) }
         } else {
           despMesT[row.mes] = (despMesT[row.mes] || 0) + rd
           const b = (despAreaB[area] = despAreaB[area] || { o: 0, r: 0 }); b.o += od; b.r += rd
-          const cn = nivel2De(row.cc_id); const bc = (despCcB[cn] = despCcB[cn] || { o: 0, r: 0, ccs: new Set<string>() }); bc.o += od; bc.r += rd; if (row.cc_id) bc.ccs.add(row.cc_id)
+          const cn = nivel2De(row.cc_id); const bc = (despCcB[cn] = despCcB[cn] || { o: 0, r: 0, ccs: new Set<string>(), pes: {} }); bc.o += od; bc.r += rd
+          if (row.cc_id) { bc.ccs.add(row.cc_id); bc.pes[row.cc_id] = (bc.pes[row.cc_id] || 0) + Math.abs(od) + Math.abs(rd) }
         }
       }
       const mesesOrd = [...meses].sort((a, b) => a - b)
@@ -608,8 +615,8 @@ export default function DashboardPage() {
         .map(([k, v]) => ({ [key]: k, 'Orçado': Math.round(v.o), 'Realizado': Math.round(v.r), 'Δ': Math.round(v.r - v.o) }))
         .sort((a, b) => (b['Realizado'] as number) - (a['Realizado'] as number))
       const recAreaBarD = barDe(recAreaB, 'area'), despAreaBarD = barDe(despAreaB, 'area')
-      const ccBar = (acc: Record<string, { o: number; r: number; ccs: Set<string> }>) => Object.entries(acc).filter(([, v]) => v.o || v.r)
-        .map(([k, v]) => ({ cc: k, 'Orçado': Math.round(v.o), 'Realizado': Math.round(v.r), 'Δ': Math.round(v.r - v.o), _ccs: [...v.ccs] }))
+      const ccBar = (acc: Record<string, { o: number; r: number; ccs: Set<string>; pes: Record<string, number> }>) => Object.entries(acc).filter(([, v]) => v.o || v.r)
+        .map(([k, v]) => ({ cc: k, 'Orçado': Math.round(v.o), 'Realizado': Math.round(v.r), 'Δ': Math.round(v.r - v.o), _ccs: [...v.ccs], _pes: v.pes }))
         .sort((a, b) => String(a.cc).localeCompare(String(b.cc), 'pt-BR', { numeric: true }))   // ordena pelo rótulo do eixo X (nível 2)
       const despCcBarD = ccBar(despCcB), recCcBarD = ccBar(recCcB)
 
