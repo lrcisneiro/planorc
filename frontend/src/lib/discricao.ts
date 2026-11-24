@@ -58,26 +58,25 @@ export function idsRestritos(ccs: CcRestr[], on: boolean): Set<string> {
 
 export const ROTULO_OUTROS = 'Outros'
 
-/** Soma num único item "Outros" toda linha DOMINADA por CC restrito.
+/** Tira da lista toda linha DOMINADA por CC restrito.
  *  `pesosDe` devolve `{ ccId: |valor| }` da linha — uma barra do gráfico por
  *  nível 2 agrega vários CCs, e a decisão é a mesma de um grupo de dimensão,
- *  um nível abaixo. */
-export function mascararLinhas<T>(
+ *  um nível abaixo.
+ *
+ *  ⚠⚠ SOME, NÃO VIRA BALDE. A 1ª versão somava tudo num item "Outros", e o
+ *  Ricardo apontou o óbvio vendo a tela: **com um grupo só mascarado, o balde
+ *  É o valor restrito** — esconder numa linha chamada "Outros" é publicá-lo
+ *  com outro nome. O balde só diluiria se houvesse vários grupos pequenos
+ *  caindo nele, e não há.
+ *  ⚠ Quem chama DIZ quantas saíram — nunca quanto somam. */
+export function removerDominadas<T>(
   linhas: T[],
   pesosDe: (l: T) => Record<string, number>,
   restritos: Set<string>,
-  juntar: (acc: T | null, l: T) => T,
 ): { linhas: T[]; ocultadas: number } {
   if (!restritos.size) return { linhas, ocultadas: 0 }
-  const fora: T[] = []
-  let balde: T | null = null
-  for (const l of linhas) {
-    if (grupoDominado(pesosDe(l), restritos)) balde = juntar(balde, l)
-    else fora.push(l)
-  }
-  if (balde === null) return { linhas, ocultadas: 0 }
-  const n = linhas.length - fora.length
-  return { linhas: [...fora, balde], ocultadas: n }
+  const fora = linhas.filter(l => !grupoDominado(pesosDe(l), restritos))
+  return { linhas: fora, ocultadas: linhas.length - fora.length }
 }
 
 /** ⚠⚠ REGRA DE DOMINÂNCIA — não "todo o valor".

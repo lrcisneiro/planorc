@@ -18,7 +18,7 @@ import { supabase } from '../../lib/supabase'
 import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { totaisRelatorio, totaisRelatorioMes } from '../../lib/relatorioTotais'
-import { useDiscreto, idsRestritos, ROTULO_OUTROS, DOMINANCIA } from '../../lib/discricao'
+import { useDiscreto, idsRestritos, DOMINANCIA } from '../../lib/discricao'
 import { COLS_LINHA, emArvore, fatorExibicao, linhasConciliaveis, type LinhaRel } from '../../lib/refRelatorio'
 import { Ponte, componentesDe } from '../../lib/Ponte'
 import {
@@ -425,7 +425,11 @@ export default function OrcamentoDashPage() {
     const todo = mag(pess as any[]), rest = mag(pessRestr)
     const mascarar = new Set(Object.keys(rest).filter(a => todo[a] > 0 && rest[a] >= todo[a] * DOMINANCIA))
     if (!mascarar.size) return pess
-    return (pess as any[]).map((l: any) => mascarar.has(l.area_nome || '') ? { ...l, area_nome: ROTULO_OUTROS } : l)
+    // ⚠⚠ SAI DA LISTA, não vira "Outros": com uma área só mascarada o balde É
+    // a Diretoria, com headcount e custo médio dos diretores legíveis.
+    // ⚠ Os percentuais da aba passam a ser sobre o que está listado — é a
+    // consequência de tirar linhas, e o aviso abaixo do quadro diz isso.
+    return (pess as any[]).filter((l: any) => !mascarar.has(l.area_nome || ''))
   }, [pess, pessRestr, restritos])
   useEffect(() => {
     if (aba !== 'pessoas' || !vBase || !anoBase || !empFiltradas.length) { setPess([]); return }
@@ -984,7 +988,7 @@ export default function OrcamentoDashPage() {
         carregPess || !pess
           ? <div style={{ ...S.sec, textAlign: 'center', color: 'var(--muted)', padding: 48 }}>Calculando…</div>
           : <>
-              <VisaoPessoas S={S} linhas={pessVis} erro={erroPess} rotulo={versao(vBase)?.codigo ?? ''} ano={anoBase} />
+              <VisaoPessoas S={S} linhas={pessVis} oculto={!!pess && !!pessVis && pessVis.length < (pess as any[]).length} erro={erroPess} rotulo={versao(vBase)?.codigo ?? ''} ano={anoBase} />
               {/* ⚠ Depois do que já existe, como grupo próprio: "quanto de
                   cada área é gente" descreve a empresa toda; a capacidade é
                   uma pergunta de UMA área. Misturar os dois faria a segunda
@@ -1742,7 +1746,7 @@ function SelLinhas({ cfg, setCfg, linhas, limiar }: { cfg: SecCfg; setCfg: (c: S
 // cada importação mensal e os gráficos deixariam de representar o planejamento
 // — foi a pergunta do Ricardo que achou essa inconsistência. Consequência do
 // rótulo: a foto conta **quem custa**, então posto de salário zero não aparece.
-function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
+function VisaoPessoas({ S, linhas, erro, rotulo, ano, oculto }: any) {
   const fmt = (n: number) => Math.round(n).toLocaleString('pt-BR')
   const pct = (n: number) => `${n.toFixed(1)}%`
 
@@ -1796,6 +1800,16 @@ function VisaoPessoas({ S, linhas, erro, rotulo, ano }: any) {
 
   return (
     <>
+      {/* ⚠ O corte é DITO e SEM o valor: dizer quanto foi omitido devolveria
+          o número que a omissão existe para esconder. E o aviso precisa estar
+          aqui porque os percentuais abaixo passam a ter outro denominador —
+          são sobre o que está listado, não sobre a empresa. */}
+      {oculto && (
+        <div style={{ ...S.sec, padding: '10px 14px', fontSize: 12, color: 'var(--violet)', border: '1px solid var(--violet)' }}>
+          Modo discreto: área(s) dominada(s) por centro de custo restrito não aparecem, e os
+          percentuais abaixo são sobre o que está listado.
+        </div>
+      )}
       {/* ── 1 · composição ── */}
       <div style={S.sec}>
         <div style={S.secH}><div>

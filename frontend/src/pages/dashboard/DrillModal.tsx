@@ -49,10 +49,12 @@ const S: Record<string, CSSProperties> = {
   rowBtn: { cursor: 'pointer' },
   btn: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, background: 'var(--panel)', color: 'var(--text-mid)', border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' },
 }
-// ⚠ Rótulo único para a linha somada. Ele é o que diz que o razão está
-// agregado — razão que esconde sem avisar faz quem confere procurar o
-// lançamento que sumiu.
-const RESTRITO = '(centros de custo não detalhados)'
+// ⚠⚠ O razão NÃO soma as linhas restritas num item: a soma delas é o valor
+// restrito daquela linha, publicado com outro nome. Elas saem, e o cabeçalho
+// diz que saíram — sem dizer quanto, que é o que a omissão protege.
+// ⚠ A consequência é conhecida e declarada: o razão deixa de fechar com o
+// total que o abriu. É o oposto da regra do drill, e é deliberado — aqui o
+// que fecha o total entrega o número.
 const crumbItem = (last: boolean): CSSProperties => ({ cursor: last ? 'default' : 'pointer', color: last ? 'var(--text)' : '#3b5bdb', fontWeight: last ? 600 : 400 })
 
 // `soOrcado`: aberto a partir de uma tela que só fala de orçamento. Mostrar
@@ -69,6 +71,7 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
   const [stack, setStack] = useState<string[]>([startNodeId])
   const [razao, setRazao] = useState<any[] | null>(null)
   const [razaoMed, setRazaoMed] = useState<Medida>('Realizado')
+  const [razaoOcultos, setRazaoOcultos] = useState(0)
   const [razaoNode, setRazaoNode] = useState<string>(startNodeId)
   const [loading, setLoading] = useState(true)
   const [sort, setSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'valor', dir: 'desc' })
@@ -127,6 +130,7 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
     const empCod: Record<string, string> = {}; (emps || []).forEach((e: any) => { empCod[e.id] = e.codigo })
     const filCod: Record<string, string> = {}; (fis || []).forEach((x: any) => { filCod[x.id] = x.codigo })
     const agg = new Map<string, any>()
+    let nOcultos = 0
     // multimoeda: no slot em exibição usa val_m<slot>; base (slot 1) usa valor
     const sv = (r: any) => slot >= 2 ? Number(r['val_m' + slot] ?? 0) : Number(r.valor || 0)
 
@@ -139,13 +143,13 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
         return q
       })
       for (const r of rows) {
-        const oculto = !!restritos?.size && !!r.cc_id && restritos.has(r.cc_id)
-        const hist = oculto ? RESTRITO : ((r.dims && (r.dims.historico || r.dims.hist)) || '')
+        if (restritos?.size && r.cc_id && restritos.has(r.cc_id)) { nOcultos++; continue }
+        const hist = (r.dims && (r.dims.historico || r.dims.hist)) || ''
         const v = f * sv(r)
-        const k = oculto ? RESTRITO : `${r.empresa_id || ''}|${r.filial_id || ''}|${hist}`
+        const k = `${r.empresa_id || ''}|${r.filial_id || ''}|${hist}`
         const c = agg.get(k)
         if (c) c.valor += v
-        else agg.set(k, { conta: '—', contaDesc: '', empresa: oculto ? '' : (empCod[r.empresa_id] || ''), filial: oculto ? '' : (filCod[r.filial_id] || ''), data: '', documento: '', lote: '', sublote: '', historico: hist, valor: v })
+        else agg.set(k, { conta: '—', contaDesc: '', empresa: empCod[r.empresa_id] || '', filial: filCod[r.filial_id] || '', data: '', documento: '', lote: '', sublote: '', historico: hist, valor: v })
       }
     } else {
       // realizado é por CONTA (resolve via conta_linha) + exclui lotes ignorados
@@ -168,16 +172,15 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
       }
       for (const r of rows) {
         if (ignora(r)) continue
-        const oculto = !!restritos?.size && !!r.cc_id && restritos.has(r.cc_id)
+        if (restritos?.size && r.cc_id && restritos.has(r.cc_id)) { nOcultos++; continue }
         const v = f * sv(r) * (sinalByConta[r.conta_id] ?? 1)
-        const k = oculto ? RESTRITO
-          : `${r.conta_id}|${r.empresa_id || ''}|${r.filial_id || ''}|${r.data || ''}|${r.documento || ''}|${r.lote || ''}|${r.sublote || ''}|${r.historico || ''}`
+        const k = `${r.conta_id}|${r.empresa_id || ''}|${r.filial_id || ''}|${r.data || ''}|${r.documento || ''}|${r.lote || ''}|${r.sublote || ''}|${r.historico || ''}`
         const c = agg.get(k)
         if (c) c.valor += v
-        else if (oculto) agg.set(k, { conta: '—', contaDesc: '', empresa: '', filial: '', data: '', documento: '', lote: '', sublote: '', historico: RESTRITO, valor: v })
         else agg.set(k, { conta: contaInfo[r.conta_id]?.codigo || '—', contaDesc: contaInfo[r.conta_id]?.descricao || '', empresa: empCod[r.empresa_id] || '', filial: filCod[r.filial_id] || '', data: r.data || '', documento: r.documento || '', lote: r.lote || '', sublote: r.sublote || '', historico: r.historico || '', valor: v })
       }
     }
+    setRazaoOcultos(nOcultos)
     setRazao(Array.from(agg.values()).sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor)))
     setLoading(false)
   }
@@ -283,6 +286,15 @@ export default function DrillModal({ relId, versaoId, empIds, anos, meses, filFi
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: razaoMed === 'Orçado' ? 'var(--panel)' : 'rgba(59,130,246,0.16)', color: razaoMed === 'Orçado' ? 'var(--muted)' : '#1971c2' }}>{razaoMed}</span>
                 <span style={{ fontSize: 13, color: 'var(--muted)' }}>Razão de <strong style={{ color: 'var(--text)' }}>{byId[razaoNode]?.descricao}</strong> · {razao.length} item(s) · total <strong style={{ color: 'var(--text)' }}>{fmt(somaRazao)}</strong></span>
+                {/* ⚠ Diz QUE foi omitido, nunca QUANTO — e avisa que o total
+                    deixou de fechar com a linha que abriu o razão, senão quem
+                    confere procura o lançamento que sumiu. */}
+                {razaoOcultos > 0 && (
+                  <span style={{ fontSize: 12, color: 'var(--violet)' }}
+                    title="Modo discreto: lançamentos de centro de custo restrito ficam fora desta lista, e por isso o total abaixo não fecha com o da linha.">
+                    · {razaoOcultos} lançamento(s) não detalhado(s)
+                  </span>
+                )}
                 <div style={{ flex: 1 }} />
                 <button style={S.btn} onClick={() => setRazao(null)}>Voltar</button>
                 <button style={S.btn} onClick={exportRazao}><Download size={13} /> Exportar</button>

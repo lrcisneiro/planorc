@@ -7,7 +7,7 @@ import type { LinhaCalc, Computed, Periodo, RawValues } from '../../lib/engine'
 import { PeriodPicker } from './PeriodPicker'
 import { totaisRelatorio, totaisRelatorioArv } from '../../lib/relatorioTotais'
 import { MemoriaModal } from '../../lib/MemoriaCalculo'
-import { useDiscreto, idsRestritos, mascararLinhas, ROTULO_OUTROS } from '../../lib/discricao'
+import { useDiscreto, idsRestritos, removerDominadas } from '../../lib/discricao'
 import type { RLData } from '../../lib/relatorioTotais'
 import { ResponsiveBar } from '@nivo/bar'
 import { fmtEixo } from '../../lib/fmtEixo'
@@ -231,10 +231,7 @@ export default function DashboardPage() {
   const restritos = useMemo(() => idsRestritos(ccs as any, discreto), [ccs, discreto])
   // Uma barra do gráfico é o NÍVEL 2 e agrega vários CCs; só vira "Outros"
   // quando TODOS os dela são restritos — a mesma regra do grupo de dimensão.
-  const mascararBarras = (arr: any[]) => mascararLinhas<any>(arr, b => (b._pes || {}), restritos,
-    (acc, b) => acc
-      ? { ...acc, 'Orçado': acc['Orçado'] + b['Orçado'], 'Realizado': acc['Realizado'] + b['Realizado'], 'Δ': acc['Δ'] + b['Δ'], _ccs: [...acc._ccs, ...b._ccs], _pes: { ...acc._pes, ...b._pes } }
-      : { ...b, cc: ROTULO_OUTROS })
+  const mascararBarras = (arr: any[]) => removerDominadas<any>(arr, b => (b._pes || {}), restritos)
   // ⚠ O cartão ARRASTA e agora também ABRE. O `click` do HTML5 drag não é
   // confiável como separador (alguns navegadores o emitem depois do drop), e
   // perder o arrasto para ganhar o modal seria trocar um gesto por outro.
@@ -1193,7 +1190,7 @@ export default function DashboardPage() {
           </div>
 
           <div style={S.card}>
-            <div style={S.cardT}>Despesas por centro de custo (nível 2 — área/divisão) <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · acumulado · clique p/ detalhar){despCcVis.ocultadas > 0 && ` · ${despCcVis.ocultadas} agrupado(s) em "${ROTULO_OUTROS}"`}</span></div>
+            <div style={S.cardT}>Despesas por centro de custo (nível 2 — área/divisão) <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · acumulado · clique p/ detalhar){despCcVis.ocultadas > 0 && ` · ${despCcVis.ocultadas} não detalhado(s)`}</span></div>
             <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: 340 }}>
               <ResponsiveBar theme={nivoTheme()} data={despCcVis.linhas} keys={['Orçado', 'Realizado', 'Δ']} indexBy="cc" groupMode="grouped"
                 onClick={(d: any) => { const ids = (d.data?._ccs || []) as string[]; if (ids.length && podeDrill(ids)) drillPorCcs(ids) }}
@@ -1206,7 +1203,7 @@ export default function DashboardPage() {
           </div>
 
           <div style={S.card}>
-            <div style={S.cardT}>Receitas por centro de custo (nível 2 — área/divisão) <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · bruta · clique p/ detalhar){recCcVis.ocultadas > 0 && ` · ${recCcVis.ocultadas} agrupado(s) em "${ROTULO_OUTROS}"`}</span></div>
+            <div style={S.cardT}>Receitas por centro de custo (nível 2 — área/divisão) <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · bruta · clique p/ detalhar){recCcVis.ocultadas > 0 && ` · ${recCcVis.ocultadas} não detalhado(s)`}</span></div>
             <div style={{ background: 'var(--chart-bg)', borderRadius: 10, padding: 8, height: 340 }}>
               <ResponsiveBar theme={nivoTheme()} data={recCcVis.linhas} keys={['Orçado', 'Realizado', 'Δ']} indexBy="cc" groupMode="grouped"
                 onClick={(d: any) => { const ids = (d.data?._ccs || []) as string[]; if (ids.length && podeDrill(ids)) drillPorCcs(ids) }}

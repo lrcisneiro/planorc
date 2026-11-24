@@ -16,7 +16,7 @@
 import { useEffect, useMemo, useState, Fragment } from 'react'
 import { ChevronDown, ChevronUp, Download } from 'lucide-react'
 import { downloadSheet } from './planilha'
-import { ROTULO_OUTROS, grupoDominado } from './discricao'
+import { grupoDominado } from './discricao'
 import { type LinhaRel } from './refRelatorio'
 import { computeTotais, pkey, type Computed, type LinhaCalc, type Periodo } from './engine'
 import { type CC } from '../pages/dashboard/DashFiltros'
@@ -258,6 +258,8 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
   // três saem da mesma leitura e trocar entre eles não custa consulta.
   const grupos = useMemo(() => {
     const out: Record<string, Record<string, { b: number; c: number }>> = {}
+    const ocultos: string[] = []
+    let ocultosCc = 0
     const junta = (k: string, m: Record<string, { b: number; c: number }>) => {
       const alvo = (out[k] = out[k] || {})
       for (const master in m) {
@@ -292,7 +294,10 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
       const r: Set<string> = restritos || new Set()
       const peso: Record<string, Record<string, number>> = {}   // label → ccId → |valor|
       for (const id in bruto.cc) {
-        const lbl = (dim === 'cc' && r.has(id)) ? ROTULO_OUTROS : rot(id)
+        // No grão de CC o restrito nem entra: não há grupo a mascarar, há
+        // linha a não desenhar.
+        if (dim === 'cc' && r.has(id)) { ocultosCc++; continue }
+        const lbl = rot(id)
         junta(lbl, bruto.cc[id])
         if (r.size) {
           let p = 0
@@ -300,14 +305,18 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
           ;(peso[lbl] = peso[lbl] || {})[id] = (peso[lbl][id] || 0) + p
         }
       }
+      // ⚠⚠ O GRUPO MASCARADO SOME — não vira um balde "Outros". Com um grupo
+      // só mascarado, o balde **É** o valor restrito: escondê-lo numa linha
+      // chamada "Outros" é publicá-lo com outro nome. (Decisão do Ricardo,
+      // 24/nov, vendo a tela.)
       if (r.size && dim !== 'cc') {
         for (const lbl in peso) {
-          if (lbl === ROTULO_OUTROS || !grupoDominado(peso[lbl], r)) continue
-          const m = out[lbl]; delete out[lbl]; junta(ROTULO_OUTROS, m)
+          if (!grupoDominado(peso[lbl], r)) continue
+          delete out[lbl]; ocultos.push(lbl)
         }
       }
     }
-    return out
+    return { out, ocultos: ocultos.length + ocultosCc }
   }, [bruto, dim, empresas, ccs, restritos])
 
   // Roda o motor dentro de cada grupo e devolve o total da linha de resultado
@@ -324,7 +333,7 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
       for (const master in m) { const rl = rlOf[master]; if (rl) computed[rl][K] = m[master][lado] }
       return computeTotais(calc, computed, [PER])
     }
-    return Object.entries(grupos).map(([k, m]) => {
+    return Object.entries(grupos.out).map(([k, m]) => {
       const tb = totaisDe('b', m), tc = totaisDe('c', m)
       // `invertido` = o cabeçalho pediu analisado → comparado. Origem e destino
       // só existem como leitura; o dado continua sendo "analisado" e "comparado".
@@ -374,8 +383,16 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
   // `filtro_escopo` próprio (o agregado por dimensão não o aplica), projeção
   // ligada (o quadro lê só o período real) e recorte de empresa entre as duas
   // RPCs. Mostrar sem o resíduo seria afirmar que tudo foi atribuído.
-  const naoAtrib = (dTotal || 0) - somaDim
-  const temResid = Math.abs(naoAtrib) > Math.max(1, Math.abs(dTotal || 0) * 0.005)
+  // ⚠⚠ REMOVER O GRUPO NÃO BASTA: o resíduo o MOSTRARIA DE VOLTA. "não
+  // atribuído a nenhum grupo" é `dTotal − soma dos grupos`, e com o grupo
+  // oculto fora da soma o Δ dele reapareceria ali com outro nome. Por isso,
+  // quando há oculto, o total exibido passa a ser o **dos grupos listados** e
+  // o quadro diz isso — um total que não é o Δ da ponte, declarado, é melhor
+  // que um resíduo que entrega o número.
+  const temOculto = (grupos.ocultos || 0) > 0
+  const totalExib = temOculto ? somaDim : (dTotal || 0)
+  const naoAtrib = totalExib - somaDim
+  const temResid = !temOculto && Math.abs(naoAtrib) > Math.max(1, Math.abs(dTotal || 0) * 0.005)
   // ⚠⚠ A SELEÇÃO DOS 12 CONTINUA POR IMPACTO; a ordenação só reordena ESSES.
   // Ordenar antes de cortar mudaria o significado de "outros": por nome, os 12
   // primeiros seriam os alfabéticos e "outros" viraria uma sobra arbitrária —
@@ -411,6 +428,12 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
           <Grupo opcoes={DIMS_QUEM} valor={dim} onPick={setDim} />
           <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
             {linhasQ.length} {dim === 'emp' ? 'empresa(s)' : dim === 'cc' ? 'centro(s)' : 'grupo(s)'}
+            {/* ⚠ O corte é DITO, e sem o valor: quantos ficaram de fora, nunca
+                quanto somam. Quadro que encolhe calado faz quem confere
+                procurar o grupo que sumiu. */}
+            {temOculto && <span style={{ color: 'var(--violet)', marginLeft: 6 }}
+              title="Modo discreto: grupos dominados por centro de custo restrito não são listados, e o total acima é o dos grupos listados.">
+              · {grupos.ocultos} não detalhado(s)</span>}
           </span>
         </div>
       </div>
@@ -491,9 +514,10 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
                 <td style={{ ...S.td, color: 'var(--orange)' }}>{naoAtrib >= 0 ? '+' : ''}{fmt(naoAtrib)}</td>
                 <td style={S.td} /></tr>
             )}
-            <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontWeight: 700 }}>total — {nome(resId)}</td>
+            <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontWeight: 700 }}>
+              {temOculto ? `total dos grupos listados — ${nome(resId)}` : `total — ${nome(resId)}`}</td>
               <td style={S.td} /><td style={S.td} />
-              <td style={{ ...S.td, fontWeight: 700 }}>{(dTotal || 0) >= 0 ? '+' : ''}{fmt(dTotal || 0)}</td>
+              <td style={{ ...S.td, fontWeight: 700 }}>{totalExib >= 0 ? '+' : ''}{fmt(totalExib)}</td>
               <td style={S.td} /></tr>
           </tbody>
         </table>

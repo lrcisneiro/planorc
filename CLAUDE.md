@@ -1433,9 +1433,20 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   **não muda**: os totais pedidos ao banco são os mesmos, e por isso a máscara é `useMemo` sobre
   o estado já carregado, **nunca dependência da carga** (lição do "seleção dentro de um cartão
   não recarrega").
-  ⚠⚠ **O BALDE CHAMA-SE "Outros" e é o MESMO dos gráficos**, nunca "restrito": nome próprio
-  convida à subtração (`total − visíveis`), e misturado com os CCs pequenos legítimos a conta
-  não fecha para quem assiste.
+  ⚠⚠ **NÃO HÁ BALDE — a linha mascarada SOME** (24/nov, o Ricardo apontou vendo a tela). A 1ª
+  versão somava tudo num item "Outros", com o argumento de que o nome genérico diluiria. Não
+  dilui: **com um grupo só mascarado, o balde É o valor restrito**, publicado com outro nome.
+  Ele só funcionaria se houvesse vários grupos pequenos caindo nele, e não há.
+  ⚠⚠ **TIRAR A LINHA NÃO BASTA: o RESÍDUO a traz de volta.** Em *Quem causou*, "não atribuído a
+  nenhum grupo" é `dTotal − soma dos grupos` — com o grupo fora da soma, o Δ dele reaparece ali
+  com outro nome. Por isso, havendo oculto, **o total exibido passa a ser o dos grupos listados**
+  e o rótulo diz isso. Um total que não é o Δ da ponte, declarado, é melhor que um resíduo que
+  entrega o número.
+  ⚠⚠ **No RAZÃO a consequência é o oposto da regra do drill, e é deliberado:** ele deixa de
+  fechar com o total que o abriu. Aqui, o que fecha o total **é** o que entrega o número.
+  ⚠ **Todo corte é DITO, e sempre SEM o valor** — quantos ficaram de fora, nunca quanto somam.
+  Dizer quanto devolveria exatamente o que a omissão protege; não dizer nada faz quem confere
+  procurar a linha que sumiu.
   ⚠⚠ **GRUPO DE DIMENSÃO dominado por CC restrito também é mascarado — por VALOR, nunca por
   contagem.** Medido: a área 4 "Diretoria" tem **4 CCs cadastrados** e o valor é praticamente
   todo do 411. Conferir por contagem diria que ela "mistura" e a deixaria exposta — foi o que a
@@ -1470,9 +1481,10 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   o destino do drill), `OrcamentoDashPage` (*Quem causou*, drill, **Análise Pessoas**),
   `DrillModal` (razão) e a lista de CC em `DashFiltros`. Executivo, Comparativo anual, CAGR,
   Indicadores e Balanço **não quebram por CC**.
-  ⚠⚠ **No RAZÃO as linhas restritas viram UMA linha somada**, não somem: o razão é o lugar mais
-  exposto do produto (o histórico de um pró-labore diz nome e valor), e esconder **sem somar**
-  faria o detalhe não bater com o total que o abriu — o defeito do drill de novo.
+  ⚠ O razão é o lugar mais exposto do produto — o histórico de um pró-labore diz nome e valor.
+  ⚠ Em **Análise Pessoas** as linhas saem, então os percentuais passam a ser **sobre o que está
+  listado** — a aba avisa, porque percentual com outro denominador e o mesmo rótulo é a forma
+  silenciosa de errar.
   ⚠⚠ **Análise Pessoas mede por valor com uma SEGUNDA chamada da mesma RPC.**
   `analise_pessoas_agg` agrupa por ÁREA e não devolve CC, então a linha não diz se é restrita.
   Chamá-la de novo com `p_ccs` = só os restritos responde quanto de cada área vem deles — mesma
