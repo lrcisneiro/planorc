@@ -371,9 +371,18 @@ export default function OrcamentoDashPage() {
 
   const meses = useMemo(() => Array.from({ length: Math.max(0, mesFim - mesIni + 1) }, (_, i) => mesIni + i), [mesIni, mesFim])
   // os meses DEPOIS do período, até dezembro
+  // ⚠⚠ NÃO SE PROJETA ORÇAMENTO. Projetar é estimar o que ainda não
+  // aconteceu — faz sentido contra o REALIZADO, onde o ano não acabou. Num
+  // Orçado × Orçado os dois lados são planos do **ano inteiro**: dezembro já
+  // está gravado em `fat_orcado`, e projetá-lo **inventa um número que já
+  // existe**. Medido em 24/nov: com jan–out e projeção ligada, a ponte somava
+  // 12 meses e o *Quem causou* 10, e a diferença (10/12 exato) virava um
+  // resíduo que custou uma investigação para ser explicado.
+  // ⚠ O corte é no `mesesProj`, não só no seletor: um card salvo pode trazer
+  // `proj` ligado, e esconder o controle deixaria o número inventado de pé.
   const mesesProj = useMemo(
-    () => (proj === 'OFF' ? [] : Array.from({ length: 12 - mesFim }, (_, i) => mesFim + 1 + i)),
-    [proj, mesFim])
+    () => (proj === 'OFF' || modo === 'ORC' ? [] : Array.from({ length: 12 - mesFim }, (_, i) => mesFim + 1 + i)),
+    [proj, mesFim, modo])
 
   const filialFilter = useMemo(() => escopoFiltro(filialSel.length ? filialSel : null, filiais, 'filial', acesso.canSee), [filialSel, filiais, acesso])
   const ccFilter = useMemo(() => escopoFiltro(effectiveCcFilter(ccs, ccSel, areaSel, divisaoSel, buSel), ccs, 'centro_custo', acesso.canSee), [ccs, ccSel, areaSel, divisaoSel, buSel, acesso])
@@ -895,6 +904,8 @@ export default function OrcamentoDashPage() {
             ⚠ Comparando <b>{MES[mesIni - 1]}–{MES[mesFim - 1]}</b> de dois orçamentos que são do
             ano inteiro: o que mudar fora desse intervalo não aparece aqui. Para o efeito total,
             use <b>jan–dez</b>.
+            {proj !== 'OFF' && <> A <b>projeção está ignorada</b> aqui — orçamento não se projeta,
+            dezembro já está orçado.</>}
           </div>
         )}
 
@@ -916,10 +927,13 @@ export default function OrcamentoDashPage() {
             </select></div>
         )}
 
-        {mesFim < 12 && (
+        {/* ⚠ Só no modo REALIZADO: ver `mesesProj`. No Orçado × Orçado a
+            resposta para "faltam nov e dez" é ampliar o PERÍODO, não estimá-los
+            — eles já estão orçados. */}
+        {mesFim < 12 && modo === 'REAL' && (
           <div><div style={S.lbl}>Meses seguintes ({MES[mesFim]}–dez)</div>
             <select style={{ ...S.sel, maxWidth: 320 }} value={proj} onChange={e => setProj(e.target.value as Proj)}>
-              {(['OFF', 'MEDIA3', 'MEDIAPER', 'ULTIMO', ...(modo === 'REAL' ? ['ORCADO' as Proj] : [])] as Proj[])
+              {(['OFF', 'MEDIA3', 'MEDIAPER', 'ULTIMO', 'ORCADO'] as Proj[])
                 .map(k => <option key={k} value={k}>{PROJ_ROTULO[k]}</option>)}
             </select></div>
         )}

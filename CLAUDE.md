@@ -2382,6 +2382,18 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ Escopo com janela vazia projeta **zero**, que é a resposta certa, e vai contado num aviso:
   sumir da projeção sem explicação parece dado perdido.
 
+- ⚠⚠ **NÃO SE PROJETA ORÇAMENTO** (24/nov, conclusão do Ricardo ao achar a causa do resíduo).
+  Projetar é estimar o que **ainda não aconteceu** — faz sentido contra o REALIZADO, onde o ano
+  não acabou. Num **Orçado × Orçado** os dois lados são planos do **ano inteiro**: dezembro já
+  está gravado em `fat_orcado`, e projetá-lo **inventa um número que já existe**. O seletor some
+  no modo ORC, e a resposta para *"faltam nov e dez"* passa a ser **ampliar o período**, que é o
+  que o aviso de período parcial já dizia desde 18/nov.
+  ⚠ **O corte é no `mesesProj`, não só no seletor:** um card salvo pode trazer `proj` ligado, e
+  esconder o controle deixaria o número inventado de pé — esconder na tela sem desligar no
+  cálculo é o padrão de erro que este documento repete.
+  ⚠ O aviso de período parcial diz que **a projeção foi ignorada**, senão quem salvou o card
+  procura por que o número mudou.
+
 - ⚠⚠ **RESÍDUO DO *Quem causou*: A PROJEÇÃO É A CAUSA MAIS COMUM, E ERA A MENOS DITA**
   (24/nov). A ponte soma **período + projeção**; o quadro por dimensão lê **só o período real**,
   porque o agregado por dimensão não projeta. Medido com período **jan–out** e projeção até
