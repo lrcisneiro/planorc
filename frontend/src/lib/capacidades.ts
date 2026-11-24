@@ -88,6 +88,22 @@ export const CAPACIDADES: Capacidade[] = [
   // APAGA o escopo do arquivo antes de gravar.
   { escrita: true, key: 'orcado.apagar', label: 'Apagar todo o orçado de uma versão', categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
 
+  // ⚠⚠ EDITAR CÉLULA GERADA — a capacidade que este documento dizia para NÃO
+  // criar. A razão daquela proibição era concreta: editar convertia a célula
+  // para MANUAL **mantendo o carimbo da origem**, e o Aplicar seguinte, que
+  // apagava por `origem`, não a encontrava e colidia na chave única — o
+  // Aplicar passava a FALHAR. A proibição protegia o Aplicar, não o dado.
+  // Agora os dois Aplicares apagam **pelo carimbo** (`origem_formulario_linha_id`
+  // no formulário, `dims->>posto` no posto), e não por `origem`: a célula
+  // editada volta a ser alcançada e é SOBRESCRITA na próxima aplicação, em vez
+  // de quebrar. Com isso a trava deixou de ser necessária e virou escolha.
+  // ⚠ A semântica é **o Aplicar manda**: a edição direta vale até a próxima
+  // aplicação da origem, e a tela diz isso antes de digitar. Quem quer um
+  // ajuste que SOBREVIVA continua lançando à parte (MANUAL com `dims` vazio),
+  // que soma ao motor em vez de disputar a mesma chave.
+  // ⚠ `member` nasce NEGADO (decisão do Ricardo, 24/nov): libera-se por pessoa.
+  { escrita: true, key: 'orcado.editar.gerado', label: 'Editar no orçado célula gerada por formulário/posto', categoria: 'Funções', padrao: { admin: true,  member: false, viewer: false } },
+
   // ── Posto de trabalho (folha) ──
   // Quebradas em quatro porque o diretor de área precisa MEXER no quadro dele
   // sem poder gravar no orçado nem recarregar base. Antes tudo isto estava sob

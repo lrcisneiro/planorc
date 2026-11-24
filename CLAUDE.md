@@ -79,8 +79,28 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > soma ao motor: `dims` vazio é o que o distingue na chave única, então ele **convive** em vez de
 > colidir, e o *Aplicar* da origem continua apagando só o que é dela. A composição da célula abre
 > no clique e mostra cada lançamento com seu rótulo (nome do posto, histórico do formulário).
-> ⚠ **Não criar capacidade para "poder editar o gerado"** — seria reintroduzir exatamente o
-> caminho que quebra o Aplicar. O que separa quem pode é o *mecanismo*, não um interruptor.
+> ⚠⚠ **ISTO MUDOU EM 24/nov — e a proibição estava protegendo o APLICAR, não o dado.** Por um
+> ano este documento dizia *"não criar capacidade para poder editar o gerado"*. A razão era
+> concreta e continua verdadeira: editar converte a célula para `MANUAL` **mantendo o carimbo**,
+> e o Aplicar, que apagava por `origem`, deixava de alcançá-la e colidia na chave única.
+> **Mas o defeito estava no DELETE do Aplicar, não na edição.** Hoje os dois apagam **pelo
+> carimbo** — `origem_formulario_linha_id` (coluna) no formulário, `dims->>'posto'` no posto —
+> e a célula editada volta a ser alcançada: é **sobrescrita** na próxima aplicação em vez de
+> quebrar. Confirmado no dado: as **10.434** células de formulário têm `dims` preenchido, igual
+> às 36.136 de posto, então o problema era o mesmo nas duas origens.
+> **A semântica é "o APLICAR manda":** a edição direta vale até a próxima aplicação da origem, e
+> o drill diz isso **antes** de digitar — permitir sem avisar é pior que travar, porque o
+> trabalho só evapora na semana seguinte. Quem precisa de ajuste que **sobreviva** continua
+> lançando à parte (`MANUAL` com `dims` **vazio**), que soma ao motor: é o `dims` vazio que o
+> mantém fora do alcance do carimbo.
+> ⚠ **Capacidade `orcado.editar.gerado`** — admin ✓, **member ✗** (nasce negado, libera-se por
+> pessoa, decisão do Ricardo), viewer ✗.
+> ⚠⚠ **A célula com MAIS DE UM lançamento continua travada para todo mundo, inclusive admin.**
+> Digitar mexeria em um só e o total da linha passaria a dizer outra coisa — isso é
+> **ambiguidade, não permissão**, e capacidade não resolve ambiguidade.
+> ⚠ A lição geral: **trava que existe para proteger um mecanismo defeituoso deve ser lida como
+> dívida, não como regra.** A pergunta certa não era "quem pode editar", era "por que o Aplicar
+> quebra quando alguém edita".
 
 > ⚠ **Zerar em lote é APAGAR em lote** (nov/2026). A borracha (uma combinação) e *Zerar células*
 > (todas as listadas) existem porque limpar uma linha residual custava dezenas de células uma a

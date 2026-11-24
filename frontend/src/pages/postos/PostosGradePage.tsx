@@ -1074,6 +1074,17 @@ export default function PostosGradePage() {
       // substitui o orçado origem POSTO da versão e reinsere
       const { error: delErr } = await supabase.from('fat_orcado').delete().eq('versao_id', destino).eq('origem', 'POSTO')
       if (delErr) { setErro('Erro ao limpar o orçado POSTO: ' + delErr.message); return }
+      // ⚠⚠ E TAMBÉM O QUE FOI EDITADO À MÃO A PARTIR DAQUI. Editar uma célula
+      // de posto no drill a converte para MANUAL **mantendo `dims.posto`**:
+      // ela deixa de ser alcançada pelo delete acima e o INSERT seguinte colide
+      // na chave única — **o Aplicar falhava**. Apagar pelo CARIMBO a recupera.
+      // ⚠ `dims.posto` só existe em célula que ESTE Aplicar escreveu, então o
+      // alcance é exato. O **ajuste à parte** documentado (MANUAL com `dims`
+      // VAZIO) não tem a chave e continua intocado — é essa a diferença entre
+      // "corrigir o gerado" (o Aplicar manda) e "somar um ajuste" (sobrevive).
+      const { error: delMan } = await supabase.from('fat_orcado').delete()
+        .eq('versao_id', destino).eq('origem', 'MANUAL').not('dims->>posto', 'is', null)
+      if (delMan) { setErro('Erro ao limpar edições manuais de célula de posto: ' + delMan.message); return }
       for (let i = 0; i < rows.length; i += 500) {
         const { error } = await supabase.from('fat_orcado').insert(rows.slice(i, i + 500))
         if (error) { setErro('Erro ao gravar o orçado (parcial): ' + error.message); return }

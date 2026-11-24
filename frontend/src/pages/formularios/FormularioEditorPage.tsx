@@ -515,7 +515,18 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
       // ou lançamento manual grava na MESMA conta/célula — aí coexistem e somam no relatório).
       const marca = { historico: trace, form: formId }
       // apaga SÓ o que ESTE formulário já aplicou nesse escopo (não toca manual nem outros formulários)
-      let del = supabase.from('fat_orcado').delete().eq('versao_id', versaoId).eq('empresa_id', emp).eq('ano', ano).eq('origem', 'FORMULARIO').in('origem_formulario_linha_id', lineIds)
+      // ⚠⚠ O CARIMBO É `origem_formulario_linha_id`, NÃO `origem`. Filtrar por
+      // `origem = 'FORMULARIO'` deixava de fora a célula que alguém editou no
+      // drill — a edição a converte para MANUAL **mantendo o carimbo** —, e aí
+      // o INSERT abaixo colidia na chave única e **o Aplicar falhava**. Era por
+      // isso que a edição de célula gerada estava travada; a trava protegia o
+      // Aplicar, não o dado.
+      // ⚠ A coluna só é preenchida por este caminho, então apagar por ela não
+      // alcança lançamento manual de ninguém: `origem_formulario_linha_id` nulo
+      // (todo MANUAL de verdade) nunca entra no `in(...)`.
+      // ⚠ Consequência declarada na tela: **o Aplicar manda** — a edição direta
+      // vale até a próxima aplicação. Ajuste que precisa sobreviver vai à parte.
+      let del = supabase.from('fat_orcado').delete().eq('versao_id', versaoId).eq('empresa_id', emp).eq('ano', ano).in('origem_formulario_linha_id', lineIds)
       del = fil ? del.eq('filial_id', fil) : del.is('filial_id', null)
       del = cc ? del.eq('cc_id', cc) : del.is('cc_id', null)
       const { error: eDel } = await del; if (eDel) throw eDel

@@ -137,7 +137,12 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
   const gravar = async (c: Comb, mes: number, texto: string) => {
     const k = chave(c)
     const cl = cel[k]?.[mes]
-    if (!editavelCel(cl)) { setErro('Esta célula vem do motor (posto/formulário) — altere na origem.'); return }
+    if (!editavelCel(cl)) {
+      setErro(cl && cl.itens.length > 1
+        ? 'Esta célula soma mais de um lançamento — digitar mexeria em um só e o total diria outra coisa. Abra a composição.'
+        : 'Esta célula vem do motor (posto/formulário) — altere na origem.')
+      return
+    }
     const atual = cl?.itens[0]
     const digitado = texto.trim() === '' ? null : parseNum(texto)
     if (digitado !== null && isNaN(digitado)) return
@@ -183,7 +188,7 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
    *  lançamentos do motor na chave única, então ele CONVIVE com eles em vez de
    *  colidir — e o Aplicar da origem continua apagando só o que é dela. */
   const gravarLanc = async (c: Comb, mes: number, alvo: Lanc | null, texto: string) => {
-    if (alvo && alvo.origem !== 'MANUAL') { setErro('Lançamento do motor — altere na origem.'); return }
+    if (alvo && alvo.origem !== 'MANUAL' && !podeGerado) { setErro('Lançamento do motor — altere na origem.'); return }
     const digitado = texto.trim() === '' ? null : parseNum(texto)
     if (digitado !== null && isNaN(digitado)) return
     const n = paraBanco(digitado)
@@ -332,8 +337,19 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
   // insere outro com a mesma chave única: o Aplicar passa a FALHAR. Com mais
   // de um lançamento, editar mexeria num deles e o total diria outra coisa.
   // O caminho de mudar valor gerado é a origem (cenário de postos, formulário).
+  // ⚠⚠ COM `orcado.editar.gerado` a célula GERADA passa a aceitar digitação.
+  // O que destravou isso não foi a capacidade: foi o Aplicar passar a apagar
+  // **pelo carimbo** da origem (`origem_formulario_linha_id` / `dims->>posto`)
+  // em vez de por `origem`. Antes, a conversão para MANUAL tirava a célula do
+  // alcance do Aplicar e ele colidia na chave única — a trava existia para
+  // proteger o Aplicar, não o dado.
+  // ⚠ A CÉLULA COM MAIS DE UM LANÇAMENTO CONTINUA TRAVADA, para todo mundo:
+  // digitar mexeria em UM deles e o total da linha passaria a dizer outra
+  // coisa. Isso não é permissão, é ambiguidade — e capacidade não resolve
+  // ambiguidade.
+  const podeGerado = cap.can('orcado.editar.gerado')
   const editavelCel = (cl?: Cel) =>
-    !cl || (cl.itens.length <= 1 && (cl.itens[0]?.origem ?? 'MANUAL') === 'MANUAL')
+    !cl || (cl.itens.length <= 1 && (podeGerado || (cl.itens[0]?.origem ?? 'MANUAL') === 'MANUAL'))
   const origensDe = (cl?: Cel) => [...new Set((cl?.itens || []).map(i => i.origem))].join(' · ')
   const temConsolidado = combs.some(c => !c.cc_id)
   const temDetalhe = combs.some(c => !!c.cc_id)
@@ -388,6 +404,25 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
 
         <div style={{ overflow: 'auto', padding: '14px 20px 20px' }}>
           {erro && <div style={{ fontSize: 12.5, color: 'var(--red)', background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.4)', borderRadius: 8, padding: '9px 12px', marginBottom: 12 }}>{erro}</div>}
+
+          {/* ⚠⚠ A CONSEQUÊNCIA VAI ANTES DA DIGITAÇÃO, não depois. Quem tem a
+              capacidade enxerga a célula gerada editável e, sem este aviso,
+              suporia que o valor fica — e ele não fica: o próximo Aplicar da
+              origem apaga pelo carimbo e regrava. Permitir sem dizer é pior
+              que travar, porque o trabalho só evapora na semana seguinte. */}
+          {podeGerado && combs.some(c => {
+            const lc = cel[chave(c)] || {}
+            return Object.values(lc).some((v: any) => v?.itens?.length === 1 && v.itens[0].origem !== 'MANUAL')
+          }) && (
+            <div style={{ fontSize: 12.5, color: 'var(--orange)', background: 'rgba(251,146,60,0.10)',
+                          border: '1px solid rgba(251,146,60,0.45)', borderRadius: 8,
+                          padding: '10px 12px', marginBottom: 12, lineHeight: 1.6 }}>
+              <b>Você pode editar célula gerada aqui.</b> O valor digitado vale até a próxima
+              aplicação do formulário ou do quadro de postos — <b>o Aplicar manda</b> e regrava
+              pelo carimbo da origem. Para um ajuste que <b>sobreviva</b>, lance à parte: ele soma
+              ao motor em vez de disputar a mesma célula.
+            </div>
+          )}
 
           {feito && (
             <div style={{ fontSize: 12.5, color: 'var(--text)', background: 'rgba(139,92,246,0.10)',
