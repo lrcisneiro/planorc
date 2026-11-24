@@ -148,7 +148,31 @@ export function PillsDim({ ccs, codKey, nomeKey, titulo, sel, setSel }: {
   ccs: CC[]; codKey: keyof CC; nomeKey: keyof CC; titulo: string
   sel: string[]; setSel: (v: string[]) => void
 }) {
-  const items = opcoesAttr(ccs, codKey, nomeKey)
+  // ⚠⚠ A PÍLULA É O CAMINHO MAIS CURTO PARA O NÚMERO. Com o modo discreto
+  // ligado, clicar em "Diretoria" recortava a tela inteira para o CC 411 e os
+  // KPIs — que por desenho não mudam — viravam o valor restrito. Um clique.
+  // ⚠ Aqui o critério é de CADASTRO (todos os CCs do grupo restritos), não a
+  // dominância por valor: este componente não tem os valores. É por isso que a
+  // `v3_203` marcou a área 4 inteira em vez de depender do limiar — a
+  // dominância cobre o desenho, o cadastro cobre o filtro.
+  const discreto = useDiscreto()
+  const restritos = idsRestritos(ccs as any, discreto)
+  const ccsUI = restritos.size
+    ? ccs.filter(c => {
+        const cod = c[codKey]
+        if (!cod) return true
+        const irmaos = ccs.filter(x => x[codKey] === cod)
+        return !irmaos.every(x => restritos.has(x.id))
+      })
+    : ccs
+  const items = opcoesAttr(ccsUI, codKey, nomeKey)
+  // ⚠ Seleção velha de um grupo que sumiu é limpa: sem isso a tela segue
+  // recortada por um filtro invisível, e o número fica sem explicação.
+  useEffect(() => {
+    if (!restritos.size) return
+    const vivos = new Set(items.map(i => i.id))
+    if (sel.some(x => !vivos.has(x))) setSel(sel.filter(x => vivos.has(x)))
+  }, [discreto, items.length, sel.join(',')])   // eslint-disable-line
   if (items.length < 2) return null
   const pill = (ativo: boolean): CSSProperties => ({
     padding: '4px 11px', fontSize: 12, borderRadius: 999, cursor: 'pointer', whiteSpace: 'nowrap',

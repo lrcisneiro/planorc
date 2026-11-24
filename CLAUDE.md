@@ -1477,10 +1477,24 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   registrado que a rede contra o esquecimento é humana. O estado vive em **módulo**, não em
   `localStorage` (aba nova começa desligada) e não em estado de página (ele atravessa rotas:
   ligar no acompanhamento e navegar para a análise não pode desligar sozinho).
-  **Onde vale** (medido, não suposto): `DashboardPage` (os dois gráficos por CC, *Quem causou*,
-  o destino do drill), `OrcamentoDashPage` (*Quem causou*, drill, **Análise Pessoas**),
-  `DrillModal` (razão) e a lista de CC em `DashFiltros`. Executivo, Comparativo anual, CAGR,
-  Indicadores e Balanço **não quebram por CC**.
+  **Onde vale:** `DashboardPage` (os dois gráficos por CC, **os dois por ÁREA e a linha mensal
+  por área**, *Quem causou*, o destino do drill), `OrcamentoDashPage` (as **quatro** barras de
+  *Orçamento* — receita/despesa × área/CC —, *Quem causou*, drill, **Análise Pessoas**),
+  `DrillModal` (razão) e, em `DashFiltros`, a lista de CC **e as pílulas de dimensão**.
+  Executivo, Comparativo anual, CAGR, Indicadores e Balanço **não quebram por CC**.
+  ⚠⚠ **A COBERTURA PARCIAL FOI O DEFEITO, DUAS VEZES SEGUIDAS** — mascarei os gráficos por CC e
+  deixei os por ÁREA desenhando "4-Diretoria"; depois os do acompanhamento e deixei os quatro da
+  *análise de orçamento*. O erro é sempre o mesmo e já está registrado aqui em `fmtEixo`:
+  **função utilitária criada para unificar não unifica sozinha — ou se varre tudo no mesmo passo,
+  ou nasce a quarta convenção.** O peso por CC passou a ser acumulado **uma vez por agregação**
+  (`pesAreaCc`, `Bal.pes`) e as quatro barras da análise mascaram **num ponto só**.
+  ⚠⚠ **A PÍLULA DE DIMENSÃO É O CAMINHO MAIS CURTO PARA O NÚMERO:** clicar em "Diretoria"
+  recortava a tela inteira para o CC 411, e os KPIs — que por desenho não mudam — viravam o valor
+  restrito. Um clique. Ali o critério é de **cadastro** (todos os CCs do grupo restritos), não a
+  dominância por valor, porque `DashFiltros` não tem os valores: **é por isso que a `v3_203`
+  marcou a área 4 inteira em vez de só ajustar o limiar** — a dominância cobre o desenho, o
+  cadastro cobre o filtro. Seleção velha de um grupo que sumiu é limpa, senão a tela segue
+  recortada por um filtro invisível.
   ⚠ O razão é o lugar mais exposto do produto — o histórico de um pró-labore diz nome e valor.
   ⚠ Em **Análise Pessoas** as linhas saem, então os percentuais passam a ser **sobre o que está
   listado** — a aba avisa, porque percentual com outro denominador e o mesmo rótulo é a forma

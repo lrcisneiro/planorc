@@ -275,6 +275,11 @@ export default function DashboardPage() {
   const [recCcBar, setRecCcBar] = useState<any[]>([])             // 6: receitas por CC (nível 2) O×R+Δ
   const despCcVis = useMemo(() => mascararBarras(despCcBar), [despCcBar, restritos])   // eslint-disable-line
   const recCcVis  = useMemo(() => mascararBarras(recCcBar),  [recCcBar, restritos])    // eslint-disable-line
+  // ⚠ Os gráficos por ÁREA usam a MESMA função — era o que faltava: na 1ª
+  // versão só os por CC foram mascarados e "4-Diretoria" seguiu desenhada.
+  const recAreaVis  = useMemo(() => mascararBarras(recAreaBar),  [recAreaBar, restritos])  // eslint-disable-line
+  const despAreaVis = useMemo(() => mascararBarras(despAreaBar), [despAreaBar, restritos]) // eslint-disable-line
+  const recAreaLinVis = useMemo(() => mascararBarras(recAreaLinhas), [recAreaLinhas, restritos]) // eslint-disable-line
   // ⚠ A barra "Outros" NÃO abre: ela é um balde, e abrir entregaria no drill
   // exatamente o grão que a barra agregou para esconder.
   // ⚠ A barra "Outros" NÃO abre, e basta UM CC restrito nela: o drill não
@@ -565,6 +570,17 @@ export default function DashboardPage() {
       const recAreaMesA: Record<string, Record<number, number>> = {}        // 1 (realizado)
       const recAreaMesAOrc: Record<string, Record<number, number>> = {}     // 1b (orçado, p/ investigar)
       const recMesT: Record<number, number> = {}, despMesT: Record<number, number> = {}  // 3
+      // ⚠⚠ O PESO POR CC É ACUMULADO UMA VEZ, POR ÁREA, e serve aos TRÊS
+      // gráficos por área (receita, despesa e a linha mensal). Na 1ª versão
+      // só os gráficos por CC levaram a máscara e a área "4-Diretoria"
+      // continuou desenhada — o Ricardo viu na tela. Guardar o peso num lugar
+      // só é o que impede o próximo gráfico por área de nascer sem máscara.
+      const pesAreaCc: Record<string, Record<string, number>> = {}
+      const pesArea = (a: string, cc: string | null, od: number, rd: number) => {
+        if (!cc) return
+        const m = (pesAreaCc[a] = pesAreaCc[a] || {})
+        m[cc] = (m[cc] || 0) + Math.abs(od) + Math.abs(rd)
+      }
       const recAreaB: Record<string, { o: number; r: number }> = {}         // 2
       const despAreaB: Record<string, { o: number; r: number }> = {}        // 4
       // ⚠ `pes` = magnitude por CC dentro da barra. A barra é o NÍVEL 2 e
@@ -585,11 +601,13 @@ export default function DashboardPage() {
           ;(recAreaMesAOrc[area] = recAreaMesAOrc[area] || {})[row.mes] = (recAreaMesAOrc[area]?.[row.mes] || 0) + od
           recMesT[row.mes] = (recMesT[row.mes] || 0) + rd
           const b = (recAreaB[area] = recAreaB[area] || { o: 0, r: 0 }); b.o += od; b.r += rd
+          pesArea(area, row.cc_id, od, rd)
           const cnr = nivel2De(row.cc_id); const bcr = (recCcB[cnr] = recCcB[cnr] || { o: 0, r: 0, ccs: new Set<string>(), pes: {} }); bcr.o += od; bcr.r += rd
           if (row.cc_id) { bcr.ccs.add(row.cc_id); bcr.pes[row.cc_id] = (bcr.pes[row.cc_id] || 0) + Math.abs(od) + Math.abs(rd) }
         } else {
           despMesT[row.mes] = (despMesT[row.mes] || 0) + rd
           const b = (despAreaB[area] = despAreaB[area] || { o: 0, r: 0 }); b.o += od; b.r += rd
+          pesArea(area, row.cc_id, od, rd)
           const cn = nivel2De(row.cc_id); const bc = (despCcB[cn] = despCcB[cn] || { o: 0, r: 0, ccs: new Set<string>(), pes: {} }); bc.o += od; bc.r += rd
           if (row.cc_id) { bc.ccs.add(row.cc_id); bc.pes[row.cc_id] = (bc.pes[row.cc_id] || 0) + Math.abs(od) + Math.abs(rd) }
         }
@@ -601,15 +619,15 @@ export default function DashboardPage() {
       const corArea: Record<string, string> = {}; areasRec.forEach((a, i) => { corArea[a] = PALETA[i % PALETA.length] })
       const recAreaLinhasD: any[] = []
       for (const a of areasRec) {
-        recAreaLinhasD.push({ id: a, color: corArea[a], data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round((recAreaMesA[a]?.[m]) || 0) })) })
-        recAreaLinhasD.push({ id: `${a} (orç)`, color: corArea[a], data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round((recAreaMesAOrc[a]?.[m]) || 0) })) })
+        recAreaLinhasD.push({ id: a, color: corArea[a], _pes: pesAreaCc[a] || {}, data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round((recAreaMesA[a]?.[m]) || 0) })) })
+        recAreaLinhasD.push({ id: `${a} (orç)`, color: corArea[a], _pes: pesAreaCc[a] || {}, data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round((recAreaMesAOrc[a]?.[m]) || 0) })) })
       }
       const recDespLinhasD = [
         { id: 'Receitas', data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round(recMesT[m] || 0) })) },
         { id: 'Despesas', data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round(despMesT[m] || 0) })) },
       ]
       const barDe = (acc: Record<string, { o: number; r: number }>, key: string) => Object.entries(acc).filter(([, v]) => v.o || v.r)
-        .map(([k, v]) => ({ [key]: k, 'Orçado': Math.round(v.o), 'Realizado': Math.round(v.r), 'Δ': Math.round(v.r - v.o) }))
+        .map(([k, v]) => ({ [key]: k, 'Orçado': Math.round(v.o), 'Realizado': Math.round(v.r), 'Δ': Math.round(v.r - v.o), _pes: pesAreaCc[k] || {} }))
         .sort((a, b) => (b['Realizado'] as number) - (a['Realizado'] as number))
       const recAreaBarD = barDe(recAreaB, 'area'), despAreaBarD = barDe(despAreaB, 'area')
       const ccBar = (acc: Record<string, { o: number; r: number; ccs: Set<string>; pes: Record<string, number> }>) => Object.entries(acc).filter(([, v]) => v.o || v.r)
@@ -1138,9 +1156,9 @@ export default function DashboardPage() {
           {/* ── Por Área / Centro de Custo (cruza CC × natureza da linha) ── */}
           <div style={S.grid2}>
           <div style={S.card}>
-            <div style={S.cardT}>Receitas por área <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(cheia = realizado · tracejada = orçado · clique p/ razão)</span></div>
+            <div style={S.cardT}>Receitas por área <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(cheia = realizado · tracejada = orçado · clique p/ razão){recAreaLinVis.ocultadas > 0 && ` · ${recAreaLinVis.ocultadas / 2} não detalhada(s)`}</span></div>
             <div style={S.chart}>
-              <ResponsiveLine theme={nivoTheme()} data={recAreaLinhas} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
+              <ResponsiveLine theme={nivoTheme()} data={recAreaLinVis.linhas} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
                 xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
                 colors={(s: any) => s.color} pointSize={5} pointBorderWidth={1} useMesh curve="monotoneX"
                 onClick={(p: any) => drillAreaMes(String(p.serieId), String(p.data?.x))}
@@ -1164,10 +1182,10 @@ export default function DashboardPage() {
 
           <div style={S.grid2}>
             <div style={S.card}>
-              <div style={S.cardT}>Receitas por área <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · clique p/ detalhar)</span></div>
+              <div style={S.cardT}>Receitas por área <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · clique p/ detalhar){recAreaVis.ocultadas > 0 && ` · ${recAreaVis.ocultadas} não detalhada(s)`}</span></div>
               <div style={S.chart}>
-                <ResponsiveBar theme={nivoTheme()} data={recAreaBar} keys={['Orçado', 'Realizado', 'Δ']} indexBy="area" groupMode="grouped"
-                  onClick={(d: any) => drillPorCcs(areaToCcs[String(d.indexValue)] || [])}
+                <ResponsiveBar theme={nivoTheme()} data={recAreaVis.linhas} keys={['Orçado', 'Realizado', 'Δ']} indexBy="area" groupMode="grouped"
+                  onClick={(d: any) => { const ids = areaToCcs[String(d.indexValue)] || []; if (podeDrill(ids)) drillPorCcs(ids) }}
                   margin={{ top: 18, right: 10, bottom: 60, left: 56 }} padding={0.3} innerPadding={2}
                   colors={(b: any) => b.id === 'Orçado' ? '#9aa0aa' : b.id === 'Realizado' ? '#3b5bdb' : '#1098ad'} borderRadius={3}
                   axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }} axisBottom={{ tickRotation: -20 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate
@@ -1176,10 +1194,10 @@ export default function DashboardPage() {
               </div>
             </div>
             <div style={S.card}>
-              <div style={S.cardT}>Despesas por área <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · clique p/ detalhar)</span></div>
+              <div style={S.cardT}>Despesas por área <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(Orçado × Realizado · Δ · clique p/ detalhar){despAreaVis.ocultadas > 0 && ` · ${despAreaVis.ocultadas} não detalhada(s)`}</span></div>
               <div style={S.chart}>
-                <ResponsiveBar theme={nivoTheme()} data={despAreaBar} keys={['Orçado', 'Realizado', 'Δ']} indexBy="area" groupMode="grouped"
-                  onClick={(d: any) => drillPorCcs(areaToCcs[String(d.indexValue)] || [])}
+                <ResponsiveBar theme={nivoTheme()} data={despAreaVis.linhas} keys={['Orçado', 'Realizado', 'Δ']} indexBy="area" groupMode="grouped"
+                  onClick={(d: any) => { const ids = areaToCcs[String(d.indexValue)] || []; if (podeDrill(ids)) drillPorCcs(ids) }}
                   margin={{ top: 18, right: 10, bottom: 60, left: 56 }} padding={0.3} innerPadding={2}
                   colors={(b: any) => b.id === 'Orçado' ? '#9aa0aa' : b.id === 'Realizado' ? '#3b5bdb' : '#1098ad'} borderRadius={3}
                   axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }} axisBottom={{ tickRotation: -20 }} enableLabel={false} valueFormat={(v: any) => fmt(Number(v))} animate

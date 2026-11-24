@@ -18,7 +18,7 @@ import { supabase } from '../../lib/supabase'
 import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { totaisRelatorio, totaisRelatorioMes } from '../../lib/relatorioTotais'
-import { useDiscreto, idsRestritos, DOMINANCIA } from '../../lib/discricao'
+import { useDiscreto, idsRestritos, DOMINANCIA, removerDominadas } from '../../lib/discricao'
 import { COLS_LINHA, emArvore, fatorExibicao, linhasConciliaveis, type LinhaRel } from '../../lib/refRelatorio'
 import { Ponte, componentesDe } from '../../lib/Ponte'
 import {
@@ -1007,7 +1007,7 @@ export default function OrcamentoDashPage() {
           metas={metas} anoBase={anoBase} indicSel={indicSel} setIndicSel={setIndicSel} pick={pickIndic} setPick={setPickIndic}
           linhaSel={linhaSel} setLinhaSel={setLinhaSel} pickLinha={pickLinha} setPickLinha={setPickLinha}
           empLinha={empLinha} setEmpLinha={setEmpLinha}
-          porEmp={porEmp} porArea={porArea} setDrill={setDrill}
+          porEmp={porEmp} porArea={porArea} setDrill={setDrill} restritos={restritos}
           rotuloBase={rotuloBase} rotuloComp={rotuloComp} />
       ) : (
         <>
@@ -1192,11 +1192,16 @@ function agregarPorArea(rows: any[], linhas: LinhaRel[], ccs: CC[]) {
     return cod2.length < 2 ? `${c.codigo} · ${corta(c.descricao, 18)}` : `${cod2} · ${corta(c.area_nome || cod2, 18)}`
   }
 
-  const recA: Record<string, { v: number; ccs: Set<string> }> = {}, despA: Record<string, { v: number; ccs: Set<string> }> = {}
-  const recC: Record<string, { v: number; ccs: Set<string> }> = {}, despC: Record<string, { v: number; ccs: Set<string> }> = {}
+  // ⚠ `pes` = magnitude por CC dentro da barra. O modo discreto decide por
+  // DOMINÂNCIA (ver `lib/discricao.ts`), então o conjunto de ids não basta:
+  // precisa de quanto cada um vale.
+  type Bal = { v: number; ccs: Set<string>; pes: Record<string, number> }
+  const recA: Record<string, Bal> = {}, despA: Record<string, Bal> = {}
+  const recC: Record<string, Bal> = {}, despC: Record<string, Bal> = {}
   const recM: Record<number, number> = {}, despM: Record<number, number> = {}
-  const acum = (m: Record<string, { v: number; ccs: Set<string> }>, k: string, v: number, cc: string | null) => {
-    const b = (m[k] = m[k] || { v: 0, ccs: new Set<string>() }); b.v += v; if (cc) b.ccs.add(cc)
+  const acum = (m: Record<string, Bal>, k: string, v: number, cc: string | null) => {
+    const b = (m[k] = m[k] || { v: 0, ccs: new Set<string>(), pes: {} }); b.v += v
+    if (cc) { b.ccs.add(cc); b.pes[cc] = (b.pes[cc] || 0) + Math.abs(v) }
   }
   for (const r of rows) {
     if (!folha.has(r.linha_id)) continue
@@ -1207,8 +1212,8 @@ function agregarPorArea(rows: any[], linhas: LinhaRel[], ccs: CC[]) {
     if (nat === 'RECEITA') { acum(recA, areaDe(r.cc_id), v, r.cc_id); acum(recC, nivel2(r.cc_id), v, r.cc_id); recM[r.mes] = (recM[r.mes] || 0) + v }
     else { acum(despA, areaDe(r.cc_id), v, r.cc_id); acum(despC, nivel2(r.cc_id), v, r.cc_id); despM[r.mes] = (despM[r.mes] || 0) + v }
   }
-  const lista = (m: Record<string, { v: number; ccs: Set<string> }>, chave: string) =>
-    Object.entries(m).filter(([, b]) => b.v).map(([k, b]) => ({ [chave]: k, Orçado: Math.round(b.v), _ccs: [...b.ccs] }))
+  const lista = (m: Record<string, Bal>, chave: string) =>
+    Object.entries(m).filter(([, b]) => b.v).map(([k, b]) => ({ [chave]: k, Orçado: Math.round(b.v), _ccs: [...b.ccs], _pes: b.pes }))
       .sort((a: any, b: any) => b.Orçado - a.Orçado)
   const mesesOrd = [...new Set([...Object.keys(recM), ...Object.keys(despM)].map(Number))].sort((a, b) => a - b)
   return {
@@ -1234,7 +1239,7 @@ function agregarPorArea(rows: any[], linhas: LinhaRel[], ccs: CC[]) {
  * discreto nos cards — referência, não protagonista; quem quiser comparar de
  * verdade tem a aba ao lado.
  */
-function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, mensal, meses, MES, metas, anoBase, indicSel, setIndicSel, pick, setPick, linhaSel, setLinhaSel, pickLinha, setPickLinha, empLinha, setEmpLinha, porEmp, porArea, setDrill, rotuloBase, rotuloComp }: any) {
+function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, mensal, meses, MES, metas, anoBase, indicSel, setIndicSel, pick, setPick, linhaSel, setLinhaSel, pickLinha, setPickLinha, empLinha, setEmpLinha, porEmp, porArea, setDrill, rotuloBase, rotuloComp, restritos }: any) {
   // Cards = linhas INDICADOR e FORMULA da estrutura. É o que o relatório já
   // declara como "medida" — nada hardcoded, e indicador novo aparece sozinho.
   const candidatos = useMemo(
@@ -1468,13 +1473,20 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
         ['Receitas por centro de custo', 'ccRec', 'cc', '#2f9e44'],
         ['Despesas por centro de custo', 'ccDesp', 'cc', '#e8590c'],
       ] as const).map(([titulo, chave, idx, cor]) => {
-        const dados = (porArea as any)[chave] as any[]
+        // ⚠⚠ UM SÓ PONTO PARA AS QUATRO BARRAS (receita/despesa × área/CC).
+        // Mascarar em cada uma seria o jeito de esquecer a próxima — foi
+        // exatamente o que aconteceu no acompanhamento, onde os gráficos por
+        // ÁREA ficaram de fora na primeira versão.
+        const bruto = (porArea as any)[chave] as any[]
+        const vis = removerDominadas<any>(bruto || [], (d: any) => d._pes || {}, restritos || new Set())
+        const dados = vis.linhas
         if (!dados?.length) return null
         return (
           <div key={chave} style={S.sec}>
             <div style={S.secH}><div>
               <div style={S.secT}>{titulo}</div>
-              <div style={S.secD}>Orçado de {rotuloBase}. <span style={{ color: 'var(--violet)' }}>Clique numa barra para abrir a linha do relatório e chegar ao razão.</span></div>
+              <div style={S.secD}>Orçado de {rotuloBase}. <span style={{ color: 'var(--violet)' }}>Clique numa barra para abrir a linha do relatório e chegar ao razão.</span>
+                {vis.ocultadas > 0 && <span style={{ color: 'var(--violet)' }}> · {vis.ocultadas} não detalhada(s) pelo modo discreto.</span>}</div>
             </div></div>
             <div style={{ ...cx, height: alt(dados.length) }}>
               <ResponsiveBar theme={nivoTheme()} data={dados} keys={['Orçado']} indexBy={idx}
