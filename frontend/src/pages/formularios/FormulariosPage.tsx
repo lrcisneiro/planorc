@@ -80,6 +80,7 @@ export default function FormulariosPage() {
   const [empresas, setEmpresas] = useState<any[]>([])
   const [filiais, setFiliais] = useState<any[]>([])
   const [ccs, setCcs] = useState<any[]>([])
+  const [erroEscopo, setErroEscopo] = useState<string | null>(null)
   const [relatorios, setRelatorios] = useState<any[]>([])
   const [linhasRel, setLinhasRel] = useState<LinhaRel[]>([])
   const navigate = useNavigate()
@@ -97,10 +98,23 @@ export default function FormulariosPage() {
     // catálogo pequeno: dispensa pageAll
     carregarVersoes('id,codigo,ano').then(setVersoes)
     carregarRelatorios().then(setRelatorios)
-    supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
-    supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo').then(r => setFiliais(r.data || []))
-    supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome,restrito')
-      .order('codigo').then(r => setCcs(r.data || []))
+    // ⚠⚠ FALHA DE CONSULTA NÃO É AUSÊNCIA DE DADO. A 1ª versão fazia
+    // `r.data || []` e, quando a leitura falhava, o modal de Filtros abria com
+    // "Nada encontrado" em TODAS as listas — indistinguível de cadastro vazio,
+    // e sem nada dizendo o que houve. É a mesma lição de `analise_pessoas_agg`.
+    ;(async () => {
+      const [e, f, c] = await Promise.all([
+        supabase.from('empresa').select('id,codigo,descricao').order('codigo'),
+        supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
+        supabase.from('centro_custo')
+          .select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome,restrito')
+          .order('codigo'),
+      ])
+      const err = e.error || f.error || c.error
+      if (err) { setErroEscopo(err.message); return }
+      setErroEscopo(null)
+      setEmpresas(e.data || []); setFiliais(f.data || []); setCcs(c.data || [])
+    })()
   }, [])
 
   const openCreate = () => setModal({ open: true, codigo: '', nome: '', descricao: '' })
@@ -412,8 +426,16 @@ export default function FormulariosPage() {
                             areaSel={sel.areaSel} setAreaSel={(x: string[]) => grava({ sel: { areaSel: x } })}
                             divisaoSel={sel.divisaoSel} setDivisaoSel={(x: string[]) => grava({ sel: { divisaoSel: x } })}
                             buSel={sel.buSel} setBuSel={(x: string[]) => grava({ sel: { buSel: x } })} />
-                          <span style={{ fontSize: 12, color: n ? 'var(--violet)' : 'var(--muted)' }}>
-                            {n ? `${n} recorte(s) — só estes escopos entram` : 'sem recorte: gera para todos os escopos encontrados'}
+                          {/* ⚠ Três estados diferentes, e dizer qual é o ponto:
+                              carregou e está vazio ≠ falhou ao carregar ≠ sem
+                              recorte. Os três davam "Nada encontrado" antes. */}
+                          <span style={{ fontSize: 12, color: erroEscopo ? 'var(--red)' : n ? 'var(--violet)' : 'var(--muted)' }}>
+                            {erroEscopo
+                              ? `Não consegui ler empresas/filiais/CCs: ${erroEscopo}`
+                              : !empresas.length && !ccs.length
+                                ? 'Carregando empresas, filiais e centros de custo…'
+                                : n ? `${n} recorte(s) — só estes escopos entram`
+                                    : 'sem recorte: gera para todos os escopos encontrados'}
                           </span>
                         </div>
                       )
