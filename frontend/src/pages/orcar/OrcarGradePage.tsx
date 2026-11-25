@@ -280,7 +280,26 @@ export default function OrcarGradePage() {
     let sel = supabase.from('fat_orcado').select('id').eq('versao_id', versaoId).eq('linha_id', master).eq('empresa_id', empresaId).eq('ano', ano).eq('mes', mes)
     sel = filialId ? sel.eq('filial_id', filialId) : sel.is('filial_id', null)
     sel = ccId ? sel.eq('cc_id', ccId) : sel.is('cc_id', null)
-    const { data: ex } = await sel.maybeSingle()
+    // ⚠⚠ `maybeSingle()` tolera 0 ou 1 linha e DÁ ERRO com 2 ou mais — e o
+    // `error` era descartado aqui. Com erro, `data` vem nulo, o código caía no
+    // ramo do INSERT e criava OUTRO lançamento na mesma célula, calado. E `dims`
+    // faz parte da chave única (`dims::text`), então o banco não barra: a
+    // gêmea conviveu com a original e o drill passou a somar as duas.
+    // Medido em 25/nov: janeiro de `05 · 411 · 23001` com duas linhas idênticas
+    // de R$ 23.049 — iguais em empresa, filial, CC, moeda e valor, diferindo só
+    // no `dims` — somando 46.098 numa célula que devia ter 23.049.
+    // Célula com mais de um lançamento é AMBIGUIDADE, não permissão: é a mesma
+    // razão pela qual o drill a trava para todo mundo, admin incluído. A grade
+    // não tem onde mostrar a composição, então recusa e manda para o drill.
+    const { data: ex, error: errSel } = await sel.maybeSingle()
+    if (errSel) {
+      alert(errSel.code === 'PGRST116'
+        ? 'Esta célula tem MAIS DE UM lançamento (posto, formulário ou ajuste à parte).\n\n'
+          + 'A grade não sabe qual deles você quis mudar, então não grava. Abra o drill da linha '
+          + '(Orçar por linha → combinações) para ver a composição e editar o lançamento certo.'
+        : `Não foi possível ler a célula antes de gravar.\n\n${errSel.message}\n\nNada foi gravado.`)
+      return false
+    }
     return ex
       ? gravar(supabase.from('fat_orcado').update({ ...mat, expressao, origem: 'MANUAL' }).eq('id', (ex as any).id), 'gravar a célula')
       : gravar(supabase.from('fat_orcado').insert({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, ...mat, expressao, origem: 'MANUAL', dims: {} }), 'gravar a célula')

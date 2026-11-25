@@ -113,6 +113,45 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > zero e volta sucesso. O lote compara o que voltou com o que pediu; divergiu, para e avisa **o
 > que já foi apagado continua apagado**, porque é o estado real.
 
+> ⚠⚠ **A COMBINAÇÃO NOVA DO DRILL "SUMIA", E LEVAVA R$ 153 MIL CONSIGO (25/nov).**
+> `novaComb` punha a linha do `+` **na mesma lista** que as vindas do banco, e `carregar()`
+> reconstrói essa lista **do banco** — então qualquer recarga a apagava, com as escolhas de
+> empresa/filial/CC dentro. A pessoa a criava, ela desaparecia no meio do trabalho, sem erro, e
+> a tentativa seguinte caía no CC errado. Hoje são **duas listas** (`combsDb` + `pend`), e a
+> pendente só sai de `pend` quando o banco passa a conhecê-la.
+> ⚠⚠ **Pior: os seletores ofereciam filial/CC FORA do recorte da tela.** `carregar()` filtra a
+> leitura por `filialIds`/`ccIds` (o conserto do drill que não fechava com a linha), mas o combo
+> de CC listava todos — então dava para gravar num CC que **esta tela não consegue mais mostrar**,
+> e o valor ficava no banco, invisível. Hoje o combo é recortado e, com recorte ativo, a opção
+> *sem CC / sem filial* **desaparece**, porque o consolidado também fica fora da leitura. É a
+> regra das pílulas dos dashboards aplicada aqui: **o que se oferece tem de caber no que se
+> entrega**.
+> ⚠ **E a guarda que faltava era de CONTEXTO, não de validação:** a empresa YY já tinha os 12
+> meses da linha no CC 411 (trazidos pela cópia do cenário) e a combinação nova no CC 5 somou
+> **R$ 153.252/ano** ao mesmo custo. Cada célula estava certa; o total da linha, errado. A linha
+> pendente agora **diz** quanto aquela empresa já tem nesta linha e em quais CCs, e que o novo
+> lançamento **soma**.
+>
+> ⚠⚠ **`maybeSingle()` DÁ ERRO COM 2+ LINHAS, e `OrcarGradePage.saveOne` descartava o `error`.**
+> Com erro, `data` vem nulo, o código caía no ramo do **INSERT** e criava **outro** lançamento na
+> mesma célula — calado. E `dims::text` faz parte de `uq_fat_orcado`, então o banco não barra: a
+> gêmea **convive**. Medido: janeiro de `05 · 2001 · 411 · 23001` com duas linhas de R$ 23.049
+> iguais em empresa, filial, CC, moeda e valor, **diferindo só no `dims`** (uma
+> `{"historico":"Seed 2027 · volatil"}`, da importação do seed; outra `{}`), somando 46.098.
+> Hoje a grade **recusa** célula composta e manda para o drill — é a mesma razão pela qual o drill
+> a trava para todo mundo: **ambiguidade, não permissão**. É `gravar()` de novo, do outro lado: o
+> projeto confere o retorno da ESCRITA e deixou de conferir o da **leitura que decide o ramo**.
+> ⚠ **Qual gêmea apagar não é indiferente:** o Importar Baseline casa a célula **por `dims`**
+> (`dimsKeyOf`), então quem fica é a do histórico — apagando-a, a reimportação do seed criaria a
+> gêmea outra vez. Ajuste em `ajuste_aviao_prelim.sql`.
+>
+> ⚠ **Como se diagnostica isto: `atualizado_em` diz MÁQUINA ou MÃO, e `dims` diz QUEM.** Eu li
+> "digitado" pelos horários e errei — o seed estava lá, com `dims.historico`. Os lotes distinguem:
+> a cópia do cenário gravou **6.081 células MANUAL em um minuto**, o Aplicar de postos 17.632, a
+> importação do seed 4.375 — contra **72 células em seis lotes de 12, uma empresa a cada ~20 s**,
+> que é forma de gente. Ausência de `dims.historico` não prova digitação; **presença prova
+> importação.**
+
 > **Ratear do drill, pelos códigos já cadastrados (nov/2026).** Lançar um valor e distribuí-lo
 > era digitar a mão em N combinações com a regra de três feita por fora. O botão ao lado da
 > borracha abre os mesmos códigos de *Postos → Rateio* (16, todos somando 100: 8 por CC, 8 por

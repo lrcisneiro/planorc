@@ -63,7 +63,19 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
   const [cel, setCel] = useState<Record<string, Record<number, Cel>>>({})
   // Qual célula está com a composição aberta — uma de cada vez.
   const [comp, setComp] = useState<{ k: string; mes: number } | null>(null)
-  const [combs, setCombs] = useState<Comb[]>([])
+  // ⚠⚠ DUAS LISTAS, e separá-las é o conserto de um defeito MEDIDO (25/nov).
+  // Era uma só, e `carregar()` a reconstruía **do banco** — então a combinação
+  // criada no "+", que só existe no cliente até receber valor, era apagada por
+  // QUALQUER recarga, levando as escolhas de empresa/filial/CC com ela. A linha
+  // "sumia" no meio do trabalho, sem erro e sem explicação. Hoje a pendente vive
+  // em `pend` e só sai de lá quando o banco passa a conhecê-la.
+  const [combsDb, setCombsDb] = useState<Comb[]>([])
+  const [pend, setPend] = useState<Comb[]>([])
+  // A pendente vai NO FIM e só enquanto o banco não a conhece.
+  const combs = useMemo(() => {
+    const kDb = new Set(combsDb.map(chave))
+    return [...combsDb, ...pend.filter(c => !kDb.has(chave(c)))]
+  }, [combsDb, pend])
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
   const [mudou, setMudou] = useState(false)
@@ -114,7 +126,11 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
         cl.itens.push({ id: r.id, valor: Number(r.valor) || 0, origem: r.origem, dims: r.dims })
         cl.total += Number(r.valor) || 0
       }
-      setCel(c); setCombs([...vistos.values()])
+      const dbCombs = [...vistos.values()]
+      setCel(c); setCombsDb(dbCombs)
+      // a pendente que o banco já conhece deixa de ser pendente
+      const kDb = new Set(dbCombs.map(chave))
+      setPend(v => v.filter(x => !kDb.has(chave(x))))
     } catch (e: any) { setErro(e?.message || String(e)) }
     finally { setCarregando(false) }
   }
@@ -133,6 +149,20 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
     podeOrcar && acesso.canEdit('empresa', c.empresa_id)
     && (c.filial_id ? acesso.canEdit('filial', c.filial_id) : true)
     && (c.cc_id ? acesso.canEdit('centro_custo', c.cc_id) : true)
+
+  // ⚠⚠ O QUE SE OFERECE AQUI TEM DE CABER NO RECORTE DA TELA. `carregar()`
+  // filtra a leitura por `filialIds`/`ccIds`; oferecer filial/CC fora dele
+  // deixava gravar um valor que esta tela NÃO CONSEGUE MOSTRAR — a linha
+  // desaparecia com o dinheiro dentro. Medido em 25/nov: R$ 153.252/ano num CC
+  // errado, convivendo com o valor certo no CC certo, e o drill somando os dois.
+  // Não é controle de acesso (o RLS já recorta): é não oferecer o que não se
+  // entrega — a regra que já vale para as pílulas dos dashboards.
+  const ccsOk = useMemo(() => {
+    const l = acesso.filterEdit('centro_custo', ccs as any) as any[]
+    return ccIds ? l.filter(x => ccIds.includes(x.id)) : l
+  }, [ccs, ccIds, acesso.loading])   // eslint-disable-line
+  const filiaisOk = (empId: string) =>
+    filiais.filter(f => f.empresa_id === empId && (!filialIds || filialIds.includes(f.id)))
 
   const gravar = async (c: Comb, mes: number, texto: string) => {
     const k = chave(c)
@@ -320,13 +350,22 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
   const novaComb = () => {
     const emp = empresas[0]
     if (!emp) return
-    const c: Comb = { empresa_id: emp.id, filial_id: null, cc_id: null }
+    // ⚠ Nasce já DENTRO do recorte: com filtro de filial/CC ativo, a primeira
+    // opção oferecida é o default, nunca o consolidado — que o `carregar()`
+    // deixa de fora e faria a linha nascer invisível.
+    const c: Comb = {
+      empresa_id: emp.id,
+      filial_id: filialIds ? (filiaisOk(emp.id)[0]?.id ?? null) : null,
+      cc_id: ccIds ? (ccsOk[0]?.id ?? null) : null,
+    }
     if (combs.some(x => chave(x) === chave(c))) { setErro('Essa combinação já está na lista.'); return }
-    setCombs(v => [...v, c])
+    setPend(v => [...v, c])
   }
 
-  const trocar = (i: number, patch: Partial<Comb>) =>
-    setCombs(v => v.map((c, j) => j === i ? { ...c, ...patch } : c))
+  // ⚠ Por CHAVE, não por índice: `combs` é a fusão de duas listas, então o
+  // índice da linha renderizada não é o índice em `pend`.
+  const trocar = (c0: Comb, patch: Partial<Comb>) =>
+    setPend(v => v.map(c => chave(c) === chave(c0) ? { ...c, ...patch } : c))
 
   const totalMes = (m: number) => combs.reduce((s, c) => s + (cel[chave(c)]?.[m]?.total || 0), 0)
   const totalAno = combs.reduce((s, c) => s + Object.values(cel[chave(c)] || {}).reduce((a, x) => a + x.total, 0), 0)
@@ -503,7 +542,7 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
                             linha para linha conforme haja ou não botão. */}
                         <span style={{ width: 15, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 5 }}>
                           {nova
-                            ? <button onClick={() => setCombs(v => v.filter((_, j) => j !== i))}
+                            ? <button onClick={() => setPend(v => v.filter(x => chave(x) !== k))}
                                 title="Tirar esta combinação da lista"
                                 style={{ background: 'none', border: 'none', padding: 0, color: 'var(--muted)', cursor: 'pointer', display: 'block' }}><Trash2 size={13} /></button>
                             : pode && alvoZerar([c]).ids.length > 0 && (<>
@@ -520,20 +559,40 @@ export default function DrillCombinacoes({ linha, versao, ano, empresas, fator =
                         </span>
                         {nova ? (
                           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                            <select value={c.empresa_id} onChange={e => trocar(i, { empresa_id: e.target.value, filial_id: null })}
+                            <select value={c.empresa_id} onChange={e => trocar(c, { empresa_id: e.target.value, filial_id: filialIds ? (filiaisOk(e.target.value)[0]?.id ?? null) : null })}
                               style={{ ...inp, width: 'auto', textAlign: 'left' }}>
                               {empresas.map(e => <option key={e.id} value={e.id}>{e.codigo}{e.descricao ? ` · ${e.descricao}` : ''}</option>)}
                             </select>
-                            <select value={c.filial_id || ''} onChange={e => trocar(i, { filial_id: e.target.value || null })}
+                            <select value={c.filial_id || ''} onChange={e => trocar(c, { filial_id: e.target.value || null })}
                               style={{ ...inp, width: 'auto', textAlign: 'left' }}>
-                              <option value="">— sem filial —</option>
-                              {filiais.filter(f => f.empresa_id === c.empresa_id).map(f => <option key={f.id} value={f.id}>{f.codigo}</option>)}
+                              {/* Com recorte de filial, "sem filial" (consolidado) não cabe:
+                                  o `carregar()` o deixa de fora e a linha nasceria invisível. */}
+                              {!filialIds && <option value="">— sem filial —</option>}
+                              {filiaisOk(c.empresa_id).map(f => <option key={f.id} value={f.id}>{f.codigo}</option>)}
                             </select>
-                            <select value={c.cc_id || ''} onChange={e => trocar(i, { cc_id: e.target.value || null })}
+                            <select value={c.cc_id || ''} onChange={e => trocar(c, { cc_id: e.target.value || null })}
                               style={{ ...inp, width: 'auto', textAlign: 'left' }}>
-                              <option value="">— sem centro de custo —</option>
-                              {acesso.filterEdit('centro_custo', ccs as any).map((x: any) => <option key={x.id} value={x.id}>{x.codigo} · {x.descricao}</option>)}
+                              {!ccIds && <option value="">— sem centro de custo —</option>}
+                              {ccsOk.map((x: any) => <option key={x.id} value={x.id}>{x.codigo} · {x.descricao}</option>)}
                             </select>
+                            {/* ⚠⚠ A GUARDA QUE FALTAVA (25/nov). O caso medido: a empresa YY
+                                já tinha os 12 meses desta linha no CC 411 e uma combinação
+                                nova foi criada no CC 5, somando R$ 153.252/ano ao mesmo
+                                custo. Cada célula estava certa; o total da linha, errado —
+                                e nada na tela dizia que ali havia valor em outro CC. */}
+                            {(() => {
+                              const irmas = combsDb.filter(x => x.empresa_id === c.empresa_id)
+                              if (!irmas.length) return null
+                              const tt = irmas.reduce((a, x) =>
+                                a + Object.values(cel[chave(x)] || {}).reduce((b, y) => b + y.total, 0), 0)
+                              return (
+                                <div style={{ flexBasis: '100%', fontSize: 11.5, lineHeight: 1.5, color: 'var(--orange)' }}>
+                                  ⚠ {empCod[c.empresa_id] || '?'} já tem {mostrar(tt)} nesta linha
+                                  {' '}em {irmas.map(x => x.cc_id ? ccCod[x.cc_id] : 'sem CC').join(' · ')} —
+                                  {' '}o que for lançado aqui <b>soma</b>, não substitui.
+                                </div>
+                              )
+                            })()}
                           </div>
                         ) : (
                           <span style={{ color: 'var(--text)' }}>
