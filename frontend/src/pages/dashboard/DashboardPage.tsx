@@ -6,7 +6,7 @@ import { computeCenario, computeTotais, pkey } from '../../lib/engine'
 import type { LinhaCalc, Computed, Periodo, RawValues } from '../../lib/engine'
 import { PeriodPicker } from './PeriodPicker'
 import { totaisRelatorio, totaisRelatorioArv } from '../../lib/relatorioTotais'
-import { MemoriaModal } from '../../lib/MemoriaCalculo'
+import { MemoriaModal, componentesMem } from '../../lib/MemoriaCalculo'
 import { useDiscreto, idsRestritos, removerDominadas } from '../../lib/discricao'
 import type { RLData } from '../../lib/relatorioTotais'
 import { ResponsiveBar } from '@nivo/bar'
@@ -901,9 +901,13 @@ export default function DashboardPage() {
                     onPointerDown={e => { toqueInd.current = { x: e.clientX, y: e.clientY } }}
                     onClick={e => {
                       const t = toqueInd.current
+                      // ⚠ Só abre onde há o que abrir — ver `decompoe` na análise.
+                      if (!componentesMem(byIdRel[c.id], linhasRel as any).length) return
                       if (t && Math.abs(e.clientX - t.x) < 5 && Math.abs(e.clientY - t.y) < 5) setMemoria(c.id)
                     }}
-                    title="clique para ver a memória de cálculo · arraste para reordenar"
+                    title={componentesMem(byIdRel[c.id], linhasRel as any).length
+                      ? 'clique para ver a memória de cálculo · arraste para reordenar'
+                      : 'arraste para reordenar'}
                     onDragStart={e => { setArrInd(c.id); e.dataTransfer.effectAllowed = 'move' }}
                     onDragEnd={() => { setArrInd(null); setSobreInd(null) }}
                     onDragOver={e => { e.preventDefault(); if (sobreInd !== c.id) setSobreInd(c.id) }}

@@ -1645,10 +1645,19 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠⚠ **Só a expressão do SUBTOTAL pode perder termos** — ela é sintetizada aqui (a linha não tem
   `expressao`). Na **FÓRMULA** a expressão é TEXTO do cadastro, e apagar um termo dela seria
   exibir uma fórmula que não é a da linha.
-  **Em DUAS telas, um componente só** — o dashboard e o relatório perguntam a mesma coisa, e duas
-  implementações dariam duas respostas, com a do relatório sendo justamente a que se confronta
-  com a DRE. No **acompanhamento** abre no clique do cartão do indicador; no **relatório** é o
-  botão *Memória* da linha selecionada, com **uma coluna por cenário** no período da tela.
+  **Em TRÊS telas, um componente só** — acompanhamento, *Orçamento — análise* e relatório
+  perguntam a mesma coisa, e três implementações dariam três respostas, com a do relatório sendo
+  justamente a que se confronta com a DRE. Nos dois dashboards abre no **clique do cartão**; no
+  **relatório** é o botão *Memória* da linha selecionada, com **uma coluna por cenário** no
+  período da tela.
+  ⚠ Na *análise* as colunas são **analisado × comparado**, nessa ordem, porque é a ordem do
+  CARTÃO — ele lidera com o analisado, e abrir no comparado pareceria erro de conta (foi o que
+  aconteceu no acompanhamento: 30,60% no cartão × 38,43% no modal).
+  ⚠ **O cartão só abre onde HÁ o que abrir** (`componentesMem(...).length`): linha analítica vem
+  do lançamento, e o clique entregaria um modal dizendo "não há fórmula" — oferecer e então
+  recusar, o erro que o `↳` da ponte e o botão do editor já evitam.
+  ⚠ Na *análise*, **os indicadores vêm ANTES das linhas do relatório** (pedido do Ricardo,
+  25/nov): são as medidas que a estrutura já define, e as linhas soltas são o complemento.
   ⚠⚠ **O cartão ARRASTA e agora também ABRE — o `click` do HTML5 drag não separa os dois** (há
   navegador que o emite depois do drop). Quem separa é o **deslocamento**: abaixo de 5px foi
   clique. Perder o arrasto para ganhar o modal seria trocar um gesto por outro.

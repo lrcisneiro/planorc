@@ -21,6 +21,7 @@ import { totaisRelatorio, totaisRelatorioMes } from '../../lib/relatorioTotais'
 import { useDiscreto, idsRestritos, DOMINANCIA, removerDominadas } from '../../lib/discricao'
 import { COLS_LINHA, emArvore, fatorExibicao, linhasConciliaveis, type LinhaRel } from '../../lib/refRelatorio'
 import { Ponte, componentesDe } from '../../lib/Ponte'
+import { MemoriaModal, componentesMem } from '../../lib/MemoriaCalculo'
 import {
   ExportarButton, FiltrosButton, PillsDim, SalvarCardButton, useCardPreset,
   effectiveCcFilter, escopoFiltro, BotaoDiscreto, type CC,
@@ -1025,6 +1026,7 @@ export default function OrcamentoDashPage() {
           linhaSel={linhaSel} setLinhaSel={setLinhaSel} pickLinha={pickLinha} setPickLinha={setPickLinha}
           empLinha={empLinha} setEmpLinha={setEmpLinha}
           porEmp={porEmp} porArea={porArea} setDrill={setDrill} restritos={restritos}
+          arvBase={dados.arvBase} arvComp={dados.arvComp}
           rotuloBase={rotuloBase} rotuloComp={rotuloComp} />
       ) : (
         <>
@@ -1074,7 +1076,15 @@ export default function OrcamentoDashPage() {
 // ── Card de uma linha do relatório (indicador ou não) ──
 // O mesmo card serve às duas seções: a diferença entre elas é só QUAIS linhas
 // entram, não como se mostram.
-function CardLinha({ l, val, fac, base, comp, metas, anoBase, rotuloComp, arrasto, sobre, setArrasto, setSobre, soltar }: any) {
+function CardLinha({ l, val, fac, base, comp, metas, anoBase, rotuloComp, arrasto, sobre, setArrasto, setSobre, soltar, onAbrir, decompoe }: any) {
+  // ⚠ O cartão ARRASTA e também ABRE. O `click` do HTML5 drag não separa os
+  // dois (há navegador que o emite depois do drop); quem separa é o
+  // DESLOCAMENTO — abaixo de 5px foi clique. Mesma solução do acompanhamento.
+  const toque = useRef<{ x: number; y: number } | null>(null)
+  // ⚠ Só abre onde HÁ o que abrir. Card de linha analítica vem do lançamento,
+  // e o clique entregaria um modal dizendo "não há fórmula" — oferecer e então
+  // recusar é o erro que esta base evita no `↳` da ponte e no botão do editor.
+  const abre = onAbrir && decompoe?.(l) ? onAbrir : null
   const v = val(base, l.id), vc = val(comp, l.id)
   const d = v - vc
   const casas = l.casas_decimais ?? (l.formato === 'PERCENTUAL' ? 1 : 0)
@@ -1089,7 +1099,12 @@ function CardLinha({ l, val, fac, base, comp, metas, anoBase, rotuloComp, arrast
       onDragLeave={() => { if (sobre === l.id) setSobre(null) }}
       onDrop={e => { e.preventDefault(); soltar(l.id) }}
       onDragEnd={() => { setArrasto(null); setSobre(null) }}
-      title="Arraste para reordenar"
+      onPointerDown={e => { toque.current = { x: e.clientX, y: e.clientY } }}
+      onClick={e => {
+        const t = toque.current
+        if (abre && t && Math.abs(e.clientX - t.x) < 5 && Math.abs(e.clientY - t.y) < 5) abre(l.id)
+      }}
+      title={abre ? 'Clique para ver a memória de cálculo · arraste para reordenar' : 'Arraste para reordenar'}
       style={{ background: 'var(--panel)', borderRadius: 12, padding: 15, cursor: 'grab',
         border: '1px solid ' + (alvoSolta ? 'var(--violet)' : 'var(--border)'),
         boxShadow: alvoSolta ? '0 0 0 3px rgba(139,92,246,0.18)' : 'none',
@@ -1258,7 +1273,7 @@ function agregarPorArea(rows: any[], linhas: LinhaRel[], ccs: CC[]) {
  * discreto nos cards — referência, não protagonista; quem quiser comparar de
  * verdade tem a aba ao lado.
  */
-function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, mensal, meses, MES, metas, anoBase, indicSel, setIndicSel, pick, setPick, linhaSel, setLinhaSel, pickLinha, setPickLinha, empLinha, setEmpLinha, porEmp, porArea, setDrill, rotuloBase, rotuloComp, restritos }: any) {
+function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, mensal, meses, MES, metas, anoBase, indicSel, setIndicSel, pick, setPick, linhaSel, setLinhaSel, pickLinha, setPickLinha, empLinha, setEmpLinha, porEmp, porArea, setDrill, rotuloBase, rotuloComp, restritos, arvBase, arvComp }: any) {
   // Cards = linhas INDICADOR e FORMULA da estrutura. É o que o relatório já
   // declara como "medida" — nada hardcoded, e indicador novo aparece sozinho.
   const candidatos = useMemo(
@@ -1304,7 +1319,9 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
     ordem.splice(para, 0, ...ordem.splice(de, 1))
     setOrdem(ordem)
   }
-  const comum = { val, fac, base, comp, metas, anoBase, rotuloComp, arrasto, sobre, setArrasto, setSobre }
+  const comum = { val, fac, base, comp, metas, anoBase, rotuloComp, arrasto, sobre, setArrasto, setSobre,
+                  onAbrir: (id: string) => setMemoria(id),
+                  decompoe: (l: LinhaRel) => componentesMem(l as any, linhas as any).length > 0 }
   const cardProps = { ...comum, soltar: fazSoltar(indicSel, cards, setIndicSel) }
   const cardPropsLinha = { ...comum, soltar: fazSoltar(linhaSel, cardsLinha, setLinhaSel) }
 
@@ -1348,31 +1365,29 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
   const alt = (n: number) => Math.max(220, n * 30 + 60)
   const cx: any = { background: 'var(--chart-bg)', borderRadius: 10, padding: 8 }
 
+  // ⚠ MESMO COMPONENTE do acompanhamento e do relatório. Três telas perguntam
+  // "de que este número é feito"; três implementações dariam três respostas.
+  const [memoria, setMemoria] = useState<string | null>(null)
+
   return (
     <>
-      <div style={S.sec}>
-        <div style={S.secH}>
-          <div><div style={S.secT}>Linhas do relatório</div>
-            <div style={S.secD}>
-              Para acompanhar linhas que <strong>não são indicador</strong> — receita bruta, despesas totais, um subtotal.
-              Orçado de {rotuloBase}; o Δ compara com {rotuloComp}.
-            </div></div>
-          <button style={{ ...S.sel, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            onClick={() => setPickLinha(true)} data-noexport>
-            <ListChecks size={13} /> Escolher{linhaSel.length ? ` (${linhaSel.length})` : ''}
-          </button>
-        </div>
-        {!cardsLinha.length ? (
-          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-            Nenhuma linha escolhida. Use <strong>Escolher</strong> — são centenas de linhas, então nada aparece até você dizer quais interessam.
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
-            {cardsLinha.map((l: LinhaRel) => <CardLinha key={l.id} l={l} {...cardPropsLinha} />)}
-          </div>
-        )}
-      </div>
-
+      {/* ⚠⚠ A COLUNA SAI DA ÁRVORE ESCOPADA quando a linha tem `filtro_escopo`
+          — mesma regra da ponte. Sem isso, *Margem Sustentação* (CC 317) abria
+          a memória com os componentes da empresa inteira e o total não fechava.
+          ⚠ A ordem das pílulas segue o CARTÃO: ele lidera com o analisado, e
+          abrir no comparado pareceria erro de conta (foi o que aconteceu no
+          acompanhamento, 30,60% no cartão × 38,43% no modal). */}
+      {memoria && (() => {
+        const lm: any = linhas.find((x: LinhaRel) => x.id === memoria)
+        const esc = !!arvBase?.[memoria]
+        return <MemoriaModal id={memoria} linhas={linhas as any} onClose={() => setMemoria(null)}
+          nota={esc ? `Recorte próprio de ${lm?.descricao ?? 'linha'} — os termos abaixo são calculados no escopo dela.` : undefined}
+          onRazao={(lid: string) => setDrill({ nodeId: lid })}
+          cols={[
+            { rot: rotuloBase, val: arvBase?.[memoria] || base },
+            { rot: rotuloComp, val: arvComp?.[memoria] || comp },
+          ]} />
+      })()}
       <div style={S.sec}>
         <div style={S.secH}>
           <div><div style={S.secT}>Indicadores do orçamento</div>
@@ -1392,6 +1407,29 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
             {cards.map((l: LinhaRel) => <CardLinha key={l.id} l={l} {...cardProps} />)}
+          </div>
+        )}
+      </div>
+
+      <div style={S.sec}>
+        <div style={S.secH}>
+          <div><div style={S.secT}>Linhas do relatório</div>
+            <div style={S.secD}>
+              Para acompanhar linhas que <strong>não são indicador</strong> — receita bruta, despesas totais, um subtotal.
+              Orçado de {rotuloBase}; o Δ compara com {rotuloComp}.
+            </div></div>
+          <button style={{ ...S.sel, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            onClick={() => setPickLinha(true)} data-noexport>
+            <ListChecks size={13} /> Escolher{linhaSel.length ? ` (${linhaSel.length})` : ''}
+          </button>
+        </div>
+        {!cardsLinha.length ? (
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+            Nenhuma linha escolhida. Use <strong>Escolher</strong> — são centenas de linhas, então nada aparece até você dizer quais interessam.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
+            {cardsLinha.map((l: LinhaRel) => <CardLinha key={l.id} l={l} {...cardPropsLinha} />)}
           </div>
         )}
       </div>
