@@ -991,7 +991,8 @@ export default function DashboardPage() {
               rotOrigem={versoes.find(v => v.id === versaoId)?.codigo || 'Orçado'} rotDestino="Realizado"
             restritos={restritos}
               dim={quemDim} setDim={setQuemDim} ano={anosSel.length ? Math.max(...anosSel) : 0}
-              dTotal={(totais.real[pCfg.resultado] ?? 0) - (totais.orc[pCfg.resultado] ?? 0)} />
+              dTotal={(totais.real[pCfg.resultado] ?? 0) - (totais.orc[pCfg.resultado] ?? 0)}
+              totOrigem={totais.orc[pCfg.resultado]} totDestino={totais.real[pCfg.resultado]} />
           )}
 
           {totais && (

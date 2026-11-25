@@ -2414,6 +2414,14 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ O aviso de período parcial diz que **a projeção foi ignorada**, senão quem salvou o card
   procura por que o número mudou.
 
+- ⚠ **No *Quem causou*, as TRÊS colunas fecham ou nenhuma fecha** (25/nov). O rodapé totalizava só
+  o Δ e deixava os dois lados em branco, obrigando a somar de cabeça para conferir. Totalizá-los
+  pela **soma das linhas** enquanto o Δ vem da **ponte** faria `col1 − col2 ≠ efeito` na tela, que
+  parece defeito — então os três saem da **mesma fonte**: a ponte quando ela existe, a soma das
+  linhas quando não (modo discreto, onde o total é "dos grupos listados").
+  ⚠ Por isso a linha de **resíduo** e a de **outros N** também mostram os dois lados: sem elas a
+  coluna de origem não fecha com o total e quem confere procura a conta que falta.
+
 - ⚠⚠ **RESÍDUO DO *Quem causou*: A PROJEÇÃO É A CAUSA MAIS COMUM, E ERA A MENOS DITA**
   (24/nov). A ponte soma **período + projeção**; o quadro por dimensão lê **só o período real**,
   porque o agregado por dimensão não projeta. Medido com período **jan–out** e projeção até

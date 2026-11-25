@@ -1039,7 +1039,9 @@ export default function OrcamentoDashPage() {
             rotOrigem={rotOrigem} rotDestino={rotDestino} dim={quemDim} setDim={setQuemDim}
             restritos={restritos} projMeses={mesesProj.length} periodoMeses={meses.length}
             ano={anoBase} dTotal={secPonte.resultado
-              ? (pDestino?.[secPonte.resultado] ?? 0) - (pOrigem?.[secPonte.resultado] ?? 0) : 0} />
+              ? (pDestino?.[secPonte.resultado] ?? 0) - (pOrigem?.[secPonte.resultado] ?? 0) : 0}
+            totOrigem={secPonte.resultado ? pOrigem?.[secPonte.resultado] : undefined}
+            totDestino={secPonte.resultado ? pDestino?.[secPonte.resultado] : undefined} />
 
           <Variacao S={S} cfg={secVar} setCfg={setSecVar} linhas={linhas} nome={nome} fac={fac}
             aba={varAba} setAba={setVarAba} nivel={varNivel} setNivel={setVarNivel}

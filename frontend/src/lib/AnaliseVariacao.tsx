@@ -234,7 +234,7 @@ export type DimQuem = typeof DIMS_QUEM[number][0]
 const MAX_QUEM = 12
 
 export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, componentes, invertido,
-                      rotOrigem, rotDestino, dTotal, dim, setDim, ano, restritos, projMeses, periodoMeses }: any) {
+                      rotOrigem, rotDestino, dTotal, totOrigem, totDestino, dim, setDim, ano, restritos, projMeses, periodoMeses }: any) {
   const S = Sx || S_PONTE
   const [aberta, setAberta] = useState<string | null>(null)
   // Três cliques: desc → asc → volta ao impacto (o default). Sem o terceiro
@@ -389,8 +389,18 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
   // quando há oculto, o total exibido passa a ser o **dos grupos listados** e
   // o quadro diz isso — um total que não é o Δ da ponte, declarado, é melhor
   // que um resíduo que entrega o número.
+  // ⚠⚠ AS TRÊS COLUNAS FECHAM OU NENHUMA FECHA. Totalizar só o Δ e deixar os
+  // dois lados em branco obrigava a somar de cabeça para conferir; totalizar
+  // os lados pela soma das linhas enquanto o Δ vem da ponte faria
+  // `col1 − col2 ≠ efeito` na tela, que parece defeito. Então os três saem da
+  // MESMA fonte: a ponte quando ela existe (e aí o resíduo também mostra os
+  // dois lados), a soma das linhas quando não.
+  const somaOrigem = linhasQ.reduce((s: number, x: any) => s + (x.origem || 0), 0)
+  const somaDestino = linhasQ.reduce((s: number, x: any) => s + (x.destino || 0), 0)
   const temOculto = (grupos.ocultos || 0) > 0
   const totalExib = temOculto ? somaDim : (dTotal || 0)
+  const totOrigExib = temOculto || totOrigem == null ? somaOrigem : totOrigem
+  const totDestExib = temOculto || totDestino == null ? somaDestino : totDestino
   const naoAtrib = totalExib - somaDim
   const temResid = !temOculto && Math.abs(naoAtrib) > Math.max(1, Math.abs(dTotal || 0) * 0.005)
   // ⚠⚠ A SELEÇÃO DOS 12 CONTINUA POR IMPACTO; a ordenação só reordena ESSES.
@@ -412,6 +422,8 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
     })
   }, [top, ordQ])
   const somaResto = resto.reduce((s: number, x: any) => s + x.delta, 0)
+  const somaRestoO = resto.reduce((s: number, x: any) => s + (x.origem || 0), 0)
+  const somaRestoD = resto.reduce((s: number, x: any) => s + (x.destino || 0), 0)
 
   return (
     <div style={S.sec}>
@@ -502,7 +514,8 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
             {resto.length > 0 && (
               <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', color: 'var(--muted)', fontStyle: 'italic' }}>
                 outros {resto.length}</td>
-                <td style={S.td} /><td style={S.td} />
+                <td style={{ ...S.td, color: 'var(--muted)' }}>{fmt(somaRestoO)}</td>
+                <td style={{ ...S.td, color: 'var(--muted)' }}>{fmt(somaRestoD)}</td>
                 <td style={{ ...S.td, color: 'var(--muted)' }}>{somaResto >= 0 ? '+' : ''}{fmt(somaResto)}</td>
                 <td style={S.td} /></tr>
             )}
@@ -526,13 +539,18 @@ export function QuemCausou({ S: Sx, linhas, nome, bruto, empresas, ccs, resId, c
                     {periodoMeses > 0 && ` — ${periodoMeses}/${periodoMeses + projMeses} do total`}
                   </span>
                 )}</td>
-                <td style={S.td} /><td style={S.td} />
+                {/* ⚠ O resíduo mostra os DOIS LADOS também: sem isso a coluna
+                    de origem não fecha com o total e o leitor procura a conta
+                    que falta. */}
+                <td style={{ ...S.td, color: 'var(--orange)' }}>{fmt(totOrigExib - somaOrigem)}</td>
+                <td style={{ ...S.td, color: 'var(--orange)' }}>{fmt(totDestExib - somaDestino)}</td>
                 <td style={{ ...S.td, color: 'var(--orange)' }}>{naoAtrib >= 0 ? '+' : ''}{fmt(naoAtrib)}</td>
                 <td style={S.td} /></tr>
             )}
             <tr><td style={{ ...S.td, textAlign: 'left', fontFamily: 'inherit', fontWeight: 700 }}>
               {temOculto ? `total dos grupos listados — ${nome(resId)}` : `total — ${nome(resId)}`}</td>
-              <td style={S.td} /><td style={S.td} />
+              <td style={{ ...S.td, fontWeight: 700 }}>{fmt(totOrigExib)}</td>
+              <td style={{ ...S.td, fontWeight: 700 }}>{fmt(totDestExib)}</td>
               <td style={{ ...S.td, fontWeight: 700 }}>{totalExib >= 0 ? '+' : ''}{fmt(totalExib)}</td>
               <td style={S.td} /></tr>
           </tbody>
