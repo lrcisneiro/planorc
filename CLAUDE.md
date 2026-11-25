@@ -2292,6 +2292,25 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   de aparecer apagado — botão desabilitado numa tela de consulta é pergunta sem resposta.
   `CadastrosPage` não precisou: sem `maxHeight`, nada rola ali.
 
+- ⚠⚠ **EXPORT DO RELATÓRIO É WYSIWYG, e o botão "Excel" exportava OUTRA COISA** (25/nov).
+  `exportMatrix` era a matriz de 12 meses × **uma** versão que esta tela gerava para ser
+  reimportada — e a importação já tinha saído daqui. Ligado ao botão, entregava um arquivo sem
+  cenários, sem Δ, sem o período, sem os níveis e seções escolhidos: **uma segunda verdade**, e
+  foi assim que o botão virou armadilha. Saiu.
+  **O export novo sai das MESMAS estruturas que a render usa** — `visivel` (as linhas
+  desenhadas, já com recolhidas/ocultas/níveis) e `columns`/`groups` (cenários, Δ, meses
+  colapsados). Derivar de outra fonte seria produzir um relatório que diverge do primeiro na
+  próxima mudança de regra.
+  ⚠⚠ **NÚMERO, NUNCA TEXTO.** A tela mostra `537.493`; exportar a string faria um arquivo que
+  não soma. Vai o número cru (já com `fac` — despesa positiva, a convenção da tela) e o
+  **formato** na célula (`z`), então o Excel mostra igual e calcula. Δ% vai como **fração** com
+  formato de porcentagem: `3,4` solto faria somar e comparar colunas dar errado sem avisar.
+  ⚠ A **indentação vai em espaços no texto**: recuo de célula é estilo, e a edição comunitária do
+  SheetJS não escreve estilo — sem ela a hierarquia da DRE desaparece.
+  ⚠⚠ **O SheetJS 0.20.3 community NÃO escreve `<pane>`** — as três formas documentadas de
+  `!views` saem como `<sheetView workbookViewId="0"/>`. Medido, não suposto. **Não há congelar
+  painel**; `!cols` (larguras) e `!merges` **funcionam** e estão no arquivo.
+
 - Estilos: mistura de objetos `S` inline e classes Tailwind. Seguir o padrão já presente em cada arquivo.
 - Sem biblioteca de componentes — tudo à mão.
 - Tipos TypeScript locais por arquivo (não há pasta `types/`).

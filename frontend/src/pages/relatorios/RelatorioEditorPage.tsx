@@ -472,8 +472,6 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   }
   const moedaCod = (slot: number) => moedas.find(m => m.slot === slot)?.codigo || `M${slot}`
 
-  // 1 empresa selecionada: usada pelo rótulo do cabeçalho e pelo recorte do drill
-  const empresaUnica = empresaSel.length === 1 ? empresaSel[0] : null
   // Só sobra o aviso que vale em qualquer modo: sem versão cadastrada não há o
   // que consultar. O resto do antigo toast falava de orçar nesta tela.
   const avisoLeitura = versoes.length === 0
@@ -1292,27 +1290,148 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // removida em out/2026 junto com o modo `orcar`: esta tela é leitura. Valor de
   // orçado se digita na grade de Orçar; fórmula de linha, na tela de Estrutura.
 
-  // ── Exportar / Importar matriz (Excel) desta empresa/versão/ano
-  const exportMatrix = () => {
-    const ano = pIni.ano
-    const empCod = empresaUnica ? (empresas.find(e => e.id === empresaUnica)?.codigo || 'EMP') : 'VARIAS'
-    const verCod = versoes.find(v => v.id === versaoId)?.codigo || 'VER'
-    const header = ['linha_codigo', 'descricao', 'tipo', ...MESES]
-    const aoa: any[][] = [header]
-    for (const l of buildTree(linhas)) {
-      const row: any[] = [l.codigo, l.descricao, l.tipo_linha]
-      for (let m = 1; m <= 12; m++) {
-        if (l.tipo_linha === 'ANALITICA') {
-          const cell = raw[versaoId]?.[l.id]?.[`${ano}-${m}`]
-          row.push(cell?.expressao ? cell.expressao : (cell?.valor ?? ''))
-        } else {
-          row.push(computed[versaoId]?.[l.id]?.[`${ano}-${m}`] ?? '')
-        }
+  // ── Exportar o relatório COMO ESTÁ NA TELA (WYSIWYG) ──────────────────────
+  // ⚠⚠ O BOTÃO "EXCEL" EXPORTAVA OUTRA COISA. Ele é `exportMatrix`, herdado de
+  // quando esta tela gerava o MODELO preenchível para reimportar: 12 meses
+  // fixos, UMA versão, e ignorando tudo o que a pessoa configurou — níveis,
+  // seções, linhas ocultas, cenários comparados, Δ, moeda, período. Quem
+  // clicava recebia um arquivo que não se parecia com a tela.
+  //
+  // ⚠ Este export sai das MESMAS estruturas que a render usa — `visivel` (as
+  // linhas que estão desenhadas, já com recolhidas/ocultas/níveis aplicados) e
+  // `columns`/`groups` (as colunas, já com cenários, Δ e meses colapsados).
+  // Derivar de outra fonte seria produzir um segundo relatório que diverge do
+  // primeiro na primeira mudança de regra.
+  //
+  // ⚠⚠ NÚMERO, NUNCA TEXTO. A tela mostra "537.493"; exportar essa string faria
+  // um arquivo que não soma. Vai o número cru (já com `fac`, a mesma convenção
+  // da tela: despesa positiva) e o FORMATO vai na célula, então o Excel mostra
+  // igual e calcula.
+  const exportarTela = () => {
+    const fmtNum = '#,##0;[Red]-#,##0'
+    const linhasExp: any[][] = []
+    const fmts: Record<string, string> = {}          // "r,c" → formato numérico
+    const merges: any[] = []
+    const push = (row: any[]) => { linhasExp.push(row); return linhasExp.length - 1 }
+
+    // ── cabeçalho de contexto: o que a tela diz na barra, por extenso ──
+    // ⚠ Sem isto o arquivo circula sem dizer de que período e de que cenário
+    // ele é — e uma planilha de DRE sem essa identificação vira fonte de
+    // discussão três semanas depois.
+    const nomeRel = relatorio?.nome || relatorio?.codigo || 'Relatório'
+    push([nomeRel])
+    push(['Visão', view?.nome || '—'])
+    push(['Período', `${pIni.ano === pFim.ano ? pIni.ano : pIni.ano + '–' + pFim.ano} · ${MESES[pIni.mes - 1]}–${MESES[pFim.mes - 1]}`])
+    push(['Cenários', cenariosExpandidos.map(cenarioLabel).join(' × ') || '—'])
+    if (moedaView >= 2) push(['Moeda', moedaCod(moedaView)])
+    const filtrosTxt = [
+      empresaSel.length ? `${empresaSel.length} empresa(s)` : null,
+      filialSel.length ? `${filialSel.length} filial(is)` : null,
+      ccSel.length ? `${ccSel.length} centro(s) de custo` : null,
+      areaSel.length ? `área: ${areaSel.join(', ')}` : null,
+      divisaoSel.length ? `divisão: ${divisaoSel.join(', ')}` : null,
+      buSel.length ? `BU: ${buSel.join(', ')}` : null,
+    ].filter(Boolean).join(' · ')
+    push(['Filtros', filtrosTxt || 'sem filtro'])
+    push(['Gerado em', new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })])
+    push([])
+
+    // ── cabeçalho das colunas: uma ou duas linhas, igual à tela ──
+    let r = linhasExp.length
+    if (twoRow) {
+      const l1: any[] = ['Descrição']
+      let col = 1
+      for (const g of groups) {
+        l1.push(g.collapsed ? `${g.label} (recolhido)` : g.label)
+        for (let k = 1; k < g.span; k++) l1.push('')
+        if (g.span > 1) merges.push({ s: { r, c: col }, e: { r, c: col + g.span - 1 } })
+        col += g.span
       }
-      aoa.push(row)
+      push(l1)
+      push(['', ...columns.map(c => c.label)])
+      merges.push({ s: { r, c: 0 }, e: { r: r + 1, c: 0 } })
+      r += 2
+    } else {
+      push(['Descrição', ...columns.map(c => c.label)])
+      r += 1
     }
-    downloadSheet(`relatorio_${relatorio?.codigo || 'rel'}_${empCod}_${verCod}_${ano}.xlsx`, aoa)
+    const primeiraLinhaDados = r
+
+    // ── corpo: exatamente `visivel` ──
+    for (const l of visivel) {
+      const depth = (l as any)._depth ?? 0
+      const isSpac = l.tipo_linha === 'ESPACO'
+      if (isSpac) { push([]); r++; continue }
+      const fac = facOf(l)
+      // ⚠ A indentação vai com ESPAÇOS no próprio texto: recuo de célula é
+      // estilo, e o SheetJS da edição comunitária não escreve estilo. Sem ela
+      // a hierarquia da DRE desaparece e o arquivo deixa de ser a tela.
+      const nome = '   '.repeat(depth) + (l.descricao || '')
+        + (l.desativada ? '  (desativada)' : '')
+      const row: any[] = [nome]
+      columns.forEach((c, i) => {
+        const cc = i + 1
+        if (c.kind === 'collapsed') { row.push(null); return }
+        if (c.empresaId) {
+          const v = cellValE(c.empresaId, c.cenarioKey!, l.id, c.period)
+          row.push(v === 0 ? null : fac * v)
+          fmts[`${r},${cc}`] = l.formato === 'PERCENTUAL' ? '#,##0.0"%"' : fmtNum
+          return
+        }
+        if (c.kind === 'deltav') {
+          const base = cellVal(censDisplay[0], l.id, c.period)
+          const comp = cellVal(censDisplay[1], l.id, c.period)
+          const dv = fac * (comp - base)
+          row.push(dv === 0 ? null : dv)
+          fmts[`${r},${cc}`] = '+#,##0;-#,##0'
+          return
+        }
+        if (c.kind === 'delta') {
+          const base = cellVal(censDisplay[0], l.id, c.period)
+          const comp = cellVal(censDisplay[1], l.id, c.period)
+          const dRes = base !== 0 ? (comp - base) / Math.abs(base) : NaN
+          const d = fac * dRes
+          // ⚠ Fração + formato de porcentagem, não "3,4" solto: no Excel o
+          // número tem de ser o que ele entende por percentual, senão somar ou
+          // comparar duas colunas dá resultado errado sem avisar.
+          row.push(isFinite(d) ? d : null)
+          fmts[`${r},${cc}`] = '+0.0%;-0.0%'
+          return
+        }
+        const v = cellVal(c.cenarioKey!, l.id, c.period)
+        row.push(v === 0 ? null : fac * v)
+        fmts[`${r},${cc}`] = l.formato === 'PERCENTUAL' ? '#,##0.0"%"' : fmtNum
+      })
+      push(row); r++
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(linhasExp)
+    for (const k in fmts) {
+      const [rr, cc] = k.split(',').map(Number)
+      const ref = XLSX.utils.encode_cell({ r: rr, c: cc })
+      if (ws[ref] && typeof ws[ref].v === 'number') ws[ref].z = fmts[k]
+    }
+    ws['!cols'] = [{ wch: 46 }, ...columns.map(c => ({ wch: c.kind === 'collapsed' ? 3 : 14 }))]
+    if (merges.length) ws['!merges'] = merges
+    // ⚠ SEM CONGELAR PAINEL, e é limitação da ferramenta, não esquecimento:
+    // o SheetJS 0.20.3 da edição comunitária **não escreve `<pane>`** — testei
+    // as três formas documentadas (`!views` com `state:'frozen'`, com
+    // `topLeftCell`/`activePane`, e aninhado em `pane`) e o XML saiu
+    // `<sheetView workbookViewId="0"/>` nas três. Deixar a linha ali seria
+    // código que promete o que não faz. Quem precisar congela no Excel.
+    void primeiraLinhaDados
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Relatório')
+    const slug = (relatorio?.codigo || 'relatorio').replace(/[^\w-]+/g, '_')
+    XLSX.writeFile(wb, `${slug}_${pIni.ano}_${MESES[pIni.mes - 1]}-${MESES[pFim.mes - 1]}.xlsx`)
   }
+
+  // ⚠ `exportMatrix` SAIU (25/nov). Era a matriz de 12 meses × uma versão que
+  // esta tela gerava para ser reimportada — e a importação já tinha saído
+  // daqui. Ficou ligada ao botão "Excel", entregando um arquivo que não se
+  // parecia com a tela: sem cenários, sem Δ, sem período, sem os níveis e
+  // seções escolhidos. Export que ignora a configuração da tela é uma segunda
+  // verdade, e foi assim que o botão virou armadilha.
 
   // ── Modelos (templates) para cada tipo de importação
   const modeloLinhas = () => downloadSheet('modelo_linhas.xlsx', [
@@ -1841,7 +1960,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             snapshots são criados por quem ALTERA — linha, fórmula, amarração,
             import — e esta tela não altera nada. Oferecer "restaurar" onde não
             se edita convida a desfazer o trabalho de outra tela. */}
-        <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }} onClick={exportMatrix} title="Exportar para Excel (modelo preenchível)">
+        <button style={{ ...S.sel, display: 'flex', alignItems: 'center', gap: 6 }} onClick={exportarTela}
+          title="Exportar para Excel exatamente o que está na tela — mesmas colunas, mesmas linhas, mesmo período e cenários">
           <Download size={13} /> Excel
         </button>
         {presetBase && <SalvarCardButton base={presetBase} getFiltros={getFiltros} cardId={presetCardId} />}
