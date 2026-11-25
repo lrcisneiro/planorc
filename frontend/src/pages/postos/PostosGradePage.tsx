@@ -1446,6 +1446,25 @@ export default function PostosGradePage() {
     )
   }
 
+  // Cabeçalho da tabela de CHEGADAS. Mesmo visual do `Th` de propósito — duas
+  // tabelas na mesma tela com setas diferentes ensinam que uma delas não
+  // ordena —, mas estado próprio: ali a ordem é da grade, aqui das chegadas.
+  const ThC = ({ col, children, esq }: { col: string; children?: any; esq?: boolean }) => {
+    const ativo = chegOrd?.col === col
+    // Sem salário visível, as colunas de dinheiro mostram "sem permissão" —
+    // ordenar por elas seria ordenar por nada. Mesma regra do `Th`.
+    const pode = !(semFolha && (col === 'salario' || col === 'mes' || col === 'ano'))
+    return (
+      <th style={{ ...S.th, ...(esq ? { textAlign: 'left' } : {}),
+                   ...(pode ? { cursor: 'pointer', userSelect: 'none' } : {}),
+                   ...(ativo ? { color: 'var(--violet)' } : {}) }}
+          onClick={pode ? () => clicarCheg(col) : undefined}
+          title={pode ? 'Ordenar — clique de novo para inverter, e uma terceira vez para voltar ao padrão (custo ano)' : undefined}>
+        {children}{ativo && <span style={{ marginLeft: 4 }}>{chegOrd!.dir === 'asc' ? '▲' : '▼'}</span>}
+      </th>
+    )
+  }
+
   // ══════════════════════════════════════════════════════════════════════
   // CHEGAM POR RATEIO — quem não está lotado aqui, mas cujo custo cai aqui.
   //
@@ -1561,6 +1580,15 @@ export default function PostosGradePage() {
   const discreto = useDiscreto()
   const restritos = useMemo(() => idsRestritos(ccs as any, discreto), [ccs, discreto])
 
+  // ── Ordenação da tabela de chegadas ──────────────────────────────────────
+  // ⚠ TRÊS CLIQUES (desc → asc → volta ao padrão), o mesmo ciclo do "Quem
+  // causou": sem o terceiro estado não há como desfazer a ordenação sem
+  // recarregar a tela. O padrão é custo ano decrescente — quem mais pesa
+  // primeiro, que é a pergunta de quem abre a seção.
+  const [chegOrd, setChegOrd] = useState<{ col: string; dir: 'asc' | 'desc' } | null>(null)
+  const clicarCheg = (col: string) => setChegOrd(o =>
+    !o || o.col !== col ? { col, dir: 'desc' } : o.dir === 'desc' ? { col, dir: 'asc' } : null)
+
   const chegadas = useMemo(() => {
     if (!verRateio) return []
     const aqui = new Set(filtrados.map(p => p.id))
@@ -1575,6 +1603,43 @@ export default function PostosGradePage() {
       .map(c => ({ ...c, posto: byId.get(c.pid) || null }))   // null = RLS não deixa ler o cadastro
       .sort((a, b) => b.ano - a.ano)
   }, [verRateio, chegRaw, filtrados, postos, restritos])
+
+  // ⚠ A ordenação fica num memo SEPARADO do recorte: trocar de coluna não
+  // pode refazer o filtro nem reler o fato — é vista, não dado.
+  const chegadasOrd = useMemo(() => {
+    if (!chegOrd) return chegadas
+    const chave = (c: any): string | number | null => {
+      const po: any = c.posto
+      switch (chegOrd.col) {
+        case 'pessoa': return (c.nome || '').toLowerCase()
+        case 'lotada': {
+          if (!po) return null
+          const cc = po.cc_id ? (ccs as any[]).find(x => x.id === po.cc_id) : null
+          const emp = po.empresa_id ? (empresas as any[]).find((e: any) => e.id === po.empresa_id) : null
+          return `${emp?.codigo || ''} ${cc?.codigo || ''}`.toLowerCase()
+        }
+        case 'cargo': return po?.cargo?.nome ? String(po.cargo.nome).toLowerCase() : null
+        case 'salario': return po ? (Number(po.salario_base) || 0) : null
+        case 'pct': return c.pct ?? 100
+        case 'mes': return rateadoMesDe.get(c.pid) || 0
+        default: return c.ano
+      }
+    }
+    const sgn = chegOrd.dir === 'asc' ? 1 : -1
+    return [...chegadas].sort((a, b) => {
+      const va = chave(a), vb = chave(b)
+      // ⚠ "sem acesso ao cadastro de origem" vai para o FIM nos DOIS sentidos.
+      // Ordenar por um campo que não se pode ler encheria o topo de linhas que
+      // não dizem nada — e o `asc` por salário as poria em primeiro lugar como
+      // se fossem as mais baratas, que é a afirmação falsa do `|| 0`.
+      if (va == null && vb == null) return 0
+      if (va == null) return 1
+      if (vb == null) return -1
+      return typeof va === 'string'
+        ? sgn * va.localeCompare(vb as string, 'pt-BR')
+        : sgn * ((va as number) - (vb as number))
+    })
+  }, [chegadas, chegOrd, ccs, empresas, rateadoMesDe])
 
   // ⚠⚠ MODO DISCRETO EM POSTOS: a LINHA some, o KPI NÃO. Aqui o grão é uma
   // PESSOA — nome, cargo e salário —, e é isso que não pode ser projetado.
@@ -1663,11 +1728,14 @@ export default function PostosGradePage() {
     // ⚠ Ela é outra pergunta ("quem vem de fora cair aqui"), com outras
     // colunas e outro grão — misturar na mesma aba faria somar o custo duas
     // vezes, que é o erro que o próprio toggle existe para não cometer.
-    if (verRateio && chegadas.length) {
+    if (verRateio && chegadasOrd.length) {
       const f2: Record<string, string> = {}
       const a2: any[][] = [['Chegam por rateio — custo de outras áreas que pousa neste filtro'], []]
-      a2.push(['Pessoa', 'Matrícula', 'Empresa de origem', 'CC de origem', 'Cargo', 'Salário', '% rateada', 'Custo ano (rateado)'])
-      for (const c of chegadas) {
+      a2.push(['Pessoa', 'Matrícula', 'Empresa de origem', 'CC de origem', 'Cargo', 'Salário', '% rateada', 'Custo/mês (rateado)', 'Custo ano (rateado)'])
+      // ⚠ `chegadasOrd`, não `chegadas`: o arquivo sai na ORDEM DA TELA, como
+      // o resto deste export. Exportar a ordem interna faria o mesmo clique
+      // mudar a tela e não mudar o arquivo.
+      for (const c of chegadasOrd) {
         const po: any = c.posto
         const ccO = po?.cc_id ? (ccs as any[]).find(x => x.id === po.cc_id) : null
         const empO = po?.empresa_id ? (empresas as any[]).find((e: any) => e.id === po.empresa_id) : null
@@ -1681,11 +1749,12 @@ export default function PostosGradePage() {
           po ? (po.cargo?.nome || '—') : '',
           po && !semFolha && po.salario_base != null ? Number(po.salario_base) : null,
           c.pct == null ? null : Number(c.pct) / 100,
+          semFolha ? null : Number(rateadoMesDe.get(c.pid)) || 0,
           semFolha ? null : Number(c.ano) || 0,
         ])
-        f2[`${r},5`] = money; f2[`${r},6`] = '0.0%'; f2[`${r},7`] = money
+        f2[`${r},5`] = money; f2[`${r},6`] = '0.0%'; f2[`${r},7`] = money; f2[`${r},8`] = money
       }
-      abas.push({ nome: 'Chegam por rateio', aoa: a2, fmts: f2, cols: [28, 14, 18, 30, 30, 16, 12, 20] })
+      abas.push({ nome: 'Chegam por rateio', aoa: a2, fmts: f2, cols: [28, 14, 18, 30, 30, 16, 12, 20, 20] })
     }
 
     const slug = (ver?.codigo || 'postos').replace(/[^\w-]+/g, '_')
@@ -2345,22 +2414,29 @@ export default function PostosGradePage() {
           <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, lineHeight: 1.6 }}>
             <b>Fora</b> do headcount e do FTE acima — a pessoa é de outra área e lá já conta.
             O <b>custo</b> destes <b>não</b> está somado nos KPIs.
-            O <b>salário</b> é o integral da pessoa; o <b>custo</b> é só a parte rateada para cá.
+            O <b>salário</b> é o integral da pessoa; os <b>custos</b> (mês e ano) são só a parte rateada para cá.
             {' '}Sai do orçado aplicado, então <b>rateio cadastrado e ainda não aplicado não aparece</b>.
           </p>
           {!!chegadas.length && (
             <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 10 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                 <thead><tr>
-                  <th style={{ ...S.th, textAlign: 'left' }}>Pessoa</th>
-                  <th style={{ ...S.th, textAlign: 'left' }}>Lotada em</th>
-                  <th style={{ ...S.th, textAlign: 'left' }}>Cargo</th>
-                  <th style={S.th}>Salário</th>
-                  <th style={S.th}>%</th>
-                  <th style={S.th}>Custo ano (rateado)</th>
+                  <ThC col="pessoa" esq>Pessoa</ThC>
+                  <ThC col="lotada" esq>Lotada em</ThC>
+                  <ThC col="cargo" esq>Cargo</ThC>
+                  <ThC col="salario">Salário</ThC>
+                  <ThC col="pct">%</ThC>
+                  {/* ⚠ Faltava a referência MENSAL: a linha trazia salário
+                      (que é por mês) ao lado de custo do ANO, e não havia como
+                      comparar os dois sem dividir de cabeça por doze — que,
+                      além de trabalhoso, daria o número errado em quem entra ou
+                      sai no meio do ano. Vem ANTES do anual, como na grade de
+                      cima, para as duas tabelas se lerem na mesma ordem. */}
+                  <ThC col="mes">Custo/mês¹</ThC>
+                  <ThC col="ano">Custo ano</ThC>
                 </tr></thead>
                 <tbody>
-                  {chegadas.map(c => {
+                  {chegadasOrd.map(c => {
                     const po = c.posto as any
                     const ccO = po?.cc_id ? ccs.find((x: any) => x.id === po.cc_id) : null
                     const empO = po?.empresa_id ? (empresas as any[]).find(e => e.id === po.empresa_id) : null
@@ -2390,6 +2466,14 @@ export default function PostosGradePage() {
                         <td style={S.td}>
                           {(c.pct ?? 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
                         </td>
+                        {/* ⚠⚠ MESMA CONVENÇÃO DA COLUNA DE CIMA: o ÚLTIMO mês
+                            com valor, nunca `ano / 12`. A média mente em quem
+                            entra ou sai no meio do ano (o posto que começa em
+                            julho mostraria metade do custo recorrente dele) e
+                            faria esta tabela contar outra história que a grade,
+                            na mesma tela. É o que `rateadoMesDe` já calculava
+                            para a coluna `custoMes` — aqui é só exibi-lo. */}
+                        <td style={S.td}>{semFolha ? oculto : money(rateadoMesDe.get(c.pid) || 0)}</td>
                         <td style={{ ...S.td, fontWeight: 700 }}>{semFolha ? oculto : money(c.ano)}</td>
                       </tr>
                     )
