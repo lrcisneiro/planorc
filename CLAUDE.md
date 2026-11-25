@@ -257,6 +257,41 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > significaria nada. **Cenário de cenário não** — empilhar Δ sobre Δ deixa o comparativo sem
 > referência.
 >
+> ⚠⚠ **PREMISSA NÃO É DADO, E A FALTA DELA NÃO APARECE COMO FALTA (`v3_205`, 25/nov).**
+> `copiar_versao` criava o cenário e **não copiava `versao_taxa` nem `premissa_dissidio`** — duas
+> premissas que são **da versão**. `copiar_versao_cenario` copiava as duas desde sempre; as três
+> RPCs de cópia discordavam entre si, e a que **cria o cenário** era a errada.
+> O cenário não nasce "sem número": nasce com o número **errado** no primeiro Aplicar, e os dois
+> lados falham de jeitos diferentes —
+> · **sem `versao_taxa`** a célula de moeda estrangeira é **DESCARTADA**, e o aviso chega
+>   *depois* de gravar (medido: 12 células, **R$ 152.071,92**, do posto do Paraguai rateado para
+>   a empresa 28 — o caso de rateio cruzando país que este documento já registra);
+> · **sem `premissa_dissidio`** o CLT sai **sem reajuste** e **nada avisa**. `Orçado2027` tem 3
+>   sindicatos a 5,5% e os dois cenários criados em 25/nov tinham **zero**. É o mais caro dos
+>   dois, porque alcança o quadro inteiro em vez de uma empresa.
+> ⚠ **As duas RPCs são tratadas de forma diferente, de propósito:** `copiar_versao` **cria** a
+> versão, então copia sempre — inclusive com `p_semear = false`, porque cenário vazio é "só
+> aditivo" no *orçado* (v3_175) e isso **não vale para a premissa**. Já `copiar_versao_orcado`
+> escreve num destino que **já existe e pode ter premissa própria de propósito** (um cenário com
+> outro dólar é um cenário legítimo): lá a regra é **preencher a lacuna, nunca sobrescrever**, com
+> granularidade de **slot** e de **sindicato** — copiar "o mês que falta" misturaria duas
+> premissas numa só.
+> ⚠ O backfill da migration **não filtra por `current_tenant_id()`**: no SQL Editor ele é nulo e o
+> UPDATE voltaria vazio "com sucesso". O recorte sai do par origem→destino, que já carrega o tenant.
+>
+> **E o Aplicar passou a conferir ANTES (frontend, mesmo dia).** Ele avisava depois de gravar, com
+> a versão já furada. Hoje o modal lê as premissas do **destino** quando ele é escolhido e:
+> **taxa faltando BARRA** (some dinheiro, e some calado — perda de dado se impede, e a mensagem
+> **nomeia a moeda e as empresas**); **dissídio faltando só AVISA** (nada some, o custo é
+> calculado sem reajuste — e "e se não houver reajuste?" é um cenário legítimo; barrar aqui seria
+> o controle que impede trabalho válido e volta desligado amanhã).
+> ⚠ **Falha de leitura não vira "não tem premissa"**: `premDest === null` é *não sei*, e a trava
+> não acende — travar o Aplicar por erro de rede é pior que o problema que a trava evita.
+> ⚠ **Quem define a moeda exigida é a LOTAÇÃO, não o destino do rateio.** `moeda_origem` da célula
+> é o slot da empresa **do posto**: medido, as 48 células que pousam **em** XX vêm de postos
+> brasileiros e saem com slot 1, enquanto as 12 que pousam na **28** vêm do posto paraguaio e
+> saem com slot 2. Conferir a moeda da empresa de destino acenderia o aviso no lugar errado.
+
 > **Veredito por LINHA** (`orcado_veredito`), não por célula: 82 linhas contra 89 mil células, e a
 > conversa real é "esse aumento de viagens não passa". `linha_id` é `conta_orcamentaria` (o
 > MASTER). Mecânica idêntica à dos postos, que já se provou: recusa exige motivo, `nota` é de quem

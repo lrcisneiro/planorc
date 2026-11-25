@@ -202,6 +202,7 @@ export default function PostosGradePage() {
   const podeImportar = cap.can('posto.importar')
 
   const [empresas, setEmpresas] = useState<any[]>([])
+  const [moedas, setMoedas] = useState<any[]>([])   // slot → código, p/ NOMEAR a moeda que falta
   const [filiais, setFiliais] = useState<any[]>([])
   const [ccs, setCcs] = useState<any[]>([])
   const [cargos, setCargos] = useState<any[]>([])
@@ -292,8 +293,8 @@ export default function PostosGradePage() {
   const [drill, setDrill] = useState<Posto | null>(null)
 
   const loadLookups = async () => {
-    const [e, f, c, cg, vs, vb, si, rr, rd, af] = await Promise.all([
-      supabase.from('empresa').select('id,codigo,descricao,pais').eq('ativo', true).order('codigo'),
+    const [e, f, c, cg, vs, vb, si, rr, rd, af, mo] = await Promise.all([
+      supabase.from('empresa').select('id,codigo,descricao,pais,moeda_slot').eq('ativo', true).order('codigo'),
       supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo'),
       supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome,restrito').eq('ativo', true).order('codigo'),
       pageAll(() => supabase.from('cargo').select('id,codigo,nome,sub_cod,ativo').order('nome')).then(data => ({ data })),
@@ -303,9 +304,10 @@ export default function PostosGradePage() {
       supabase.from('rateio_regra').select('id,nome,dimensao').eq('ativo', true).order('nome'),
       supabase.from('rateio_destino').select('regra_id,empresa_id,cc_id,pct'),
       supabase.from('area_funcional').select('id,codigo,nome'),
+      supabase.from('moeda').select('slot,codigo,nome').eq('ativo', true).order('slot'),
     ])
     setEmpresas(e.data || []); setFiliais(f.data || []); setCcs(c.data || []); setCargos(cg.data || [])
-    setAreasFunc(af.data || [])
+    setAreasFunc(af.data || []); setMoedas(mo.data || [])
     setRateioCods(rr.data || [])
     const dbr: Record<string, any[]> = {}
     for (const d of rd.data || []) (dbr[d.regra_id] ||= []).push({ empresa_id: d.empresa_id, cc_id: d.cc_id, pct: Number(d.pct) || 0 })
@@ -834,6 +836,13 @@ export default function PostosGradePage() {
   // todo o orçado de origem POSTO, "Aplicando…" sem mais nada deixa quem
   // clicou sem saber se pode fechar a aba.
   const [aplProg, setAplProg] = useState<string | null>(null)
+  // ⚠⚠ PREMISSA DO DESTINO, CONFERIDA ANTES DE APLICAR (25/nov). O Aplicar
+  // avisava DEPOIS de gravar que havia descartado linha por falta de taxa — a
+  // versão já ficava com o buraco, e só quem lesse o aviso inteiro saberia.
+  // Medido no caso real: um cenário criado por `copiar_versao` nasceu sem taxa
+  // e sem dissídio (a RPC não os copiava, v3_205), e o Aplicar deixou de fora
+  // 12 células / R$ 152.071,92 do posto do Paraguai rateado para a empresa 28.
+  const [premDest, setPremDest] = useState<{ slots: Set<number>; sind: Set<string> } | null>(null)
   // ⚠ O CATÁLOGO DE VERBAS É RELIDO AO VOLTAR PARA A ABA. Ele é carregado na
   // abertura da tela e tudo depende dele: o motor calcula com ele, o painel do
   // posto desenha os campos com ele, o importador casa colunas com ele. Verba
@@ -855,6 +864,30 @@ export default function PostosGradePage() {
   // perguntas que ele passa a fazer — ONDE pousa e COMO resolve — são
   // escolhas, não um "ok".
   const [aplForm, setAplForm] = useState<{ destino: string; comoAprovado: boolean } | null>(null)
+  // Lê as premissas do destino assim que ele é escolhido — a conferência tem
+  // de estar pronta ANTES do clique, não depois da gravação.
+  useEffect(() => {
+    const d = aplForm?.destino
+    if (!d) { setPremDest(null); return }
+    let vivo = true
+    ;(async () => {
+      const [t, s2] = await Promise.all([
+        supabase.from('versao_taxa').select('moeda_slot').eq('versao_id', d),
+        supabase.from('premissa_dissidio').select('sindicato_id').eq('versao_id', d),
+      ])
+      if (!vivo) return
+      // ⚠ Falha de leitura NÃO vira "não tem premissa": isso barraria o Aplicar
+      // por causa de um erro de rede. Sem resposta, `null` = não sei, e a
+      // trava não acende. Dado ausente e pergunta sem resposta são coisas
+      // diferentes — a lição do `analise_pessoas_agg`.
+      if (t.error || s2.error) { setPremDest(null); return }
+      setPremDest({
+        slots: new Set((t.data || []).map((x: any) => Number(x.moeda_slot))),
+        sind: new Set((s2.data || []).map((x: any) => String(x.sindicato_id))),
+      })
+    })()
+    return () => { vivo = false }
+  }, [aplForm?.destino])
   const [aplicarInfo, setAplicarInfo] = useState<{ linhas: number; postos: number; contas: number; ano: number; fundidas: number; semTaxa: number; semConta: string[]; natEstranha: string[] } | null>(null)
   // A tela só chama; quem confere a autoridade é o banco (`pode_aprovar_cenario`).
   // Conferir o retorno importa: RPC barrada levanta erro, mas versão fora do
@@ -2596,6 +2629,21 @@ export default function PostosGradePage() {
       {aplForm && (() => {
         const dest = versoes.find((v: any) => v.id === aplForm.destino)
         const prelim = !!dest?.origem_versao_id
+        // ⚠⚠ O QUE O QUADRO EXIGE DO DESTINO. `moeda_origem` da célula é o slot
+        // da empresa DO POSTO (não o da empresa de destino do rateio), então
+        // quem define a necessidade é a lotação — e é por isso que o posto do
+        // Paraguai rateado para a 28 exige a taxa, enquanto as células que
+        // pousam EM XX, vindas de postos brasileiros, não exigem nada.
+        const aplic = postosEf.filter((p: any) => p.ativo !== false)
+        const slotDe = new Map<string, number>((empresas as any[]).map(e => [e.id, Number(e.moeda_slot) || 1]))
+        const moedaCod = (sl: number) => (moedas as any[]).find(m => Number(m.slot) === sl)?.codigo || `slot ${sl}`
+        const precisaSlots = [...new Set(aplic.map((p: any) => slotDe.get(p.empresa_id) || 1))].filter(x => x !== 1)
+        // `premDest === null` é "não sei" (ainda lendo, ou a leitura falhou) —
+        // e aí NÃO se barra nada: travar o Aplicar por erro de rede seria pior
+        // que o problema que a trava evita.
+        const faltaTaxa = premDest ? precisaSlots.filter(sl => !premDest.slots.has(sl)) : []
+        const precisaSind = [...new Set(aplic.map((p: any) => p.sindicato_id).filter(Boolean))] as string[]
+        const faltaDiss = !!premDest && premDest.sind.size === 0 && precisaSind.length > 0
         const baseDe = (v: any) => versoes.find((x: any) => x.id === v?.origem_versao_id)?.codigo || ''
         const semVer = modoCenario ? [...alterados.keys()].filter(id => (overlays.get(id) as any)?.aprovado == null).length : 0
         const precisaCarimbo = modoCenario && alterados.size > 0 && !prelim && !dest?.aprovado_em
@@ -2677,6 +2725,35 @@ export default function PostosGradePage() {
                 </div>
               )}
 
+              {/* ⚠⚠ TAXA FALTANDO BARRA; DISSÍDIO FALTANDO SÓ AVISA — e a
+                  diferença é o que acontece com o número.
+                  Sem taxa, a linha é DESCARTADA: some dinheiro, e some calado
+                  (o aviso de hoje chega depois de gravar). Isso é perda de
+                  dado, e perda de dado se impede.
+                  Sem dissídio, nada some — o custo é calculado SEM reajuste.
+                  Pode ser exatamente o cenário que a pessoa quer ("e se não
+                  houver reajuste?"), então barrar seria impedir trabalho
+                  legítimo, que é o controle que volta desligado amanhã. */}
+              {faltaTaxa.length > 0 && (
+                <div style={{ fontSize: 12, color: 'var(--red)', background: 'rgba(248,113,113,0.10)',
+                              border: '1px solid rgba(248,113,113,0.40)', borderRadius: 8, padding: '9px 12px', marginBottom: 14, lineHeight: 1.6 }}>
+                  <b>Falta a taxa orçada de {faltaTaxa.map(moedaCod).join(', ')}</b> na versão <b>{dest?.codigo}</b>.
+                  {' '}O quadro tem posto em empresa nessa moeda
+                  {' '}({[...new Set(aplic.filter((p: any) => faltaTaxa.includes(slotDe.get(p.empresa_id) || 1))
+                            .map((p: any) => (empresas as any[]).find(e => e.id === p.empresa_id)?.codigo))].filter(Boolean).join(', ')}),
+                  {' '}e sem a taxa essas linhas seriam <b>descartadas</b> — inclusive o que elas rateiam
+                  {' '}para empresas brasileiras. Cadastre em <b>Cadastros → Taxa orçada</b> para esta versão.
+                </div>
+              )}
+              {faltaDiss && (
+                <div style={{ fontSize: 12, color: 'var(--orange)', background: 'rgba(251,146,60,0.10)',
+                              border: '1px solid rgba(251,146,60,0.35)', borderRadius: 8, padding: '9px 12px', marginBottom: 14, lineHeight: 1.6 }}>
+                  A versão <b>{dest?.codigo}</b> não tem <b>dissídio cadastrado</b>, e {precisaSind.length} sindicato(s)
+                  {' '}aparecem no quadro. O custo vai ser calculado <b>sem reajuste</b> — se isso é o cenário,
+                  siga; se não, cadastre em <b>Cadastros → Dissídio</b> e aplique depois.
+                  {' '}<i>Isto não descarta nada: o número sai, só sai menor.</i>
+                </div>
+              )}
               {precisaCarimbo && (
                 <div style={{ fontSize: 12, color: 'var(--orange)', background: 'rgba(251,146,60,0.10)',
                               border: '1px solid rgba(251,146,60,0.35)', borderRadius: 8, padding: '9px 12px', marginBottom: 14 }}>
@@ -2705,7 +2782,7 @@ export default function PostosGradePage() {
                   <button style={S.btnPri} onClick={() => { setAplForm(null); setAplicarInfo(null) }}>Fechar</button>
                 ) : (<>
                   <button style={S.btn} disabled={aplicando} onClick={() => setAplForm(null)}>Cancelar</button>
-                  <button style={S.btnPri} disabled={aplicando || precisaCarimbo}
+                  <button style={S.btnPri} disabled={aplicando || precisaCarimbo || faltaTaxa.length > 0}
                     onClick={() => { const f = aplForm; aplicarNoOrcado(f.destino, f.comoAprovado) }}>
                     {aplicando ? 'Aplicando…' : 'Aplicar'}
                   </button>
