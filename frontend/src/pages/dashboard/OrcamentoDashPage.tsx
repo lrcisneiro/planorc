@@ -328,18 +328,31 @@ export default function OrcamentoDashPage() {
         // padrão em vez de abrir a seção vazia.
         const pend = pendSec.current; pendSec.current = null
         const vivos = new Set(ls.map(l => l.id))
-        const ou = (cfg: SecCfg | undefined, padrao: SecCfg): SecCfg => {
-          if (!cfg) return padrao
+        // ⚠⚠ O PRESET ERA CONSUMIDO E PERDIDO NA SEGUNDA PASSADA. `pendSec` é
+        // zerado acima, e este efeito roda de novo quando o `relId` é
+        // normalizado depois que a lista de relatórios carrega — aí não há
+        // mais preset e tudo cai no padrão. Sintoma: a ponte **sempre voltava
+        // em Receitas** (a 1ª linha de nível 1 que decompõe), por mais que a
+        // pessoa escolhesse EBITDA e o estado fosse salvo certinho.
+        // A ordem agora é preset → ESTADO ATUAL → padrão: na segunda passada
+        // o atual já é o restaurado, então ele se mantém.
+        // ⚠ Trocar de relatório continua caindo no padrão, e sem caso especial:
+        // os ids da configuração antiga não existem na árvore nova, então
+        // `vivos` os derruba — é a mesma guarda que já havia.
+        const aproveita = (cfg: SecCfg | undefined, padrao: SecCfg): SecCfg | null => {
+          if (!cfg) return null
           const sel = (cfg.sel || []).filter(id => vivos.has(id))
-          if (!sel.length) return padrao
+          if (!sel.length) return null
           return { ...cfg, sel, resultado: cfg.resultado && vivos.has(cfg.resultado) ? cfg.resultado : padrao.resultado }
         }
-        setSecPonte(ou(pend?.secPonte, { ...SEC_PADRAO, resultado: res?.id, sel: componentesDe(res, ls) }))
+        const ou = (cfg: SecCfg | undefined, padrao: SecCfg, atual?: SecCfg): SecCfg =>
+          aproveita(cfg, padrao) ?? aproveita(atual, padrao) ?? padrao
+        setSecPonte(p => ou(pend?.secPonte, { ...SEC_PADRAO, resultado: res?.id, sel: componentesDe(res, ls) }, p))
         // A visão do orçamento nasce com as linhas de nível 1 e a mesma linha
         // de resultado da ponte — é o retrato que quem monta espera ver.
-        setSecOrc(ou(pend?.secOrc, { ...SEC_PADRAO, resultado: res?.id, sel: ids }))
-        setSecVar(p => ou(pend?.secVar, { ...p, sel: ids }))
-        setSecAcur(p => ou(pend?.secAcur, { ...p, sel: ids }))
+        setSecOrc(p => ou(pend?.secOrc, { ...SEC_PADRAO, resultado: res?.id, sel: ids }, p))
+        setSecVar(p => ou(pend?.secVar, { ...p, sel: ids }, p))
+        setSecAcur(p => ou(pend?.secAcur, { ...p, sel: ids }, p))
       })
   }, [relId])
 

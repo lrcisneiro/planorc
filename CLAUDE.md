@@ -2311,6 +2311,20 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   de aparecer apagado — botão desabilitado numa tela de consulta é pergunta sem resposta.
   `CadastrosPage` não precisou: sem `maxHeight`, nada rola ali.
 
+- ⚠⚠ **PRESET CONSUMIDO UMA VEZ SE PERDE NA SEGUNDA PASSADA** (25/nov). `pendSec` guardava a
+  configuração salva e era **zerado** na primeira execução do efeito `[relId]` — que roda de novo
+  quando o `relId` é normalizado depois que a lista de relatórios carrega. Na segunda passada não
+  há mais preset e tudo cai no padrão: a ponte da *análise* **sempre voltava em Receitas** (a 1ª
+  linha de nível 1 que decompõe), por mais que a pessoa escolhesse EBITDA — e o estado estava
+  sendo salvo certinho o tempo todo, o que torna o defeito difícil de acreditar.
+  A ordem passou a ser **preset → ESTADO ATUAL → padrão**: na segunda passada o atual já é o
+  restaurado, então ele se mantém.
+  ⚠ Trocar de relatório continua caindo no padrão **sem caso especial**: os ids da configuração
+  antiga não existem na árvore nova, e a guarda `vivos` já os derrubava.
+  ⚠ **Não resolver isto fixando "comece no EBITDA"**: default por NOME de linha funciona nesta
+  DRE e quebra na próxima — a mesma proibição que vale para cor de variação e para percentual na
+  ponte. O padrão é estrutural; o que faltava era a escolha da pessoa sobreviver.
+
 - ⚠⚠ **INSERT QUE LISTA COLUNA A COLUNA PERDE A COLUNA NOVA — e se ela está no índice único,
   ou ESTOURA ou CORROMPE** (`v3_204`, 25/nov). `copiar_versao_cenario` copiava `formulario_valor`
   listando `empresa_id` e `filial_id` e **não `cc_id`**, que está no `uq_formulario_valor`. Achado
