@@ -2311,6 +2311,24 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   de aparecer apagado — botão desabilitado numa tela de consulta é pergunta sem resposta.
   `CadastrosPage` não precisou: sem `maxHeight`, nada rola ali.
 
+- ⚠⚠ **INSERT QUE LISTA COLUNA A COLUNA PERDE A COLUNA NOVA — e se ela está no índice único,
+  ou ESTOURA ou CORROMPE** (`v3_204`, 25/nov). `copiar_versao_cenario` copiava `formulario_valor`
+  listando `empresa_id` e `filial_id` e **não `cc_id`**, que está no `uq_formulario_valor`. Achado
+  no uso real: copiar para a versão do estudo de venda do MS falhava com *duplicate key*.
+  Medido: **17.425 de 17.586** linhas têm `cc_id` (99%) e **2.138 chaves** colapsariam.
+  ⚠⚠ **O erro foi SORTE.** Onde não houvesse colisão a cópia passaria e a célula chegaria ao
+  destino **sem centro de custo** — grão consolidado em silêncio, com o Aplicar gravando no lugar
+  errado. Estourar foi o melhor desfecho possível.
+  ⚠ `gerado` também faltava: a célula copiada nascia `false` = "corrigida à mão" e **sobrevivia à
+  re-geração** do wizard — o oposto do contrato, e a versão copiada ficaria imune ao próprio
+  wizard que a gerou.
+  ⚠⚠ **O padrão imune existe e está no produto:** `restaurar_snapshot` usa
+  `jsonb_populate_record(NULL::fat_orcado, dados)`, que preenche pelas colunas do TIPO — coluna
+  nova entra sozinha. Varri as 7 funções que inserem em `formulario_valor`/`fat_orcado`/
+  `fat_folha`: só esta estava errada, e o `restaurar_snapshot` apareceu como falso positivo no
+  regex justamente por usar o padrão bom. **Ao acrescentar coluna nessas tabelas, conferir os
+  INSERTs que listam coluna a coluna.**
+
 - ⚠⚠ **RECORTE DE ESCOPO NOS WIZARDS: campo no catálogo, filtro no EXECUTOR** (25/nov). A réplica
   gerava **sempre todos os escopos** que a origem tivesse — 54 na DRE Gerencial — e não havia como
   pedir só algumas empresas. Hoje é `tipo: 'escopo'` em `ParamDef`, renderizado com o **mesmo
