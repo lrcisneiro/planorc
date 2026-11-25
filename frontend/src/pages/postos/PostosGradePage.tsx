@@ -829,6 +829,11 @@ export default function PostosGradePage() {
 
   // ── Aplicar no orçado (step 5): grava fat_orcado (origem POSTO) do quadro ativo da versão ──
   const [aplicando, setAplicando] = useState(false)
+  // ⚠ O progresso é REAL, não uma barra fingida: o Aplicar grava em lotes de
+  // 500 e cada etapa tem um número que existe. Numa operação que SUBSTITUI
+  // todo o orçado de origem POSTO, "Aplicando…" sem mais nada deixa quem
+  // clicou sem saber se pode fechar a aba.
+  const [aplProg, setAplProg] = useState<string | null>(null)
   // ⚠ O CATÁLOGO DE VERBAS É RELIDO AO VOLTAR PARA A ABA. Ele é carregado na
   // abertura da tela e tudo depende dele: o motor calcula com ele, o painel do
   // posto desenha os campos com ele, o importador casa colunas com ele. Verba
@@ -976,7 +981,7 @@ export default function PostosGradePage() {
     const fora = ativos.filter(p => situacaoPosto(p as any) !== 'ativo').length
     const versaoCod = vDest?.codigo || String(anoCalc)
     if (!confirm(`Aplicar ${ativos.length} postos no orçado da versão ${versaoCod} (ano ${anoCalc})?${preliminar ? '\n\n⚠ VERSÃO PRELIMINAR — simulação. Não é o orçamento acordado.' : ''}${semVeredito ? `\n\n⚠ ${semVeredito} decisão(ões) SEM VEREDITO entram como se tivessem passado.` : ''}\n\nEntram todos os não demitidos${fora ? `, incluindo ${fora} em férias ou afastados — quem está afastado ou de férias continua custando` : ''}.${recusadasFora ? `\n\n⚠ ${recusadasFora} decisão(ões) RECUSADA(S) não entram: esses postos vão com o valor do CADASTRO, não com o do cenário.` : ''} Os filtros da tela NÃO afetam o que é gravado.\n\nIsto SUBSTITUI todo o orçado de origem POSTO desta versão. Lançamentos manuais e de formulário não são afetados.\n\nDespesa é gravada com sinal NEGATIVO, como o orçado manual e o realizado.`)) return
-    setAplicando(true)
+    setAplicando(true); setAplProg('Lendo moedas, taxas e contas…'); setAplicarInfo(null)
     try {
       const round2 = (n: number) => Math.round(n * 100) / 100
       // MULTIMOEDA: moeda_origem = moeda funcional da empresa do POSTO (fonte do custo);
@@ -1073,6 +1078,7 @@ export default function PostosGradePage() {
       const rows = [...byKey.values()].filter(matOrc)
       const folhaOk = folhaRows.filter(matOrc)
       // substitui o orçado origem POSTO da versão e reinsere
+      setAplProg(`Limpando o orçado anterior de origem POSTO…`)
       const { error: delErr } = await supabase.from('fat_orcado').delete().eq('versao_id', destino).eq('origem', 'POSTO')
       if (delErr) { setErro('Erro ao limpar o orçado POSTO: ' + delErr.message); return }
       // ⚠⚠ E TAMBÉM O QUE FOI EDITADO À MÃO A PARTIR DAQUI. Editar uma célula
@@ -1087,10 +1093,12 @@ export default function PostosGradePage() {
         .eq('versao_id', destino).eq('origem', 'MANUAL').not('dims->>posto', 'is', null)
       if (delMan) { setErro('Erro ao limpar edições manuais de célula de posto: ' + delMan.message); return }
       for (let i = 0; i < rows.length; i += 500) {
+        setAplProg(`Gravando o orçado — ${Math.min(i + 500, rows.length).toLocaleString('pt-BR')} de ${rows.length.toLocaleString('pt-BR')} linha(s)…`)
         const { error } = await supabase.from('fat_orcado').insert(rows.slice(i, i + 500))
         if (error) { setErro('Erro ao gravar o orçado (parcial): ' + error.message); return }
       }
       // paralelo: orçado por verba na fat_folha (tipo ORCADO) — p/ conciliação por verba
+      setAplProg('Gravando o orçado por verba (conciliação)…')
       const delF = await supabase.from('fat_folha').delete().eq('tipo', 'ORCADO').eq('versao_id', destino)
       if (delF.error) { setErro('Aviso — orçado por verba (limpeza): ' + delF.error.message) }
       else for (let i = 0; i < folhaOk.length; i += 500) {
@@ -1098,7 +1106,7 @@ export default function PostosGradePage() {
         if (error) { setErro('Aviso — orçado por verba (gravação): ' + error.message); break }
       }
       setAplicarInfo({ linhas: rows.length, postos: postosAplicados, contas: contasTocadas.size, ano: anoCalc, fundidas: gerados - rows.length, semTaxa: semTaxaOrc, semConta: [...semConta], natEstranha: [...natEstranha] })
-    } finally { setAplicando(false) }
+    } finally { setAplicando(false); setAplProg(null) }
   }
   // Grava a DECISÃO na versão, não no cadastro. `limpar` marca campos
   // explicitamente vazios no cenário (o mestre demite em maio, o cenário mantém).
@@ -1923,8 +1931,18 @@ export default function PostosGradePage() {
       </div>
 
       <div style={S.bar}>
-        <div style={S.fld}><span style={S.lbl}>Versão</span>
-          <select style={S.sel} value={versaoSel} onChange={e => setVersaoSel(e.target.value)} title="Versão do orçamento — define o dissídio aplicado ao custo">
+        {/* ⚠⚠ "Versão" FAZIA PARECER QUE ERA DO APLICAR, e não é (pergunta do
+            Ricardo, 25/nov). Medido: este seletor decide o **ANO** de todo o
+            cálculo (`anoCalc` sai do código da versão), o **dissídio**
+            (`premissa_dissidio` é por versão), o **cenário inteiro**
+            (`posto_versao`) e a leitura do **rateio** em `fat_orcado`. O
+            Aplicar tem destino PRÓPRIO, no modal dele.
+            ⚠ Editar no modo Cadastro não varia com a versão porque o cadastro
+            é o MESTRE, compartilhado — e é isso que o rótulo antigo escondia.
+            O rótulo passou a dizer o que o seletor FAZ, não o que ele é. */}
+        <div style={S.fld}><span style={S.lbl}>Orçamento (ano e dissídio)</span>
+          <select style={S.sel} value={versaoSel} onChange={e => setVersaoSel(e.target.value)}
+            title="Define o ANO do cálculo, o dissídio aplicado ao custo, qual cenário se edita e de onde o rateio é lido. NÃO é o destino do Aplicar — esse se escolhe no próprio Aplicar.">
             {!versoesVisiveis.length && <option value="">—</option>}
             {versoesVisiveis.map((v: any) => <option key={v.id} value={v.id}>{v.codigo}{v.bloqueada ? ' 🔒' : ''}</option>)}
           </select>
@@ -2053,7 +2071,7 @@ export default function PostosGradePage() {
         {podeCadastro && <button style={{ ...S.btn, opacity: modoCenario ? 0.45 : 1, cursor: modoCenario ? 'not-allowed' : 'pointer' }}
           title={modoCenario ? 'Posto novo entra no CADASTRO, não no cenário — vaga que existe só numa versão ainda não é suportada (P3). Troque para Cadastro.' : undefined}
           onClick={() => { if (modoCenario) { setErro('Posto novo entra no cadastro, não no cenário. Troque para "Cadastro" — vaga que existe só numa versão ainda não é suportada.'); return } novoPosto() }}><Plus size={14} /> Posto / vaga</button>}
-        {podeAplicar && <button style={S.btnPri} disabled={aplicando || !versaoSel || !temMotor} onClick={() => setAplForm({ destino: versaoSel, comoAprovado: false })}
+        {podeAplicar && <button style={S.btnPri} disabled={aplicando || !versaoSel || !temMotor} onClick={() => { setAplicarInfo(null); setAplForm({ destino: versaoSel, comoAprovado: false }) }}
           title="Grava o custo do quadro ativo desta versão no orçado (origem POSTO), aplicando o rateio.">
           <Play size={13} /> {aplicando ? 'Aplicando…' : 'Aplicar no orçado'}</button>}
       </div>
@@ -2118,17 +2136,10 @@ export default function PostosGradePage() {
         </div>
       )}
 
-      {aplicarInfo && (
-        <div style={S.info}><CheckCircle2 size={16} style={{ color: 'var(--green)', flexShrink: 0, marginTop: 1 }} />
-          <div>Orçado aplicado na versão (ano {aplicarInfo.ano}): <b>{aplicarInfo.linhas.toLocaleString('pt-BR')} linhas</b> gravadas em <b>{aplicarInfo.postos} postos</b> e {aplicarInfo.contas} conta(s), origem POSTO.
-            <div style={{ color: 'var(--muted)' }}>Substituiu o orçado POSTO anterior desta versão. Veja em Orçar / DRE (some com o manual/formulário na mesma célula).</div>
-            {aplicarInfo.fundidas > 0 && <div style={{ color: 'var(--orange)' }}>⚠ {aplicarInfo.fundidas} lançamento(s) caíram na mesma célula e foram somados — pode indicar posto duplicado nos dados. Confira se há códigos de posto repetidos.</div>}
-            {aplicarInfo.natEstranha.length > 0 && <div style={{ color: 'var(--orange)' }}>⚠ {aplicarInfo.natEstranha.length} conta(s) de destino não são de natureza DESPESA, então foram gravadas com sinal <b>positivo</b>: {aplicarInfo.natEstranha.join(', ')}. Confira a natureza em Cadastros → Estrutura — custo de folha deveria ser despesa.</div>}
-            {aplicarInfo.semConta.length > 0 && <div style={{ color: 'var(--red)', fontWeight: 600 }}>⚠ {aplicarInfo.semConta.length} verba(s) com valor e <b>sem conta destino</b> — ficaram FORA do orçado (aparecem na grade, não na DRE): {aplicarInfo.semConta.join(', ')}. Amarre a conta em {passoLabel('/postos/regras')} e reaplique.</div>}
-            {aplicarInfo.semTaxa > 0 && <div style={{ color: 'var(--red)', fontWeight: 600 }}>⚠ {aplicarInfo.semTaxa} linha(s) DESCARTADA(S) por falta de taxa orçada da moeda de origem (empresa em moeda estrangeira). Cadastre a taxa em Cadastros → Taxa orçada para esta versão e reaplique.</div>}
-          </div>
-        </div>
-      )}
+      {/* ⚠ O resultado do Aplicar saiu daqui para DENTRO do modal (25/nov):
+          ele traz avisos que mudam o próximo passo — linha descartada por
+          falta de taxa, verba sem conta fora da DRE —, e abaixo da barra, com
+          o modal já fechado, eles passavam batido. */}
       {importInfo && (
         <div style={S.info}><CheckCircle2 size={16} style={{ color: 'var(--green)', flexShrink: 0, marginTop: 1 }} />
           <div><b>{importInfo.gravados} postos</b> importados{importInfo.cargosNovos ? ` · ${importInfo.cargosNovos} cargos criados` : ''}{importInfo.modo === 'substituir' ? (importInfo.apagados ? ` · ${importInfo.apagados} removido(s) por não estarem no arquivo` : ' · nenhum removido') : ''}.
@@ -2504,15 +2515,47 @@ export default function PostosGradePage() {
         const baseDe = (v: any) => versoes.find((x: any) => x.id === v?.origem_versao_id)?.codigo || ''
         const semVer = modoCenario ? [...alterados.keys()].filter(id => (overlays.get(id) as any)?.aprovado == null).length : 0
         const precisaCarimbo = modoCenario && alterados.size > 0 && !prelim && !dest?.aprovado_em
+        // ⚠ Clicar fora NÃO fecha enquanto aplica: a operação continua rodando,
+        // e fechar daria a impressão de ter cancelado — uma operação que
+        // SUBSTITUI o orçado não pode ter saída ambígua.
         return (
-          <div style={S.overlay} onClick={e => e.target === e.currentTarget && setAplForm(null)}>
+          <div style={S.overlay} onClick={e => e.target === e.currentTarget && !aplicando && setAplForm(null)}>
             <div style={{ ...S.modal, width: 560 }}>
-              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Aplicar o quadro no orçado</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 18px' }}>
-                As decisões continuam em <b>{vSelCodDe(versaoSel) || '—'}</b>. Aqui você escolhe
-                onde o <b>dinheiro</b> pousa.
-              </div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>
+                {aplicarInfo ? 'Aplicado no orçado' : 'Aplicar o quadro no orçado'}</div>
+              {!aplicarInfo && !aplicando && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 18px' }}>
+                  As decisões continuam em <b>{vSelCodDe(versaoSel) || '—'}</b>. Aqui você escolhe
+                  onde o <b>dinheiro</b> pousa.
+                </div>
+              )}
 
+              {/* ⚠⚠ UM MODAL, TRÊS ESTADOS: formulário → progresso → resultado.
+                  Fechar no clique e mandar o resultado para a página fazia o
+                  aviso mais importante (linha descartada, verba sem conta)
+                  chegar longe do gesto que o causou. */}
+              {aplicarInfo ? (
+                <div style={{ marginBottom: 14 }}>
+
+              <div style={S.info}><CheckCircle2 size={16} style={{ color: 'var(--green)', flexShrink: 0, marginTop: 1 }} />
+                <div>Orçado aplicado na versão (ano {aplicarInfo.ano}): <b>{aplicarInfo.linhas.toLocaleString('pt-BR')} linhas</b> gravadas em <b>{aplicarInfo.postos} postos</b> e {aplicarInfo.contas} conta(s), origem POSTO.
+                  <div style={{ color: 'var(--muted)' }}>Substituiu o orçado POSTO anterior desta versão. Veja em Orçar / DRE (some com o manual/formulário na mesma célula).</div>
+                  {aplicarInfo.fundidas > 0 && <div style={{ color: 'var(--orange)' }}>⚠ {aplicarInfo.fundidas} lançamento(s) caíram na mesma célula e foram somados — pode indicar posto duplicado nos dados. Confira se há códigos de posto repetidos.</div>}
+                  {aplicarInfo.natEstranha.length > 0 && <div style={{ color: 'var(--orange)' }}>⚠ {aplicarInfo.natEstranha.length} conta(s) de destino não são de natureza DESPESA, então foram gravadas com sinal <b>positivo</b>: {aplicarInfo.natEstranha.join(', ')}. Confira a natureza em Cadastros → Estrutura — custo de folha deveria ser despesa.</div>}
+                  {aplicarInfo.semConta.length > 0 && <div style={{ color: 'var(--red)', fontWeight: 600 }}>⚠ {aplicarInfo.semConta.length} verba(s) com valor e <b>sem conta destino</b> — ficaram FORA do orçado (aparecem na grade, não na DRE): {aplicarInfo.semConta.join(', ')}. Amarre a conta em {passoLabel('/postos/regras')} e reaplique.</div>}
+                  {aplicarInfo.semTaxa > 0 && <div style={{ color: 'var(--red)', fontWeight: 600 }}>⚠ {aplicarInfo.semTaxa} linha(s) DESCARTADA(S) por falta de taxa orçada da moeda de origem (empresa em moeda estrangeira). Cadastre a taxa em Cadastros → Taxa orçada para esta versão e reaplique.</div>}
+                </div>
+              </div>
+                </div>
+              ) : aplicando ? (
+                <div style={{ marginBottom: 14, fontSize: 13, color: 'var(--text-mid)', lineHeight: 1.7 }}>
+                  <div style={{ fontWeight: 600, color: 'var(--violet)' }}>Aplicando…</div>
+                  <div>{aplProg || 'Calculando o quadro…'}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+                    Não feche a aba: a operação substitui todo o orçado de origem POSTO desta versão.
+                  </div>
+                </div>
+              ) : (<>
               <div style={{ marginBottom: 14 }}>
                 <span style={S.flbl}>Aplicar em</span>
                 <select style={S.finp} value={aplForm.destino}
@@ -2566,12 +2609,23 @@ export default function PostosGradePage() {
                 </div>
               )}
 
+              </>)}
+
+              {/* ⚠⚠ O MODAL NÃO FECHA MAIS AO APLICAR. Ele fechava e o resultado
+                  ia para a PÁGINA, abaixo da barra — e ali estão avisos que
+                  mudam o que a pessoa precisa fazer a seguir (linha descartada
+                  por falta de taxa, verba sem conta fora da DRE). Resultado
+                  longe do gesto é resultado que não se lê. */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                <button style={S.btn} onClick={() => setAplForm(null)}>Cancelar</button>
-                <button style={S.btnPri} disabled={aplicando || precisaCarimbo}
-                  onClick={() => { const f = aplForm; setAplForm(null); aplicarNoOrcado(f.destino, f.comoAprovado) }}>
-                  {aplicando ? 'Aplicando…' : 'Aplicar'}
-                </button>
+                {aplicarInfo ? (
+                  <button style={S.btnPri} onClick={() => { setAplForm(null); setAplicarInfo(null) }}>Fechar</button>
+                ) : (<>
+                  <button style={S.btn} disabled={aplicando} onClick={() => setAplForm(null)}>Cancelar</button>
+                  <button style={S.btnPri} disabled={aplicando || precisaCarimbo}
+                    onClick={() => { const f = aplForm; aplicarNoOrcado(f.destino, f.comoAprovado) }}>
+                    {aplicando ? 'Aplicando…' : 'Aplicar'}
+                  </button>
+                </>)}
               </div>
             </div>
           </div>

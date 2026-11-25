@@ -2315,6 +2315,25 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   aparências diferentes saindo do mesmo produto. Nome de aba é cortado em **31 caracteres** e
   limpo de `:\/?*[]` — nome inválido faz o Excel abrir com erro de reparo, não com mensagem.
 
+- ⚠⚠ **O SELETOR DE VERSÃO EM POSTOS NÃO É DO APLICAR** (pergunta do Ricardo, 25/nov — ele
+  estranhou que editar um posto com ele apontado para um orçamento "não muda nada"). Medido nos
+  27 usos: ele decide o **ANO de todo o cálculo** (`anoCalc` sai do código da versão, por regex),
+  o **dissídio** (`premissa_dissidio` é por versão e entra no custo), o **cenário inteiro**
+  (`posto_versao`: carregar, decidir, aprovar) e a leitura do **rateio** em `fat_orcado`. O
+  Aplicar tem **destino próprio**, no modal dele — e é por isso que dá para simular numa versão
+  diferente da que está na tela.
+  ⚠ **A observação dele estava certa e é por desenho:** editar no modo **Cadastro** não varia com
+  a versão porque o cadastro é o **MESTRE**, compartilhado — o que é por versão é o **cenário**.
+  É a separação `posto.cadastro.editar` × `posto.cenario.decidir`.
+  **O rótulo virou "Orçamento (ano e dissídio)"**: dizer o que o seletor FAZ em vez do que ele é
+  foi o que dissolveu a pergunta. Tirá-lo da tela teria quebrado as quatro coisas acima.
+  ⚠⚠ **O modal do Aplicar agora tem TRÊS estados** — formulário → **progresso** → **resultado** —
+  e **não fecha no clique**. Ele fechava e o resultado ia para a página, abaixo da barra; ali
+  estão os avisos que mudam o próximo passo (*linha DESCARTADA por falta de taxa*, *verba sem
+  conta ficou fora da DRE*), e longe do gesto eles passavam batido. O progresso é **real** (lotes
+  de 500: "gravando 2.500 de 16.500"), e clicar fora **não fecha enquanto aplica** — operação que
+  substitui o orçado não pode ter saída ambígua.
+
 - **Export da grade de POSTOS (25/nov)** — sai de `listados` e `grupos`, as mesmas estruturas da
   render, então filtro, situação, busca, agrupamento, modo cenário, *considerar rateios* e o modo
   discreto já estão aplicados.
