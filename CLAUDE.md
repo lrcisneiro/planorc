@@ -119,8 +119,27 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > empresa) e **reaproveita `cascataRateio`** — reimplementar a cascata faria o mesmo cadastro
 > render dois resultados. Um código de CC troca o CC e mantém a empresa, um de empresa o
 > contrário; escolher os dois é a cascata (CC, depois EMPRESA), como em `posto_rateio.ordem`.
-> ⚠⚠ **A filial NÃO acompanha o rateio** — fica a da origem mesmo quando a empresa muda. É o
-> precedente medido do Aplicar do posto: anulá-la deixou 8.064 células (R$ 8,4 mi) invisíveis
+> ⚠⚠ **A filial NÃO acompanha o rateio — e isso é DELIBERADO, não aresta** (decisão do Ricardo,
+> 25/nov): a filial da origem é o que permite **rastrear de onde o rateio veio**. Some com ela e
+> o custo chega ao destino sem procedência.
+> ⚠ **Não "consertar" preenchendo `rateio_destino.filial_id`.** Medido no orçado 2027 de origem
+> POSTO: **R$ 33.970.994 de R$ 116.168.582 (29%)** estão em pares empresa+filial que não se
+> pertencem, em **60 combinações** — a maior é `01 + filial 2001 (da 05)`, R$ 4,83 mi. **Isso é o
+> mecanismo funcionando**, não 60 defeitos. A causa única é `filial_id` nulo nos 48 destinos das
+> 11 regras por empresa, e deixá-lo nulo é a escolha.
+> ⚠ **A consequência que fica:** um relatório por FILIAL mistura procedências — a filial diz de
+> onde o custo saiu, não onde ele pousou. Quem ler por filial precisa saber disso; quem lê por
+> **empresa** está certo sempre.
+> ⚠⚠ **O RASTRO É O CÓDIGO COMPLETO DA FILIAL, NUNCA O PREFIXO.** `filial.codigo` é
+> `<empresa do ERP><filial>` (v3_149), e o prefixo é a entidade do **ERP**, não a empresa
+> gerencial: medido, só **5 das 15** coincidem. O ERP `20` abriga **SEIS** empresas gerenciais
+> (`2001`→05, `2002`→01, `2003`→06, `2004`→25, `2005`→ZZ, `2006`→YY), então ler `[20]` não diz de
+> onde veio — `2005` diz. ⚠ Pior: o prefixo `01` é o **Paraguai** (`0101`→XX), e existe uma
+> empresa gerencial `01` (Bauru) — **homônimo que convida à leitura errada.**
+> ⚠ Caso extremo já visto: com rateio cruzando PAÍS (o posto PY que rateia 100% para a empresa
+> 28), a célula nasce `empresa 28 (BR) + filial 0101 (PY)`. O valor está certo — converte pela
+> taxa orçada antes de gravar —, e a filial paraguaia é o rastro.
+> ⚠ O outro lado do mesmo cuidado: anular a filial deixou 8.064 células (R$ 8,4 mi) invisíveis
 > para quem tem escopo de filial, porque a policy de leitura exige `filial_id IS NOT NULL`.
 > ⚠ **Arredondar cada cota e somar NÃO fecha** (100 em três = 99,99). O resíduo vai para a maior
 > cota, mês a mês — determinístico e o total do ano não muda. Provado nos 5 casos, inclusive com
