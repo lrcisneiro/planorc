@@ -604,6 +604,19 @@ export default function OrcamentoDashPage() {
       // começo e o fim da ponte projetados sobre componentes que não são —
       // a ponte deixaria de fechar exatamente quando a projeção está ligada.
       const serie = async (cen: string, ano: number): Promise<Resp> => {
+        // ⚠⚠ ORÇAMENTO NÃO SE PROJETA — NEM QUANDO O OUTRO LADO É REALIZADO
+        // (25/nov, achado pelo Ricardo). A regra de 24/nov tirou a projeção do
+        // modo Orçado × Orçado e parou ali; mas o que a justifica não é o modo,
+        // é o LADO: o orçado de nov/dez **já está gravado** em `fat_orcado`, e
+        // estimá-lo pela média inventa um número que existe. Aqui o lado do
+        // orçamento simplesmente LÊ o ano cheio e só o REALIZADO é projetado —
+        // que é a comparação que se quis fazer: plano inteiro contra resultado
+        // estimado até dezembro.
+        // ⚠ Uma leitura só com o período estendido, não duas somadas: assim o
+        // mensal e o `=ANTERIOR()` enxergam o ano inteiro de uma vez.
+        if (mesesProj.length && cen !== 'REALIZADO')
+          return chamarMes(cen, [ano], [...meses, ...mesesProj])
+
         const periodo = await chamarMes(cen, [ano], meses)
         if (!mesesProj.length) return periodo
         let fonte: Resp, fator: number
@@ -988,9 +1001,11 @@ export default function OrcamentoDashPage() {
       )}
       {mesesProj.length > 0 && (
         <Aviso tom="info">
-          {mesesProj.length} mês(es) <strong>projetado(s)</strong> dos <strong>dois lados</strong>
-          {' '}({PROJ_ROTULO[proj].replace('projetar ', '')}). O período analisado passa a ser o ano cheio.
-          Projeção não é fato — confira antes de decidir com ela.
+          {MES[mesesProj[0] - 1]}–{MES[mesesProj[mesesProj.length - 1] - 1]} ({mesesProj.length} mês(es))
+          {' '}entram <strong>projetados só no realizado</strong>
+          {' '}({PROJ_ROTULO[proj].replace('projetar ', '')}). O <strong>orçado vai lido</strong>, o ano
+          inteiro — ele já tem esses meses gravados, e estimá-los inventaria um número que existe.
+          O período analisado passa a ser o ano cheio. Projeção não é fato — confira antes de decidir com ela.
         </Aviso>
       )}
       {erro && <Aviso tom="alerta">{erro}</Aviso>}
@@ -1070,7 +1085,7 @@ export default function OrcamentoDashPage() {
             orc={dados.orcAnt} real={dados.realAnt} val={val} ano={anoComp} />
 
           <Alertas S={S} linhas={linhas} nome={nome}
-            base={dados.base} comp={dados.comp} mensal={dados.mensalBase} val={val} nMeses={meses.length} />
+            base={dados.base} comp={dados.comp} mensal={dados.mensalBase} val={val} />
         </>
       )}
 
@@ -2521,7 +2536,7 @@ function Acuracia({ S, cfg, setCfg, linhas, nome, orc, real, val, ano,
 // são as folhas analíticas do relatório, sempre as mesmas. De graça, o cartão
 // sai do caminho da recarga: mudar seleção não mexe nele.
 const MAX_ALERTA = 30
-function Alertas({ S, linhas, nome, base, comp, mensal, val, nMeses }: any) {
+function Alertas({ S, linhas, nome, base, comp, mensal, val }: any) {
   // Folha = linha sem filha. Subtotal e fórmula ficam de fora porque ali o
   // alerta é consequência, não causa; indicador é razão, não valor orçado.
   const folhas = useMemo(() => {
@@ -2542,8 +2557,14 @@ function Alertas({ S, linhas, nome, base, comp, mensal, val, nMeses }: any) {
       alertas.push({ tipo: 'nova', cor: 'var(--cyan)', nome: nome(id), detalhe: `${fmt(b)} sem nada no comparado — merece justificativa`, peso: 1, mag })
     else if (Math.abs(b - c) < 0.005 && Math.abs(b) > 0.005)
       alertas.push({ tipo: 'idêntica', cor: 'var(--orange)', nome: nome(id), detalhe: `igual ao comparado, centavo a centavo — copiada sem revisar?`, peso: 2, mag })
-    if (nMeses >= 6 && mm.length === nMeses && Math.abs(mm[0]) > 0.005 && mm.every((v: number) => Math.abs(v - mm[0]) < 0.005))
-      alertas.push({ tipo: 'linha reta', cor: 'var(--orange)', nome: nome(id), detalhe: `os ${nMeses} meses são idênticos — "dividi por doze"?`, peso: 3, mag })
+    // ⚠⚠ O comprimento vem de `mm`, não de `nMeses` (25/nov). Eram sempre
+    // iguais até o lado do orçado passar a LER o ano cheio sob projeção — aí
+    // `mm` fica com 12 e o período com 10, `mm.length === nMeses` dá falso e o
+    // detector de "dividi por doze" emudeceria **justamente** com a projeção
+    // ligada, sem nada acusar. Conferir todos os meses que se tem é o que a
+    // regra sempre quis dizer; `nMeses` era um jeito frágil de dizê-lo.
+    if (mm.length >= 6 && Math.abs(mm[0]) > 0.005 && mm.every((v: number) => Math.abs(v - mm[0]) < 0.005))
+      alertas.push({ tipo: 'linha reta', cor: 'var(--orange)', nome: nome(id), detalhe: `os ${mm.length} meses são idênticos — "dividi por doze"?`, peso: 3, mag })
   }
   // ⚠ Sem seleção o conjunto cresce, então a ORDEM passa a importar: tipo
   // primeiro (o que sumiu é mais urgente que o que foi copiado), valor depois.

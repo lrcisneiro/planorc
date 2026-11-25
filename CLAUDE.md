@@ -2604,6 +2604,26 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   está gravado em `fat_orcado`, e projetá-lo **inventa um número que já existe**. O seletor some
   no modo ORC, e a resposta para *"faltam nov e dez"* passa a ser **ampliar o período**, que é o
   que o aviso de período parcial já dizia desde 18/nov.
+  ⚠⚠ **E NÃO SE PROJETA NEM QUANDO O OUTRO LADO É REALIZADO (25/nov).** A regra acima tirou a
+  projeção do modo Orçado × Orçado e **parou ali** — mas o que a justifica não é o MODO, é o
+  **LADO**: o orçado de nov/dez já está gravado, qualquer que seja o outro lado. Em
+  `Orçado × Realizado` com período jan–out, a tela projetava **os dois**, e o aviso dizia isso
+  com todas as letras ("projetado(s) dos **dois lados**") sem que ninguém reparasse que metade
+  daquilo era invenção sobre dado existente. Hoje o lado do orçamento **lê o ano cheio** — uma
+  leitura só, com o período estendido, para o mensal e o `=ANTERIOR()` enxergarem os 12 meses — e
+  só o realizado é projetado. É a comparação que se quis fazer: **plano inteiro contra resultado
+  estimado até dezembro**.
+  **Medido no Orçado2027** (grão cru, antes do motor): a média de jan–out dava 18.348.161 de
+  receita em nov+dez contra **19.089.297** gravados, e −13.109.247 de despesa contra
+  **−12.912.761** — a projeção **subestimava a receita e inflava a despesa**, então o resultado do
+  plano aparecia ~R$ 0,9 mi **menor do que ele diz**.
+  ⚠⚠ **A regressão que isso quase causou, e que o detector não denunciaria:** `Alertas` testava
+  `mm.length === nMeses` para a "linha reta" (*"dividi por doze"*). Os dois eram sempre iguais até
+  o orçado passar a ler 12 meses contra um período de 10 — aí o teste dá falso e o alerta
+  **emudece justamente com a projeção ligada**. Hoje o critério é `mm.length >= 6`: conferir todos
+  os meses que se tem é o que a regra sempre quis dizer, e `nMeses` era um jeito frágil de dizê-lo.
+  **Ao estender o alcance de uma leitura, procure quem comparava COMPRIMENTOS.**
+
   ⚠ **O corte é no `mesesProj`, não só no seletor:** um card salvo pode trazer `proj` ligado, e
   esconder o controle deixaria o número inventado de pé — esconder na tela sem desligar no
   cálculo é o padrão de erro que este documento repete.
