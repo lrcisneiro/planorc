@@ -2311,6 +2311,29 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   de aparecer apagado — botão desabilitado numa tela de consulta é pergunta sem resposta.
   `CadastrosPage` não precisou: sem `maxHeight`, nada rola ali.
 
+- ⚠⚠ **RECORTE DE ESCOPO NOS WIZARDS: campo no catálogo, filtro no EXECUTOR** (25/nov). A réplica
+  gerava **sempre todos os escopos** que a origem tivesse — 54 na DRE Gerencial — e não havia como
+  pedir só algumas empresas. Hoje é `tipo: 'escopo'` em `ParamDef`, renderizado com o **mesmo
+  `FiltrosButton`** de ~13 telas: um seletor próprio aqui divergiria do resto (sem área/divisão/BU,
+  sem escopo de acesso) e seria a segunda forma de dizer "quais empresas" no produto.
+  ⚠⚠ **O filtro mora no `executarWizard`, não no `preparar` de cada wizard.** Filtrando lá, o
+  próximo wizard nasceria sem recorte e ninguém notaria — foi exatamente o que aconteceu com a
+  réplica. Hoje basta declarar o campo.
+  ⚠ **Filtrar DEPOIS de preparar não muda número nenhum:** cada escopo é projetado por si
+  (`MEDIA3`/`MEDIAPER`/`ULTIMO` olham só as linhas daquele escopo), então tirar escopos não mexe
+  no que sobra. Fazê-lo antes exigiria passar o recorte a cada leitor — o mesmo esquecimento, só
+  que no banco.
+  ⚠⚠ **VALOR GLOBAL (🌐, empresa nula) NUNCA é filtrado** — é premissa que vale para todas as
+  empresas, e o `% de acréscimo` da réplica é um. Cortá-lo deixaria o formulário sem a premissa e
+  as fórmulas renderiam **zero**. Provado em 7 casos, incluindo recorte que não casa com nada.
+  ⚠ **Valor sem filial/CC é GRÃO CONSOLIDADO, não "fora do filtro"**: recortar por filial o
+  descarta, como no drill — e o corte é **dito** nos avisos, senão o formulário nasce menor e
+  quem confere procura o escopo que sumiu.
+  ⚠ `ccs` chega ao executor **já resolvido**: área, divisão e BU viram centros de custo **na
+  tela**, que é onde a lista existe. O executor não resolve nada, só filtra.
+  ⚠ Re-gerar com outro recorte é seguro: o delete da re-geração é **por linha**, não por escopo,
+  então escopo que saiu do filtro não deixa célula órfã.
+
 - ⚠⚠ **EXPORT DO RELATÓRIO É WYSIWYG, e o botão "Excel" exportava OUTRA COISA** (25/nov).
   `exportMatrix` era a matriz de 12 meses × **uma** versão que esta tela gerava para ser
   reimportada — e a importação já tinha saído daqui. Ligado ao botão, entregava um arquivo sem

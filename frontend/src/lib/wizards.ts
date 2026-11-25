@@ -28,6 +28,11 @@ export type ParamDef = ParamVisivel & (
   | { key: string; tipo: 'relatorio';  label: string; ajuda?: string }
   | { key: string; tipo: 'linhas';     label: string; de: string; ajuda?: string }
   | { key: string; tipo: 'percentual'; label: string; padrao?: number; ajuda?: string }
+  // ⚠⚠ RECORTE DE ESCOPO, genérico. Todo wizard que lê o fato por empresa ·
+  // filial · CC pode declarar este campo, e o recorte é aplicado **no
+  // executor**, não no `preparar` de cada um — se cada wizard filtrasse o seu,
+  // o próximo nasceria sem filtro e ninguém notaria até gerar 54 escopos.
+  | { key: string; tipo: 'escopo';     label: string; ajuda?: string }
   | { key: string; tipo: 'escolha';    label: string; padrao?: string; ajuda?: string
       opcoes: { valor: string; rotulo: string }[] })
 
@@ -55,6 +60,17 @@ export type ValorGerado = {
   e: string | null; f: string | null; c: string | null
   m: number; v: number
   escopoGlobal?: boolean
+}
+
+/** O que o campo `tipo: 'escopo'` guarda.
+ *  ⚠ `ccs` vem JÁ RESOLVIDO pela tela (área, divisão e BU viram CCs lá, que é
+ *  onde a lista de centros existe). O executor não resolve nada — só filtra.
+ *  ⚠ `_sel` é só para a tela reabrir no mesmo estado; o executor ignora. */
+export type EscopoWizard = {
+  empresas: string[]
+  filiais: string[]
+  ccs: string[]
+  _sel?: { ccSel: string[]; areaSel: string[]; divisaoSel: string[]; buSel: string[] }
 }
 
 export type Preparado = {
@@ -101,8 +117,12 @@ const impostos: Wizard = {
     'Depois de mexer na receita, re-gere: o que o wizard escreveu é substituído, ' +
     'o que você corrigiu à mão permanece.',
   ],
-  // sem parâmetros próprios: lê da MESMA versão/ano em que grava
-  params: [],
+  // ⚠ O recorte é o ÚNICO parâmetro: a versão e o ano são os mesmos em que
+  // grava (um wizard nunca lê o que escreve), e o resto vem do cadastro.
+  params: [
+    { key: 'escopo', tipo: 'escopo', label: 'Recorte (opcional)',
+      ajuda: 'Deixe vazio para gerar um escopo por combinação com receita. Com recorte, só os escolhidos entram.' },
+  ],
   async preparar(p) {
     const avisos: string[] = []
     // A INVARIANTE: um wizard nunca lê o que ele escreve. Sem excluir a conta
@@ -175,6 +195,11 @@ const replica: Wizard = {
   ],
   params: [
     { key: 'relatorio', tipo: 'relatorio', label: 'Relatório de origem' },
+    // ⚠ Antes gerava SEMPRE todos os escopos encontrados — 54 na DRE Gerencial —
+    // e não havia como pedir só algumas empresas. O recorte é opcional: vazio
+    // mantém o comportamento de antes.
+    { key: 'escopo', tipo: 'escopo', label: 'Recorte (opcional)',
+      ajuda: 'Deixe vazio para gerar todos os escopos que a origem tiver. Com recorte, só os escolhidos entram — e re-gerar com outro recorte reescreve o formulário inteiro.' },
     { key: 'linhas', tipo: 'linhas', de: 'relatorio', label: 'Linhas a replicar',
       ajuda: 'Marque quantas quiser. Marcar um bloco inclui tudo abaixo dele — não precisa marcar as filhas.' },
     { key: 'fonte', tipo: 'escolha', label: 'Replicar a partir de', padrao: 'REALIZADO',

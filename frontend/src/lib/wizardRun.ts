@@ -12,7 +12,7 @@
 // torna o dado copiado aceitável, porque a exceção por filial não se perde.
 // ============================================================
 import { supabase, TENANT_ID } from './supabase'
-import type { Preparado, Wizard } from './wizards'
+import type { EscopoWizard, Preparado, Wizard } from './wizards'
 
 export type WizardParams = {
   codigo: string
@@ -40,6 +40,47 @@ export async function executarWizard(w: Wizard, args: WizardParams): Promise<Wiz
   // aqui do que deixar um formulário vazio no hub para o usuário descobrir.
   const prep: Preparado = await w.preparar(args.p)
   if (!prep.linhas.length) throw new Error('O wizard não produziu nenhuma linha — nada a gerar.')
+
+  // ── 1b · RECORTE DE ESCOPO, num lugar só ──────────────────────────────
+  // ⚠⚠ Aqui e não no `preparar` de cada wizard: filtrar lá faria o próximo
+  // wizard nascer sem recorte e ninguém notaria — exatamente o que aconteceu
+  // com a réplica, que gerava os 54 escopos sempre.
+  // ⚠ Filtrar DEPOIS de preparar não muda número nenhum: cada escopo é
+  // projetado por si (MEDIA3, MEDIAPER, ULTIMO olham só as linhas daquele
+  // escopo), então tirar escopos não mexe no que sobra. Fazê-lo antes exigiria
+  // passar o recorte a cada leitor — e aí seria o mesmo esquecimento, no
+  // banco.
+  // ⚠⚠ VALOR GLOBAL (🌐, empresa nula) NUNCA é filtrado: ele é premissa que
+  // vale para todas as empresas — o `% de acréscimo` da réplica é um. Cortá-lo
+  // deixaria o formulário sem a premissa e as fórmulas renderiam zero.
+  const campoEsc = w.params.find(p => p.tipo === 'escopo')
+  const esc: EscopoWizard | undefined = campoEsc ? args.p[campoEsc.key] : undefined
+  if (esc && (esc.empresas?.length || esc.filiais?.length || esc.ccs?.length)) {
+    const sE = esc.empresas?.length ? new Set(esc.empresas) : null
+    const sF = esc.filiais?.length ? new Set(esc.filiais) : null
+    const sC = esc.ccs?.length ? new Set(esc.ccs) : null
+    const antes = prep.valores.length
+    prep.valores = prep.valores.filter(v => {
+      if (v.escopoGlobal || !v.e) return true
+      if (sE && !sE.has(v.e)) return false
+      // ⚠ Valor sem filial/CC é GRÃO CONSOLIDADO, não "fora do filtro": ele não
+      // pertence a filial nenhuma, então recortar por filial o descarta — é a
+      // mesma regra do drill, e descartá-lo calado seria perder dinheiro.
+      if (sF && !(v.f && sF.has(v.f))) return false
+      if (sC && !(v.c && sC.has(v.c))) return false
+      return true
+    })
+    if (!prep.valores.length) {
+      throw new Error('O recorte de escopo não deixou nenhum valor. Amplie o filtro — ou tire-o, se a intenção era gerar para todos.')
+    }
+    prep.escopos = new Set(prep.valores.filter(v => !v.escopoGlobal && v.e)
+      .map(v => `${v.e}|${v.f || ''}|${v.c || ''}`)).size
+    if (antes > prep.valores.length) {
+      // ⚠ O corte é DITO: formulário que nasce menor sem explicar faz quem
+      // confere procurar o escopo que "sumiu".
+      prep.avisos.push(`Recorte de escopo: ${antes - prep.valores.length} valor(es) de fora do filtro ficaram sem gerar — restaram ${prep.escopos} escopo(s).`)
+    }
+  }
 
   // ── 2 · contas de destino por código (as dinâmicas já vêm com id)
   const codigos = Array.from(new Set(prep.linhas.map(l => l.contaDestino).filter((c): c is string => !!c)))

@@ -3,6 +3,7 @@ import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, TENANT_ID } from '../../lib/supabase'
 import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
+import { FiltrosButton, effectiveCcFilter } from '../dashboard/DashFiltros'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { T } from '../../lib/theme'
 import { Plus, Pencil, Trash2, ChevronRight, SlidersHorizontal, Settings2, Wand2, FileText, ChevronDown, AlertTriangle } from 'lucide-react'
@@ -74,6 +75,11 @@ export default function FormulariosPage() {
   const [menu, setMenu] = useState(false)
   const [wz, setWz] = useState<WzState>({ open: false })
   const [versoes, setVersoes] = useState<any[]>([])
+  // ⚠ Carregados só para o campo `escopo` dos wizards. Ficam vazios se nenhum
+  // wizard declarar o campo — o `FiltrosButton` some sozinho nesse caso.
+  const [empresas, setEmpresas] = useState<any[]>([])
+  const [filiais, setFiliais] = useState<any[]>([])
+  const [ccs, setCcs] = useState<any[]>([])
   const [relatorios, setRelatorios] = useState<any[]>([])
   const [linhasRel, setLinhasRel] = useState<LinhaRel[]>([])
   const navigate = useNavigate()
@@ -91,6 +97,10 @@ export default function FormulariosPage() {
     // catálogo pequeno: dispensa pageAll
     carregarVersoes('id,codigo,ano').then(setVersoes)
     carregarRelatorios().then(setRelatorios)
+    supabase.from('empresa').select('id,codigo,descricao').order('codigo').then(r => setEmpresas(r.data || []))
+    supabase.from('filial').select('id,codigo,descricao,empresa_id').order('codigo').then(r => setFiliais(r.data || []))
+    supabase.from('centro_custo').select('id,codigo,descricao,area_cod,area_nome,divisao_cod,divisao_nome,bu_cod,bu_nome,restrito')
+      .order('codigo').then(r => setCcs(r.data || []))
   }, [])
 
   const openCreate = () => setModal({ open: true, codigo: '', nome: '', descricao: '' })
@@ -106,6 +116,7 @@ export default function FormulariosPage() {
       if (pd.tipo === 'escolha') vals[pd.key] = pd.padrao ?? pd.opcoes[0]?.valor
       else if (pd.tipo === 'percentual') vals[pd.key] = pd.padrao ?? 0
       else if (pd.tipo === 'linhas') vals[pd.key] = []
+      else if (pd.tipo === 'escopo') vals[pd.key] = { empresas: [], filiais: [], ccs: [] }
       else if (pd.tipo === 'ano') vals[pd.key] = anoPadrao - 1   // origem costuma ser o ano anterior
       else if (pd.tipo === 'mes') {
         // ano fechado → dezembro; ano corrente → o último mês FECHADO, que é o
@@ -371,7 +382,42 @@ export default function FormulariosPage() {
                               onChange={e => setWz({ ...wz, vals: { ...wz.vals, [pd.key]: e.target.value } })}>
                         {pd.opcoes.map(o => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
                       </select>
-                    ) : pd.tipo === 'mes' ? (
+                    ) : pd.tipo === 'escopo' ? (() => {
+                      // ⚠ O MESMO `FiltrosButton` de ~13 telas, não um seletor
+                      // próprio: um combo de empresa aqui divergiria do resto
+                      // (sem área/divisão/BU, sem escopo de acesso) e seria a
+                      // segunda forma de dizer "quais empresas" no produto.
+                      // ⚠ `ccs` vai RESOLVIDO para o executor: área/divisão/BU
+                      // só viram centros de custo aqui, onde a lista existe.
+                      const v = (wz.vals[pd.key] || {}) as any
+                      const sel = v._sel || { ccSel: [], areaSel: [], divisaoSel: [], buSel: [] }
+                      const grava = (patch: any) => {
+                        const novoSel = { ...sel, ...patch.sel }
+                        const emp = patch.empresas ?? v.empresas ?? []
+                        const fil = patch.filiais ?? v.filiais ?? []
+                        setWz({ ...wz, vals: { ...wz.vals, [pd.key]: {
+                          empresas: emp, filiais: fil,
+                          ccs: effectiveCcFilter(ccs as any, novoSel.ccSel, novoSel.areaSel, novoSel.divisaoSel, novoSel.buSel) || [],
+                          _sel: novoSel,
+                        } } })
+                      }
+                      const n = (v.empresas?.length || 0) + (v.filiais?.length || 0) + (v.ccs?.length || 0)
+                      return (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <FiltrosButton
+                            empresas={empresas} filiais={filiais} ccs={ccs as any}
+                            empresaSel={v.empresas || []} setEmpresaSel={(x: string[]) => grava({ empresas: x })}
+                            filialSel={v.filiais || []} setFilialSel={(x: string[]) => grava({ filiais: x })}
+                            ccSel={sel.ccSel} setCcSel={(x: string[]) => grava({ sel: { ccSel: x } })}
+                            areaSel={sel.areaSel} setAreaSel={(x: string[]) => grava({ sel: { areaSel: x } })}
+                            divisaoSel={sel.divisaoSel} setDivisaoSel={(x: string[]) => grava({ sel: { divisaoSel: x } })}
+                            buSel={sel.buSel} setBuSel={(x: string[]) => grava({ sel: { buSel: x } })} />
+                          <span style={{ fontSize: 12, color: n ? 'var(--violet)' : 'var(--muted)' }}>
+                            {n ? `${n} recorte(s) — só estes escopos entram` : 'sem recorte: gera para todos os escopos encontrados'}
+                          </span>
+                        </div>
+                      )
+                    })() : pd.tipo === 'mes' ? (
                       <select style={S.input} value={wz.vals[pd.key] ?? 12}
                               onChange={e => setWz({ ...wz, vals: { ...wz.vals, [pd.key]: Number(e.target.value) } })}>
                         {['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'].map((n, i) =>
