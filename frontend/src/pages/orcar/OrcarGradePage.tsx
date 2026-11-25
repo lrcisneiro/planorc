@@ -315,8 +315,13 @@ export default function OrcarGradePage() {
       s = ccId ? s.eq('cc_id', ccId) : s.is('cc_id', null)
       return s
     }
+    const falhasNota: number[] = []
     await Promise.all(Array.from({ length: 12 }, (_, i) => i + 1).map(async mes => {
-      const { data: ex } = await base().eq('mes', mes).maybeSingle()
+      // ⚠ Mesmo cuidado do `saveOne`: com 2+ lançamentos o `maybeSingle` erra,
+      // `data` vem nulo e isto inseriria uma linha-fantasma de nota ao lado da
+      // que já existe. Célula composta não recebe nota por aqui.
+      const { data: ex, error: errSel } = await base().eq('mes', mes).maybeSingle()
+      if (errSel) { falhasNota.push(mes); return }
       if (ex) {
         const row = ex as any
         const dims = { ...(row.dims || {}) }
@@ -328,6 +333,11 @@ export default function OrcarGradePage() {
         await gravar(supabase.from('fat_orcado').insert({ tenant_id: TENANT_ID, versao_id: versaoId, linha_id: master, empresa_id: empresaId, filial_id: filialId || null, cc_id: ccId || null, ano, mes, valor: null, expressao: null, origem: 'MANUAL', dims: { historico: t } }), 'gravar a nota')
       }
     }))
+    if (falhasNota.length) {
+      alert(`A nota não foi gravada em ${falhasNota.length} mês(es) — ${falhasNota.sort((a, b) => a - b).join(', ')}.\n\n`
+        + 'Essas células têm mais de um lançamento (posto, formulário ou ajuste à parte), '
+        + 'e a nota da linha só se grava onde há um lançamento só. Veja a composição no drill da linha.')
+    }
     setHist(prev => { const n = { ...prev }; if (t) n[master] = t; else delete n[master]; return n })
     setSaving(false)
   }

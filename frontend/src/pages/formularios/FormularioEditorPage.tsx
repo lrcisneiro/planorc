@@ -349,13 +349,57 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
     sel = (!isGlobal && ccId) ? sel.eq('cc_id', ccId) : sel.is('cc_id', null)
     return sel
   }
-  const saveOne = async (lid: string, mes: number, valor: number | null, expressao: string | null) => {
-    const { data: ex } = await scopeSel(supabase.from('formulario_valor').select('id'), lid, mes).maybeSingle()
-    if (ex) await supabase.from('formulario_valor').update({ valor, expressao }).eq('id', (ex as any).id)
-    else await supabase.from('formulario_valor').insert({ tenant_id: TENANT_ID, formulario_id: formId, versao_id: versaoId, linha_id: lid, empresa_id: isGlobal ? null : empresaId, filial_id: isGlobal ? null : (filialId || null), cc_id: isGlobal ? null : (ccId || null), ano, mes, valor, expressao, dims: {} })
+  // ⚠⚠ ESTA TELA NÃO CONFERIA RETORNO NENHUM (achado em 25/nov varrendo o
+  // padrão do `maybeSingle`). `UPDATE`/`DELETE` barrados por RLS **não dão
+  // erro** — filtram as linhas, afetam zero e voltam sucesso —, então a célula
+  // *sempre* parecia salva e a perda só aparecia no refresh seguinte. É o mesmo
+  // `gravar()` que `OrcarGradePage` ganhou por isso e que nunca chegou aqui.
+  // ⚠ Devolve a mensagem em vez de alertar: a gravação vem em LOTE (colar,
+  // preencher a linha até dezembro) e um alerta por célula seria uma avalanche.
+  const escrever = async (q: any, oque: string): Promise<string | null> => {
+    const { data, error } = await q.select('id')
+    if (error) return `${oque}: ${error.message}`
+    if (!data || data.length === 0)
+      return `${oque}: nenhuma linha alterada — recusado pelo seu escopo de edição ou pelo perfil.`
+    return null
   }
-  const deleteOne = async (lid: string, mes: number) => {
-    await scopeSel(supabase.from('formulario_valor').delete(), lid, mes)
+  const saveOne = async (lid: string, mes: number, valor: number | null, expressao: string | null): Promise<string | null> => {
+    // ⚠⚠ `maybeSingle()` tolera 0 ou 1 linha e DÁ ERRO com 2 ou mais — e o
+    // `error` era descartado. Com `data` nulo o código caía no INSERT e criava
+    // OUTRO valor na mesma célula; `uq_formulario_valor` inclui `dims::text`
+    // (lição da v3_204), então a gêmea **convive** em vez de colidir, e a
+    // célula passa a somar duas. Mesmo defeito achado em `OrcarGradePage` no
+    // mesmo dia, aqui com a agravante de nada conferir a escrita.
+    const { data: ex, error: errSel } =
+      await scopeSel(supabase.from('formulario_valor').select('id'), lid, mes).maybeSingle()
+    if (errSel) return errSel.code === 'PGRST116'
+      ? `mês ${mes}: a célula tem mais de um valor gravado — não há como saber qual alterar.`
+      : `mês ${mes}: ${errSel.message}`
+    return ex
+      ? escrever(supabase.from('formulario_valor').update({ valor, expressao }).eq('id', (ex as any).id), `mês ${mes}`)
+      : escrever(supabase.from('formulario_valor').insert({ tenant_id: TENANT_ID, formulario_id: formId, versao_id: versaoId, linha_id: lid, empresa_id: isGlobal ? null : empresaId, filial_id: isGlobal ? null : (filialId || null), cc_id: isGlobal ? null : (ccId || null), ano, mes, valor, expressao, dims: {} }), `mês ${mes}`)
+  }
+  // ⚠ Apaga POR ID, depois de achar: o `DELETE` por predicado barrado pelo RLS
+  // apaga zero e volta sucesso, indistinguível de "a célula já estava vazia".
+  // Achando primeiro, ausência é ausência e recusa é recusa.
+  const deleteOne = async (lid: string, mes: number): Promise<string | null> => {
+    const { data: ex, error: errSel } =
+      await scopeSel(supabase.from('formulario_valor').select('id'), lid, mes).maybeSingle()
+    if (errSel) return errSel.code === 'PGRST116'
+      ? `mês ${mes}: a célula tem mais de um valor gravado — abra o escopo certo para limpá-la.`
+      : `mês ${mes}: ${errSel.message}`
+    if (!ex) return null                     // já estava vazia
+    return escrever(supabase.from('formulario_valor').delete().eq('id', (ex as any).id), `limpar o mês ${mes}`)
+  }
+  // ⚠ Falha significa que a grade está MENTINDO (o estado é otimista), então
+  // ela recarrega do banco — dizer "não salvou" e deixar o número na tela é o
+  // pior dos dois mundos.
+  const reportar = (fs: (string | null)[]) => {
+    const f = fs.filter(Boolean) as string[]
+    if (!f.length) return
+    alert(`Não foi possível gravar ${f.length === 1 ? 'a célula' : `${f.length} células`}:\n\n`
+      + f.slice(0, 8).join('\n') + (f.length > 8 ? `\n… e mais ${f.length - 8}.` : ''))
+    setCellsRefresh(x => x + 1)
   }
   const setCellState = (lid: string, mes: number, cell: Cell | null) => {
     const upd = (prev: CellMap): CellMap => {
@@ -376,11 +420,11 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
     setSaving(true)
     if (editVal.trim() === '') {
       // vazio = remove do escopo atual (na empresa, volta a herdar a premissa global)
-      await deleteOne(l.id, mes)
+      reportar([await deleteOne(l.id, mes)])
       setCellState(l.id, mes, null)
     } else {
       const { valor, expressao } = parseCell(l, editVal)
-      await saveOne(l.id, mes, valor, expressao)
+      reportar([await saveOne(l.id, mes, valor, expressao)])
       setCellState(l.id, mes, { valor: valor || 0, expressao })
     }
     setSaving(false)
@@ -419,7 +463,7 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
     const { valor, expressao } = parseCell(l, editVal)
     setSaving(true)
     const meses: number[] = []; for (let m = active.c + 1; m <= 12; m++) meses.push(m)
-    await Promise.all(meses.map(m => saveOne(l.id, m, valor, expressao)))
+    reportar(await Promise.all(meses.map(m => saveOne(l.id, m, valor, expressao))))
     meses.forEach(m => setCellState(l.id, m, { valor: valor || 0, expressao }))
     setEditing(false); setSaving(false); setTimeout(() => wrapRef.current?.focus(), 0)
   }
@@ -442,7 +486,7 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
     })
     if (!ups.length) return
     setSaving(true)
-    await Promise.all(ups.map(u => saveOne(u.lid, u.mes, u.valor, u.expressao)))
+    reportar(await Promise.all(ups.map(u => saveOne(u.lid, u.mes, u.valor, u.expressao))))
     ups.forEach(u => setCellState(u.lid, u.mes, { valor: u.valor || 0, expressao: u.expressao }))
     setSaving(false)
     setTimeout(() => wrapRef.current?.focus(), 0)
@@ -467,8 +511,8 @@ export default function FormularioEditorPage({ mode = 'preencher' }: { mode?: Mo
     const l = ordered[active.r]; const mes = active.c + 1
     if (!l || !editavel(l) || readOnly) return
     setSaving(true)
-    if (fbVal.trim() === '') { await deleteOne(l.id, mes); setCellState(l.id, mes, null) }
-    else { const { valor, expressao } = parseCell(l, fbVal); await saveOne(l.id, mes, valor, expressao); setCellState(l.id, mes, { valor: valor || 0, expressao }) }
+    if (fbVal.trim() === '') { reportar([await deleteOne(l.id, mes)]); setCellState(l.id, mes, null) }
+    else { const { valor, expressao } = parseCell(l, fbVal); reportar([await saveOne(l.id, mes, valor, expressao)]); setCellState(l.id, mes, { valor: valor || 0, expressao }) }
     setSaving(false); setTimeout(() => wrapRef.current?.focus(), 0)
   }
 

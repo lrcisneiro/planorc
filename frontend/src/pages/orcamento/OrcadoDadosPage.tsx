@@ -163,9 +163,15 @@ export default function OrcadoDadosPage() {
         const valor = isFormula ? null : (parseFloat(valTxt.replace(/\./g, '').replace(',', '.')) || 0)
         const expressao = isFormula ? valTxt : null
 
-        const { data: ex } = await supabase.from('fat_orcado').select('id')
+        // ⚠ `maybeSingle()` dá erro com 2+ linhas e, com o `error` descartado,
+        // `data` nulo levaria ao INSERT — aqui a chave única o rejeitaria, mas
+        // a mensagem diria "duplicate key" em vez de "a célula é composta".
+        const { data: ex, error: errSel } = await supabase.from('fat_orcado').select('id')
           .eq('versao_id', versao_id).eq('linha_id', linha_id).eq('empresa_id', empresa_id)
           .eq('ano', anoV).eq('mes', mesV).is('filial_id', null).is('cc_id', null).maybeSingle()
+        if (errSel) throw new Error(errSel.code === 'PGRST116'
+          ? `A célula ${linCod}/${empCod}/${mesV}-${anoV} tem mais de um lançamento — resolva no drill da linha antes de importar.`
+          : errSel.message)
         const slotVals = slotsOf(valor, versao_id, anoV, mesV)
         if (ex) { const { error } = await supabase.from('fat_orcado').update({ valor, expressao, origem: 'MANUAL', ...slotVals }).eq('id', ex.id); if (error) throw error }
         else { const { error } = await supabase.from('fat_orcado').insert({

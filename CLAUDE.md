@@ -145,6 +145,24 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > (`dimsKeyOf`), então quem fica é a do histórico — apagando-a, a reimportação do seed criaria a
 > gêmea outra vez. Ajuste em `ajuste_aviao_prelim.sql`.
 >
+> ⚠⚠ **A VARREDURA ACHOU O MESMO PADRÃO EM TRÊS LUGARES MAIS, e um era pior.**
+> `FormularioEditorPage.saveOne` tinha o `maybeSingle` idêntico — e `uq_formulario_valor` também
+> inclui `dims::text` (lição da v3_204) — **mas não conferia retorno NENHUM da escrita**: nem
+> `error`, nem zero-linhas, nem `.select('id')`. Ou seja, o defeito que fez nascer o `gravar()`
+> em `OrcarGradePage` nunca chegou ali: `UPDATE`/`DELETE` barrado por RLS afeta zero e volta
+> sucesso, então **a célula do formulário sempre parecia salva**. Hoje há `escrever()` (devolve a
+> mensagem em vez de alertar, porque colar/preencher grava em lote e um alerta por célula seria
+> avalanche), `reportar()` avisa uma vez **e recarrega a grade** — estado otimista que falhou
+> está mentindo —, e o `deleteOne` **acha o id antes de apagar**, porque DELETE por predicado
+> recusado pelo RLS é indistinguível de "a célula já estava vazia".
+> Os outros dois: a **nota da linha** (`saveHistLinha`) inseriria uma linha-fantasma ao lado da
+> existente, e o **importador de `/orcamento`** falharia com *duplicate key* em vez de dizer que
+> a célula é composta. Medido antes de mexer: `formulario_valor` tem **31.429 linhas para 31.429
+> células distintas — zero gêmeas**, então ali é só prevenção; o resíduo existia só no `fat_orcado`.
+> **A lição é a de sempre neste arquivo:** `gravar()` foi criado para conferir retorno e **ficou
+> numa tela só** — como `fmtEixo`, como o modo discreto. Ou se varre tudo no mesmo passo, ou
+> nasce a quarta convenção.
+
 > ⚠ **Como se diagnostica isto: `atualizado_em` diz MÁQUINA ou MÃO, e `dims` diz QUEM.** Eu li
 > "digitado" pelos horários e errei — o seed estava lá, com `dims.historico`. Os lotes distinguem:
 > a cópia do cenário gravou **6.081 células MANUAL em um minuto**, o Aplicar de postos 17.632, a
