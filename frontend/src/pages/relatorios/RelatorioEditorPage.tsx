@@ -26,6 +26,8 @@ import { AlertTriangle,
 
 import { MemoriaModal } from '../../lib/MemoriaCalculo'
 
+import { downloadWorkbook } from '../../lib/planilha'
+
 declare const XLSX: any
 
 // ─── Types ───────────────────────────────────────────────────
@@ -1405,25 +1407,16 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       push(row); r++
     }
 
-    const ws = XLSX.utils.aoa_to_sheet(linhasExp)
-    for (const k in fmts) {
-      const [rr, cc] = k.split(',').map(Number)
-      const ref = XLSX.utils.encode_cell({ r: rr, c: cc })
-      if (ws[ref] && typeof ws[ref].v === 'number') ws[ref].z = fmts[k]
-    }
-    ws['!cols'] = [{ wch: 46 }, ...columns.map(c => ({ wch: c.kind === 'collapsed' ? 3 : 14 }))]
-    if (merges.length) ws['!merges'] = merges
-    // ⚠ SEM CONGELAR PAINEL, e é limitação da ferramenta, não esquecimento:
-    // o SheetJS 0.20.3 da edição comunitária **não escreve `<pane>`** — testei
-    // as três formas documentadas (`!views` com `state:'frozen'`, com
-    // `topLeftCell`/`activePane`, e aninhado em `pane`) e o XML saiu
-    // `<sheetView workbookViewId="0"/>` nas três. Deixar a linha ali seria
-    // código que promete o que não faz. Quem precisar congela no Excel.
+    // ⚠ O montador é COMPARTILHADO (`lib/planilha`): a grade de Postos exporta
+    // pelo mesmo caminho, e duas implementações dariam dois arquivos com
+    // aparências diferentes saindo do mesmo produto. (Ele também documenta por
+    // que não há congelar painel: o SheetJS community não escreve `<pane>`.)
     void primeiraLinhaDados
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Relatório')
     const slug = (relatorio?.codigo || 'relatorio').replace(/[^\w-]+/g, '_')
-    XLSX.writeFile(wb, `${slug}_${pIni.ano}_${MESES[pIni.mes - 1]}-${MESES[pFim.mes - 1]}.xlsx`)
+    downloadWorkbook(`${slug}_${pIni.ano}_${MESES[pIni.mes - 1]}-${MESES[pFim.mes - 1]}.xlsx`, [{
+      nome: 'Relatório', aoa: linhasExp, fmts, merges,
+      cols: [46, ...columns.map(c => c.kind === 'collapsed' ? 3 : 14)],
+    }])
   }
 
   // ⚠ `exportMatrix` SAIU (25/nov). Era a matriz de 12 meses × uma versão que

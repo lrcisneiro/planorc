@@ -9,9 +9,10 @@ import { useUserAccess } from '../../hooks/useUserAccess'
 import { useCapacidades } from '../../hooks/useCapacidades'
 import { FiltrosButton, effectiveCcFilter, escopoFiltro } from '../dashboard/DashFiltros'
 import { BotaoDiscreto, temRestrito, useDiscreto, idsRestritos } from '../../lib/discricao'
+import { downloadWorkbook } from '../../lib/planilha'
 import { calcularPosto, regimeAplica, paisAplica, verbasDoRegime, CATEGORIAS } from '../../lib/motorFolha'
 import type { VerbaRegra, ResultadoPosto } from '../../lib/motorFolha'
-import { ClipboardCheck, Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil, Undo2 } from 'lucide-react'
+import { ClipboardCheck, Upload, Trash2, AlertCircle, CheckCircle2, Play, ChevronDown, ChevronRight, X, Search, Plus, Pencil, Undo2, Download } from 'lucide-react'
 import { RateioModal } from './RateioModal'
 import { cascataRateio } from '../../lib/rateioFolha'
 import { usePostoCtx } from '../../lib/postoCtx'
@@ -19,7 +20,7 @@ import { useLocalPref } from '../../lib/uiPrefs'
 import { pageAll } from '../../lib/pageAll'
 import { slugCargo as slug } from '../../lib/slugCargo'
 import { resolverPessoas } from '../../lib/pessoaChave'
-import { situacaoPosto, SeletorSituacao, type Situacao } from '../../lib/situacaoPosto'
+import { situacaoPosto, SeletorSituacao, type Situacao, SITUACOES } from '../../lib/situacaoPosto'
 import { resolvePosto, camposAlterados, overlayVazio, CAMPOS_CENARIO } from '../../lib/postoVersao'
 import CenarioDiffModal from './CenarioDiffModal'
 import type { PostoVersao, CampoCenario } from '../../lib/postoVersao'
@@ -1579,6 +1580,110 @@ export default function PostosGradePage() {
     [filtrados, restritos])
   const naoListados = filtrados.length - listados.length
 
+  // ── Exportar o grid COMO ESTÁ NA TELA ─────────────────────────────────────
+  // ⚠ Sai de `listados` e `grupos` — as MESMAS estruturas da render —, então
+  // filtro, situação, busca, agrupamento, modo cenário, "considerar rateios" e
+  // o modo discreto já estão aplicados. Derivar de `postos` daria um arquivo
+  // que não é a tela, que foi o defeito do export antigo do relatório.
+  const exportarGrid = () => {
+    const money = '#,##0.00;[Red]-#,##0.00'
+    const fmts: Record<string, number | string> = {}
+    const aoa: any[][] = []
+    const push = (r: any[]) => aoa.push(r)
+    const ver = versoes.find((v: any) => v.id === versaoSel)
+
+    // ── contexto: o que a barra diz, por extenso ──
+    push(['Posto de trabalho'])
+    push(['Versão', `${ver?.codigo || '—'} · ${anoCalc}`])
+    push(['Editando', modoCenario ? 'Cenário' : 'Cadastro'])
+    push(['Situação', sits.join(', ') || '—'])
+    push(['Rateios', verRateio ? 'considerados (custo = só a parte que pousa no filtro)' : 'não considerados (custo integral do posto)'])
+    push(['Agrupamento', agruparPor === 'cc' ? 'Centro de custo' : agruparPor === 'cargo' ? 'Cargo' : 'Sem agrupamento'])
+    if (busca.trim()) push(['Busca', busca.trim()])
+    if (naoListados > 0) push(['Modo discreto', `${naoListados} posto(s) de CC restrito não listados`])
+    push(['Postos listados', listados.length])
+    push(['Gerado em', new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })])
+    push([])
+
+    // ⚠⚠ `Empr·Fil·CC` VIRA TRÊS COLUNAS. Na tela cabe num rótulo só porque é
+    // para ler; numa planilha é para FILTRAR e somar, e a string concatenada
+    // impede as duas coisas. Mesma razão de `Rateio` sair com os NOMES dos
+    // códigos em vez de "1 cód." — o distintivo da tela abre num clique, o
+    // arquivo não tem clique.
+    const cab = ['Grupo', 'Posto', 'Empresa', 'Filial', 'CC', 'CC nome', 'Ocupante', 'Matrícula',
+                 'Modelo', 'Cargo', 'Situação', 'Salário', 'Vigência', 'Rateio', 'Custo/mês', 'Custo ano']
+    const semGrupo = agruparPor === 'nenhum'
+    push(semGrupo ? cab.slice(1) : cab)
+    const off = semGrupo ? 1 : 0
+
+    for (const g of grupos) {
+      for (const p of g.postos as Posto[]) {
+        const cc = p.cc_id ? (ccs as any[]).find(x => x.id === p.cc_id) : null
+        const rr = postoRateios[p.id] || []
+        const r = aoa.length
+        const linha = [
+          g.desc || g.cod || '—',
+          p.codigo || '',
+          p.empresa?.codigo || '',
+          p.filial?.codigo || '',
+          cc?.codigo || '',
+          cc?.descricao || '',
+          p.nome || '(vaga)',
+          p.matricula || '',
+          REGIMES_LABEL[p.regime || ''] || p.regime || '',
+          nomeCargo(p.cargo_id),
+          SITUACOES.find(x => x.k === situacaoPosto(p as any))?.rot || situacaoPosto(p as any),
+          // ⚠ Salário mascarado vai VAZIO, nunca zero: zero é uma afirmação, e
+          // seria falsa. A lição do `Number(null) || 0` vale no arquivo também.
+          semFolha || p.salario_base == null ? null : Number(p.salario_base),
+          vig(p).txt,
+          rr.map(x => rateioCods.find((c: any) => c.id === x.regra_id)?.nome || '?').join(' → '),
+          semFolha ? null : custoMesVis(p),
+          semFolha ? null : custoAnoVis(p),
+        ]
+        push(semGrupo ? linha.slice(1) : linha)
+        for (const c of [11, 14, 15]) fmts[`${r},${c - off}`] = money
+      }
+    }
+
+    const abas: any[] = [{
+      nome: 'Postos', aoa, fmts,
+      cols: (semGrupo ? [] : [26]).concat([14, 10, 8, 8, 26, 30, 14, 16, 30, 14, 14, 14, 16, 16]),
+    }]
+
+    // ── 2ª aba: quem CHEGA por rateio, só quando o toggle está ligado ──
+    // ⚠ Ela é outra pergunta ("quem vem de fora cair aqui"), com outras
+    // colunas e outro grão — misturar na mesma aba faria somar o custo duas
+    // vezes, que é o erro que o próprio toggle existe para não cometer.
+    if (verRateio && chegadas.length) {
+      const f2: Record<string, string> = {}
+      const a2: any[][] = [['Chegam por rateio — custo de outras áreas que pousa neste filtro'], []]
+      a2.push(['Pessoa', 'Matrícula', 'Empresa de origem', 'CC de origem', 'Cargo', 'Salário', '% rateada', 'Custo ano (rateado)'])
+      for (const c of chegadas) {
+        const po: any = c.posto
+        const ccO = po?.cc_id ? (ccs as any[]).find(x => x.id === po.cc_id) : null
+        const empO = po?.empresa_id ? (empresas as any[]).find((e: any) => e.id === po.empresa_id) : null
+        const r = a2.length
+        a2.push([
+          c.nome || '(sem nome)', c.matricula || '',
+          // ⚠ Sem acesso ao cadastro de origem, DIZ isso — não vai em branco
+          // nem como zero. É a degradação visível que a tela já faz.
+          po ? (empO?.codigo || '?') : 'sem acesso ao cadastro',
+          po ? (ccO ? `${ccO.codigo} ${ccO.descricao || ''}` : 'sem CC') : '',
+          po ? (po.cargo?.nome || '—') : '',
+          po && !semFolha && po.salario_base != null ? Number(po.salario_base) : null,
+          c.pct == null ? null : Number(c.pct) / 100,
+          semFolha ? null : Number(c.ano) || 0,
+        ])
+        f2[`${r},5`] = money; f2[`${r},6`] = '0.0%'; f2[`${r},7`] = money
+      }
+      abas.push({ nome: 'Chegam por rateio', aoa: a2, fmts: f2, cols: [28, 14, 18, 30, 30, 16, 12, 20] })
+    }
+
+    const slug = (ver?.codigo || 'postos').replace(/[^\w-]+/g, '_')
+    downloadWorkbook(`postos_${slug}_${anoCalc}.xlsx`, abas)
+  }
+
   const grupos = useMemo(() => {
     const porCc = agruparPor === 'cc'
     const custo = (ps: Posto[]) => ps.reduce((s, p) => s + custoAnoVis(p), 0)
@@ -1903,6 +2008,12 @@ export default function PostosGradePage() {
           <BotaoDiscreto ccs={ccs as any} onde="no quadro, no organograma e na memória" />
           </div>
         )}
+        <div style={S.fld}><span style={S.lbl}>&nbsp;</span>
+          <button onClick={exportarGrid} style={{ ...S.sel, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            title="Exportar para Excel o que está na tela — mesmas linhas e colunas, com filtro, situação e agrupamento aplicados">
+            <Download size={13} /> Excel
+          </button>
+        </div>
         <div style={S.fld}><span style={S.lbl}>Filtros</span>
           <FiltrosButton
             empresas={acesso.filterPessoas('empresa', empresas)} filiais={acesso.filterPessoas('filial', filiais)} ccs={acesso.filterPessoas('centro_custo', ccs as any) as any}

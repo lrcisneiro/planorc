@@ -2310,6 +2310,24 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠⚠ **O SheetJS 0.20.3 community NÃO escreve `<pane>`** — as três formas documentadas de
   `!views` saem como `<sheetView workbookViewId="0"/>`. Medido, não suposto. **Não há congelar
   painel**; `!cols` (larguras) e `!merges` **funcionam** e estão no arquivo.
+  ⚠ O montador é **`downloadWorkbook` em `lib/planilha.ts`**, ao lado do `lerPlanilha`: a grade
+  de **Postos** exporta pelo mesmo caminho, e duas implementações dariam dois arquivos com
+  aparências diferentes saindo do mesmo produto. Nome de aba é cortado em **31 caracteres** e
+  limpo de `:\/?*[]` — nome inválido faz o Excel abrir com erro de reparo, não com mensagem.
+
+- **Export da grade de POSTOS (25/nov)** — sai de `listados` e `grupos`, as mesmas estruturas da
+  render, então filtro, situação, busca, agrupamento, modo cenário, *considerar rateios* e o modo
+  discreto já estão aplicados.
+  ⚠⚠ **`Empr·Fil·CC` vira TRÊS colunas.** Na tela cabe num rótulo só porque é para **ler**; numa
+  planilha é para **filtrar e somar**, e a string concatenada impede as duas coisas. Mesma razão
+  de *Rateio* sair com os **nomes dos códigos** em vez de `1 cód.`: o distintivo da tela abre num
+  clique, e o arquivo não tem clique. **WYSIWYG é sobre o CONTEÚDO, não sobre a formatação de uma
+  célula que só existe por falta de espaço.**
+  ⚠ **Salário mascarado vai VAZIO, nunca zero** — zero é uma afirmação e seria falsa (a lição do
+  `Number(null) || 0`). Idem no rateio: sem acesso ao cadastro de origem, a célula **diz isso**.
+  ⚠⚠ **"Chegam por rateio" é a SEGUNDA ABA, nunca a mesma.** É outra pergunta, com outro grão e
+  outras colunas — juntar faria somar o custo duas vezes, que é o erro que o próprio toggle
+  existe para não cometer. Só sai com o toggle ligado.
 
 - Estilos: mistura de objetos `S` inline e classes Tailwind. Seguir o padrão já presente em cada arquivo.
 - Sem biblioteca de componentes — tudo à mão.
