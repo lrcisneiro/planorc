@@ -113,7 +113,19 @@ export default function OrcarLinhaPage() {
   // veredito, escondida pelo recorte — e o fechamento era recusado sem que
   // desse para ver por quê. `cenario_orcado_diff` é a MESMA fonte que
   // `aprovar_cenario` usa para contar, então as duas passam a concordar.
-  const [diffServidor, setDiffServidor] = useState<{ linha_id: string; base: number; cenario: number }[]>([])
+  const [diffServidor, setDiffServidor] = useState<{ linha_id: string; base: number; cenario: number; celulas_dif?: number }[]>([])
+  // ⚠⚠ GRÃO DIFERENTE COM SOMA IGUAL (v3_208). Trocar o CC de uma célula não
+  // mexe no total da linha — e até aqui isso era invisível em toda parte: o
+  // comparativo não mostrava Δ, o botão de ressincronizar nem aparecia, e
+  // `cenario_orcado_pendentes` não pedia veredito. **Movia-se dinheiro de área
+  // sem que ninguém decidisse.** Agora a RPC conta as células que divergem por
+  // `empresa·filial·cc·mês`, e esta marca é o que torna isso visível na linha.
+  const soGrao = useMemo(() => {
+    const m = new Set<string>()
+    for (const d of diffServidor)
+      if ((d.celulas_dif || 0) > 0 && Math.abs((d.cenario || 0) - (d.base || 0)) <= 0.005) m.add(d.linha_id)
+    return m
+  }, [diffServidor])
 
   useEffect(() => {
     (async () => {
@@ -222,8 +234,13 @@ export default function OrcarLinhaPage() {
   // deixaria uma lista de linhas soltas sem dizer de que bloco saíram.
   const visComp = useMemo(() => {
     if (!comparando || !soAlteradas) return vis
-    return vis.filter(l => Math.abs(anoDe(total, l.id) - anoDe(totalBase, l.id)) > 0.005)
-  }, [vis, comparando, soAlteradas, total, totalBase]) // eslint-disable-line
+    // ⚠⚠ "Alterada" inclui a que só mudou de GRÃO. Filtrando só por valor, a
+    // linha cujo CC mudou era escondida **justamente** de quem pediu para ver
+    // só as alteradas — e é a mais difícil de achar, porque o total não
+    // denuncia. Mesmo defeito do botão ↺ que sumia, um nível acima.
+    return vis.filter(l => Math.abs(anoDe(total, l.id) - anoDe(totalBase, l.id)) > 0.005
+      || !!(l.linha_orc_id && soGrao.has(l.linha_orc_id)))
+  }, [vis, comparando, soAlteradas, total, totalBase, soGrao]) // eslint-disable-line
 
   // Nome legível de um MASTER (conta_orcamentaria), pela árvore do relatório.
   const nomeMaster = (mid: string | null) => {
@@ -717,16 +734,34 @@ export default function OrcarLinhaPage() {
                           {Math.abs(d) < 0.005 ? '—' : (d * f > 0 ? '+' : '') + money(d * f)}
                         </td>
                         <td style={{ ...S.td, textAlign: 'left' }}>
-                          {master && Math.abs(d) >= 0.005 && (
+                          {master && (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              <VereditoLinha v={vereditos[master]} podeAprovar={podeAprovar} podeResponder={podeResponder}
-                                onDecidir={(ap, nota) => decidir(master, ap, nota)}
-                                onReabrir={nota => responder(master, nota)} />
-                              {/* ⚠ Admin só, porque a RPC levanta 42501 para o resto —
-                                  mostrar o botão a quem leva erro é oferecer e recusar. */}
+                              {/* O veredito continua só onde há o que decidir em VALOR
+                                  — ou onde só o grão mudou, que agora também conta. */}
+                              {(Math.abs(d) >= 0.005 || soGrao.has(master)) && (
+                                <VereditoLinha v={vereditos[master]} podeAprovar={podeAprovar} podeResponder={podeResponder}
+                                  onDecidir={(ap, nota) => decidir(master, ap, nota)}
+                                  onReabrir={nota => responder(master, nota)} />
+                              )}
+                              {/* ⚠⚠ MARCA DE GRÃO: mesma soma, outro lugar. Sem ela a linha
+                                  fica idêntica à da baseline e nada denuncia que o dinheiro
+                                  trocou de empresa, filial, CC ou mês. */}
+                              {soGrao.has(master) && (
+                                <span title="Mesmo total, grão diferente — alguma célula mudou de empresa, filial, centro de custo ou mês. Precisa de veredito e pode precisar de ressincronização."
+                                      style={{ fontSize: 10, color: 'var(--orange)', border: '1px solid var(--orange)',
+                                               borderRadius: 4, padding: '0 4px', whiteSpace: 'nowrap' }}>
+                                  grão ≠
+                                </span>
+                              )}
+                              {/* ⚠ O ↺ aparece em TODA linha com master, não só nas que
+                                  divergem em valor (26/nov). Trocar o CC não muda o total,
+                                  e era justamente aí que o botão sumia — some o controle
+                                  exatamente no caso em que ele é necessário.
+                                  ⚠ Admin só: a RPC levanta 42501 para o resto, e mostrar
+                                  botão a quem leva erro é oferecer e recusar. */}
                               {acesso.isAdmin && !carimbo.mesclado && (
                                 <button onClick={() => pedirRessync(master, l.descricao || '')} disabled={ressyncBusy}
-                                  title="Trazer esta linha de volta da baseline — desfaz o que foi apagado aqui"
+                                  title="Trazer esta linha de volta da baseline — desfaz o que foi apagado ou movido aqui"
                                   style={{ background: 'none', border: '1px solid var(--border-strong)', borderRadius: 6,
                                            padding: '2px 4px', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
                                   <RotateCcw size={13} />

@@ -299,6 +299,27 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > linha fica com a baseline). `cenario.aprovar` passou a reger **os dois** cenários — o rótulo
 > dizia "de postos" e quem liberasse acharia estar liberando só aquilo.
 >
+> ⚠⚠ **MOVER R$ 1 MI DE CC NÃO APARECIA EM LUGAR NENHUM (`v3_208`, 26/nov).**
+> `cenario_orcado_diff` agrupava por `linha_id` e filtrava `abs(cenário − base) > 0.005`, então
+> **trocar o CC de uma célula era invisível**: a linha soma igual. E como ela é a mesma fonte de
+> `cenario_orcado_pendentes`, **o cenário fechava sem que ninguém tivesse decidido aquilo**. É a
+> extensão do princípio que já justificava o `FULL JOIN` dali — *"zerar também é alteração"* —
+> um nível abaixo: **mudar de onde o dinheiro cai também é alteração.**
+> ⚠⚠ **O grão comparado é `empresa·filial·cc·mês`, com `dims` SOMADO POR DENTRO.** Comparar
+> `dims::text` cru daria falso positivo em massa: o Aplicar carimba `dims->>'nome'` no instante em
+> que roda, e duas aplicações grafam a mesma pessoa diferente — a folha inteira viraria "grão
+> diferente" por causa de uma grafia, e alarme que toca sempre ninguém lê.
+> ⚠ `celulas_dif` é aditiva (`cenario_orcado_pendentes` só usa `d.linha_id`), mas mudar o
+> `RETURNS TABLE` exige **DROP**: `CREATE OR REPLACE` recusa trocar tipo de retorno.
+> ⚠ **Consequência declarada:** linha que só mudou de grão passa a **exigir veredito**, então o
+> contador de pendentes pode subir num cenário em revisão. É o conserto, não efeito colateral —
+> eram decisões que ninguém tomou porque ninguém viu.
+> **O MESMO DEFEITO APARECEU EM TRÊS CAMADAS, e consertar uma só não resolveria:** a RPC não
+> contava; o botão `↺` só existia onde `|Δ| >= 0.005`, **sumindo exatamente no caso em que é
+> necessário**; e `visComp`, com *"só alteradas"* ligado, **escondia a linha de quem pediu para
+> ver só as alteradas**. Hoje o `↺` aparece em toda linha com master e a marca `grão ≠` fica ao
+> lado do veredito.
+
 > ⚠ **O conjunto que exige veredito é CALCULADO** (`cenario_orcado_diff`), não cadastrado:
 > guardar a lista no momento da proposta a deixaria velha na primeira edição seguinte, e o
 > carimbo passaria a certificar um conjunto que não existe mais. O `FULL JOIN` ali é porque
