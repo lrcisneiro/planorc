@@ -1214,6 +1214,18 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   que **rola até o mês corrente** e o deixa em negrito. Achado no primeiro uso real: o arquivo
   tem 67 competências e nov/26 estava depois de 60 pílulas.
 
+  ⚠⚠ **BOM GRUDA NA PRIMEIRA COLUNA, E SÓ NELA (26/nov).** O razão é lido como **latin-1**, então
+  um BOM UTF-8 (`EF BB BF`) chega como os três caracteres `ï»¿` colados no primeiro nome do
+  cabeçalho: `ï»¿BK_EMPRESA` deixa de casar com `BK_EMPRESA` **e todas as outras colunas casam
+  normalmente**. O sintoma engana por completo — a tela acusa **uma** coluna faltando, justamente
+  a que está lá ("estranho que tem"). Apareceu no primeiro uso do `CONTAAZUL.zip`; o export do
+  GoodData nunca trouxe BOM, então o defeito esperou um ERP novo para aparecer.
+  `CsvStream` o descarta na primeira posição, nas duas formas (a latin-1 e o `\ufeff`).
+  ⚠⚠ **E a mensagem passou a MOSTRAR O CABEÇALHO LIDO.** Dizer "não tem a coluna X" para quem a
+  vê no arquivo é mandar desconfiar do próprio olho; dizer **o que veio** (`"ï»¿BK_EMPRESA",
+  "BK_FILIAL", …`) põe caractere invisível, separador errado e nome diferente todos à vista.
+  **Ao acusar ausência de algo que o usuário consegue ver, mostre o que você leu.**
+
   ⚠⚠ **EXTRAÇÃO VAZIA ERA SILÊNCIO TOTAL (26/nov).** `importarZip` fazia `setZipProg('')` —
   apagando a mensagem — e chamava `importarLote`, que começa com `if (!files.length) return`.
   O botão piscava **"Importando…"** e voltava **sem dizer nada**, indistinguível de "não cliquei

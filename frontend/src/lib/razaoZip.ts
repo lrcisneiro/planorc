@@ -87,11 +87,26 @@ class CsvStream {
   private campo = ''
   private linha: string[] = []
   private aspas = false
+  private inicio = true
   constructor(private onLinha: (c: string[]) => void) {}
 
   push(txt: string) {
-    const s = this.resto + txt
+    let s = this.resto + txt
     this.resto = ''
+    // ⚠⚠ BOM NO COMEÇO GRUDA NA PRIMEIRA COLUNA, E SÓ NELA (26/nov). O arquivo
+    // é lido como latin-1 (ver `dec`), então um BOM UTF-8 — `EF BB BF` — chega
+    // como os três caracteres `ï»¿` colados no primeiro nome do cabeçalho:
+    // `ï»¿BK_EMPRESA` deixa de casar com `BK_EMPRESA` e o resto casa normal.
+    // O sintoma engana: a tela acusa UMA coluna faltando, justamente a que
+    // está lá — foi o primeiro uso do `CONTAAZUL.zip` que o revelou, porque o
+    // export do GoodData nunca trouxe BOM.
+    // ⚠ Tira as DUAS formas: a latin-1 (`\u00ef\u00bb\u00bf`) e o `\ufeff` de
+    // verdade, para o dia em que alguém trocar o decodificador.
+    if (this.inicio) {
+      this.inicio = false
+      if (s.startsWith('\u00ef\u00bb\u00bf')) s = s.slice(3)
+      else if (s.startsWith('\ufeff')) s = s.slice(1)
+    }
     for (let i = 0; i < s.length; i++) {
       const ch = s[i]
       if (this.aspas) {
@@ -202,8 +217,16 @@ async function varrer(buf: Uint8Array, o: Opcoes) {
       if (erroCab) return
       const faltando = conferirColunas(o.perfil, c)
       if (faltando.length) {
+        // ⚠⚠ A MENSAGEM MOSTRA O CABEÇALHO QUE VEIO. Sem isso ela afirma que a
+        // coluna "não existe" e a pessoa a vê no arquivo — foi o que aconteceu
+        // com o BOM (`ï»¿BK_EMPRESA` não casa com `BK_EMPRESA`, e a olho nu os
+        // dois são iguais). Dizer o que o arquivo TEM transforma adivinhação em
+        // leitura: caractere invisível, separador errado e nome diferente
+        // ficam todos à vista.
+        const amostra = c.slice(0, 8).map(x => `"${x}"`).join(', ')
         erroCab = new RazaoZipErro(
-          `O arquivo não tem a(s) coluna(s) ${faltando.join(', ')} que o perfil "${o.perfil.nome}" espera.`, c)
+          `O arquivo não tem a(s) coluna(s) ${faltando.join(', ')} que o perfil "${o.perfil.nome}" espera.`
+          + ` O cabeçalho lido tem ${c.length} coluna(s), começando por: ${amostra}${c.length > 8 ? ', …' : ''}.`, c)
         return
       }
       converte = fazConverter(o.perfil, c)
