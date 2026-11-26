@@ -341,4 +341,87 @@ const replica: Wizard = {
   },
 }
 
-export const WIZARDS: Wizard[] = [impostos, replica]
+
+// ============================================================
+// 3 · ALIMENTAR UMA LINHA — abre o formulário, não inventa o número
+//
+// ⚠⚠ É O ÚNICO WIZARD QUE NÃO DERIVA DE DADO, e isso é o ponto. Os outros dois
+// existem para não redigitar o que o sistema já sabe; este existe para o caso
+// oposto — a linha NOVA, que não tem realizado nem orçado de onde replicar.
+// Era um buraco real: criada a linha no relatório, não havia caminho até um
+// formulário. O wizard de réplica não serve (precisa de origem com valor) e
+// montar as linhas à mão na Estrutura é trabalho que o sistema sabe fazer.
+//
+// ⚠⚠ O CÓDIGO DA LINHA É O CÓDIGO DA CONTA, VERBATIM. Não é economia de
+// digitação: o importador CSV casa `linha` por código EXATO (`linBy.get`), e o
+// arquivo que alguém já tem na mão traz o código da conta. Qualquer prefixo
+// (`VAL…`, `ORIG…`, como na réplica) obrigaria a reeditar o CSV — e a réplica
+// só os usa porque gera DUAS linhas por conta e precisa distingui-las.
+//
+// ⚠ ANALITICA, obrigatoriamente: o import recusa linha que não seja analítica
+// (`if (l.tipo_linha !== 'ANALITICA')`), e com razão — numa linha de fórmula o
+// valor importado seria sobrescrito pelo cálculo no primeiro recarregamento.
+//
+// ⚠ SEM parâmetro de escopo, e sem valores. Recorte só faz sentido sobre dado
+// que existe; aqui quem define empresa · filial · CC é o CSV (ou a digitação).
+// Declarar o campo criaria um filtro que não filtra nada — controle morto.
+// ============================================================
+const emBranco: Wizard = {
+  codigo: 'LINHA_BRANCO',
+  nome: 'Alimentar uma linha do relatório',
+  descricao: 'Abre um formulário vazio para uma ou mais linhas do relatório — para digitar ou importar por CSV.',
+  comoFunciona:
+    'Você escolhe um relatório e as linhas. O wizard descobre as contas de cada uma e cria uma linha ' +
+    'de formulário por conta, já amarrada ao destino, SEM valor nenhum. O preenchimento vem depois: ' +
+    'à mão na grade, ou pelo importador (empresa;filial;cc;linha;jan…dez), em que `linha` é o próprio ' +
+    'código da conta — o mesmo que aparece aqui.',
+  avisos: [
+    'Nasce vazio de propósito: nenhum valor é inventado. Enquanto nada for preenchido, aplicar não grava nada.',
+    'Linha de fórmula ou indicador não serve — ela tem total, mas não tem conta por trás para receber o valor.',
+  ],
+  params: [
+    { key: 'relatorio', tipo: 'relatorio', label: 'Relatório' },
+    { key: 'linhas', tipo: 'linhas', de: 'relatorio', label: 'Linhas a abrir',
+      ajuda: 'Marque quantas quiser. Marcar um bloco inclui tudo abaixo dele — e cada conta da subárvore vira uma linha aqui.' },
+  ],
+  async preparar(p) {
+    const avisos: string[] = []
+    const sel: string[] = Array.isArray(p.linhas) ? p.linhas : (p.linhas ? [p.linhas] : [])
+    if (!p.relatorio || !sel.length) throw new Error('Escolha o relatório e ao menos uma linha.')
+
+    const { data: rl, error } = await supabase.from('relatorio_linha').select(COLS_LINHA).eq('relatorio_id', p.relatorio)
+    if (error) throw new Error('Erro ao ler as linhas do relatório: ' + error.message)
+    const { masters } = mastersDaSelecao((rl || []) as LinhaRel[], sel)
+    if (!masters.length) {
+      throw new Error('Nenhuma das linhas escolhidas tem conta orçamentária por trás. '
+        + 'Fórmula e indicador têm total, mas não têm conta para receber o valor — escolha linhas analíticas.')
+    }
+
+    const { data: contas, error: ec } = await supabase
+      .from('conta_orcamentaria').select('id,codigo,descricao,natureza').in('id', masters)
+    if (ec) throw new Error('Erro ao ler as contas: ' + ec.message)
+
+    // ⚠ Ordena pelo CÓDIGO para o formulário nascer na ordem do plano, não na
+    // ordem em que o banco devolveu — duas gerações iguais têm de dar a mesma
+    // tela, senão conferir uma contra a outra vira trabalho.
+    const ord = [...(contas || [])].sort((a: any, b: any) => String(a.codigo).localeCompare(String(b.codigo)))
+    const linhas: WizardLinha[] = ord.map((c: any) => ({
+      codigo: String(c.codigo),
+      descricao: `${c.codigo} · ${c.descricao}`,
+      tipo_linha: 'ANALITICA',
+      natureza: (c.natureza === 'RECEITA' || c.natureza === 'DESPESA') ? c.natureza : 'NEUTRO',
+      formato: 'MOEDA',
+      casas: 2,
+      contaDestinoId: c.id,
+    }))
+
+    if (ord.length > 1) avisos.push(`${ord.length} contas viraram ${ord.length} linhas — uma por conta, cada uma com o seu destino.`)
+    const nome = ord.length === 1 ? ord[0].descricao : `${ord.length} contas`
+    return {
+      linhas, valores: [], avisos, escopos: 0,
+      sugestao: { codigo: 'BRANCO_' + slug(String(ord[0].codigo)), nome: `Em branco — ${nome}` },
+    }
+  },
+}
+
+export const WIZARDS: Wizard[] = [impostos, replica, emBranco]

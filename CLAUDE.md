@@ -2528,6 +2528,26 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   regex justamente por usar o padrão bom. **Ao acrescentar coluna nessas tabelas, conferir os
   INSERTs que listam coluna a coluna.**
 
+- **Wizard `LINHA_BRANCO` — "Alimentar uma linha do relatório" (26/nov).** ⚠⚠ **É o único wizard
+  que NÃO deriva de dado, e é por isso que ele existe.** Os outros dois nasceram para não
+  redigitar o que o sistema já sabe; este serve ao caso oposto — a linha **nova**, sem realizado
+  nem orçado de onde replicar. Era buraco real: criada a linha no relatório, não havia caminho
+  até um formulário. A réplica não serve (exige origem com valor) e montar na Estrutura à mão é
+  trabalho que o sistema sabe fazer. O número vem depois, do CSV ou da digitação.
+  ⚠⚠ **O código da linha é o código da CONTA, verbatim** — não é economia de digitação: o
+  importador casa `linha` por código **exato** (`linBy.get`), e o CSV que a pessoa já tem traz o
+  código da conta. Prefixo (`VAL…`/`ORIG…`, como na réplica) obrigaria a reeditar o arquivo; a
+  réplica só os usa porque gera **duas** linhas por conta e precisa distingui-las.
+  ⚠ **ANALITICA obrigatoriamente:** o import recusa linha que não seja (`l.tipo_linha !==
+  'ANALITICA'`), e com razão — numa linha de fórmula o valor importado seria sobrescrito pelo
+  cálculo no primeiro recarregamento.
+  ⚠ **Sem parâmetro de escopo, e sem valores.** Recorte só faz sentido sobre dado que existe;
+  aqui quem define empresa·filial·CC é o CSV. Declarar o campo criaria um filtro que não filtra
+  nada — **controle morto**. (O executor só aplica o recorte se o wizard declarar `tipo: 'escopo'`,
+  então não declarar é a forma de dizer "não se aplica".)
+  ⚠ Ordena as contas pelo **código**: duas gerações iguais têm de dar a mesma tela, senão
+  conferir uma contra a outra vira trabalho.
+
 - ⚠⚠ **RECORTE DE ESCOPO NOS WIZARDS: campo no catálogo, filtro no EXECUTOR** (25/nov). A réplica
   gerava **sempre todos os escopos** que a origem tivesse — 54 na DRE Gerencial — e não havia como
   pedir só algumas empresas. Hoje é `tipo: 'escopo'` em `ParamDef`, renderizado com o **mesmo
