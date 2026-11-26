@@ -313,6 +313,41 @@ export default function OrcarLinhaPage() {
   const podeAprovar = cap.can('cenario.aprovar')
   const podeResponder = acesso.podeEscrever && cap.can('orcar')
 
+  // ⚠⚠ RESSINCRONIZAR UMA LINHA — "pega da baseline e traz" (26/nov).
+  // A função que faz isso JÁ EXISTIA e só trabalhava no cenário inteiro; o que
+  // entrou foi o recorte (`p_linha`), não lógica nova.
+  // ⚠ Funciona para o acidente porque ZERAR AQUI É APAGAR: `fat_orcado` guarda
+  // ausência, não zero, então a célula some e a ressincronização a classifica
+  // como `incluir`. Célula EDITADA para outro valor conta como `preservada` e
+  // NÃO volta — ali houve decisão, não acidente, e a prévia diz quantas são.
+  const [ressync, setRessync] = useState<{ master: string; nome: string; sim: any[] } | null>(null)
+  const [ressyncBusy, setRessyncBusy] = useState(false)
+
+  async function pedirRessync(master: string, nomeLinha: string) {
+    setRessyncBusy(true)
+    const { data, error } = await supabase.rpc('ressincronizar_cenario',
+      { p_versao: versaoId, p_simular: true, p_linha: master })
+    setRessyncBusy(false)
+    if (error) {
+      alert(error.message.includes('function')
+        ? 'Falta rodar a migration v3_206 (ressincronizar por linha) no SQL Editor.'
+        : 'Não foi possível simular: ' + error.message)
+      return
+    }
+    setRessync({ master, nome: nomeLinha, sim: (data as any[]) || [] })
+  }
+
+  async function aplicarRessync() {
+    if (!ressync) return
+    setRessyncBusy(true)
+    const { error } = await supabase.rpc('ressincronizar_cenario',
+      { p_versao: versaoId, p_simular: false, p_linha: ressync.master })
+    setRessyncBusy(false)
+    if (error) { alert('Não foi possível ressincronizar: ' + error.message); return }
+    setRessync(null)
+    setRecarga(r => r + 1)   // o valor mudou no banco: reler, não adivinhar
+  }
+
   async function decidir(master: string, aprovado: boolean, nota?: string) {
     const { error } = await supabase.rpc('decidir_linha_orcado',
       { p_versao: versaoId, p_linha: master, p_aprovado: aprovado, p_nota: nota ?? null })
@@ -675,9 +710,21 @@ export default function OrcarLinhaPage() {
                         </td>
                         <td style={{ ...S.td, textAlign: 'left' }}>
                           {master && Math.abs(d) >= 0.005 && (
-                            <VereditoLinha v={vereditos[master]} podeAprovar={podeAprovar} podeResponder={podeResponder}
-                              onDecidir={(ap, nota) => decidir(master, ap, nota)}
-                              onReabrir={nota => responder(master, nota)} />
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <VereditoLinha v={vereditos[master]} podeAprovar={podeAprovar} podeResponder={podeResponder}
+                                onDecidir={(ap, nota) => decidir(master, ap, nota)}
+                                onReabrir={nota => responder(master, nota)} />
+                              {/* ⚠ Admin só, porque a RPC levanta 42501 para o resto —
+                                  mostrar o botão a quem leva erro é oferecer e recusar. */}
+                              {acesso.isAdmin && !carimbo.mesclado && (
+                                <button onClick={() => pedirRessync(master, l.descricao || '')} disabled={ressyncBusy}
+                                  title="Trazer esta linha de volta da baseline — desfaz o que foi apagado aqui"
+                                  style={{ background: 'none', border: '1px solid var(--border-strong)', borderRadius: 6,
+                                           padding: '2px 4px', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
+                                  <RotateCcw size={13} />
+                                </button>
+                              )}
+                            </span>
                           )}
                         </td>
                       </>)
@@ -706,6 +753,63 @@ export default function OrcarLinhaPage() {
           )}
         </div>
       )}
+
+      {/* ⚠ A PRÉVIA EXISTE POR UMA RAZÃO SÓ: dizer quantas células NÃO voltam.
+          A ressincronização preserva o que foi editado à mão nesta linha (ali
+          houve decisão, não acidente) — e sem esse número a pessoa acha que a
+          linha volta inteira ao estado da baseline, o que não é o caso.
+          `p_simular` já é o default da própria RPC: a prévia é uma chamada, não
+          uma segunda implementação da regra. */}
+      {ressync && (() => {
+        const n = (a: string) => Number(ressync.sim.find((x: any) => x.acao === a)?.celulas || 0)
+        const volta = n('incluir'), atualiza = n('atualizar'), tira = n('remover'), mantem = n('preservada')
+        const nada = !volta && !atualiza && !tira
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}
+               onClick={e => e.target === e.currentTarget && !ressyncBusy && setRessync(null)}>
+            <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, padding: 20, width: 480, maxWidth: '94vw' }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Trazer da baseline</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', margin: '4px 0 14px' }}>
+                Linha <b style={{ color: 'var(--text)' }}>{ressync.nome}</b> — só esta, o resto do cenário não é tocado.
+              </div>
+              {nada ? (
+                <div style={{ fontSize: 13, color: 'var(--text-mid)', lineHeight: 1.7 }}>
+                  Nada a trazer: esta linha já está igual à baseline, ou tudo o que difere foi
+                  <b> editado à mão</b> aqui ({mantem} célula(s)) — e isso a ressincronização preserva.
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: 'var(--text-mid)', lineHeight: 1.8 }}>
+                  {volta > 0 && <div>• <b style={{ color: 'var(--green)' }}>{volta}</b> célula(s) <b>voltam</b> — estavam apagadas aqui e existem na baseline.</div>}
+                  {atualiza > 0 && <div>• <b>{atualiza}</b> célula(s) <b>atualizadas</b> com o valor de hoje da baseline.</div>}
+                  {tira > 0 && <div>• <b style={{ color: 'var(--red)' }}>{tira}</b> célula(s) <b>retiradas</b> — a baseline não as tem mais.</div>}
+                  {mantem > 0 && (
+                    <div style={{ color: 'var(--orange)', marginTop: 8 }}>
+                      ⚠ <b>{mantem}</b> célula(s) <b>não voltam</b>: foram editadas à mão neste cenário, e a
+                      {' '}ressincronização trata isso como proposta, não como acidente. Para desfazer uma
+                      {' '}edição deliberada, digite o valor de volta no drill.
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
+                    O veredito desta linha volta a <b>pendente</b> — o ✓ ou ✗ anterior era sobre outro número.
+                  </div>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+                <button disabled={ressyncBusy} onClick={() => setRessync(null)}
+                  style={{ padding: '6px 12px', fontSize: 12.5, borderRadius: 7, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)', cursor: 'pointer' }}>
+                  {nada ? 'Fechar' : 'Cancelar'}
+                </button>
+                {!nada && (
+                  <button disabled={ressyncBusy} onClick={aplicarRessync}
+                    style={{ padding: '6px 12px', fontSize: 12.5, borderRadius: 7, border: '1px solid var(--violet)', background: 'var(--violet)', color: '#fff', cursor: 'pointer' }}>
+                    {ressyncBusy ? 'Trazendo…' : 'Trazer'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {drill && versao && (
         <DrillCombinacoes
