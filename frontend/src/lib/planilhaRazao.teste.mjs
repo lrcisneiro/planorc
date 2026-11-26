@@ -88,8 +88,24 @@ else {
      !todas.some(r => r.debito > 0 && r.credito > 0))
   ok('despesa entra NEGATIVA (débito)',
      todas.some(r => r.debito > 0) && todas.filter(r => r.debito > 0).every(r => r.credito === 0))
-  ok('empresa/filial/CC vêm dos fixos do perfil',
-     todas.every(r => r.empresa_codigo === '35' && r.filial_codigo === '3501' && r.cc_codigo === '111'))
+  ok('empresa e filial vêm dos fixos do perfil',
+     todas.every(r => r.empresa_codigo === '35' && r.filial_codigo === '3501'))
+  // ── CC pela regra: despesa 111 · serviços 315 · comercial 215 · sem CC ──
+  const porCc = {}
+  for (const r of todas) porCc[r.cc_codigo || '(sem CC)'] = (porCc[r.cc_codigo || '(sem CC)'] || 0) + (r.credito - r.debito)
+  const ccDe = cod => todas.find(r => r.conta_codigo === cod)?.cc_codigo
+  ok('despesa cai no 111 (padrão)', ccDe('2.20.1048') === '111' && ccDe('8.01') === '111')
+  ok('receita de serviços no 315', ccDe('1.11.1002') === '315' && ccDe('SC-RECEITAS-DE-SERVI-OS') === '315')
+  ok('receita comercial no 215', ccDe('1.11.1003') === '215' && ccDe('1.12.1002') === '215')
+  ok('resultado financeiro SEM CC', ccDe('1.13.1006') === '')
+  ok('nenhuma RECEITA caiu no 111 (a rede do cc_sem_padrao)',
+     !todas.some(r => r.conta_codigo.startsWith('1.') && r.cc_codigo === '111'))
+  ok('315 soma 1.497.865,35', Math.abs((porCc['315'] || 0) - 1497865.35) < 0.01, (porCc['315'] || 0).toFixed(2))
+  ok('215 soma 850.042,30', Math.abs((porCc['215'] || 0) - 850042.30) < 0.01, (porCc['215'] || 0).toFixed(2))
+  ok('111 é só despesa (soma negativa)', (porCc['111'] || 0) < 0, (porCc['111'] || 0).toFixed(2))
+  ok('os três CCs + sem CC somam o total',
+     Math.abs(Object.values(porCc).reduce((a, b) => a + b, 0) - 153996.56) < 0.01)
+  console.log('   CC:', Object.entries(porCc).map(([k, v]) => `${k}=${v.toFixed(2)}`).join('  '))
   ok('toda linha tem conta resolvida', todas.every(r => !!r.conta_codigo),
      `${todas.filter(r => !r.conta_codigo).length} sem conta`)
   const codigos = new Set(todas.map(r => r.conta_codigo))

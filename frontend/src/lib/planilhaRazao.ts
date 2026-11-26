@@ -113,6 +113,24 @@ export function contaDoCampo(bruto: string, perfil: PerfilRazao): string {
   return perfil.conta_sem_codigo?.[v] || ''
 }
 
+// ⚠⚠ O CC NÃO VEM DO ARQUIVO, VEM DA REGRA — e a regra é por NATUREZA DA CONTA.
+// O pivot do ContaAzul traz "Centro de custo" em branco em 100% das linhas, e a
+// convenção desta instalação é: despesa no 111 e receita no "15" de Base RD
+// (215 sob Comercial, 315 sob Serviços). Por isso `fixos.cc` é só o PADRÃO — o
+// lado da despesa — e `cc_por_conta` diz as exceções.
+// ⚠ `""` no mapa é SEM CC decidido (resultado financeiro, venda de ativo), e é
+// diferente de a conta faltar: ausência é esquecimento.
+// ⚠ `cc_sem_padrao` é a rede contra o erro que importa: receita nova fora do
+// mapa cairia no 111 e a DRE mostraria receita dentro do Administrativo —
+// errado e quieto. Sem padrão ela entra sem CC, e o relatório da importação a
+// nomeia em "CC em branco na origem". Despesa nova segue indo ao 111 sozinha.
+export function ccDaConta(contaCod: string, perfil: PerfilRazao): string {
+  const mapa = perfil.cc_por_conta
+  if (mapa && Object.prototype.hasOwnProperty.call(mapa, contaCod)) return mapa[contaCod] || ''
+  if ((perfil.cc_sem_padrao || []).some(pre => contaCod.startsWith(pre))) return ''
+  return perfil.fixos?.cc ?? ''
+}
+
 type Conv = {
   converte: (r: any[]) => { ano: number; mes: number; linha: LinhaRazao } | null
   /** Quanto ficou fora do valor de competência, por coluna do arquivo. */
@@ -171,12 +189,17 @@ function fazConverter(perfil: PerfilRazao, cab: string[]): Conv {
         cre = numero(idx['credito'] >= 0 ? r[idx['credito']] : 0)
       }
       const p2 = (n: number) => String(n).padStart(2, '0')
+      // ⚠ O CC sai da CONTA quando o arquivo não tem a coluna. Com coluna no
+      // arquivo, o que o arquivo diz manda — a regra é para suprir ausência,
+      // não para sobrescrever origem.
+      const temColCc = idx['cc'] !== undefined && idx['cc'] >= 0
+      const ccCod = temColCc ? val(r, 'cc') : ccDaConta(contaCod, perfil)
       return {
         ano: d.ano, mes: d.mes,
         linha: {
           empresa_codigo: val(r, 'empresa'),
           filial_codigo: val(r, 'filial'),
-          cc_codigo: val(r, 'cc'),
+          cc_codigo: ccCod,
           conta_codigo: contaCod,
           data: `${d.ano}-${p2(d.mes)}-${p2(d.dia)}`,
           ano: d.ano, mes: d.mes,

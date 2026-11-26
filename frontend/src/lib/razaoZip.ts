@@ -51,6 +51,10 @@ export type PerfilRazao = {
   conta_sem_codigo?: Record<string, string>
   /** Valor cravado onde o arquivo não tem coluna (empresa, filial, cc). */
   fixos?: Record<string, string>
+  /** CC por código de conta, sobrepondo `fixos.cc`. `""` = sem CC, de propósito. */
+  cc_por_conta?: Record<string, string>
+  /** Prefixos de código que NÃO herdam `fixos.cc` — sem mapa, ficam sem CC. */
+  cc_sem_padrao?: string[]
 }
 
 /** Uma linha no formato do modelo de import do Realizado. */
