@@ -141,11 +141,15 @@ BEGIN
        AND ov.linha_id IN (SELECT DISTINCT s.linha_id FROM _sync s
                             WHERE s.acao IN ('atualizar', 'incluir', 'remover'));
 
-    -- ⚠⚠ SÓ NA RESSINCRONIZAÇÃO INTEIRA. `semeado_em` afirma "o cenário foi
-    -- sincronizado com a baseline"; carimbá-lo depois de mexer em UMA linha
-    -- faria o cenário alegar uma sincronização que não houve, e as outras 81
-    -- linhas continuariam com o valor do dia do semear.
-    IF p_linha IS NULL THEN
+    -- ⚠⚠ SÓ NA RESSINCRONIZAÇÃO INTEIRA — e "inteira" é SEM RECORTE NENHUM,
+    -- não só sem `p_linha`. `semeado_em` afirma "o cenário foi sincronizado com
+    -- a baseline"; carimbá-lo depois de tocar um recorte faria o cenário alegar
+    -- uma sincronização que não houve, e o resto continuaria com o valor do dia
+    -- do semear. A primeira versão desta guarda testava só `p_linha` — fechava
+    -- a instância (por linha) e deixava a classe aberta (por empresa/filial/CC,
+    -- que ninguém chama HOJE). Condição certa com alcance curto é o defeito que
+    -- este arquivo mais repete.
+    IF p_linha IS NULL AND p_empresas IS NULL AND p_filiais IS NULL AND p_ccs IS NULL THEN
       UPDATE versao_orcamento SET semeado_em = now() WHERE id = p_versao;
     END IF;
   END IF;
