@@ -9,6 +9,8 @@ import { useGrid, GridHead } from '../../lib/grid'
 import type { GCol } from '../../lib/grid'
 import { ErpPills } from '../erp/ErpPills'
 import { inventariarRazao, extrairRazao, RazaoZipErro } from '../../lib/razaoZip'
+import type { LinhaRazao } from '../../lib/razaoZip'
+import { inventariarPlanilha, extrairPlanilha } from '../../lib/planilhaRazao'
 import type { PerfilRazao, Competencia } from '../../lib/razaoZip'
 
 declare const XLSX: any
@@ -190,6 +192,11 @@ export default function RealizadoDadosPage() {
   // ── zip do ERP
   const [zipFile, setZipFile] = useState<File | null>(null)
   const [zipBuf, setZipBuf] = useState<Uint8Array | null>(null)
+  // Linhas já convertidas, quando a origem é PLANILHA (perfil `formato:
+  // 'planilha'`). O caminho do zip não as guarda — relê o buffer na 2ª
+  // passada, porque lá são centenas de MB. Aqui são milhares de linhas e
+  // reler seria gasto sem motivo.
+  const [planLinhas, setPlanLinhas] = useState<Map<number, LinhaRazao[]> | null>(null)
   // ⚠⚠ SEM DEFAULT QUANDO HÁ MAIS DE UM PERFIL. Eles diferem no mapa de
   // empresa por item contábil: ler o razão brasileiro com o perfil da Bolívia
   // passa na conferência de colunas (são as mesmas) e distribui tudo para as
@@ -385,6 +392,34 @@ export default function RealizadoDadosPage() {
     })
   }
 
+  // ⚠⚠ UM SÓ PONTO DE INVENTÁRIO, para as duas origens (arquivo solto e fonte
+  // do ERP). Eram dois chamando `inventariarRazao` direto, e acrescentar o
+  // formato planilha em um deles deixaria o outro — justamente o caminho da
+  // fonte, que é o futuro desta carga — lendo o pivot com o leitor do zip e
+  // dizendo "arquivo não encontrado" sobre um arquivo que está ali. É a lição
+  // do `fmtEixo`: utilitário que não varre tudo no mesmo passo deixa nascer a
+  // terceira convenção.
+  const inventariar = async (buf: Uint8Array, perfil: PerfilRazao) => {
+    if (perfil.formato === 'planilha') {
+      const r = inventariarPlanilha(buf, perfil)
+      setPlanLinhas(r.linhas)
+      setComps(r.comps)
+      return { comps: r.comps, aviso: r.aviso, onde: 'na planilha' }
+    }
+    setPlanLinhas(null)
+    const comps = await inventariarRazao(buf, perfil,
+      n => setZipProg(`Lendo o razão… ${n.toLocaleString('pt-BR')} lançamentos`))
+    setComps(comps)
+    return { comps, aviso: '', onde: 'no arquivo' }
+  }
+
+  /** A frase que o inventário devolve — igual nas duas origens, de propósito. */
+  const msgInventario = (r: { comps: Competencia[]; aviso: string; onde: string }) =>
+    r.comps.length
+      ? `${r.comps.length} competências · ${r.comps.reduce((a, c) => a + c.linhas, 0).toLocaleString('pt-BR')}`
+        + ` lançamentos ${r.onde}. Marque o que importar.${r.aviso ? ` ${r.aviso}` : ''}`
+      : 'Nenhum lançamento com data válida foi encontrado.'
+
   const baixarDoErp = async () => {
     const f = fontes.find(x => x.id === fonteId)
     if (!f) return
@@ -403,19 +438,22 @@ export default function RealizadoDadosPage() {
       // Vira um "arquivo" como se tivesse sido arrastado: daí para a frente é
       // exatamente o mesmo caminho, inventário incluído.
       const nome = f.arquivo || 'erp.zip'
+      // ⚠ O tipo sai da EXTENSÃO: a fonte pode entregar a planilha de um
+      // perfil, e afirmar "zip" num .xlsx é mentira gravada no objeto.
       setZipFile(new File([buf], nome, {
-        type: 'application/zip',
+        type: /\.zip$/i.test(nome) ? 'application/zip'
+          : /\.(xlsx|xlsm)$/i.test(nome) ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'application/octet-stream',
         ...(lm && !isNaN(Date.parse(lm)) ? { lastModified: Date.parse(lm) } : {}),
       }))
       setZipBuf(buf)
       if (f.perfil && PERFIS.some(p => p.id === f.perfil)) setPerfilId(f.perfil)
-      setZipProg(`${nome} · ${(buf.length / 1048576).toFixed(1)} MB recebidos. Lendo o razão…`)
+      setZipProg(`${nome} · ${(buf.length / 1048576).toFixed(1)} MB recebidos. Lendo…`)
       const perfil = PERFIS.find(p => p.id === (f.perfil || perfilId))?.perfil
-      if (perfil) {
-        const inv = await inventariarRazao(buf, perfil, n => setZipProg(`Lendo o razão… ${n.toLocaleString('pt-BR')} lançamentos`))
-        setComps(inv)
-        setZipProg(`${inv.length} competências · ${inv.reduce((a, c) => a + c.linhas, 0).toLocaleString('pt-BR')} lançamentos. Marque o que importar.`)
-      }
+      // ⚠ Sem perfil não há como ler, e ficar calado faria o download parecer a
+      // importação inteira. A fonte guarda o perfil dela justamente para isso.
+      if (perfil) setZipProg(`${nome} · ${msgInventario(await inventariar(buf, perfil))}`)
+      else setZipProg(`${nome} recebido, mas a fonte não tem PERFIL de conversão — escolha um acima e clique em "Ler o arquivo".`)
     } catch (e: any) {
       setZipProg('✗ ' + (e?.message || String(e)))
     }
@@ -455,12 +493,39 @@ export default function RealizadoDadosPage() {
     setZipBusy(false)
   }
 
+  /** Zera o inventário e põe este arquivo como a origem a ser lida. */
+  const trocarOrigem = (f: File) => {
+    setZipFile(f); setZipBuf(null); setPlanLinhas(null)
+    setComps([]); setCompSel(new Set()); setZipProg('')
+  }
+
   const receber = (fs: File[]) => {
     const zips = fs.filter(f => /\.zip$/i.test(f.name))
     const plan = fs.filter(f => /\.(xlsx|xls|xlsm|csv)$/i.test(f.name))
-    if (plan.length) setDropFiles(p => [...p, ...plan])
-    if (zips.length) { setZipFile(zips[0]); setZipBuf(null); setComps([]); setCompSel(new Set()); setZipProg('') }
+    // ⚠⚠ UMA PLANILHA TEM DOIS DESTINOS, E QUEM DECIDE É O PERFIL — não a
+    // extensão, porque as duas são .xlsx. No formato do modelo ela vai direto
+    // para a lista (um arquivo = um mês, colunas `empresa_codigo`…); num
+    // perfil `formato: 'planilha'` — o pivot do ContaAzul — ela vai para o
+    // INVENTÁRIO, que separa as competências como o zip faz. Mandá-la para a
+    // lista ali seria lê-la como o modelo: nenhuma coluna casa e a importação
+    // termina "com sucesso" sem uma linha.
+    const porPerfil = PERFIS.find(x => x.id === perfilId)?.perfil?.formato === 'planilha'
+    if (plan.length && !porPerfil) setDropFiles(p => [...p, ...plan])
+    const alvo = zips[0] || (porPerfil ? plan[0] : null)
+    if (alvo) trocarOrigem(alvo)
   }
+
+  // ⚠ A ORDEM DOS GESTOS NÃO PODE IMPORTAR. Soltar o pivot ANTES de escolher o
+  // perfil o manda para a lista de arquivos, onde ele seria lido como o modelo.
+  // Quando o perfil escolhido passa a ser de planilha, o arquivo solto migra
+  // para o inventário sozinho — o que sobra fica na lista, à vista.
+  useEffect(() => {
+    if (PERFIS.find(x => x.id === perfilId)?.perfil?.formato !== 'planilha') return
+    if (zipFile || !dropFiles.length) return
+    const f = dropFiles[0]
+    setDropFiles(q => q.slice(1))
+    trocarOrigem(f)
+  }, [perfilId, dropFiles, zipFile])
 
   // A competência de hoje, com queda para a última do arquivo quando ela não
   // está lá — importar fechamento antigo é legítimo e a tela não pode travar.
@@ -490,12 +555,7 @@ export default function RealizadoDadosPage() {
       // voltar ao disco nem pedir o arquivo de novo.
       const buf = zipBuf ?? new Uint8Array(await zipFile.arrayBuffer())
       setZipBuf(buf)
-      const inv = await inventariarRazao(buf, perfil,
-        n => setZipProg(`Lendo o razão… ${n.toLocaleString('pt-BR')} lançamentos`))
-      setComps(inv)
-      setZipProg(inv.length
-        ? `${inv.length} competências · ${inv.reduce((s, c) => s + c.linhas, 0).toLocaleString('pt-BR')} lançamentos no arquivo. Marque o que importar.`
-        : 'Nenhum lançamento com data válida foi encontrado.')
+      setZipProg(msgInventario(await inventariar(buf, perfil)))
     } catch (e: any) {
       // ⚠ Coluna que falta é o erro mais comum e o mais fácil de resolver: a
       // mensagem diz qual perfil esperava o quê, e lista o que o arquivo TEM.
@@ -511,17 +571,21 @@ export default function RealizadoDadosPage() {
     const perfil = perfilAtual()
     // ⚠ Saída MUDA não: o botão fica verde sem exigir perfil (`podeImportar`
     // não o confere), então era possível clicar e não acontecer nada.
-    if (!zipBuf || !perfil || !compSel.size) {
-      setZipProg('✗ ' + (!zipBuf ? 'nenhum arquivo carregado — solte o .zip ou busque na fonte.'
+    const dePlanilha = perfil?.formato === 'planilha'
+    if (!zipBuf || !perfil || !compSel.size || (dePlanilha && !planLinhas)) {
+      setZipProg('✗ ' + (!zipBuf ? 'nenhum arquivo carregado — solte o arquivo ou busque na fonte.'
         : !perfil ? 'escolha o PERFIL de conversão antes de importar.'
-        : 'nenhuma competência marcada — marque ao menos um mês.'))
+        : !compSel.size ? 'nenhuma competência marcada — marque ao menos um mês.'
+        : 'a planilha ainda não foi lida — clique em "Ler o arquivo".'))
       return
     }
     setZipBusy(true); setZipProg('Separando os meses escolhidos…')
     try {
       const escolhidas = comps.filter(c => compSel.has(c.ano * 100 + c.mes))
-      const lotes = await extrairRazao(zipBuf, perfil, escolhidas,
-        n => setZipProg(`Separando… ${n.toLocaleString('pt-BR')} lançamentos`))
+      const lotes = dePlanilha
+        ? extrairPlanilha(planLinhas!, escolhidas)
+        : await extrairRazao(zipBuf, perfil, escolhidas,
+            n => setZipProg(`Separando… ${n.toLocaleString('pt-BR')} lançamentos`))
       // ⚠⚠ EXTRAÇÃO VAZIA ERA SILÊNCIO TOTAL (26/nov). `setZipProg('')` apagava
       // a mensagem e `importarLote([])` começa com `if (!files.length) return`
       // — o botão piscava "Importando…" e voltava sem dizer nada, que é
@@ -530,13 +594,14 @@ export default function RealizadoDadosPage() {
       // linha cai nas competências marcadas.
       if (!lotes.length || !lotes.some(l => l.linhas.length)) {
         const meses = escolhidas.map(c => `${MESES_ABR[c.mes - 1]}/${String(c.ano).slice(2)}`).join(', ')
-        setZipProg(`✗ O arquivo foi lido, mas NENHUM lançamento saiu para ${meses}. `
+        setZipProg(`✗ ${dePlanilha ? 'A planilha' : 'O arquivo'} foi lido, mas NENHUM lançamento saiu para ${meses}. `
           + `Confira se o perfil "${PERFIS.find(x => x.id === perfilId)?.nome || perfilId}" é o do ERP deste arquivo `
           + `— perfil errado lê as colunas e não encontra as linhas.`)
         return
       }
       setZipProg('')
-      await importarLote(lotes.map(l => ({ name: `${l.nome} (do zip)`, linhas: l.linhas })))
+      await importarLote(lotes.map(l =>
+        ({ name: `${l.nome} (${dePlanilha ? 'da planilha' : 'do zip'})`, linhas: l.linhas })))
     } catch (e: any) {
       setZipProg('✗ ' + (e?.message || String(e)))
     }
@@ -876,7 +941,7 @@ export default function RealizadoDadosPage() {
               style={{ border: `2px dashed ${dragOver ? 'var(--violet)' : 'var(--border-strong)'}`, background: dragOver ? 'rgba(139,92,246,0.14)' : 'var(--bg-soft)', borderRadius: 12, padding: '28px 16px', textAlign: 'center', cursor: 'pointer' }}>
               <Upload size={26} style={{ color: dragOver ? 'var(--violet)' : 'var(--muted)' }} />
               <div style={{ marginTop: 8, fontSize: 14, color: 'var(--text-mid)' }}>Arraste os arquivos aqui ou <span style={{ color: 'var(--violet)', fontWeight: 600 }}>clique para selecionar</span></div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>.xlsx de um mês, ou o <strong>.zip do ERP</strong> — dele a tela separa os meses sozinha</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>.xlsx de um mês, ou o <strong>arquivo do ERP</strong> (.zip do razão, ou a planilha de um perfil) — dele a tela separa os meses sozinha</div>
             </div>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.xlsm,.csv,.zip" multiple style={{ display: 'none' }}
               onChange={(e: ChangeEvent<HTMLInputElement>) => { receber(Array.from(e.target.files || [])); e.target.value = '' }} />

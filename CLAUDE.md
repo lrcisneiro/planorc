@@ -1255,6 +1255,76 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   tela distante. O projeto já pagou duas vezes por motor sem tela de manutenção (áreas
   funcionais, gestor), e quem precisa trocar a senha está ali no dia em que a carga falhou.
 
+  ⚠⚠ **PIVOT DO CONTAAZUL: a origem entra como ELA É, e o de-para saiu
+  (26/nov).** A AVENTUM não usa Protheus — o ContaAzul exporta um **pivot de
+  lançamentos** (xlsx, uma linha por parcela), e até aqui ele passava por uma
+  **planilha com macro** que o traduzia para o formato Protheus só para o
+  GoodData poder carregá-lo. Medido, esse de-para **somava 56 categorias em 34
+  contas**, empilhava **CSLL e retenções dentro de `33021001 PIS`** e
+  **inventava centro de custo** (`111/215/315`, com o pivot trazendo
+  `(em branco)` em **1.953 de 1.953** linhas). Ninguém o auditava, porque era
+  passo intermediário — e o produto herdava a amarração errada.
+  **Hoje:** `plano_contas BRAVENTUM` com as **56 categorias da origem** (código
+  e nome do ContaAzul, `seed_plano_aventum.sql`), amarração conta → linha feita
+  **na tela**, e o perfil `lib/perfis/contaazul.json` lendo o pivot direto.
+  ⚠⚠ **Perfil novo, tela NÃO:** a saída é a mesma do zip (linhas no formato do
+  modelo, agrupadas por competência), então `importarLote` — conta, empresa,
+  filial, CC, câmbio, lote ignorado, modo substituir, log — é o caminho já
+  provado. Trocar de ERP segue sendo *acrescentar um perfil*.
+  ⚠ **`formato: "planilha"` é o que despacha.** Um perfil de planilha mandado
+  ao leitor do zip procura um csv que não existe e diz *"arquivo não
+  encontrado"* sobre um arquivo que está ali.
+  ⚠⚠ **A MESMA .xlsx TEM DOIS DESTINOS, e quem decide é o PERFIL — nunca a
+  extensão.** No formato do modelo ela é *um arquivo = um mês* e vai para a
+  lista; num perfil de planilha ela vai para o **inventário**, que separa as
+  competências. Mandá-la para a lista ali seria lê-la como o modelo: nenhuma
+  coluna casa e a importação termina **"com sucesso" sem uma linha**. Um efeito
+  move o arquivo quando o perfil é escolhido **depois** do drop — ordem de
+  gesto não pode mudar o resultado.
+  ⚠⚠ **UM SÓ PONTO DE INVENTÁRIO** (`inventariar`), porque eram dois: o
+  arquivo solto e a **fonte do ERP**. Acrescentar o formato em um deixaria o
+  outro — justamente o caminho que esta carga vai usar quando o pivot for para
+  a área de stage — lendo o pivot com o leitor do zip. Lição do `fmtEixo`.
+  ⚠⚠ **UMA coluna com SINAL, não o par débito/crédito.** O ContaAzul exporta
+  contas a pagar **negativas** e a receber positivas; `valor_assinado` vira
+  `debito`/`credito` pelo sinal, porque é disso que `importarLote` calcula
+  `valor = crédito − débito`. Inverter aqui poria **toda despesa da AVENTUM no
+  relatório com o sinal trocado** — e a conta fecharia.
+  ⚠⚠ **COMPETÊNCIA, NÃO CAIXA, e a escolha é DITA.** O arquivo traz os dois
+  totais: `Valor` **153.996,56** e `Valor baixado (líquido)` **166.524,00**. Os
+  **12.527,44** de diferença são juros, multa, desconto e tarifa de liquidação
+  — fato de caixa. O realizado usa o de competência (é o que o razão é), e o
+  inventário **escreve as duas cifras na tela**: sem a frase, quem conferir
+  contra o extrato do ContaAzul acha diferença e procura defeito.
+  ⚠⚠ **DATA DE PLANILHA É DATA PURA, E O FUSO A MOVE DE ANO.** O serial do
+  Excel não tem hora nem fuso, e o SheetJS o materializa num `Date` ora em
+  meia-noite **local**, ora **UTC**. No Brasil (UTC−3), `getDate()` sobre a
+  segunda forma devolve o **dia anterior**: `01/jan/2026` vira `31/dez/2025` e
+  o lançamento troca de **ano**. O sintoma seria um dezembro que ninguém
+  importou. A regra: hora local ≠ 0 significa Date construído noutro fuso →
+  valem os getters UTC.
+  ⚠ **O código da conta é o prefixo numérico da categoria**, com os espaços de
+  dentro removidos — a origem traz `2.20. 1001 REEMBOLSO`, e partir no
+  primeiro espaço dá `2.20.`, que o import reporta como *"conta não
+  encontrada"* sobre uma conta que **está** no plano.
+  ⚠⚠ **As 5 categorias SEM código vão num mapa EXPLÍCITO** (`conta_sem_codigo`
+  → `SC-…`), nunca num slug derivado do nome: categoria nova sem código
+  **falha visivelmente** em vez de virar código inventado que não existe no
+  plano. Lição da v3_160. **Os `SC-` são os mesmos do seed** — mudar num lado
+  sem o outro quebra a amarração.
+  ⚠ **O CC fixo é o único valor inventado do perfil** (`fixos.cc = "111"`), e
+  está declarado como escolha: o pivot não traz centro de custo nenhum.
+  ⚠ **O Python recusa este perfil pelo NOME** — `gerar_lotes_mensais.py` exige
+  `empresa`/`debito`/`credito` em `colunas` e para com a mensagem. Falha
+  nomeada é o que se quer: ele não lê pivot, e ler metade em silêncio seria
+  pior. **O perfil continua sendo um arquivo só** para as duas pontas.
+  **Provado em `planilhaRazao.teste.mjs`**, 31 asserções — 18 sintéticas (as
+  duas formas de fuso, os três formatos de data textual, o código com espaço,
+  o mapa explícito) e **13 contra o arquivo real**: 1.953 lançamentos, 10
+  competências, 56 contas distintas, `crédito − débito = 153.996,56` e nenhuma
+  linha com débito e crédito juntos. A regra de fuso e a do código com espaço
+  **erraram na primeira escrita** e nenhuma das duas aparece lendo o código.
+
   **Importação como padrão, não como caso (nov/2026).** O alvo é receber de **mais de um ERP**, e
   nome de coluna é a primeira coisa que muda entre eles. Três partes separadas:
   `lerPlanilha` (`lib/planilha.ts`, ao lado do `downloadSheet` — ler e escrever planilha moram

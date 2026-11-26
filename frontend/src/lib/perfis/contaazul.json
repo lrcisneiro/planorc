@@ -1,0 +1,42 @@
+{
+  "nome": "AVENTUM — ContaAzul (pivot de lançamentos)",
+  "descricao": "Pivot do ContaAzul, direto como o sistema o exporta — sem o de-para para o formato Protheus. A conta é a CATEGORIA do ContaAzul (código + nome no mesmo campo); empresa, filial e CC são fixos, porque o pivot não os traz. O valor é o de COMPETÊNCIA (coluna \"Valor\"), não o baixado: medido em jan–out/2026, Valor = 153.996,56 e Valor baixado (líquido) = 166.524,00 — a diferença de 12.527,44 é juros, multa, desconto e tarifa de liquidação, que são fato de caixa e não de competência. ⚠ Este perfil NÃO serve ao scripts/gerar_lotes_mensais.py: ele exige as colunas empresa/debito/credito, que aqui não existem, e recusa o perfil pelo nome — é o que se quer, porque o Python não lê pivot.",
+
+  "formato": "planilha",
+  "arquivo_padrao": "pivot.xlsx",
+  "_ajuda_formato": "\"planilha\" = xlsx/csv plano, lido pela própria tela. Omitido (ou \"zip_csv\") = o caminho do razão do Protheus: csv dentro de zip, em duas passadas.",
+
+  "colunas": {
+    "data": "Data de competência",
+    "conta": "Categoria",
+    "historico": "Descrição da parcela",
+    "documento": "Origem do lançamento",
+    "valor_assinado": "Valor"
+  },
+
+  "_ajuda_valor_assinado": "UMA coluna com sinal, em vez do par débito/crédito: negativo é saída (vira débito), positivo é entrada (vira crédito). É assim que o ContaAzul exporta — contas a pagar negativas, a receber positivas.",
+
+  "desempilhar_pipe": false,
+
+  "_ajuda_conta_do_prefixo": "A categoria vem como \"1.11.1002 RECEITA RECORRENTE DE SERVIÇOS\": vale o código numérico da frente, e os espaços de dentro dele caem (a origem tem \"2.20. 1001 REEMBOLSO\", com espaço digitado por engano — deixá-lo criaria conta que nenhum import casa).",
+  "conta_do_prefixo": true,
+
+  "_ajuda_conta_sem_codigo": "As 5 categorias que a origem traz SEM código. Mapa EXPLÍCITO, não regra de slug: categoria nova sem código falha visivelmente na importação (\"conta não encontrada\") em vez de virar um código inventado que não existe no plano. Os códigos SC- são os mesmos do seed_plano_aventum.sql — mudar aqui sem mudar lá quebra a amarração.",
+  "conta_sem_codigo": {
+    "Assessoria de Marketing Digital": "SC-ASSESSORIA-DE-MARKETING",
+    "Compra": "SC-COMPRA",
+    "Fretes pagos": "SC-FRETES-PAGOS",
+    "Impostos retidos em vendas": "SC-IMPOSTOS-RETIDOS-EM-VEND",
+    "Receitas de Serviços": "SC-RECEITAS-DE-SERVI-OS"
+  },
+
+  "_ajuda_fixos": "Valor cravado quando o arquivo não tem a coluna. O pivot traz \"Centro de custo\" = (em branco) em 1.953 de 1.953 linhas, então o CC aqui é ESCOLHA, não leitura — é o único valor inventado deste perfil, e trocá-lo é trocar esta linha. Os 3 CCs que a base tinha antes (111/215/315) vinham do de-para, não da origem.",
+  "fixos": {
+    "empresa": "35",
+    "filial": "3501",
+    "cc": "111"
+  },
+
+  "empresa_por_item_contabil": {},
+  "empresa_remap_final": {}
+}

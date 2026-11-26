@@ -27,11 +27,30 @@ import { Unzip, AsyncUnzipInflate } from 'fflate'
 export type PerfilRazao = {
   nome: string
   descricao?: string
+  /**
+   * Como o arquivo chega. `zip_csv` (o default) é o razão do Protheus: csv
+   * dentro de zip, lido em duas passadas por este módulo. `planilha` é um
+   * xlsx/csv plano — o pivot do ContaAzul —, lido por `planilhaRazao.ts`.
+   * ⚠ Quem despacha é a TELA, não este arquivo: a escolha do formato é do
+   * perfil, e um perfil de planilha que caísse aqui procuraria um csv que não
+   * existe e diria "arquivo não encontrado" sobre um arquivo que está lá.
+   */
+  formato?: 'zip_csv' | 'planilha'
   arquivo_padrao?: string
   colunas: Record<string, string>
   desempilhar_pipe?: boolean
   empresa_por_item_contabil?: Record<string, string>
   empresa_remap_final?: Record<string, string>
+
+  // ── só para `formato: 'planilha'` ──────────────────────────────────────
+  /** Linha do cabeçalho, 1-based. Ausente = acha sozinho (heurística da tela). */
+  cabecalho_linha?: number
+  /** Código da conta = prefixo numérico do campo, sem os espaços de dentro. */
+  conta_do_prefixo?: boolean
+  /** Categoria sem código na origem → código do plano. Mapa EXPLÍCITO. */
+  conta_sem_codigo?: Record<string, string>
+  /** Valor cravado onde o arquivo não tem coluna (empresa, filial, cc). */
+  fixos?: Record<string, string>
 }
 
 /** Uma linha no formato do modelo de import do Realizado. */
