@@ -204,6 +204,9 @@ export default function RealizadoDadosPage() {
   // inteiro no lugar errado. Adivinhar coluna já era proibido aqui; adivinhar
   // perfil é pior. Com um perfil só, escolher não é escolha: seleciona.
   const [perfilId, setPerfilId] = useState<string>(PERFIS.length === 1 ? PERFIS[0].id : '')
+  // Perfil escolhido na LISTA de arquivos (a saída do ovo e galinha abaixo).
+  // Separado de `perfilId` de propósito: aqui a lista é só a dos de planilha.
+  const [planilhaPerfil, setPlanilhaPerfil] = useState('')
   const [comps, setComps] = useState<Competencia[]>([])
   const [compSel, setCompSel] = useState<Set<number>>(new Set())
   const [zipBusy, setZipBusy] = useState(false)
@@ -540,20 +543,32 @@ export default function RealizadoDadosPage() {
   }, [comps])
 
   const perfilAtual = () => PERFIS.find(p => p.id === perfilId)?.perfil
+  // ⚠⚠ O SELETOR DE PERFIL VIVE DENTRO DO PAINEL DO ARQUIVO, e o painel só
+  // existe depois que o arquivo está no inventário — mas a planilha só chega
+  // ao inventário se o perfil já estiver escolhido. Ovo e galinha: soltar o
+  // pivot sem ter lido um zip antes o mandava para a lista, onde ele é lido
+  // como o MODELO e as 1.953 linhas são ignoradas, uma a uma, "com sucesso".
+  // Esta lista é o que permite oferecer a escolha ANTES, na própria lista de
+  // arquivos — escolha, não adivinhação: o perfil é de quem solta o arquivo.
+  const perfisPlanilha = PERFIS.filter(p => p.perfil?.formato === 'planilha')
   // ⚠ Com o zip, o PERFIL é parte do que torna a importação possível — sem ele
   // `importarZip` não tem como ler. Deixar o botão verde e recusar por dentro
   // é o "offer and then refuse" que este projeto evita.
   const podeImportar = !impBusy && !zipBusy
     && ((compSel.size > 0 && !!perfilAtual()) || dropFiles.length > 0)
 
-  const lerZip = async () => {
-    const perfil = perfilAtual()
-    if (!zipFile || !perfil) return
+  // ⚠ `arq`/`idPerfil` existem para o caminho "Ler pelo perfil": `setState` só
+  // vale no render seguinte, então ler do estado ali leria o estado ANTIGO —
+  // a mesma armadilha do `disabled` que dobrou o rateio.
+  const lerZip = async (arq?: File, idPerfil?: string) => {
+    const perfil = idPerfil ? PERFIS.find(p => p.id === idPerfil)?.perfil : perfilAtual()
+    const file = arq || zipFile
+    if (!file || !perfil) return
     setZipBusy(true); setZipProg('Abrindo o arquivo…'); setComps([]); setCompSel(new Set())
     try {
       // O buffer fica guardado: a 2ª passada relê o MESMO zip em memória, sem
       // voltar ao disco nem pedir o arquivo de novo.
-      const buf = zipBuf ?? new Uint8Array(await zipFile.arrayBuffer())
+      const buf = (!arq && zipBuf) ? zipBuf : new Uint8Array(await file.arrayBuffer())
       setZipBuf(buf)
       setZipProg(msgInventario(await inventariar(buf, perfil)))
     } catch (e: any) {
@@ -731,7 +746,21 @@ export default function RealizadoDadosPage() {
           })
           const ck = `${comp.ano}-${comp.mes}`; (comboEmp[ck] ||= new Set()).add(empresa_id)
         }
-        if (!inserts.length) { log.push(`⚠ ${file.name}: nenhuma linha válida (${ign} ignoradas)`); setImpLog([...log]); arqResumo.push([file.name, raw.length, 0, ign]); continue }
+        if (!inserts.length) {
+          // ⚠⚠ "nenhuma linha válida (1953 ignoradas)" é verdadeiro e inútil: ele
+          // descreve o sintoma de TODO arquivo que não é o modelo, e o caso mais
+          // provável — a planilha de um ERP lida como se fosse o modelo — fica
+          // sem nome. Aconteceu no 1º uso do pivot do ContaAzul, que caiu na
+          // lista por não haver como escolher o perfil antes de soltá-lo.
+          const tudoIgn = ign >= raw.length && raw.length > 0
+          log.push(`⚠ ${file.name}: nenhuma linha válida (${ign} ignoradas)`
+            + (tudoIgn && perfisPlanilha.length && !file.linhas
+               ? ` — NENHUMA linha passou, então provavelmente este arquivo não está no formato do modelo.`
+                 + ` Se for o export de um ERP, remova-o da lista, solte-o de novo e use "Ler pelo perfil"`
+                 + ` (${perfisPlanilha.map(p => p.nome).join(' · ')}).`
+               : ''))
+          setImpLog([...log]); arqResumo.push([file.name, raw.length, 0, ign]); continue
+        }
         if (modo === 'full') {
           for (const ck of Object.keys(comboEmp)) {
             const [a, m] = ck.split('-').map(Number)
@@ -1059,7 +1088,7 @@ export default function RealizadoDadosPage() {
                     {PERFIS.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
                   </select>
                   {!comps.length && <button style={{ ...S.btn, background: perfilId ? 'var(--violet)' : 'var(--border-strong)', color: '#fff', borderColor: 'transparent' }}
-                    disabled={zipBusy || impBusy || !perfilId} onClick={lerZip}>{zipBusy ? 'Lendo…' : 'Ler o arquivo'}</button>}
+                    disabled={zipBusy || impBusy || !perfilId} onClick={() => lerZip()}>{zipBusy ? 'Lendo…' : 'Ler o arquivo'}</button>}
                 </div>
                 {zipProg && <div style={{ ...S.info, marginTop: 10 }}>{zipProg}</div>}
                 {comps.length > 0 && (
@@ -1124,6 +1153,32 @@ export default function RealizadoDadosPage() {
                   <span>{dropFiles.length} arquivo(s)</span>
                   {!impBusy && <span style={{ cursor: 'pointer', color: 'var(--violet)' }} onClick={() => setDropFiles([])}>limpar lista</span>}
                 </div>
+              </div>
+            )}
+
+            {/* ⚠ A SAÍDA DO OVO E GALINHA. Sem ela, a única forma de ler uma
+                planilha por perfil era ter lido um zip antes (que é o que faz o
+                seletor de perfil aparecer). Exige UM arquivo: perfil lê um
+                export, e qual dos vários seria é justamente a ambiguidade a
+                evitar. Some quando não há perfil de planilha instalado. */}
+            {perfisPlanilha.length > 0 && dropFiles.length === 1 && !zipFile && !impBusy && !zipBusy && (
+              <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                            border: '1px dashed var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  É a planilha de um ERP, não o modelo?
+                </span>
+                <select style={S.sel} value={planilhaPerfil} onChange={e => setPlanilhaPerfil(e.target.value)}>
+                  <option value="">— escolha o perfil —</option>
+                  {perfisPlanilha.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                </select>
+                <button style={{ ...S.btn, background: planilhaPerfil ? 'var(--violet)' : 'var(--border-strong)',
+                                 color: '#fff', borderColor: 'transparent' }}
+                  disabled={!planilhaPerfil}
+                  onClick={() => {
+                    const f = dropFiles[0]
+                    setDropFiles([]); setPerfilId(planilhaPerfil); trocarOrigem(f)
+                    lerZip(f, planilhaPerfil)   // o estado só valeria no render seguinte
+                  }}>Ler pelo perfil</button>
               </div>
             )}
 
