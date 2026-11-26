@@ -770,6 +770,17 @@ duas são de tela, e é o certo — dizem o que *aparece*, não o que a consulta
 > explicação parece defeito. `+ Posto / vaga` segue `posto.cadastro.editar`: posto novo nasce no
 > mestre. `cenario.aprovar` está no catálogo e ainda não tem uso — a aprovação é a fase 4.
 >
+> ⚠ **"Ver só o recorte da tela" É LEMBRADO (26/nov).** Nascia `useState(false)` e voltava
+> desmarcada a cada abertura, então quem confere a própria área remarcava a caixinha toda vez —
+> o atrito já registrado no nível do relatório (*"remarcar a cada visita é o que faz a pessoa
+> desistir do controle"*). **O default continua FALSO**; o que mudou foi a escolha sobreviver.
+> ⚠⚠ **O CONTADOR DE PENDENTES É DO CENÁRIO INTEIRO (vem do pai) e a LISTA DE NOMES é do que
+> está em tela.** Com o recorte ligado elas divergem: a seção nomeava só as visíveis e o botão
+> de fechar continuava travado **sem dizer por quê** — a "caça ao tesouro" que essa lista existe
+> justamente para evitar. Hoje ela diz *"mais N fora do recorte"*.
+> ⚠ O gate do fechamento **nunca** esteve furado: `vereditos` é prop, calculada sobre tudo. O
+> recorte alcança o desenho, não a autoridade — que é a mesma separação do modo discreto.
+
 > **O comparativo cadastro × cenário** (`CenarioDiffModal`) mostra, por posto, o que muda e o
 > custo **dos dois lados pelo motor** — nunca `salário × 12`: corte em maio carrega aviso prévio,
 > 13º, férias proporcionais e multa de FGTS. Agrupa por **tipo de decisão**, não por CC. O

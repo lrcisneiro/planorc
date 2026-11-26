@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { useLocalPref } from '../../lib/uiPrefs'
 import type { CSSProperties } from 'react'
 import { X, Download, Scissors, TrendingUp, CalendarRange, Gauge, Pause, Check, RotateCcw, Undo2 } from 'lucide-react'
 import { calcularPosto } from '../../lib/motorFolha'
@@ -89,7 +90,16 @@ export default function CenarioDiffModal(props: any) {
   // explícita, rotulada, de quem está conferindo a própria área.
   // O escopo IMPRESSO continua saindo do dado — ver `escopo` abaixo.
   const temFiltro = Array.isArray(postosFiltrados) && postosFiltrados.length !== (postos || []).length
-  const [soFiltro, setSoFiltro] = useState(false)
+  // ⚠⚠ A ESCOLHA É LEMBRADA (26/nov). Nascia `useState(false)` e voltava
+  // desmarcada a cada abertura — quem confere a própria área remarcava a
+  // caixinha toda vez, que é o atrito já registrado no nível do relatório:
+  // "remarcar a cada visita é o que faz a pessoa desistir do controle".
+  // ⚠ O default continua FALSO (cenário inteiro, que é o que o fechamento
+  // carimba); o que mudou foi a escolha sobreviver, não o padrão.
+  // ⚠ Sem filtro na tela a caixinha vem desabilitada e `checked` é falso de
+  // qualquer jeito (`soFiltro && temFiltro`), então a preferência guardada não
+  // mente — ela volta a valer quando houver recorte outra vez.
+  const [soFiltro, setSoFiltro] = useLocalPref('planorc_cenario_diff_sorecorte', false)
   const base = (soFiltro && temFiltro ? postosFiltrados : postos) as any[]
   const [nota, setNota] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -620,6 +630,21 @@ export default function CenarioDiffModal(props: any) {
                       Sem veredito: {linhas.filter((x: any) => x.aprovado === null).map((x: any, i: number, a: any[]) => (
                         <span key={x.id}><b>{x.nome}</b>{i < a.length - 1 ? ' · ' : ''}</span>
                       ))}
+                      {/* ⚠⚠ O CONTADOR É DO CENÁRIO INTEIRO (vem do pai) e a LISTA é
+                          do que está em tela. Com o recorte ligado, nomear só as
+                          visíveis faria a seção dizer "sem veredito: Fulano" quando
+                          faltam mais 12 fora da vista — e o botão continuaria
+                          travado sem que a tela dissesse por quê, que é exatamente
+                          a "caça ao tesouro" que esta lista existe para evitar. */}
+                      {(() => {
+                        const fora = vereditos.pend - linhas.filter((x: any) => x.aprovado === null).length
+                        return fora > 0 ? (
+                          <span style={{ color: 'var(--red)' }}>
+                            {' '}· <b>mais {fora} fora do recorte</b> — desmarque
+                            {' '}<i>Ver só o recorte da tela</i> para alcançá-las.
+                          </span>
+                        ) : null
+                      })()}
                       <div style={{ color: 'var(--muted)', marginTop: 3 }}>
                         Decida cada uma com <b style={{ color: 'var(--green)' }}>✓</b> ou
                         {' '}<b style={{ color: 'var(--red)' }}>✗</b> na coluna Veredito. Recusar também é decidir —
