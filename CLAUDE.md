@@ -324,6 +324,41 @@ Sistema de planejamento e controladoria orçamentária para grupos que operam so
 > caiu sobre mudança posterior da controladoria, e caiu sobre valor gerado (que a próxima
 > aplicação de posto/formulário regrava). `p_simular` é o **default** — a tela simula, não libera.
 
+> **Ressincronizar UMA LINHA do cenário (`v3_206`/`v3_207`, 26/nov).** Botão `↺` ao lado do ✓/✕ no
+> comparativo. Nasceu de *"zerei errado umas células, precisava de um ressincronizar por linha e
+> não do cenário inteiro"*.
+> ⚠ **Funciona porque ZERAR AQUI É APAGAR:** `fat_orcado` guarda ausência, não zero (o drill faz
+> `.delete()`), então a célula some, não tem `atualizado_em` para virar `preservada`, cai em
+> `c.id IS NULL AND b.id IS NOT NULL` e vira **`incluir`** — a função já sabia trazê-la de volta.
+> **Faltava só o recorte.** Célula EDITADA para outro valor continua `preservada` e **não** volta:
+> ali houve decisão, não acidente, e a prévia diz quantas são — sem esse número a pessoa acha que
+> a linha volta inteira.
+> ⚠ **Por que migration e não escrever do navegador** (pergunta do Ricardo): reimplementar a regra
+> de "o que é intocado" — `FULL JOIN` pela chave composta, com `dims::text` e os sentinelas de
+> filial/CC nulos — criaria duas fontes de verdade para a mesma pergunta (o erro do
+> `cascataRateio`), e seriam ~551 escritas soltas sem transação, mais o veredito (o erro do
+> `ratear_orcado`). A migration acrescenta **uma condição** a uma função que já acertava tudo isso.
+> ⚠ `semeado_em` só é carimbado na ressincronização **inteira** — por linha, ele faria o cenário
+> alegar uma sincronização que não houve.
+>
+> ⚠⚠ **E ELA NASCEU SEM RECORTE, o que custou duas limpezas à mão no MESMO DIA (`v3_207`).** A RPC
+> não filtrava nada, então o `↺` de uma linha trazia **todas as empresas**, inclusive a
+> DESMARCADA na tela: no `ORCADO_SEM_MS_CEN`, com MS fora do filtro, a linha *Feiras e eventos*
+> recebeu de volta as **92 células do MS** (R$ 172.600) junto com as 459 que se queria desfazer. A
+> `auditoria` registra o preço — **dois `DELETE` de exatamente 92 linhas**, às 12:46 e às 13:00:
+> na primeira limpeza o MS voltou de novo.
+> ⚠⚠ **O precedente do semear NÃO vale aqui, e a diferença é o ESCOPO DO ATO.** `copiar_versao`
+> ignora o filtro de propósito (v3_175) porque o cenário é a **versão inteira**. Já o `↺` de uma
+> linha é ato **sobre o que se está olhando**: quem clica desfaz o que acabou de fazer, e fez
+> dentro do recorte. **Citar o precedente certo para o ato errado é o jeito de errar com
+> justificativa.**
+> ⚠ O recorte vai nas **duas pontas do `FULL JOIN`**. Numa só, a célula de fora apareceria como
+> `incluir` ou `remover` conforme o lado filtrado — **o filtro viraria instrução de apagar**.
+> ⚠ Nulo fica de fora quando há filtro (`cc_id = ANY(p_ccs)` é falso para `NULL`), mesma regra do
+> drill, e **sai de graça pelo próprio `ANY`** — não precisa de caso especial.
+> ⚠ **E o modal DIZ o recorte**, porque metade do defeito era não dar para saber: foi exatamente a
+> pergunta *"você aplicou o filtro da tela?"* que o descobriu.
+
 > ⚠ **Fechar é reversível; liberar não (`v3_178`).** A tela escondia Ressincronizar, excluir e
 > qualquer volta atrás assim que o cenário fechava — mas o carimbo é carimbo, não cadeado.
 > `reprovar_cenario` existia desde a v3_165 e **nunca tivera botão**: hoje é *Reabrir*, e os

@@ -320,17 +320,25 @@ export default function OrcarLinhaPage() {
   // ausência, não zero, então a célula some e a ressincronização a classifica
   // como `incluir`. Célula EDITADA para outro valor conta como `preservada` e
   // NÃO volta — ali houve decisão, não acidente, e a prévia diz quantas são.
+  // ⚠⚠ O RECORTE DA TELA VAI JUNTO (v3_207, consertando o mesmo dia). Sem ele
+  // o ↺ trazia TODAS as empresas de volta, inclusive a desmarcada no filtro:
+  // no cenário sem-MS a linha recebeu de volta as 92 células do MS junto com
+  // as 459 que se queria desfazer, e a auditoria mostra dois DELETE de 92
+  // linhas — o MS teve de ser limpo à mão, duas vezes.
+  // ⚠ O precedente do semear (que IGNORA o filtro, v3_175) não vale aqui: lá
+  // o ato é sobre a VERSÃO inteira; aqui é sobre o que se está olhando.
+  const recorteRpc = () => ({ p_empresas: filtro.emp, p_filiais: filtro.fil, p_ccs: filtro.cc })
   const [ressync, setRessync] = useState<{ master: string; nome: string; sim: any[] } | null>(null)
   const [ressyncBusy, setRessyncBusy] = useState(false)
 
   async function pedirRessync(master: string, nomeLinha: string) {
     setRessyncBusy(true)
     const { data, error } = await supabase.rpc('ressincronizar_cenario',
-      { p_versao: versaoId, p_simular: true, p_linha: master })
+      { p_versao: versaoId, p_simular: true, p_linha: master, ...recorteRpc() })
     setRessyncBusy(false)
     if (error) {
       alert(error.message.includes('function')
-        ? 'Falta rodar a migration v3_206 (ressincronizar por linha) no SQL Editor.'
+        ? 'Falta rodar a migration v3_207 (ressincronizar por linha, com recorte) no SQL Editor.'
         : 'Não foi possível simular: ' + error.message)
       return
     }
@@ -341,7 +349,7 @@ export default function OrcarLinhaPage() {
     if (!ressync) return
     setRessyncBusy(true)
     const { error } = await supabase.rpc('ressincronizar_cenario',
-      { p_versao: versaoId, p_simular: false, p_linha: ressync.master })
+      { p_versao: versaoId, p_simular: false, p_linha: ressync.master, ...recorteRpc() })
     setRessyncBusy(false)
     if (error) { alert('Não foi possível ressincronizar: ' + error.message); return }
     setRessync(null)
@@ -771,6 +779,23 @@ export default function OrcarLinhaPage() {
               <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Trazer da baseline</div>
               <div style={{ fontSize: 12.5, color: 'var(--muted)', margin: '4px 0 14px' }}>
                 Linha <b style={{ color: 'var(--text)' }}>{ressync.nome}</b> — só esta, o resto do cenário não é tocado.
+              </div>
+              {/* ⚠ Dizer o recorte é metade do conserto: sem a frase, quem
+                  clica com a tela filtrada não sabe se o botão respeita o
+                  filtro — e foi justamente essa dúvida que descobriu o
+                  defeito ("estava com MS desmarcado e voltou de lá"). */}
+              <div style={{ fontSize: 12, color: 'var(--violet)', background: 'rgba(139,92,246,0.10)',
+                            border: '1px solid rgba(139,92,246,0.30)', borderRadius: 8, padding: '7px 10px', marginBottom: 14, lineHeight: 1.6 }}>
+                {filtro.emp || filtro.fil || filtro.cc ? (<>
+                  Vale <b>só dentro do recorte desta tela</b>
+                  {filtro.emp ? ` · ${filtro.emp.length} empresa(s)` : ''}
+                  {filtro.fil ? ` · ${filtro.fil.length} filial(is)` : ''}
+                  {filtro.cc ? ` · ${filtro.cc.length} centro(s) de custo` : ''}.
+                  {' '}O que está fora do filtro <b>não é tocado</b> — nem volta, nem sai.
+                </>) : (<>
+                  <b>Sem filtro na tela</b>: alcança todas as empresas, filiais e centros de custo
+                  {' '}desta linha. Para limitar, filtre antes de clicar.
+                </>)}
               </div>
               {nada ? (
                 <div style={{ fontSize: 13, color: 'var(--text-mid)', lineHeight: 1.7 }}>
