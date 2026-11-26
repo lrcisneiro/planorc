@@ -8,7 +8,7 @@ import { useCapacidades } from '../../hooks/useCapacidades'
 import { T } from '../../lib/theme'
 import { Plus, Pencil, Trash2, ChevronRight, SlidersHorizontal, Settings2, Wand2, FileText, ChevronDown, AlertTriangle } from 'lucide-react'
 import { WIZARDS, type Wizard } from '../../lib/wizards'
-import { COLS_LINHA, emArvore, linhasConciliaveis, type LinhaRel } from '../../lib/refRelatorio'
+import { COLS_LINHA, emArvore, linhasConciliaveis, mastersDaSelecao, type LinhaRel } from '../../lib/refRelatorio'
 import { executarWizard } from '../../lib/wizardRun'
 
 // Hub de Formulários de drivers (F5). Lista/cria formulários; cada um abre no editor.
@@ -377,12 +377,44 @@ export default function FormulariosPage() {
                               </label>
                             ))}
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: T.faint, marginTop: 4 }}>
-                            <span>{marcadas.length ? `${marcadas.length} marcada(s)` : 'nenhuma marcada'}</span>
-                            {marcadas.length > 0 && (
-                              <span style={{ cursor: 'pointer', color: T.violet }} onClick={() => setWz({ ...wz, vals: { ...wz.vals, [pd.key]: [] } })}>limpar</span>
-                            )}
-                          </div>
+                          {/* ⚠⚠ O CONTADOR QUE IMPORTA É O DE CONTAS, não o de
+                              marcadas. Marcar `Receitas` é UM clique e gera 37
+                              linhas — e até aqui não havia como saber isso antes
+                              de gerar. `mastersDaSelecao` é a MESMA função que o
+                              wizard usa, então o número prometido é o entregue. */}
+                          {(() => {
+                            const sel = mastersDaSelecao(linhasRel as any, marcadas)
+                            const analiticas = sel.masters.filter((m: string) =>
+                              (sel.byId as any)[sel.masterToLine[m]]?.tipo_linha === 'ANALITICA')
+                            // folhas = o que "todas as analíticas" marca: cada uma
+                            // é individualmente desmarcável, ao contrário do bloco.
+                            const folhas = arv.filter((x: any) => x.tipo_linha === 'ANALITICA').map((x: any) => x.id)
+                            return (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 11, color: T.faint, marginTop: 4, flexWrap: 'wrap' }}>
+                                <span>
+                                  {marcadas.length ? `${marcadas.length} marcada(s)` : 'nenhuma marcada'}
+                                  {analiticas.length > 0 && (
+                                    <b style={{ color: T.violet }}> · {analiticas.length} analítica(s) serão geradas</b>
+                                  )}
+                                  {marcadas.length > 0 && analiticas.length === 0 && (
+                                    <b style={{ color: 'var(--orange)' }}> · nenhuma analítica abaixo — nada a gerar</b>
+                                  )}
+                                </span>
+                                <span style={{ display: 'inline-flex', gap: 12 }}>
+                                  {folhas.length > 0 && marcadas.length !== folhas.length && (
+                                    <span style={{ cursor: 'pointer', color: T.violet }}
+                                          title="Marca cada linha analítica, uma a uma — dá para desmarcar as que não interessam"
+                                          onClick={() => setWz({ ...wz, vals: { ...wz.vals, [pd.key]: folhas } })}>
+                                      todas as analíticas ({folhas.length})
+                                    </span>
+                                  )}
+                                  {marcadas.length > 0 && (
+                                    <span style={{ cursor: 'pointer', color: T.violet }} onClick={() => setWz({ ...wz, vals: { ...wz.vals, [pd.key]: [] } })}>limpar</span>
+                                  )}
+                                </span>
+                              </div>
+                            )
+                          })()}
                         </>
                       )
                     })() : pd.tipo === 'versao' ? (

@@ -235,7 +235,24 @@ const replica: Wizard = {
     if (error) throw new Error('Erro ao ler as linhas do relatório: ' + error.message)
     // mastersDaSelecao já desce a subárvore de cada linha marcada e resolve
     // sobreposição (bloco + filha marcados juntos não duplicam o master)
-    const { masters } = mastersDaSelecao((rl || []) as LinhaRel[], sel)
+    // ⚠⚠ SÓ AS ANALÍTICAS, ainda que a pessoa tenha marcado o PAI (26/nov,
+    // decisão do Ricardo: *"pode até ficar marcada a sintética, mas no
+    // formulário vai gerar só as analíticas abaixo"*). Marcar `Receitas`
+    // arrastava junto o master do próprio subtotal, e ele nascia como linha
+    // VAZIA no formulário — ruído que alguém tem de apagar depois.
+    // ⚠ O teste é o `tipo_linha` do CADASTRO, não "não tem filha": é o campo
+    // que DIZ o que a linha é, em vez de inferir pela forma da árvore.
+    // Medido na DRE Gerencial antes de decidir: os **26** pais com master são
+    // todos `SOMAR_FILHOS` e **nenhum tem célula no orçado**; nenhuma
+    // `ANALITICA` tem filha com master. Os dois testes concordam hoje, e o
+    // declarativo é o que continua certo se a árvore mudar.
+    const { masters: _todos, masterToLine, byId: _byId } = mastersDaSelecao((rl || []) as LinhaRel[], sel)
+    const masters = _todos.filter(m => _byId[masterToLine[m]]?.tipo_linha === 'ANALITICA')
+    if (!masters.length) {
+      throw new Error('Nenhuma linha ANALÍTICA abaixo do que foi marcado. '
+        + 'Subtotal, fórmula e indicador têm total, mas não têm conta própria para replicar.')
+    }
+
     if (!masters.length) {
       throw new Error('Nenhuma das linhas marcadas tem conta por trás — são fórmula, indicador ou bloco vazio. ' +
                       'Marque uma linha analítica, ou um bloco que contenha alguma.')
@@ -391,10 +408,22 @@ const emBranco: Wizard = {
 
     const { data: rl, error } = await supabase.from('relatorio_linha').select(COLS_LINHA).eq('relatorio_id', p.relatorio)
     if (error) throw new Error('Erro ao ler as linhas do relatório: ' + error.message)
-    const { masters } = mastersDaSelecao((rl || []) as LinhaRel[], sel)
+    // ⚠⚠ SÓ AS ANALÍTICAS, ainda que a pessoa tenha marcado o PAI (26/nov,
+    // decisão do Ricardo: *"pode até ficar marcada a sintética, mas no
+    // formulário vai gerar só as analíticas abaixo"*). Marcar `Receitas`
+    // arrastava junto o master do próprio subtotal, e ele nascia como linha
+    // VAZIA no formulário — ruído que alguém tem de apagar depois.
+    // ⚠ O teste é o `tipo_linha` do CADASTRO, não "não tem filha": é o campo
+    // que DIZ o que a linha é, em vez de inferir pela forma da árvore.
+    // Medido na DRE Gerencial antes de decidir: os **26** pais com master são
+    // todos `SOMAR_FILHOS` e **nenhum tem célula no orçado**; nenhuma
+    // `ANALITICA` tem filha com master. Os dois testes concordam hoje, e o
+    // declarativo é o que continua certo se a árvore mudar.
+    const { masters: _todos, masterToLine, byId: _byId } = mastersDaSelecao((rl || []) as LinhaRel[], sel)
+    const masters = _todos.filter(m => _byId[masterToLine[m]]?.tipo_linha === 'ANALITICA')
     if (!masters.length) {
-      throw new Error('Nenhuma das linhas escolhidas tem conta orçamentária por trás. '
-        + 'Fórmula e indicador têm total, mas não têm conta para receber o valor — escolha linhas analíticas.')
+      throw new Error('Nenhuma linha ANALÍTICA abaixo do que foi marcado. '
+        + 'Subtotal, fórmula e indicador têm total, mas não têm conta própria para receber valor.')
     }
 
     const { data: contas, error: ec } = await supabase

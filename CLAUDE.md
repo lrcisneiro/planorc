@@ -2543,6 +2543,23 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   regex justamente por usar o padrão bom. **Ao acrescentar coluna nessas tabelas, conferir os
   INSERTs que listam coluna a coluna.**
 
+- ⚠⚠ **WIZARD: MARCAR O PAI GERA SÓ AS ANALÍTICAS ABAIXO (26/nov, decisão do Ricardo).** Marcar
+  `Receitas` arrastava junto o master do próprio **subtotal**, que nascia como linha **vazia** no
+  formulário — ruído que alguém apaga depois. *"Pode até ficar marcada a sintética, mas no
+  formulário vai gerar só as analíticas abaixo."* A seleção não muda; o que mudou é o que ela
+  **produz**.
+  ⚠ **O teste é o `tipo_linha` do CADASTRO, não "não tem filha"** — o campo que DIZ o que a linha
+  é, em vez de inferir pela forma da árvore. Medido antes de decidir, na DRE Gerencial: os **26**
+  pais com master são **todos `SOMAR_FILHOS`** e **nenhum tem célula no orçado**; nenhuma
+  `ANALITICA` tem filha com master. Os dois testes concordam hoje — o declarativo é o que
+  continua certo quando a árvore mudar.
+  ⚠ **O contador que importa é o de CONTAS, não o de marcadas:** marcar `Receitas` é UM clique e
+  gera 37 linhas, e não havia como saber isso antes de gerar. O seletor usa `mastersDaSelecao`,
+  **a mesma função do wizard**, então o número prometido é o entregue.
+  ⚠ **"todas as analíticas" marca uma a uma**, não o bloco — e essa é a diferença útil entre as
+  duas: o bloco é um clique e some com o detalhe; a lista marcada **deixa desmarcar** o que não
+  interessa.
+
 - **Wizard `LINHA_BRANCO` — "Alimentar uma linha do relatório" (26/nov).** ⚠⚠ **É o único wizard
   que NÃO deriva de dado, e é por isso que ele existe.** Os outros dois nasceram para não
   redigitar o que o sistema já sabe; este serve ao caso oposto — a linha **nova**, sem realizado
