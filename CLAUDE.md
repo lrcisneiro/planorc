@@ -2471,6 +2471,21 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   **A lição vale além desta tela:** quando a convenção local contraria a do resto do produto,
   explicar no cabeçalho não resolve — tem de estar **na linha**, junto do número que engana.
 
+- ⚠⚠ **A REGRA DA COR ESTAVA ESCRITA DUAS VEZES, E UMA DELAS INVERTIA DUAS VEZES (26/nov).**
+  `OrcarLinhaPage` fazia `f === -1 ? d < 0 : d > 0` sobre o delta **CRU** — aplicando ao dado a
+  inversão que pertence à **exibição**. No comparativo do cenário, cortar **R$ 1,12 mi** de
+  pessoal aparecia em **vermelho**: o número estava certo (−1.123.691, despesa positiva caindo) e
+  só a cor mentia, que é o pior formato, porque quem lê confia na cor antes do sinal.
+  **Hoje é `variacaoBoa(deltaBruto)`, em `refRelatorio.ts`, ao lado do `fatorExibicao`.**
+  ⚠⚠ **Sobre o delta CRU a resposta é a mesma para toda natureza: `> 0` é melhora.** No banco a
+  despesa é negativa, então gastar menos deixa o número **menos negativo**; receita subindo
+  também é delta positivo. **O sinal cru já é o sinal econômico** — a mesma razão pela qual a
+  ponte o usa, e o motivo de não precisar de `fatorExibicao` nenhum aqui.
+  ⚠ O dashboard escrevia a MESMA regra de outro jeito (`|v| < |vc|`) e **acertava** — e era a
+  existência de dois jeitos que deixava o outro errar. Agora é uma função só.
+  ⚠ Exibir e julgar são perguntas diferentes (*"como se escreve"* × *"isto é bom"*): quem mostra
+  segue aplicando `fatorExibicao`, quem colore chama `variacaoBoa`. Misturá-las foi o defeito.
+
 - **Cor de variação = bom ou ruim, nunca o sinal do número.** Verde/vermelho num Δ é uma
   afirmação semântica, e o sinal sozinho erra metade das linhas: despesa que cai aparece
   negativa e é melhora. O critério sai do **mesmo lugar que a exibição** — `fatorExibicao`

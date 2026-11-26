@@ -36,6 +36,27 @@ export const COLS_LINHA = 'id,pai_id,codigo,descricao,tipo_linha,expressao,desat
 // certo é pior do que número nenhum, porque parece só uma diferença.
 // A natureza é herdada do pai, como no editor: a linha analítica costuma não
 // declarar a sua, quem declara é o bloco de Despesas acima dela.
+/**
+ * A variação MELHOROU o resultado?
+ *
+ * ⚠⚠ RECEBE O DELTA **CRU** (sem `fatorExibicao`), e aí a resposta é a mesma
+ * para toda natureza: `> 0` é melhora. No banco a despesa é NEGATIVA, então
+ * gastar menos deixa o número **menos negativo** — delta positivo. A receita
+ * subindo também é delta positivo. **O sinal cru já é o sinal econômico**, que
+ * é a mesma razão pela qual a ponte o usa.
+ *
+ * ⚠ O erro que isto fecha (26/nov): `OrcarLinhaPage` fazia
+ * `f === -1 ? d < 0 : d > 0` sobre o delta CRU — aplicando ao dado a inversão
+ * que pertence à EXIBIÇÃO, logo invertendo duas vezes. No comparativo do
+ * cenário, cortar R$ 1,12 mi de pessoal aparecia em **vermelho**.
+ * O dashboard escrevia a mesma regra de outro jeito (`|v| < |vc|`) e acertava.
+ * Duas expressões da mesma regra são como elas divergem — agora é uma.
+ *
+ * ⚠ Quem EXIBE continua aplicando `fatorExibicao`; são perguntas diferentes
+ * ("como se escreve" × "isto é bom"), e misturá-las foi o defeito.
+ */
+export const variacaoBoa = (deltaBruto: number) => deltaBruto > 0
+
 export function fatorExibicao(id: string, byId: Record<string, LinhaRel>): number {
   let cur: LinhaRel | undefined = byId[id]
   for (let g = 0; cur && g < 60; g++) {

@@ -14,6 +14,7 @@ import VereditoLinha, { type Veredito } from './VereditoLinha'
 import LiberarCenario from './LiberarCenario'
 import CenarioManutencao from './CenarioManutencao'
 import HistoricoLiberacao from './HistoricoLiberacao'
+import { variacaoBoa } from '../../lib/refRelatorio'
 
 // ============================================================
 // Orçar por LINHA — a visão de quem analisa, não de quem digita célula.
@@ -718,9 +719,10 @@ export default function OrcarLinhaPage() {
                       const baseT = anoDe(totalBase, l.id)
                       const d = anoT - baseT
                       // ⚠ Cor = bom ou ruim, NUNCA o sinal (convenção do projeto).
-                      // `f` é o mesmo fator que já decide a exibição, então a
-                      // despesa que cai aparece positiva e fica verde sozinha.
-                      const bom = f === -1 ? d < 0 : d > 0
+                      // ⚠⚠ `d` é CRU, e `variacaoBoa` espera cru: aplicar `f` aqui
+                      // inverteria duas vezes — era o defeito, e fazia o corte de
+                      // R$ 1,12 mi em pessoal aparecer em vermelho.
+                      const bom = variacaoBoa(d)
                       const master = !sint && !l.nao_soma ? l.linha_orc_id : null
                       return (<>
                         <td style={{ ...S.td, color: baseT === 0 ? 'var(--faint)' : 'var(--text-mid)' }}>

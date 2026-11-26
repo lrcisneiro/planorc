@@ -19,7 +19,7 @@ import { carregarVersoes, carregarRelatorios } from '../../lib/escopoDados'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { totaisRelatorio, totaisRelatorioMes } from '../../lib/relatorioTotais'
 import { useDiscreto, idsRestritos, DOMINANCIA, removerDominadas } from '../../lib/discricao'
-import { COLS_LINHA, emArvore, fatorExibicao, linhasConciliaveis, type LinhaRel } from '../../lib/refRelatorio'
+import { COLS_LINHA, emArvore, fatorExibicao, linhasConciliaveis, variacaoBoa, type LinhaRel } from '../../lib/refRelatorio'
 import { Ponte, componentesDe } from '../../lib/Ponte'
 import { MemoriaModal, componentesMem } from '../../lib/MemoriaCalculo'
 import {
@@ -1112,7 +1112,7 @@ export default function OrcamentoDashPage() {
 // ── Card de uma linha do relatório (indicador ou não) ──
 // O mesmo card serve às duas seções: a diferença entre elas é só QUAIS linhas
 // entram, não como se mostram.
-function CardLinha({ l, val, fac, base, comp, metas, anoBase, rotuloComp, arrasto, sobre, setArrasto, setSobre, soltar, onAbrir, decompoe }: any) {
+function CardLinha({ l, val, base, comp, metas, anoBase, rotuloComp, arrasto, sobre, setArrasto, setSobre, soltar, onAbrir, decompoe }: any) {
   // ⚠ O cartão ARRASTA e também ABRE. O `click` do HTML5 drag não separa os
   // dois (há navegador que o emite depois do drop); quem separa é o
   // DESLOCAMENTO — abaixo de 5px foi clique. Mesma solução do acompanhamento.
@@ -1126,7 +1126,10 @@ function CardLinha({ l, val, fac, base, comp, metas, anoBase, rotuloComp, arrast
   const casas = l.casas_decimais ?? (l.formato === 'PERCENTUAL' ? 1 : 0)
   const pct = vc !== 0 ? (d / Math.abs(vc)) * 100 : null
   // Mesma regra da tabela de variação: custo é bom quando encolhe.
-  const bom = fac(l.id) === -1 ? Math.abs(v) < Math.abs(vc) : v > vc
+  // Mesma regra, uma fonte só: `variacaoBoa` sobre o delta CRU. Esta linha
+  // acertava escrita de outro jeito (`|v| < |vc|`) — e era a existência de dois
+  // jeitos que deixava o outro errar.
+  const bom = variacaoBoa(v - vc)
   const alvoSolta = sobre === l.id && arrasto && arrasto !== l.id
   return (
     <div draggable
