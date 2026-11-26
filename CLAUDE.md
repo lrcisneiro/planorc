@@ -1214,6 +1214,20 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   que **rola até o mês corrente** e o deixa em negrito. Achado no primeiro uso real: o arquivo
   tem 67 competências e nov/26 estava depois de 60 pílulas.
 
+  ⚠⚠ **EXTRAÇÃO VAZIA ERA SILÊNCIO TOTAL (26/nov).** `importarZip` fazia `setZipProg('')` —
+  apagando a mensagem — e chamava `importarLote`, que começa com `if (!files.length) return`.
+  O botão piscava **"Importando…"** e voltava **sem dizer nada**, indistinguível de "não cliquei
+  direito". Aconteceu no primeiro uso de uma fonte nova (AVENTUM/`CONTAAZUL.zip`), que é
+  exatamente quando o perfil pode não casar: as colunas até existem, mas nenhuma linha cai nas
+  competências marcadas. Hoje a tela diz **quais meses** não renderam nada e **nomeia o perfil**
+  em uso, porque é a primeira coisa a desconfiar.
+  ⚠ Eram **três saídas mudas no mesmo caminho**: o guard de entrada (`!zipBuf || !perfil ||
+  !compSel.size`), o `importarLote` vazio e o botão, que ficava **verde sem exigir perfil**
+  (`podeImportar` não o conferia) — *offer and then refuse*. As três falam agora.
+  ⚠ **Limpar a mensagem antes de chamar quem pode falhar calado é o padrão do erro.** O
+  `setZipProg('')` existia para tirar o "Separando…" da tela; tirava também o único canal que
+  restaria.
+
   ⚠⚠ **O PERFIL NÃO TEM DEFAULT quando há mais de um.** Eles diferem no mapa de empresa por item
   contábil: ler o razão brasileiro com o perfil da Bolívia **passa na conferência de colunas**
   (são as mesmas) e distribui tudo para as empresas erradas — importação que termina "com

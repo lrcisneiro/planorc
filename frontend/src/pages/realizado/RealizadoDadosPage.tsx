@@ -475,7 +475,11 @@ export default function RealizadoDadosPage() {
   }, [comps])
 
   const perfilAtual = () => PERFIS.find(p => p.id === perfilId)?.perfil
-  const podeImportar = !impBusy && !zipBusy && (compSel.size > 0 || dropFiles.length > 0)
+  // ⚠ Com o zip, o PERFIL é parte do que torna a importação possível — sem ele
+  // `importarZip` não tem como ler. Deixar o botão verde e recusar por dentro
+  // é o "offer and then refuse" que este projeto evita.
+  const podeImportar = !impBusy && !zipBusy
+    && ((compSel.size > 0 && !!perfilAtual()) || dropFiles.length > 0)
 
   const lerZip = async () => {
     const perfil = perfilAtual()
@@ -505,12 +509,32 @@ export default function RealizadoDadosPage() {
 
   const importarZip = async () => {
     const perfil = perfilAtual()
-    if (!zipBuf || !perfil || !compSel.size) return
+    // ⚠ Saída MUDA não: o botão fica verde sem exigir perfil (`podeImportar`
+    // não o confere), então era possível clicar e não acontecer nada.
+    if (!zipBuf || !perfil || !compSel.size) {
+      setZipProg('✗ ' + (!zipBuf ? 'nenhum arquivo carregado — solte o .zip ou busque na fonte.'
+        : !perfil ? 'escolha o PERFIL de conversão antes de importar.'
+        : 'nenhuma competência marcada — marque ao menos um mês.'))
+      return
+    }
     setZipBusy(true); setZipProg('Separando os meses escolhidos…')
     try {
       const escolhidas = comps.filter(c => compSel.has(c.ano * 100 + c.mes))
       const lotes = await extrairRazao(zipBuf, perfil, escolhidas,
         n => setZipProg(`Separando… ${n.toLocaleString('pt-BR')} lançamentos`))
+      // ⚠⚠ EXTRAÇÃO VAZIA ERA SILÊNCIO TOTAL (26/nov). `setZipProg('')` apagava
+      // a mensagem e `importarLote([])` começa com `if (!files.length) return`
+      // — o botão piscava "Importando…" e voltava sem dizer nada, que é
+      // indistinguível de "não cliquei direito". Acontece quando o perfil não
+      // casa com o conteúdo do zip: as colunas até podem existir, mas nenhuma
+      // linha cai nas competências marcadas.
+      if (!lotes.length || !lotes.some(l => l.linhas.length)) {
+        const meses = escolhidas.map(c => `${MESES_ABR[c.mes - 1]}/${String(c.ano).slice(2)}`).join(', ')
+        setZipProg(`✗ O arquivo foi lido, mas NENHUM lançamento saiu para ${meses}. `
+          + `Confira se o perfil "${PERFIS.find(x => x.id === perfilId)?.nome || perfilId}" é o do ERP deste arquivo `
+          + `— perfil errado lê as colunas e não encontra as linhas.`)
+        return
+      }
       setZipProg('')
       await importarLote(lotes.map(l => ({ name: `${l.nome} (do zip)`, linhas: l.linhas })))
     } catch (e: any) {
@@ -520,7 +544,9 @@ export default function RealizadoDadosPage() {
   }
 
   const importarLote = async (files: LoteImport[]) => {
-    if (!files.length) return
+    // ⚠ Nunca sair calado: quem chama já avisa, mas se um caminho novo passar
+    // vazio aqui, a tela diz — em vez de piscar e voltar.
+    if (!files.length) { setImpProg('✗ Nada a importar: nenhum arquivo ou nenhuma linha extraída.'); return }
     setImpBusy(true); setImpLog([]); setImpProg('Carregando cadastros…')
     try {
       // pageAll obrigatório: o PostgREST corta em 1000 SEM erro. São 1.699 contas
