@@ -26,7 +26,8 @@ import {
   ExportarButton, FiltrosButton, PillsDim, SalvarCardButton, useCardPreset,
   effectiveCcFilter, escopoFiltro, BotaoDiscreto, type CC,
 } from './DashFiltros'
-import { ChevronLeft, AlertTriangle, Info, ChevronUp, ChevronDown, ListChecks } from 'lucide-react'
+import { ChevronLeft, AlertTriangle, Info, ListChecks } from 'lucide-react'
+import { PickerLinhas } from '../../lib/PickerLinhas'
 import { ResponsiveBar } from '@nivo/bar'
 import { fmtEixo } from '../../lib/fmtEixo'
 import { ResponsiveLine } from '@nivo/line'
@@ -133,7 +134,10 @@ export default function OrcamentoDashPage() {
     sv.aba === 'comparativo' ? 'comparativo' : sv.aba === 'pessoas' ? 'pessoas' : 'orcamento')
   const [secOrc, setSecOrc] = useState<SecCfg>(SEC_PADRAO)
   const [metas, setMetas] = useState<IndicadorMeta[]>([])
-  const [indicSel, setIndicSel] = useState<string[]>(arr(sv.indicSel) || [])
+  const [indicSel, setIndicSel] = useState<string[]>(() => {
+    const a = arr(sv.indicSel) || [], b = arr(sv.linhaSel) || []
+    return b.length ? [...a, ...b] : a
+  })
   const [pickIndic, setPickIndic] = useState(false)
   // Seção irmã, para linhas que NÃO são indicador — receita bruta, despesas
   // totais, um subtotal qualquer. Aqui vazio = NENHUMA, ao contrário dos
@@ -143,8 +147,12 @@ export default function OrcamentoDashPage() {
   // final, aqui a pergunta pode ser "EBITDA por empresa" ou "receita por
   // empresa". Vazio = segue a da ponte, que é o padrão útil.
   const [empLinha, setEmpLinha] = useState<string>(sv.empLinha || '')
-  const [linhaSel, setLinhaSel] = useState<string[]>(arr(sv.linhaSel) || [])
-  const [pickLinha, setPickLinha] = useState(false)
+  // ⚠ `linhaSel` morreu como ESTADO e sobrevive como LEITURA: cards e
+  // localStorage antigos ainda a têm, e a fusão os absorve concatenando.
+  // Medido antes de fundir: dos 5 cards salvos, **nenhum** usava `linhaSel`
+  // (todos de /dashboard, que nem tinha a seção), então não há caso ambíguo —
+  // "indicSel vazio = todos" convivia com "linhaSel vazio = nenhuma", e só a
+  // combinação das duas vazias existia de fato.
   // ⚠ O BRUTO fica no estado e o gráfico é DERIVADO. Antes o cálculo morava
   // dentro de `carregar`, então trocar a linha de resultado da aba Orçamento
   // recarregava a tela INTEIRA — todos os cartões trocados por "Calculando…"
@@ -262,7 +270,8 @@ export default function OrcamentoDashPage() {
     if (f.capDesp) setCapDesp(f.capDesp)
     if (f.capExcl) setCapExcl(f.capExcl)
     if (f.capPar) setCapPar(f.capPar)
-    f.aba && setAba(f.aba); Array.isArray(f.indicSel) && setIndicSel(f.indicSel); Array.isArray(f.linhaSel) && setLinhaSel(f.linhaSel); f.empLinha !== undefined && setEmpLinha(f.empLinha)
+    f.aba && setAba(f.aba); if (Array.isArray(f.indicSel) || Array.isArray(f.linhaSel))
+      setIndicSel([...(Array.isArray(f.indicSel) ? f.indicSel : []), ...(Array.isArray(f.linhaSel) ? f.linhaSel : [])]); f.empLinha !== undefined && setEmpLinha(f.empLinha)
     if (f.mesIni) setMesIni(f.mesIni); if (f.mesFim) setMesFim(f.mesFim)
     f.empresaSel && setEmpresaSel(f.empresaSel); f.filialSel && setFilialSel(f.filialSel)
     f.ccSel && setCcSel(f.ccSel); f.areaSel && setAreaSel(f.areaSel)
@@ -372,7 +381,7 @@ export default function OrcamentoDashPage() {
   // guardam a mesma coisa. Com duas listas separadas elas divergem, e o
   // sintoma é um filtro que o card silenciosamente não guarda.
   const estado = () => ({
-    relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel, empLinha,
+    relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, empLinha,
     empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, sentidoOrigem,
     capLinhas, capTercs, capArea, capImp, capDesp, capExcl, capPar,
     secPonte, secVar, secAcur, secOrc,
@@ -380,7 +389,7 @@ export default function OrcamentoDashPage() {
   useEffect(() => {
     if (cardId) return   // vendo um card: não contaminar o estado próprio da tela
     localStorage.setItem(SAVE, JSON.stringify(estado()))
-  }, [cardId, relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, linhaSel, empLinha,
+  }, [cardId, relId, vBase, modo, vComp, mesIni, mesFim, proj, aba, indicSel, empLinha,
       empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, sentidoOrigem, capLinhas, capTercs, capArea, capImp, capDesp, capExcl, capPar, secPonte, secVar, secAcur, secOrc]) // eslint-disable-line
 
   const meses = useMemo(() => Array.from({ length: Math.max(0, mesFim - mesIni + 1) }, (_, i) => mesIni + i), [mesIni, mesFim])
@@ -1051,7 +1060,6 @@ export default function OrcamentoDashPage() {
         <VisaoOrcamento S={S} cfg={secOrc} setCfg={setSecOrc} linhas={linhas} nome={nome} val={val} fac={fac}
           base={dados.base} comp={dados.comp} mensal={dados.mensalBase} meses={meses} MES={MES}
           metas={metas} anoBase={anoBase} indicSel={indicSel} setIndicSel={setIndicSel} pick={pickIndic} setPick={setPickIndic}
-          linhaSel={linhaSel} setLinhaSel={setLinhaSel} pickLinha={pickLinha} setPickLinha={setPickLinha}
           empLinha={empLinha} setEmpLinha={setEmpLinha}
           porEmp={porEmp} porArea={porArea} setDrill={setDrill} restritos={restritos}
           arvBase={dados.arvBase} arvComp={dados.arvComp}
@@ -1155,68 +1163,6 @@ function CardLinha({ l, val, fac, base, comp, metas, anoBase, rotuloComp, arrast
 }
 
 // ── Seletor com ORDEM (as duas seções usam o mesmo) ──
-function PickerLinhas({ titulo, nota, candidatos, sel, setSel, fechar }: any) {
-  const noPainel = sel.map((id: string) => candidatos.find((l: LinhaRel) => l.id === id)).filter(Boolean) as LinhaRel[]
-  const fora = candidatos.filter((l: LinhaRel) => !sel.includes(l.id))
-  const [busca, setBusca] = useState('')
-  const foraVis = busca.trim()
-    ? fora.filter((l: LinhaRel) => (l.descricao || '').toLowerCase().includes(busca.trim().toLowerCase()))
-    : fora
-  const mover = (i: number, d: number) => {
-    const n = [...sel]; const j = i + d
-    if (j < 0 || j >= n.length) return
-    ;[n[i], n[j]] = [n[j], n[i]]; setSel(n)
-  }
-  const lin: any = { display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', fontSize: 13, borderBottom: '1px solid var(--border)' }
-  const mini: any = { background: 'none', border: 0, color: 'var(--muted)', cursor: 'pointer', padding: 2, display: 'inline-flex' }
-  const bt: any = { padding: '6px 12px', fontSize: 12.5, borderRadius: 7, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)', cursor: 'pointer' }
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }} onClick={fechar}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--border-strong)', borderRadius: 14, padding: 20, width: 460, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={(e: any) => e.stopPropagation()}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>{titulo}</div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{nota}</div>
-
-        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--faint)', fontWeight: 600, margin: '0 0 6px' }}>No painel ({noPainel.length})</div>
-        {!noPainel.length ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0 10px' }}>Nenhuma escolhida ainda.</div>
-        ) : (
-          <div style={{ border: '1px solid var(--border)', borderRadius: 8, marginBottom: 14, overflow: 'hidden' }}>
-            {noPainel.map((l, i) => (
-              <div key={l.id} style={{ ...lin, borderBottom: i === noPainel.length - 1 ? 'none' : lin.borderBottom }}>
-                <span style={{ width: 20, color: 'var(--faint)', fontSize: 11, textAlign: 'right' }}>{i + 1}</span>
-                <span style={{ flex: 1, color: 'var(--text)' }}>{l.descricao}</span>
-                <button style={{ ...mini, opacity: i === 0 ? 0.3 : 1 }} disabled={i === 0} title="Subir" onClick={() => mover(i, -1)}><ChevronUp size={14} /></button>
-                <button style={{ ...mini, opacity: i === noPainel.length - 1 ? 0.3 : 1 }} disabled={i === noPainel.length - 1} title="Descer" onClick={() => mover(i, 1)}><ChevronDown size={14} /></button>
-                <button style={{ ...mini, color: 'var(--red)' }} title="Tirar do painel" onClick={() => setSel(sel.filter((x: string) => x !== l.id))}>✕</button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 6px' }}>
-          <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--faint)', fontWeight: 600 }}>Disponíveis ({foraVis.length})</span>
-          <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="buscar…"
-            style={{ marginLeft: 'auto', padding: '4px 9px', fontSize: 12.5, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', width: 150 }} />
-        </div>
-        <div style={{ border: '1px solid var(--border)', borderRadius: 8, maxHeight: 240, overflowY: 'auto' }}>
-          {!foraVis.length ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 10px' }}>{busca ? 'Nada com esse texto.' : 'Todas já estão no painel.'}</div> : foraVis.map((l: LinhaRel, i: number) => (
-            <div key={l.id} style={{ ...lin, cursor: 'pointer', borderBottom: i === foraVis.length - 1 ? 'none' : lin.borderBottom }}
-              onClick={() => setSel([...sel, l.id])}>
-              <span style={{ flex: 1, color: 'var(--muted)' }}>{l.descricao}</span>
-              <span style={{ color: 'var(--violet)', fontSize: 12, fontWeight: 600 }}>+ adicionar</span>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
-          <button style={bt} onClick={() => setSel([])}>Limpar</button>
-          <button style={{ ...bt, borderColor: 'var(--violet)', color: 'var(--violet)' }} onClick={fechar}>Fechar</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ============================================================
 /**
  * Agrega o `dashboard_cc_agg` por ÁREA e por CC de nível 2 — só o ORÇADO.
@@ -1301,11 +1247,22 @@ function agregarPorArea(rows: any[], linhas: LinhaRel[], ccs: CC[]) {
  * discreto nos cards — referência, não protagonista; quem quiser comparar de
  * verdade tem a aba ao lado.
  */
-function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, mensal, meses, MES, metas, anoBase, indicSel, setIndicSel, pick, setPick, linhaSel, setLinhaSel, pickLinha, setPickLinha, empLinha, setEmpLinha, porEmp, porArea, setDrill, rotuloBase, rotuloComp, restritos, arvBase, arvComp }: any) {
+function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, mensal, meses, MES, metas, anoBase, indicSel, setIndicSel, pick, setPick, empLinha, setEmpLinha, porEmp, porArea, setDrill, rotuloBase, rotuloComp, restritos, arvBase, arvComp }: any) {
   // Cards = linhas INDICADOR e FORMULA da estrutura. É o que o relatório já
   // declara como "medida" — nada hardcoded, e indicador novo aparece sozinho.
-  const candidatos = useMemo(
+  // ⚠⚠ UMA LISTA SÓ — indicador, fórmula e linha de relatório juntos (26/nov).
+  // Eram dois quadros com duas seleções e dois escopos de arrasto, e a
+  // fronteira não significava nada para quem monta painel: pôr *Receita* ao
+  // lado do *EBITDA* era impossível por acidente de arquitetura, não por
+  // decisão. Os dois são `relatorio_linha`; um array de ids descreve os dois.
+  // ⚠ `medidas` continua separada porque é o DEFAULT: nada escolhido = as
+  // medidas que a estrutura define, nunca as ~170 linhas (seção que nasce com
+  // 170 cartões é tão inútil quanto a que nasce vazia).
+  const medidas = useMemo(
     () => linhas.filter((l: LinhaRel) => (l.tipo_linha === 'INDICADOR' || l.tipo_linha === 'FORMULA') && !l.desativada),
+    [linhas])
+  const candidatos = useMemo(
+    () => linhas.filter((l: LinhaRel) => l.tipo_linha !== 'ESPACO' && !l.desativada),
     [linhas])
   // `indicSel` é a ORDEM, não só o filtro. A ordem da estrutura chega
   // embaralhada aqui porque as linhas de indicador ficam espalhadas pela
@@ -1315,15 +1272,7 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
   // Vazio = todos, na ordem da estrutura. Seção que nasce vazia parece quebrada.
   const cards = indicSel.length
     ? indicSel.map((id: string) => candidatos.find((l: LinhaRel) => l.id === id)).filter(Boolean) as LinhaRel[]
-    : candidatos
-
-  // Seção irmã: linhas que NÃO são indicador — receita bruta, despesas totais,
-  // um subtotal. Aqui vazio = NENHUMA (são centenas; "todas" seria ruído), e
-  // por isso a seção explica em vez de aparecer vazia.
-  const linhasCard = useMemo(
-    () => linhas.filter((l: LinhaRel) => l.tipo_linha !== 'ESPACO' && l.tipo_linha !== 'INDICADOR' && l.tipo_linha !== 'FORMULA' && !l.desativada),
-    [linhas])
-  const cardsLinha = linhaSel.map((id: string) => linhasCard.find((l: LinhaRel) => l.id === id)).filter(Boolean) as LinhaRel[]
+    : medidas
 
   // Arrastar o card é o gesto natural para reordenar; o modal continua, para
   // escolher QUAIS. Como `indicSel` já é a ordem, arrastar só reordena o array.
@@ -1335,8 +1284,8 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
   const [semCC, setSemCC] = useState<{ rotulo: string; valor: number } | null>(null)
   const [arrasto, setArrasto] = useState<string | null>(null)
   const [sobre, setSobre] = useState<string | null>(null)
-  // Uma fábrica por seção: arrastar dentro de uma não pode mexer na ordem da
-  // outra, e as duas listas são independentes.
+  // Uma fábrica só, agora que a lista é uma: arrastar atravessa indicador e
+  // linha de relatório, que era justamente o que não dava.
   const fazSoltar = (ordemAtual: string[], visiveis: LinhaRel[], setOrdem: (v: string[]) => void) => (destinoId: string) => {
     const origemId = arrasto
     setArrasto(null); setSobre(null)
@@ -1351,7 +1300,6 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
                   onAbrir: (id: string) => setMemoria(id),
                   decompoe: (l: LinhaRel) => componentesMem(l as any, linhas as any).length > 0 }
   const cardProps = { ...comum, soltar: fazSoltar(indicSel, cards, setIndicSel) }
-  const cardPropsLinha = { ...comum, soltar: fazSoltar(linhaSel, cardsLinha, setLinhaSel) }
 
   // Cada gráfico entra no drill pelo SEU nó. Clicar em "Despesas por área" e
   // cair em Receitas é o que acontecia quando todos usavam a linha de
@@ -1418,10 +1366,11 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
       })()}
       <div style={S.sec}>
         <div style={S.secH}>
-          <div><div style={S.secT}>Indicadores do orçamento</div>
+          <div><div style={S.secT}>Cartões do painel</div>
             <div style={S.secD}>
-              As medidas que a <strong>estrutura do relatório</strong> já define, com o valor orçado de {rotuloBase}.
-              O Δ compara com {rotuloComp}. <span style={{ color: 'var(--faint)' }}>Arraste um card para reordenar.</span>
+              <strong>Indicadores e linhas do relatório na mesma lista</strong> — dá para pôr <em>Receita</em> ao lado
+              do <em>EBITDA</em>. Orçado de {rotuloBase}; o Δ compara com {rotuloComp}.
+              {' '}<span style={{ color: 'var(--faint)' }}>Arraste um card para reordenar, ou use as setas em Escolher.</span>
             </div></div>
           <button style={{ ...S.sel, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
             onClick={() => setPick(true)} data-noexport>
@@ -1430,34 +1379,12 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
         </div>
         {!cards.length ? (
           <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-            Este relatório não tem linhas de indicador ou fórmula. Crie-as em <strong>Estruturas de relatórios</strong> e elas aparecem aqui.
+            Nada escolhido e este relatório não tem linha de indicador ou fórmula para servir de padrão.
+            Use <strong>Escolher</strong> para pôr qualquer linha no painel.
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
             {cards.map((l: LinhaRel) => <CardLinha key={l.id} l={l} {...cardProps} />)}
-          </div>
-        )}
-      </div>
-
-      <div style={S.sec}>
-        <div style={S.secH}>
-          <div><div style={S.secT}>Linhas do relatório</div>
-            <div style={S.secD}>
-              Para acompanhar linhas que <strong>não são indicador</strong> — receita bruta, despesas totais, um subtotal.
-              Orçado de {rotuloBase}; o Δ compara com {rotuloComp}.
-            </div></div>
-          <button style={{ ...S.sel, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            onClick={() => setPickLinha(true)} data-noexport>
-            <ListChecks size={13} /> Escolher{linhaSel.length ? ` (${linhaSel.length})` : ''}
-          </button>
-        </div>
-        {!cardsLinha.length ? (
-          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-            Nenhuma linha escolhida. Use <strong>Escolher</strong> — são centenas de linhas, então nada aparece até você dizer quais interessam.
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
-            {cardsLinha.map((l: LinhaRel) => <CardLinha key={l.id} l={l} {...cardPropsLinha} />)}
           </div>
         )}
       </div>
@@ -1615,10 +1542,8 @@ function VisaoOrcamento({ S, cfg, setCfg, linhas, nome, val, fac, base, comp, me
         </div>
       )}
 
-      {pick && <PickerLinhas titulo="Indicadores no painel" candidatos={candidatos} sel={indicSel} setSel={setIndicSel} fechar={() => setPick(false)}
-        nota="A ordem desta lista é a ordem dos cards. Sem nenhum escolhido, aparecem todos na ordem da estrutura — que vem embaralhada, porque na DRE cada indicador fica perto da sua seção." />}
-      {pickLinha && <PickerLinhas titulo="Linhas no painel" candidatos={linhasCard} sel={linhaSel} setSel={setLinhaSel} fechar={() => setPickLinha(false)}
-        nota="A ordem desta lista é a ordem dos cards. Aqui nada aparece até você escolher — são centenas de linhas." />}
+      {pick && <PickerLinhas titulo="Cartões do painel" candidatos={candidatos} sel={indicSel} setSel={setIndicSel} fechar={() => setPick(false)}
+        nota="Indicadores e linhas do relatório na MESMA lista, e a ordem dela é a ordem dos cards. Sem nenhum escolhido, aparecem as medidas da estrutura (indicador e fórmula) na ordem em que ela as traz — embaralhada, porque na DRE cada indicador fica perto da sua seção." />}
     </>
   )
 }

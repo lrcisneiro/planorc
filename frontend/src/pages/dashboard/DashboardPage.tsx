@@ -23,7 +23,8 @@ import IndicCard from './IndicCard'
 import type { IC } from './IndicCard'
 import { carregarMetas, resolverMeta } from '../../lib/indicadorMeta'
 import type { IndicadorMeta } from '../../lib/indicadorMeta'
-import { Checklist, effectiveCcFilter, escopoFiltro, ExportarButton, FiltrosButton, ModalPanel, MoedaSelect, PeriodoButton, PillsDim, SalvarCardButton, useCardPreset, useMoedaView, BotaoDiscreto } from './DashFiltros'
+import { effectiveCcFilter, escopoFiltro, ExportarButton, FiltrosButton, MoedaSelect, PeriodoButton, PillsDim, SalvarCardButton, useCardPreset, useMoedaView, BotaoDiscreto } from './DashFiltros'
+import { PickerLinhas } from '../../lib/PickerLinhas'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { ListChecks } from 'lucide-react'
 
@@ -371,7 +372,16 @@ export default function DashboardPage() {
       setQparams({ empIds, anos, meses, filFilter, ccFilter })
 
       // cards dinâmicos: linhas de apoio/indicador do relatório (respeita visivel_dashboard) — usa o helper p/ escopo de CC
-      const indicLines = linhas.filter(l => (l.tipo_linha === 'INDICADOR' || l.nao_soma) && l.visivel_dashboard !== false)
+      // ⚠⚠ TODA LINHA PODE VIRAR CARTÃO (26/nov). Era só INDICADOR/`nao_soma`,
+      // então pôr *Receita* ao lado do *EBITDA* era impossível — e a razão era
+      // acidente de arquitetura, não decisão: no banco os dois são
+      // `relatorio_linha`, distintos só pelo `tipo_linha`.
+      // ⚠ `visivel_dashboard !== false` fica e vira o opt-out explícito da
+      // linha. Medido na DRE Gerencial: ele é `true` em 162 das 166 linhas
+      // ativas, então alargar não esconde nada por omissão.
+      // ⚠ Isto NÃO enche a tela: a seção percorre `indicSel`, e vazio = nenhum
+      // cartão. Aumentar o que se OFERECE não muda o que se MOSTRA.
+      const indicLines = linhas.filter(l => l.tipo_linha !== 'ESPACO' && !l.desativada && l.visivel_dashboard !== false)
         .sort((a, b) => (seqOrd[a.id] ?? 9999) - (seqOrd[b.id] ?? 9999))
       // ⚠⚠ ESTES TOTAIS RESPEITAM O `filtro_escopo` DA LINHA, e `tOrc`/`tReal`
       // não. Eram "duas verdades" convivendo: o cartão de *Margem Sustentação*
@@ -841,7 +851,7 @@ export default function DashboardPage() {
         <button style={S.btn} onClick={load} title="Recarregar"><RefreshCw size={13} /></button>
         <SalvarCardButton base="/dashboard" cor="#3b5bdb" cardId={cardId} getFiltros={() => ({ relId, versaoId, agrupId, periodosSel, empresaSel, filialSel, ccSel, areaSel, divisaoSel, buSel, indicSel })} />
         <ExportarButton alvo={dashRef} nome="dre-acompanhamento" titulo={`DRE — Acompanhamento${cardNome ? ` · ${cardNome}` : ''}`} legenda={`${escopoNome} · ${anosOrd.join(', ')} · ${mesesSel.length === 12 ? 'todos os meses' : `${mesesSel.length} meses`}`} />
-        {indicCards.length > 0 && <button style={S.btn} onClick={() => setPickIndic(true)} title="Escolher quais indicadores exibir"><ListChecks size={13} /> Indicadores{indicSel.length ? ` (${indicSel.length})` : ''}</button>}
+        {indicCards.length > 0 && <button style={S.btn} onClick={() => setPickIndic(true)} title="Escolher e ordenar os cartões do painel"><ListChecks size={13} /> Cartões{indicSel.length ? ` (${indicSel.length})` : ''}</button>}
         {loading && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Carregando…</span>}
       </div>
 
@@ -853,11 +863,14 @@ export default function DashboardPage() {
         <PillsDim ccs={acessoDash.filterList('centro_custo', ccs as any) as any}
           codKey="divisao_cod" nomeKey="divisao_nome" titulo="Divisão" sel={divisaoSel} setSel={setDivisaoSel} />
       </div>
+      {/* ⚠ `PickerLinhas` no lugar do `Checklist`: o checklist dizia QUAIS e não
+          dizia em que ORDEM, e `indicSel` é a ordem desde 23/nov. O arrasto no
+          card resolvia metade — quem monta o painel pelo modal não tinha como.
+          É o MESMO componente da análise de orçamento, de propósito. */}
       {pickIndic && (
-        <ModalPanel titulo="Indicadores a exibir" onClose={() => setPickIndic(false)} width="min(520px, calc(100vw - 40px))">
-          <Checklist titulo="Indicadores" items={indicCards.map(c => ({ id: c.id, codigo: '', descricao: c.label }))} sel={indicSel} setSel={setIndicSel} />
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Vazio = mostra todos. Use para esconder indicadores que não fazem sentido neste preset (ex.: EBITDA num recorte por CC).</div>
-        </ModalPanel>
+        <PickerLinhas titulo="Cartões do painel" sel={indicSel} setSel={setIndicSel} fechar={() => setPickIndic(false)}
+          candidatos={indicCards.map(c => ({ id: c.id, descricao: c.label, tipo_linha: byIdRel[c.id]?.tipo_linha, formato: c.formato }))}
+          nota="Indicadores e linhas do relatório na MESMA lista — dá para pôr Receita ao lado do EBITDA. A ordem desta lista é a ordem dos cards; arrastar o card na tela faz o mesmo." />
       )}
       <div style={S.chip}>{chip}</div>
 
@@ -890,7 +903,7 @@ export default function DashboardPage() {
             return vis.length > 0 && (
             <>
               <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600, margin: '16px 0 8px' }}>
-                Indicadores do relatório
+                Cartões do painel
                 <span data-noexport style={{ marginLeft: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 400, color: 'var(--faint)' }}>
                   clique para a memória de cálculo · arraste para reordenar
                 </span>

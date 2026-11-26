@@ -2121,6 +2121,32 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   `val`/`fatorExibicao` (despesa positiva) e a ponte usa o sinal econômico cru, que é a exceção
   já declarada neste documento.
 
+- ⚠⚠ **INDICADOR E LINHA DE RELATÓRIO VIRARAM UMA LISTA SÓ (26/nov).** Eram dois quadros, duas
+  seleções (`indicSel` × `linhaSel`) e **dois escopos de arrasto** — `fazSoltar` dizia por escrito
+  que "arrastar dentro de uma não pode mexer na ordem da outra". O pedido que derrubou isso foi
+  *"queria pôr Receita ao lado do EBITDA e não consigo, porque estão em quadros diferentes"*: a
+  fronteira era **acidente de arquitetura, não decisão**, e no banco os dois são a mesma coisa —
+  linhas de `relatorio_linha`, distintas só pelo `tipo_linha`. Por isso a fusão saiu **sem campo
+  novo e sem migration**: um array de `relatorio_linha.id` já descrevia as duas.
+  ⚠ **`medidas` sobrevive como DEFAULT, não como seção.** Nada escolhido = indicador + fórmula na
+  ordem da estrutura; a lista de escolha oferece **tudo**. Seção que nasce com 170 cartões é tão
+  inútil quanto a que nasce vazia — e era essa a diferença real entre as duas, não o conteúdo.
+  ⚠ **O que se OFERECE cresceu; o que se MOSTRA não.** A seção percorre a seleção, então ampliar
+  os candidatos de 23 para 162 não muda uma tela sequer até alguém escolher.
+  ⚠ **A etiqueta por linha é o que a fronteira tinha de útil** (`%` · `indicador` · `fórmula`):
+  numa lista única, sem ela não se distingue *% EBITDA* (pontos percentuais) de *Marketing*
+  (reais). Separar em quadros para dizer isso era caro demais pelo que informava.
+  **Compatibilidade, medida antes de fundir:** dos 5 cards salvos **nenhum** usava `linhaSel`
+  (todos de `/dashboard`, que nem tinha a seção), então o caso ambíguo — *"indicSel vazio = todos"*
+  convivendo com *"linhaSel vazio = nenhuma"* — **não existia no dado**. A leitura concatena as
+  duas chaves e a escrita grava só `indicSel`; build antigo lendo esse card descarta os ids de
+  linha no `.filter(Boolean)` e mostra só os indicadores — **degrada, não quebra**.
+  ⚠ No **DRE** o `Checklist` virou o mesmo `PickerLinhas`: o checklist dizia QUAIS e não dizia em
+  que ORDEM, e `indicSel` é a ordem desde 23/nov — o arrasto no card resolvia metade, e quem
+  monta o painel pelo modal não tinha como. **`lib/PickerLinhas.tsx`**, porque a peça atravessa as
+  duas telas e copiar é o jeito de elas divergirem na primeira alteração (`fmtEixo`, modo discreto).
+  ⚠ `ExecutivoPage` ficou de fora: não tem seletor, só a lista fixa.
+
 - **Indicadores do acompanhamento reordenam por arrasto (23/nov) — sem campo novo.** `indicSel`
   **já era** a lista de quais exibir, já persistida no localStorage e no preset do card; só não
   era usada como ORDEM, porque a renderização filtrava `indicCards` (ordem da estrutura) em vez
