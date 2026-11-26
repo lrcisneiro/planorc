@@ -150,7 +150,12 @@ END $function$
 -- ---------------- conferência ----------------
 SELECT '1 · assinaturas vivas de ressincronizar_cenario' AS secao,
        pg_get_function_identity_arguments(p.oid) AS chave,
-       CASE WHEN pg_get_function_identity_arguments(p.oid) = 'uuid, boolean, uuid'
+       -- ⚠ `pg_get_function_identity_arguments` devolve os argumentos COM OS
+       -- NOMES ("p_versao uuid, …"), não só os tipos. A primeira versão desta
+       -- conferência comparava com 'uuid, boolean, uuid' e chamava de ANTIGA a
+       -- função certa — a migration tinha aplicado, o teste é que mentia.
+       -- `pronargs` não depende de nome nem de formatação.
+       CASE WHEN p.pronargs = 3
             THEN '✅ a nova (com p_linha)' ELSE '⛔ ANTIGA — derrube-a, senão a RPC fica ambígua' END AS info,
        '' AS det
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'public'
