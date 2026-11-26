@@ -79,6 +79,12 @@ export default function AmarracaoPage() {
   const [selLinha, setSelLinha] = useState<string>('')  // relatorio_linha id (alvo)
   const [soNaoAmarradas, setSoNaoAmarradas] = useLocalPref('planorc_amarracao_so_nao_amarradas', false)
   const [soComMov, setSoComMov] = useLocalPref('planorc_amarracao_so_com_mov', false)
+  // ⚠ PADRÃO LIGADO. A estrutura é UMA só e recebe contas de TODOS os planos —
+  // quem amarra a AVENTUM via, sob cada linha, as contas da Bolívia e do
+  // Protheus junto, e a conta que importa some no meio. O que se está fazendo
+  // ali é o de-para de UM plano (o do seletor acima), então o padrão é mostrar
+  // o que se está editando; ver o conjunto inteiro é o caso raro e vira toggle.
+  const [soPlano, setSoPlano] = useLocalPref('planorc_amarracao_so_plano', true)
   // versão do orçamento que define o ANO do filtro de movimento. '' = todos os anos
   // (caso do balanço patrimonial, cujo movimento relevante pode estar fora do ano).
   const [versaoId, setVersaoId] = useLocalPref('planorc_amarracao_versao', '')
@@ -114,7 +120,7 @@ export default function AmarracaoPage() {
   const masters = () => linhas.filter(l => l.tipo_linha === 'ANALITICA' && l.linha_orc_id).map(l => l.linha_orc_id) as string[]
   const loadLinks = async () => {
     const ms = masters(); if (!ms.length) { setLinks([]); return }
-    const rows = await fetchAll(() => supabase.from('conta_linha').select('id,conta_id,linha_id,sinal, conta_contabil(codigo,descricao)').in('linha_id', ms))
+    const rows = await fetchAll(() => supabase.from('conta_linha').select('id,conta_id,linha_id,sinal, conta_contabil(codigo,descricao,plano_id)').in('linha_id', ms))
     setLinks(rows)
   }
   useEffect(() => {
@@ -374,7 +380,16 @@ export default function AmarracaoPage() {
 
         {/* DIREITA: relatório */}
         <div style={S.pane}>
-          <div style={S.paneH}><span>Estrutura do relatório ({visible.length})</span><span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400 }}>clique numa linha analítica</span></div>
+          <div style={S.paneH}>
+            <span>Estrutura do relatório ({visible.length})</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, color: 'var(--muted)', fontWeight: 400 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
+                     title="Mostra, sob cada linha, só as contas do plano selecionado acima. Desligado, mostra as de todos os planos.">
+                <input type="checkbox" checked={soPlano} onChange={e => setSoPlano(e.target.checked)} /> só deste plano
+              </label>
+              <span>clique numa linha analítica</span>
+            </span>
+          </div>
           <div style={{ padding: '0 10px' }}>
             <div style={{ position: 'relative' }}>
               <Search size={13} style={{ position: 'absolute', left: 8, top: 17, color: 'var(--border-strong)' }} />
@@ -395,13 +410,23 @@ export default function AmarracaoPage() {
                 )
               }
               const sel = l.id === selLinha
-              const ls = linksByMaster[l.linha_orc_id || ''] || []
+              const lsAll = linksByMaster[l.linha_orc_id || ''] || []
+              // ⚠ O corte é DITO, nunca calado: com o toggle ligado, linha que
+              // só tem conta de outro plano mostraria "sem contas" — e quem lê
+              // concluiria que falta amarrar algo que está amarrado. Por isso o
+              // contador separa as duas quantidades.
+              const ls = soPlano ? lsAll.filter(m => !planoId || m.conta_contabil?.plano_id === planoId) : lsAll
+              const outras = lsAll.length - ls.length
               return (
                 <div key={l.id} style={{ marginLeft: ind, border: '1px solid ' + (sel ? 'var(--violet)' : 'var(--panel)'), borderRadius: 8, marginBottom: 4, overflow: 'hidden' }}>
                   <div onClick={() => setSelLinha(l.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', cursor: 'pointer', fontSize: 13, background: sel ? 'rgba(139,92,246,0.14)' : 'var(--panel)' }}>
                     <span style={{ ...S.code, minWidth: 80 }}>{l.codigo}</span>
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.descricao}</span>
-                    <span style={{ fontSize: 11, color: ls.length ? 'var(--green)' : 'var(--border-strong)' }}>{ls.length ? `🔗 ${ls.length}` : 'sem contas'}</span>
+                    <span style={{ fontSize: 11, color: ls.length ? 'var(--green)' : 'var(--border-strong)' }}>
+                      {ls.length ? `🔗 ${ls.length}` : (outras ? '' : 'sem contas')}
+                      {!!outras && <span style={{ color: 'var(--muted)' }} title="Amarradas a esta linha, mas de outro plano de contas — desligue “só deste plano” para vê-las.">
+                        {ls.length ? ' · ' : ''}+{outras} de outro plano</span>}
+                    </span>
                   </div>
                   {ls.map(m => (
                     <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px 4px 22px', fontSize: 12, borderTop: '1px solid var(--bg)', background: 'var(--bg-soft)' }}>
