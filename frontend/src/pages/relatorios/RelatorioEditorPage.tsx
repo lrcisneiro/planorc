@@ -904,6 +904,11 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // snapshot LAZY: cria o ponto só na 1ª alteração da sessão (captura o estado de ANTES).
   // Consultar o relatório não gera ponto. Resetado ao trocar de relatório.
   useEffect(() => { autoSnapRef.current = false }, [id])
+  // Trava síncrona do "Adicionar linha" + o estado que dá o retorno visual.
+  // O ref é quem IMPEDE (vale no mesmo tick); o estado só informa.
+  const addBusyRef = useRef(false)
+  const [addBusy, setAddBusy] = useState(false)
+
   const ensureSnapshot = useCallback(async () => {
     if (autoSnapRef.current || !id) return
     autoSnapRef.current = true   // marca antes do await p/ evitar duplicar em edições rápidas
@@ -1682,6 +1687,17 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     // inclusão POSICIONADA: insere na posição certa do grupo e reordena (ordem limpa *10)
     const addEstrutura = async () => {
       if (!newDesc.trim() || !id || !adding) return
+      // ⚠⚠ `disabled` NÃO TRAVA CLIQUE REPETIDO — `setState` só vale no render
+      // seguinte, então o segundo clique vê o botão ainda liberado. Aqui não
+      // havia trava NENHUMA (nem `disabled`), e `addEstrutura` é disparada
+      // pelo botão E pelo Enter: dois toques criaram duas linhas, com dois
+      // masters, porque o código é `L${Date.now()}` e um segundo de diferença
+      // já dá códigos distintos — nem a chave única salvava.
+      // A trava é um `useRef` SÍNCRONO, a mesma lição do rateio (17/nov).
+      if (addBusyRef.current) return
+      addBusyRef.current = true
+      setAddBusy(true)
+      try {
       await ensureSnapshot()
       const paiId = adding.paiId
       const sibs = linhas.filter(l => l.pai_id === paiId).sort((a, b) => (a.ordem ?? 9999) - (b.ordem ?? 9999))
@@ -1695,9 +1711,16 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       const { data: nl, error } = await supabase.from('relatorio_linha').insert({ relatorio_id: id, pai_id: paiId, descricao: newDesc.trim(), codigo, tipo_linha: 'ANALITICA', natureza: 'NEUTRO', ordem: 0, formato: 'NUMERO', casas_decimais: 0, linha_orc_id: master?.id ?? null }).select('id').single()
       if (error || !nl) { alert('Erro ao incluir linha: ' + (error?.message || '')); return }
       const ordered = [...sibs]; ordered.splice(insertIdx, 0, { id: nl.id } as Linha)
-      for (let k = 0; k < ordered.length; k++) await supabase.from('relatorio_linha').update({ ordem: (k + 1) * 10 }).eq('id', ordered[k].id)
+      // ⚠ EM PARALELO, não em série. Eram N idas ao banco uma após a outra —
+      // sob "Receitas TOTVS" são 11 irmãs, ~1,7 s só nisto, e é o que fazia a
+      // tela parecer travada e convidava ao segundo clique. Os UPDATEs são
+      // independentes entre si (cada um escreve a `ordem` de uma linha), então
+      // a ordem de execução não importa; o que importava era a espera.
+      await Promise.all(ordered.map((o, k) =>
+        supabase.from('relatorio_linha').update({ ordem: (k + 1) * 10 }).eq('id', o.id)))
       setAdding(null); setAddAfterId(null); setNewDesc('')
       await loadRelatorio()
+      } finally { addBusyRef.current = false; setAddBusy(false) }
     }
     const inputRow = (paiId: string | null, depth: number) => (
       <tr><td colSpan={simShow ? 7 : 4} style={{ padding: '6px 10px', paddingLeft: 10 + depth * 18 }}>
@@ -1705,8 +1728,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           <input autoFocus value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder={paiId ? 'Nome da linha filha' : 'Nome da linha'}
             style={{ width: 280, background: '#0c0c14', border: '1px solid var(--violet)', borderRadius: 6, color: 'var(--text)', fontSize: 13, padding: '5px 9px', outline: 'none' }}
             onKeyDown={e => { if (e.key === 'Enter') addEstrutura(); if (e.key === 'Escape') { setAdding(null); setAddAfterId(null); setNewDesc('') } }} />
-          <button style={{ ...S.btnGreen, padding: '5px 12px' }} onClick={addEstrutura}>Adicionar</button>
-          <button style={{ ...S.btnGray, padding: '5px 10px' }} onClick={() => { setAdding(null); setAddAfterId(null); setNewDesc('') }}>Cancelar</button>
+          <button style={{ ...S.btnGreen, padding: '5px 12px', opacity: addBusy ? 0.6 : 1 }}
+            disabled={addBusy} onClick={addEstrutura}>{addBusy ? 'Incluindo…' : 'Adicionar'}</button>
+          <button style={{ ...S.btnGray, padding: '5px 10px' }} disabled={addBusy}
+            onClick={() => { setAdding(null); setAddAfterId(null); setNewDesc('') }}>Cancelar</button>
         </span>
       </td></tr>
     )
