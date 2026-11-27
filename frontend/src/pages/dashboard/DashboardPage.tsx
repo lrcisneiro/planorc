@@ -289,7 +289,6 @@ export default function DashboardPage() {
   const [desvios, setDesvios] = useState<any[]>([])
   // gráficos por Área / Centro de Custo (cruzam CC × natureza da linha)
   const [recAreaLinhas, setRecAreaLinhas] = useState<any[]>([])   // receitas por área: realizado (cheia) + orçado (tracejada)
-  const [recAreaFora, setRecAreaFora] = useState<string[]>([])    // áreas com receita que o recorte deixou de fora
   const [despGrupos, setDespGrupos] = useState<{ titulo: string; linhas: any[] }[]>([])  // despesas por grupo de área
   const [recDespLinhas, setRecDespLinhas] = useState<any[]>([])   // 3: evolução receitas × despesas (linhas)
   const [recAreaBar, setRecAreaBar] = useState<any[]>([])         // 2: receitas por área O×R+Δ (barras)
@@ -677,12 +676,15 @@ export default function DashboardPage() {
         return out
       }
       const recAreaLinhasD = serieArea(recAreaMesA, recAreaMesAOrc, AREAS_RECEITA)
-      // ⚠ O CORTE É DITO: área com receita fora de Comercial/Serviços não some
-      // calada — o cartão a nomeia. Sem isso, receita que exista num CSC vira
-      // um buraco que só aparece quando alguém soma o gráfico contra o KPI.
-      const recForaD = serieArea(recAreaMesA, recAreaMesAOrc, null)
-        .filter(s => !String(s.id).includes('(orç)') && !AREAS_RECEITA.includes(codDaArea(String(s.id))))
-        .map(s => String(s.id))
+      // ⚠⚠ O CORTE NÃO É DITO AQUI, E ISSO É DELIBERADO (27/nov). A 1ª versão
+      // nomeava em laranja as áreas com receita que ficavam de fora — e elas
+      // são SEMPRE as mesmas (1-CSC e 4-Diretoria, receita que o Ricardo
+      // identificou como erro de lançamento). Aviso que acende em toda sessão
+      // deixa de avisar, como o asterisco da PLR. E o corte não fica calado:
+      // o comparativo de barras logo abaixo (`recAreaBar`) é montado de
+      // `recAreaB`, SEM filtro de área — toda área com receita aparece lá.
+      // ⚠ Ao mexer naquele gráfico, não lhe acrescente o filtro de área: é ele
+      // que impede este recorte de esconder dinheiro.
       const agrupadas = new Set(GRUPOS_DESPESA.flatMap(g => g.areas))
       const despGruposD = [
         ...GRUPOS_DESPESA.map(g => ({ titulo: g.titulo, linhas: serieArea(despAreaMesA, despAreaMesAOrc, g.areas) })),
@@ -745,7 +747,7 @@ export default function DashboardPage() {
       if (myseq !== loadSeq.current) return   // carga mais nova já começou → descarta esta
       setKpi({ resOrc: resOrcKpi, resReal: resRealKpi, recOrc: recOF, recReal: recRF, despOrc: despOF, despReal: despRF, resPrev: resPrevKpi, recPrev: recPF, despPrev: despPF, recBrutaOrc: recBrutaOF, recBrutaReal: recBrutaRF, recBrutaPrev: recBrutaPF })
       setOrcRealMes(orMes); setResMes(resMesArr); setAccLines(acc); setComposicao(comps); setCompOcultas(childrenOcultas); setFilhasMes(fMes); setCascata(steps)
-      setRecAreaLinhas(recAreaLinhasD); setRecAreaFora(recForaD); setDespGrupos(despGruposD); setRecDespLinhas(recDespLinhasD); setRecAreaBar(recAreaBarD); setDespAreaBar(despAreaBarD); setDespCcBar(despCcBarD); setRecCcBar(recCcBarD)
+      setRecAreaLinhas(recAreaLinhasD); setDespGrupos(despGruposD); setRecDespLinhas(recDespLinhasD); setRecAreaBar(recAreaBarD); setDespAreaBar(despAreaBarD); setDespCcBar(despCcBarD); setRecCcBar(recCcBarD)
       setPorEmpresa(pe); setEbitdaEmp(eb); setEbitdaPctEmp(ebPct); setDesvios(desv)
       // ⚠⚠ A ponte e os quadros leem os totais de `totaisRelatorio`, NÃO
       // `tOrc`/`tReal`: os dois passaram pelo motor, mas só o primeiro aplica o
@@ -846,6 +848,21 @@ export default function DashboardPage() {
       ))}
     </g>
   )
+
+  // ⚠⚠ A LEGENDA LISTA SÓ O REALIZADO. Cada área tem DUAS séries — a cheia e a
+  // tracejada —, e o quadradinho da legenda não sabe desenhar traço: as duas
+  // entradas saem com a MESMA cor e o MESMO símbolo, dobrando a largura para
+  // repetir o que o subtítulo já diz ("cheia = realizado · tracejada = orçado").
+  // Com 4 séries ela transbordava o cartão e caía sobre as linhas.
+  const legArea = (linhas: any[]) => linhas
+    .filter((se: any) => !String(se.id).includes('(orç)'))
+    .map((se: any) => ({ id: se.id, label: se.id, color: se.color }))
+  // ⚠ Abaixo do eixo X, não no canto superior: ancorada em cima ela disputa
+  // espaço justamente onde a linha de maior valor passa. O `bottom: 76` da
+  // margem é o que abre a faixa — mexer num sem o outro põe a legenda em cima
+  // dos rótulos dos meses.
+  const LEG_BAIXO: any = { anchor: 'bottom', direction: 'row', translateY: 62, itemWidth: 104, itemHeight: 16, symbolSize: 12, itemsSpacing: 4 }
+  const MARG_LEG = { top: 10, right: 16, bottom: 76, left: 56 }
 
   // Tooltip dos comparativos por área/CC (Orçado/Realizado/Δ; cor do Δ por bom/ruim, despesa invertida)
   const barTip = (titulo: string, data: any, desp: boolean) => {
@@ -1233,28 +1250,15 @@ export default function DashboardPage() {
           <div style={S.card}>
             <div style={S.cardT}>Receitas por área <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>
               (Comercial e Serviços · cheia = realizado · tracejada = orçado · clique p/ razão){recAreaLinVis.ocultadas > 0 && ` · ${recAreaLinVis.ocultadas / 2} não detalhada(s)`}
-              {recAreaFora.length > 0 && <span style={{ color: 'var(--orange, #f59f00)' }} title="Estas áreas têm receita e ficam fora deste gráfico. Elas continuam no comparativo de barras abaixo e nos KPIs.">
-                {' · '}fora: {recAreaFora.join(', ')}</span>}
             </span></div>
             <div style={S.chart}>
-              <ResponsiveLine theme={nivoTheme()} data={recAreaLinVis.linhas} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
+              <ResponsiveLine theme={nivoTheme()} data={recAreaLinVis.linhas} margin={MARG_LEG}
                 xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
                 colors={(s: any) => s.color} pointSize={5} pointBorderWidth={1} useMesh curve="monotoneX"
                 onClick={(p: any) => drillAreaMes(String(p.serieId), String(p.data?.x))}
                 axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }}
                 layers={['grid', 'markers', 'axes', AccLinhas, 'points', 'slices', 'mesh', 'legends']}
-                legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 110, itemHeight: 16, symbolSize: 12 }]} />
-            </div>
-          </div>
-
-          <div style={S.card}>
-            <div style={S.cardT}>Evolução Receitas × Despesas <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(realizado)</span></div>
-            <div style={S.chart}>
-              <ResponsiveLine theme={nivoTheme()} data={recDespLinhas} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
-                xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
-                colors={(s: any) => s.id === 'Receitas' ? '#2f9e44' : '#e03131'} pointSize={6} pointBorderWidth={1} useMesh curve="monotoneX"
-                axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }}
-                legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 80, itemHeight: 16, symbolSize: 12 }]} />
+                legends={[{ ...LEG_BAIXO, data: legArea(recAreaLinVis.linhas) }]} />
             </div>
           </div>
           </div>
@@ -1271,18 +1275,29 @@ export default function DashboardPage() {
                     (cheia = realizado · tracejada = orçado){g.ocultadas > 0 && ` · ${g.ocultadas / 2} não detalhada(s)`}
                   </span></div>
                   <div style={S.chart}>
-                    <ResponsiveLine theme={nivoTheme()} data={g.linhas} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
+                    <ResponsiveLine theme={nivoTheme()} data={g.linhas} margin={MARG_LEG}
                       xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
                       colors={(se: any) => se.color} pointSize={5} pointBorderWidth={1} useMesh curve="monotoneX"
                       onClick={(pt: any) => drillAreaMes(String(pt.serieId), String(pt.data?.x))}
                       axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }}
                       layers={['grid', 'markers', 'axes', AccLinhas, 'points', 'slices', 'mesh', 'legends']}
-                      legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 110, itemHeight: 16, symbolSize: 12 }]} />
+                      legends={[{ ...LEG_BAIXO, data: legArea(g.linhas) }]} />
                   </div>
                 </div>
               ))}
             </div>
           )}
+
+          <div style={S.card}>
+            <div style={S.cardT}>Evolução Receitas × Despesas <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(realizado)</span></div>
+            <div style={S.chart}>
+              <ResponsiveLine theme={nivoTheme()} data={recDespLinhas} margin={MARG_LEG}
+                xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
+                colors={(s: any) => s.id === 'Receitas' ? '#2f9e44' : '#e03131'} pointSize={6} pointBorderWidth={1} useMesh curve="monotoneX"
+                axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }}
+                legends={[{ ...LEG_BAIXO, itemWidth: 88 }]} />
+            </div>
+          </div>
 
           <div style={S.grid2}>
             <div style={S.card}>
