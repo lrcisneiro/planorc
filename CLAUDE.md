@@ -2567,6 +2567,18 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   **A lição vale além desta tela:** quando a convenção local contraria a do resto do produto,
   explicar no cabeçalho não resolve — tem de estar **na linha**, junto do número que engana.
 
+- ⚠⚠ **COMPONENTE ANINHADO MATA O ARRASTO, E O SINTOMA É "VIRA CLIQUE" (27/nov).**
+  As zonas do pivô declaravam `const Chip = (...) => ...` **dentro** do componente — o que cria
+  um **tipo** de componente novo a cada render. Qualquer `setState` durante o gesto (inclusive o
+  do próprio `onDragStart`, que pintava o chip de semi-transparente) desmonta e remonta o chip: o
+  **nó de origem some no meio do arrasto**, o navegador **aborta** e entrega um `click`. O relato
+  foi exato — *"ao clicar para arrastar ele já joga na coluna"*. Hoje o chip é uma **função
+  chamada** (`chipEl(...)`), que devolve JSX no lugar e não cria tipo novo, e **nada muda de
+  estado durante o arrasto** (deslocamento vai em `useRef`).
+  ⚠ Junto: `text/plain` **além** do MIME próprio (há navegador que recusa iniciar o arrasto com
+  só um tipo desconhecido) e o clique só vale com deslocamento **< 5px** — a mesma regra do
+  cartão que arrasta e abre no dashboard, senão o fim do arrasto move o chip outra vez.
+
 - ⚠⚠ **VISÃO: A COLUNA AGRUPA POR QUALQUER ENTIDADE (fase 1, 27/nov).** O checkbox *"agrupar
   colunas por empresa"* virou um **eixo** — empresa · área · divisão · BU — e passou a conviver
   com o **Comparativo**, então o Δ sai **por entidade**. `view_config.filtros` é `jsonb`, então

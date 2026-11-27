@@ -209,41 +209,70 @@ type Group  = { label: string; span: number; period?: Period; collapsible?: bool
 // projeto não tem lib de arrasto — trazer uma por isto seria desproporcional.
 // ⚠ O chip existe em UM lugar só (pool, linhas ou colunas), então o estado é
 // um par `(entidade, zona)` e não duas listas que poderiam divergir.
+//
+// ⚠⚠ COMPONENTE ANINHADO MATA O ARRASTO, E O SINTOMA É "VIRA CLIQUE".
+// A 1ª versão declarava `const Chip = (...) => ...` DENTRO desta função: isso
+// cria um TIPO de componente novo a cada render, então qualquer `setState`
+// — inclusive o do próprio `onDragStart` — desmonta e remonta o chip. O nó de
+// origem some no meio do gesto, o navegador ABORTA o arrasto e entrega um
+// `click`; o chip ia direto para Colunas e era impossível arrastar.
+// Hoje o chip é uma FUNÇÃO CHAMADA (`chipEl(...)`), que devolve JSX no lugar
+// e não cria tipo novo, e nada muda de estado durante o arrasto.
 function PivotZonas({ eixo, zona, onMudar }: {
   eixo: EixoEnt | null; zona: 'col' | 'lin'
   onMudar: (e: EixoEnt | null, z: 'col' | 'lin') => void
 }) {
   const [over, setOver] = useState<'col' | 'lin' | null>(null)
-  const [arrastando, setArrastando] = useState<EixoEnt | null>(null)
-  const chip = (id: EixoEnt, dentro: boolean): CSSProperties => ({
-    display: 'inline-flex', alignItems: 'center', gap: 5, height: 24, padding: '0 8px',
-    fontSize: 11, fontWeight: 600, borderRadius: 999, cursor: 'grab', userSelect: 'none',
-    border: '1px solid ' + (dentro ? 'var(--violet)' : 'var(--border-strong)'),
-    background: dentro ? 'rgba(139,92,246,0.16)' : 'var(--panel)',
-    color: dentro ? 'var(--violet)' : 'var(--text-mid)',
-    opacity: arrastando === id ? 0.4 : 1,
-  })
+  // ⚠ Refs, não estado: o deslocamento separa clique de arrasto (a mesma regra
+  // do cartão que arrasta e abre, no dashboard — abaixo de 5px foi clique), e
+  // guardá-lo em estado voltaria a remontar o chip durante o gesto.
+  const p0 = useRef<{ x: number; y: number } | null>(null)
+  const arrastou = useRef(false)
+
   const zonaSt = (z: 'col' | 'lin'): CSSProperties => ({
     display: 'flex', alignItems: 'center', gap: 6, minHeight: 32, minWidth: 190, padding: '3px 8px',
     borderRadius: 8, border: '1px dashed ' + (over === z ? 'var(--violet)' : 'var(--border)'),
     background: over === z ? 'rgba(139,92,246,0.10)' : 'transparent',
   })
   const solta = (z: 'col' | 'lin') => ({
-    onDragOver: (e: React.DragEvent) => { e.preventDefault(); setOver(z) },
+    onDragOver: (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (over !== z) setOver(z) },
     onDragLeave: () => setOver(o => (o === z ? null : o)),
     onDrop: (e: React.DragEvent) => {
-      e.preventDefault(); setOver(null); setArrastando(null)
-      const id = e.dataTransfer.getData('text/planorc-eixo') as EixoEnt
-      if (id) onMudar(id, z)
+      e.preventDefault(); setOver(null)
+      const id = (e.dataTransfer.getData('text/planorc-eixo') || e.dataTransfer.getData('text/plain')) as EixoEnt
+      if (EIXOS_ENT.some(x => x.id === id)) onMudar(id, z)
     },
   })
-  const Chip = ({ id, dentro, z }: { id: EixoEnt; dentro: boolean; z?: 'col' | 'lin' }) => (
-    <span draggable style={chip(id, dentro)}
-      onDragStart={e => { e.dataTransfer.setData('text/planorc-eixo', id); setArrastando(id) }}
-      onDragEnd={() => { setArrastando(null); setOver(null) }}
-      // ⚠ Clicar alterna a zona: arrasto SEM alternativa exclui quem usa
-      // teclado ou trackpad ruim, e o gesto aqui é a única porta para o eixo.
-      onClick={() => dentro ? onMudar(id, z === 'lin' ? 'col' : 'lin') : onMudar(id, 'col')}
+
+  const chipEl = (id: EixoEnt, dentro: boolean, z?: 'col' | 'lin') => (
+    <span key={id} draggable
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5, height: 24, padding: '0 8px',
+        fontSize: 11, fontWeight: 600, borderRadius: 999, cursor: 'grab', userSelect: 'none',
+        border: '1px solid ' + (dentro ? 'var(--violet)' : 'var(--border-strong)'),
+        background: dentro ? 'rgba(139,92,246,0.16)' : 'var(--panel)',
+        color: dentro ? 'var(--violet)' : 'var(--text-mid)',
+      }}
+      onMouseDown={e => { p0.current = { x: e.clientX, y: e.clientY }; arrastou.current = false }}
+      onDragStart={e => {
+        arrastou.current = true
+        // ⚠ `text/plain` junto do tipo próprio: há navegador que recusa iniciar
+        // o arrasto quando só existe um MIME desconhecido.
+        e.dataTransfer.setData('text/planorc-eixo', id)
+        e.dataTransfer.setData('text/plain', id)
+        e.dataTransfer.effectAllowed = 'move'
+      }}
+      onDragEnd={() => { setOver(null) }}
+      // ⚠ Clicar também move: arrasto sem alternativa exclui quem usa teclado
+      // ou trackpad ruim, e aqui o gesto é a única porta para o eixo. Mas o
+      // clique só vale se o ponteiro NÃO andou — senão o fim de um arrasto
+      // (que alguns navegadores entregam como click) moveria o chip de novo,
+      // desfazendo o que a pessoa acabou de fazer.
+      onClick={e => {
+        const d = p0.current ? Math.hypot(e.clientX - p0.current.x, e.clientY - p0.current.y) : 0
+        if (arrastou.current || d >= 5) return
+        onMudar(id, dentro ? (z === 'lin' ? 'col' : 'lin') : 'col')
+      }}
       title={dentro ? 'Clique para mover para a outra zona · arraste para escolher'
                     : 'Arraste para Linhas ou Colunas (ou clique para pôr nas Colunas)'}>
       <GripVertical size={11} style={{ opacity: 0.6 }} />{EIXOS_ENT.find(x => x.id === id)!.label}
@@ -251,24 +280,25 @@ function PivotZonas({ eixo, zona, onMudar }: {
         onClick={e => { e.stopPropagation(); onMudar(null, 'col') }}><X size={11} /></span>}
     </span>
   )
+
   const lbl: CSSProperties = { fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, minWidth: 48 }
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
       <span style={lbl}>Agrupar</span>
       <div style={{ display: 'flex', gap: 6 }}>
-        {EIXOS_ENT.filter(x => x.id !== eixo).map(x => <Chip key={x.id} id={x.id} dentro={false} />)}
+        {EIXOS_ENT.filter(x => x.id !== eixo).map(x => chipEl(x.id, false))}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={lbl}>Linhas</span>
         <div style={zonaSt('lin')} {...solta('lin')}>
-          {eixo && zona === 'lin' ? <Chip id={eixo} dentro z="lin" />
+          {eixo && zona === 'lin' ? chipEl(eixo, true, 'lin')
             : <span style={{ fontSize: 11, color: 'var(--faint)' }}>só as linhas do relatório</span>}
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={lbl}>Colunas</span>
         <div style={zonaSt('col')} {...solta('col')}>
-          {eixo && zona === 'col' ? <Chip id={eixo} dentro z="col" />
+          {eixo && zona === 'col' ? chipEl(eixo, true, 'col')
             : <span style={{ fontSize: 11, color: 'var(--faint)' }}>período e cenários</span>}
         </div>
       </div>
