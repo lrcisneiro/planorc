@@ -244,6 +244,14 @@ function PivotZonas({ eixo, zona, onMudar }: {
     },
   })
 
+  // ⚠⚠ A SUBSTITUIÇÃO É DITA ANTES DO GESTO. Com uma entidade já colocada,
+  // soltar outra TIRA a primeira — e a 1ª versão fazia isso em silêncio: a
+  // pessoa arrastava Empresa para Colunas e a Área sumia das Linhas sem
+  // explicação ("comportamento estranho", relatado pelo Ricardo). Regra que
+  // desfaz trabalho tem de aparecer no chip e na zona, não depois.
+  // ⚠ Texto ESTÁTICO, não estado de arrasto: mudar estado durante o gesto foi
+  // o que matou o arrasto na 1ª versão, e aqui não é preciso.
+  const ocupado = eixo ? EIXOS_ENT.find(x => x.id === eixo)!.label : null
   const chipEl = (id: EixoEnt, dentro: boolean, z?: 'col' | 'lin') => (
     <span key={id} draggable
       style={{
@@ -274,7 +282,8 @@ function PivotZonas({ eixo, zona, onMudar }: {
         onMudar(id, dentro ? (z === 'lin' ? 'col' : 'lin') : 'col')
       }}
       title={dentro ? 'Clique para mover para a outra zona · arraste para escolher'
-                    : 'Arraste para Linhas ou Colunas (ou clique para pôr nas Colunas)'}>
+            : ocupado ? `Arraste para Linhas ou Colunas — isto SUBSTITUI ${ocupado}, porque só cabe uma entidade por vez`
+                      : 'Arraste para Linhas ou Colunas (ou clique para pôr nas Colunas)'}>
       <GripVertical size={11} style={{ opacity: 0.6 }} />{EIXOS_ENT.find(x => x.id === id)!.label}
       {dentro && <span title="tirar" style={{ display: 'flex', cursor: 'pointer' }}
         onClick={e => { e.stopPropagation(); onMudar(null, 'col') }}><X size={11} /></span>}
@@ -292,21 +301,25 @@ function PivotZonas({ eixo, zona, onMudar }: {
         <span style={lbl}>Linhas</span>
         <div style={zonaSt('lin')} {...solta('lin')}>
           {eixo && zona === 'lin' ? chipEl(eixo, true, 'lin')
-            : <span style={{ fontSize: 11, color: 'var(--faint)' }}>só as linhas do relatório</span>}
+            : <span style={{ fontSize: 11, color: ocupado ? 'var(--orange)' : 'var(--faint)' }}>
+                {ocupado ? `soltar aqui tira ${ocupado} das colunas` : 'só as linhas do relatório'}
+              </span>}
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={lbl}>Colunas</span>
         <div style={zonaSt('col')} {...solta('col')}>
           {eixo && zona === 'col' ? chipEl(eixo, true, 'col')
-            : <span style={{ fontSize: 11, color: 'var(--faint)' }}>período e cenários</span>}
+            : <span style={{ fontSize: 11, color: ocupado ? 'var(--orange)' : 'var(--faint)' }}>
+                {ocupado ? `soltar aqui tira ${ocupado} das linhas` : 'período e cenários'}
+              </span>}
         </div>
       </div>
       {/* ⚠ Dizer POR QUE só cabe um: sem isso o desenho parece incompleto, e
           alguém "conserta" criando o cruzamento que a carga não aguenta. */}
       <span style={{ fontSize: 10, color: 'var(--faint)' }}
-        title="Cruzar entidade nas duas zonas exige um agregado que devolva a dimensão numa consulta só — hoje a carga é uma consulta por grupo.">
-        uma entidade por vez
+        title="Cruzar as duas zonas (ex.: área nas linhas × empresa nas colunas) exige um agregado que devolva a dimensão numa consulta só — hoje a carga é uma consulta por grupo, e cruzar seria 5 × 13 = 65 por cenário.">
+        uma entidade por vez · soltar outra substitui
       </span>
     </div>
   )
