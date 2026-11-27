@@ -671,19 +671,8 @@ export default function DashboardPage() {
       const todasAreas = [...new Set([...Object.keys(recAreaMesA), ...Object.keys(recAreaMesAOrc),
                                       ...Object.keys(despAreaMesA), ...Object.keys(despAreaMesAOrc)])].sort()
       const corArea: Record<string, string> = {}; todasAreas.forEach((a, i) => { corArea[a] = PALETA[i % PALETA.length] })
-      // ⚠ `acum` soma mês a mês ao longo do período EXIBIDO (`mesesOrd`), não
-      // do ano civil: com o filtro em jun–set, o acumulado começa em junho. É o
-      // que o resto da tela faz — tudo aqui responde ao período escolhido.
       const serieArea = (real: Record<string, Record<number, number>>, orc: Record<string, Record<number, number>>,
-                         codigos: string[] | null, acum = false) => {
-        const serie = (fonte: Record<number, number> | undefined) => {
-          let soma = 0
-          return mesesOrd.map(m => {
-            const v = fonte?.[m] || 0
-            soma += v
-            return { x: MESES[m - 1], y: Math.round(acum ? soma : v) }
-          })
-        }
+                         codigos: string[] | null) => {
         const lista = [...new Set([...Object.keys(real), ...Object.keys(orc)])]
           .filter(a => !codigos || codigos.includes(codDaArea(a)))
           .filter(a => mesesOrd.some(m => (real[a]?.[m] || 0) || (orc[a]?.[m] || 0)))   // área zerada não vira legenda
@@ -691,8 +680,8 @@ export default function DashboardPage() {
         const out: any[] = []
         for (const a of lista) {
           const pes = pesAreaCc[a] || {}
-          out.push({ id: a, color: corArea[a], _pes: pes, data: serie(real[a]) })
-          out.push({ id: `${a} (orç)`, color: corArea[a], _pes: pes, data: serie(orc[a]) })
+          out.push({ id: a, color: corArea[a], _pes: pes, data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round(real[a]?.[m] || 0) })) })
+          out.push({ id: `${a} (orç)`, color: corArea[a], _pes: pes, data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round(orc[a]?.[m] || 0) })) })
         }
         return out
       }
@@ -707,15 +696,9 @@ export default function DashboardPage() {
       // ⚠ Ao mexer naquele gráfico, não lhe acrescente o filtro de área: é ele
       // que impede este recorte de esconder dinheiro.
       const agrupadas = new Set(GRUPOS_DESPESA.flatMap(g => g.areas))
-      // ⚠⚠ DESPESA VAI ACUMULADA, RECEITA NÃO — e os dois cartões ficam na mesma
-      // tela, então o subtítulo de cada um DIZ qual é. Despesa mês a mês oscila
-      // com competência (13º, férias, provisão), e a pergunta real é se o ano
-      // está dentro do orçado; acumulada, o afastamento entre a cheia e a
-      // tracejada é a resposta. Duas convenções sem rótulo é como se lê o
-      // número errado com confiança.
       const despGruposD = [
-        ...GRUPOS_DESPESA.map(g => ({ titulo: g.titulo, linhas: serieArea(despAreaMesA, despAreaMesAOrc, g.areas, true) })),
-        { titulo: 'Outras áreas', linhas: serieArea(despAreaMesA, despAreaMesAOrc, null, true)
+        ...GRUPOS_DESPESA.map(g => ({ titulo: g.titulo, linhas: serieArea(despAreaMesA, despAreaMesAOrc, g.areas) })),
+        { titulo: 'Outras áreas', linhas: serieArea(despAreaMesA, despAreaMesAOrc, null)
             .filter(s => !agrupadas.has(codDaArea(String(s.id)))) },
       ].filter(g => g.linhas.length)
       const recDespLinhasD = [
@@ -828,23 +811,16 @@ export default function DashboardPage() {
     const area = ((c.area_cod ? `${c.area_cod}-${c.area_nome || ''}`.trim() : (c.area_nome || 'Sem área')) || 'Sem área')
     ;(areaToCcs[area] = areaToCcs[area] || []).push(c.id)
   })
-  const drillPorCcs = (ids: string[], meses?: number[]) => {
+  const drillPorCcs = (ids: string[], mes?: number) => {
     if (!qparams || !ids.length) return
     const f = qparams.ccFilter ? ids.filter(i => qparams.ccFilter!.includes(i)) : ids
-    if (f.length) setDrill({ nodeId: '__root', ccFilter: f, meses: meses?.length ? meses : undefined })
+    if (f.length) setDrill({ nodeId: '__root', ccFilter: f, meses: mes ? [mes] : undefined })
   }
   // drill a partir de um ponto de linha (área × mês) → razão escopado àquela área e mês
-  // ⚠⚠ NUM GRÁFICO ACUMULADO O PONTO NÃO É O MÊS, É O PERÍODO ATÉ ELE — e o
-  // drill tem de abrir o mesmo recorte, senão o detalhe não soma o total que o
-  // abriu (a regra do `DrillCombinacoes`). Clicar em "Jun" no acumulado traz
-  // jan–jun; no mês a mês continua trazendo só junho.
-  const drillAreaMes = (area: string, mesLabel: string, acum = false) => {
+  const drillAreaMes = (area: string, mesLabel: string) => {
     const a = String(area).replace(' (orç)', '')   // série de orçado compartilha os CCs da área
     const m = MESES.indexOf(String(mesLabel)) + 1
-    if (m <= 0) { drillPorCcs(areaToCcs[a] || []); return }
-    const ord = [...mesesSel].sort((x, y) => x - y)
-    const ate = ord.indexOf(m)
-    drillPorCcs(areaToCcs[a] || [], acum && ate >= 0 ? ord.slice(0, ate + 1) : [m])
+    drillPorCcs(areaToCcs[a] || [], m > 0 ? m : undefined)
   }
   const chip = `${escopoNome} · ${anosOrd.join(', ') || '—'} · ${mesesSel.length === 12 ? 'todos os meses' : mesesSel.length + ' meses'}`
     + ` · ${empresaSel.length ? empresaSel.length + ' empresa(s)' : 'todas as empresas'}`
@@ -1293,7 +1269,7 @@ export default function DashboardPage() {
           </div>
           <div style={S.card}>
             <div style={S.cardT}>Receitas por área <span style={S.cardSub}>
-              (mês a mês · Comercial e Serviços · cheia = realizado · tracejada = orçado · clique p/ razão){recAreaLinVis.ocultadas > 0 && ` · ${recAreaLinVis.ocultadas / 2} não detalhada(s)`}
+              (Comercial e Serviços · cheia = realizado · tracejada = orçado · clique p/ razão){recAreaLinVis.ocultadas > 0 && ` · ${recAreaLinVis.ocultadas / 2} não detalhada(s)`}
             </span></div>
             <div style={S.chart}>
               <ResponsiveLine theme={nivoTheme()} data={recAreaLinVis.linhas} margin={MARG_LEG}
@@ -1316,13 +1292,13 @@ export default function DashboardPage() {
               {despGruposVis.map(g => (
                 <div key={g.titulo} style={S.card}>
                   <div style={S.cardT}>Despesas · {g.titulo} <span style={S.cardSub}>
-                    (ACUMULADO no período · cheia = realizado · tracejada = orçado · clique p/ razão){g.ocultadas > 0 && ` · ${g.ocultadas / 2} não detalhada(s)`}
+                    (cheia = realizado · tracejada = orçado){g.ocultadas > 0 && ` · ${g.ocultadas / 2} não detalhada(s)`}
                   </span></div>
                   <div style={S.chart}>
                     <ResponsiveLine theme={nivoTheme()} data={g.linhas} margin={MARG_LEG}
                       xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
                       colors={(se: any) => se.color} pointSize={5} pointBorderWidth={1} useMesh curve="monotoneX"
-                      onClick={(pt: any) => drillAreaMes(String(pt.serieId), String(pt.data?.x), true)}
+                      onClick={(pt: any) => drillAreaMes(String(pt.serieId), String(pt.data?.x))}
                       axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }}
                       layers={['grid', 'markers', 'axes', AccLinhas, 'points', 'slices', 'mesh', 'legends']}
                       legends={[{ ...LEG_BAIXO, data: legArea(g.linhas) }]} />

@@ -2567,6 +2567,20 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   **A lição vale além desta tela:** quando a convenção local contraria a do resto do produto,
   explicar no cabeçalho não resolve — tem de estar **na linha**, junto do número que engana.
 
+- ⚠⚠ **ACUMULADO ESCONDE O DESVIO — testado e revertido (27/nov).** Os quatro gráficos de
+  despesa por área foram para acumulado no período a pedido do Ricardo, com o argumento de que
+  despesa mês a mês oscila por competência (13º, férias, provisão) e a pergunta real é se o ano
+  está dentro do orçado. **O argumento é verdadeiro e a conclusão era falsa**, e bastou ver a
+  tela: no acumulado o Δ é uma fração pequena de um total que só cresce, então a linha cheia e a
+  tracejada **colam** — em *Serviços*, 33 mi contra 32 mi viram duas linhas indistinguíveis.
+  Mês a mês, o mesmo desvio é a distância entre dois patamares e se lê de longe.
+  ⚠ **A oscilação que motivou a troca é justamente o sinal**: o pico de férias existe nos dois
+  lados e o que interessa é se ele veio maior que o previsto — informação que o acumulado
+  dissolve na soma. Quem quiser a leitura do ano tem o comparativo de barras, que já é acumulado
+  por definição.
+  ⚠ O que o teste deixou: num gráfico acumulado o ponto **não é o mês, é o período até ele**, e o
+  drill tem de abrir essa fatia — a regra do `DrillCombinacoes`. Vale para o próximo que tentar.
+
 - ⚠⚠ **A REGRA DA COR ESTAVA ESCRITA DUAS VEZES, E UMA DELAS INVERTIA DUAS VEZES (26/nov).**
   `OrcarLinhaPage` fazia `f === -1 ? d < 0 : d > 0` sobre o delta **CRU** — aplicando ao dado a
   inversão que pertence à **exibição**. No comparativo do cenário, cortar **R$ 1,12 mi** de
