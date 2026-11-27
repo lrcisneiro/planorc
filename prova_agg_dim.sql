@@ -9,6 +9,12 @@
 -- está ganhando ou perdendo dinheiro — e é exatamente isso que ninguém veria
 -- na tela, porque cada grupo parece plausível sozinho.
 -- ============================================================
+-- ⚠⚠ PERSONIFICA. Sem isto `current_tenant_id()` é NULO no editor, as duas
+-- RPCs voltam VAZIAS e a prova "passa" com 0 = 0 — o teste passando pelo
+-- motivo errado, que é a armadilha registrada em `prova_ratear_orcado`.
+SELECT set_config('request.jwt.claims',
+  json_build_object('sub','678a736a-40cb-4fab-afcb-6072f0ca31c7','role','authenticated')::text, false);
+
 WITH mst AS (
   SELECT DISTINCT rl.linha_orc_id AS m FROM relatorio_linha rl
     JOIN relatorio r ON r.id = rl.relatorio_id
@@ -27,7 +33,8 @@ cruz AS (SELECT sum(valor) AS v, count(*) AS n FROM p,
   LATERAL relatorio_orcado_agg_dim(p.versao, p.emps, ARRAY[2027], ARRAY[1,2,3,4,5,6,7,8,9,10,11,12], p.linhas, NULL, NULL, 1, 'empresa', 'area'))
 SELECT 'orçado' AS secao, x.k AS chave, to_char(x.v,'FM999G999G999D00') AS info,
        x.n::text||' linhas'
-         ||CASE WHEN abs(x.v - (SELECT v FROM velho)) < 0.005 THEN '   ✅ bate com o agregado antigo'
+         ||CASE WHEN x.v IS NULL OR x.n = 0 THEN '   ⛔ VAZIO — personificação não pegou'
+                WHEN abs(x.v - (SELECT v FROM velho)) < 0.005 THEN '   ✅ bate com o agregado antigo'
                 ELSE '   ⛔ DIVERGE em '||to_char(x.v - (SELECT v FROM velho),'FM999G999G999D00') END AS det
   FROM (SELECT 'agregado ANTIGO' AS k, v, n FROM velho
         UNION ALL SELECT 'novo · sem dimensão', v, n FROM sem_dim

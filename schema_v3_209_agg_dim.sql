@@ -81,7 +81,11 @@ BEGIN
          coalesce(CASE p_dim_b WHEN 'empresa' THEN r.e::text WHEN 'filial' THEN r.f::text
                                WHEN 'cc' THEN r.c::text WHEN 'area' THEN r.area_cod
                                WHEN 'divisao' THEN r.divisao_cod WHEN 'bu' THEN r.bu_cod END, ''),
-         r.a, r.m, sum(r.v), sum(r.qt),
+         -- ⚠ `::bigint`: `sum()` de bigint devolve NUMERIC, e o tipo de
+         -- retorno declara `n bigint` — sem o cast a função cria normalmente e
+         -- só estoura na PRIMEIRA chamada, com "structure of query does not
+         -- match function result type". DDL que passa não é DDL que funciona.
+         r.a, r.m, sum(r.v), sum(r.qt)::bigint,
          -- `expr` só vale quando o grupo é UMA célula: uma expressão que
          -- representasse várias seria uma fórmula que ninguém escreveu.
          CASE WHEN sum(r.qt) = 1 THEN max(r.ex) END,
