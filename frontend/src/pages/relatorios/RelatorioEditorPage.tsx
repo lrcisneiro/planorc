@@ -1356,12 +1356,27 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const toStored  = (expr: string | null | undefined) => expr ? expr.replace(/\[([^\]]+)\]/g, (_m, c) => `[${descToCode[c] ?? c}]`) : (expr ?? '')
 
   // ── Razão (drill da célula até os lançamentos)
+  // ⚠⚠ LINHA DESATIVADA NÃO ENTRA NO RAZÃO DO PAI — e entrava, calada.
+  // `desativada` tira a linha do cálculo (o `SOMAR_FILHOS` a pula), mas esta
+  // função descia a subárvore incluindo TODA analítica. Resultado: o razão
+  // aberto de um subtotal listava lançamentos que a célula não conta, e não
+  // fechava com o total que o abriu. Achado pelo Ricardo ao estranhar o
+  // histórico "ACELERAR" no razão de Receitas TOTVS: a conta `31041005` está
+  // ativa, mas a linha `10701 Programa Acelerar` está desativada — R$ 2,51 mi
+  // em 2026 que aparecem no detalhe e não estão no total.
+  // É o MESMO defeito que a ponte teve em nov/2026 (`componentesDe` devolvia
+  // os filhos do subtotal sem olhar a marca): consertou-se lá e o razão ficou.
+  // ⚠ A RAIZ é exceção: clicando NA linha desativada, o razão é o dela — ela
+  // exibe o próprio valor (tachado), então o detalhe tem de bater com ele.
+  // O que sai é a DESCENDENTE desativada, com a subárvore dela junto, porque
+  // é isso que o total do pai não contém.
   const linhasAnaliticasDe = (rootId: string): string[] => {
     const out: string[] = []
     const root = linhas.find(l => l.id === rootId)
     if (root?.tipo_linha === 'ANALITICA') out.push(rootId)
     const rec = (pid: string) => {
       for (const c of linhas.filter(l => l.pai_id === pid)) {
+        if (c.desativada) continue
         if (c.tipo_linha === 'ANALITICA') out.push(c.id)
         rec(c.id)
       }

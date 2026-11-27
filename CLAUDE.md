@@ -1461,6 +1461,17 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   pessoas abrem todo dia.
   ⚠ O aviso de resíduo dizia só "subtotal junto com componente, ou falta um componente" — passou
   a prever a terceira causa, senão quem bater nela procura duplicata e não acha.
+  ⚠⚠ **E O MESMO DEFEITO ESTAVA NO RAZÃO, intocado até 27/nov.** `linhasAnaliticasDe` descia a
+  subárvore incluindo **toda** analítica, sem olhar a marca — então o razão aberto de um subtotal
+  listava lançamentos que a célula não conta. Achado pelo Ricardo ao estranhar o histórico
+  *"ACELERAR"* no razão de *Receitas TOTVS*: a conta `31041005` está **ativa** e a linha
+  `10701 Programa Acelerar` está **desativada**, com **R$ 2,51 mi em 2026** aparecendo no detalhe
+  e ausentes do total. **Consertar o componente que denuncia não conserta os outros que leem a
+  mesma árvore** — ao marcar uma linha como fora do cálculo, procure TODO ponto que desce a
+  subárvore.
+  ⚠ A **raiz** é exceção: clicando na própria linha desativada, o razão é o dela — ela exibe o
+  valor (tachado), então o detalhe tem de bater com ele. Quem sai é a **descendente** desativada,
+  com a subárvore junto.
 
   ⚠ **Marcador que aparece em quase toda linha deixa de marcar (nov/2026).** O asterisco do
   custo/mês sinaliza "o custo mudou durante o ano", e a PLR foi incluída na condição com um
