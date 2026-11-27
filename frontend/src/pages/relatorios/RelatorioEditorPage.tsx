@@ -202,7 +202,7 @@ const EIXOS_ENT: { id: EixoEnt; label: string }[] = [
 ]
 /** Um grupo de colunas: o recorte que a carga manda à RPC e o rótulo do cabeçalho. */
 type GrupoCol = { key: string; label: string; empresas: string[]; ccs: string[] | null }
-type Group  = { label: string; span: number; period?: Period; collapsible?: boolean; collapsed?: boolean }
+type Group  = { label: string; span: number; period?: Period; grupoKey?: string; collapsible?: boolean; collapsed?: boolean }
 
 // ─── Zonas do pivô: arrastar a entidade para Linhas ou Colunas ───────────
 // ⚠ HTML5 drag-and-drop puro, sem biblioteca: são dois alvos e um chip, e o
@@ -474,6 +474,12 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const [verOcultas, setVerOcultas] = useState(false)   // mostra linhas com visivel_relatorio=false p/ gerenciar
   const [showDeltaVal, setShowDeltaVal] = useState(false)   // coluna Δ valor no comparativo (além do Δ%)
   const [colapsados, setColapsados] = useState<Set<number>>(new Set())   // meses recolhidos no comparativo (só visual)
+  // ⚠ UM conjunto só para as duas zonas: a entidade mora numa zona por vez,
+  // então "área 3 recolhida" quer dizer a mesma coisa esteja ela na linha ou
+  // na coluna — e arrastar o chip de um lado para o outro preserva o que a
+  // pessoa já tinha recolhido, em vez de reabrir tudo.
+  const [gruposFechados, setGruposFechados] = useState<Set<string>>(new Set())
+  const toggleGrupo = (k: string) => setGruposFechados(s0 => { const x = new Set(s0); x.has(k) ? x.delete(k) : x.add(k); return x })
   const [avisoLeituraOff, setAvisoLeituraOff] = useState(false)   // dispensar o aviso de somente-leitura
   const [rawScoped, setRawScoped] = useState<Record<string, RawValues>>({})   // `${cen}::${sig}` → cenário escopado completo (linhas de apoio)
   const [escSig, setEscSig] = useState<Record<string, string>>({})            // linhaId → assinatura do escopo
@@ -1528,14 +1534,26 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     if (!colEntidade) return { columns: base, headerRows: sub ? [sub] : [] }
 
     // ── com eixo de entidade: o arranjo interno se repete dentro de cada grupo
+    // ⚠⚠ Grupo RECOLHIDO vira uma faixa fina de uma coluna, a mesma gramática
+    // do mês recolhido. E os níveis do cabeçalho TÊM de somar o mesmo número
+    // de colunas: com um grupo recolhido (1) ao lado de outro aberto (N), o
+    // nível de baixo precisa de um espaçador de span 1 — sem ele as colunas
+    // escorregam e o cabeçalho passa a rotular a coluna errada, calado.
     const cols: Column[] = [], topo: Group[] = [], subRep: Group[] = []
     for (const g of gruposEnt) {
-      for (const c of base) cols.push({ ...c, key: `${g.key}§${c.key}`, grupoKey: g.key })
-      if (sub) subRep.push(...sub)
-      topo.push({ label: g.label, span: base.length })
+      const fechado = gruposFechados.has(g.key)
+      if (fechado) {
+        cols.push({ key: `${g.key}§c`, label: '', period: 'TOTAL', kind: 'collapsed', grupoKey: g.key })
+        topo.push({ label: g.label, span: 1, grupoKey: g.key, collapsible: true, collapsed: true })
+        if (sub) subRep.push({ label: '', span: 1 })
+      } else {
+        for (const c of base) cols.push({ ...c, key: `${g.key}§${c.key}`, grupoKey: g.key })
+        topo.push({ label: g.label, span: base.length, grupoKey: g.key, collapsible: true })
+        if (sub) subRep.push(...sub)
+      }
     }
     return { columns: cols, headerRows: sub ? [topo, subRep] : [topo] }
-  }, [view, versaoId, versoes, censDisplay, buckets, colEntidade, gruposEnt, showDeltaVal, colapsados]) // eslint-disable-line
+  }, [view, versaoId, versoes, censDisplay, buckets, colEntidade, gruposEnt, showDeltaVal, colapsados, gruposFechados]) // eslint-disable-line
 
   // ── Recolher/expandir meses no comparativo (só visual)
   const toggleColapso = (per: number) => setColapsados(s => { const n = new Set(s); n.has(per) ? n.delete(per) : n.add(per); return n })
@@ -1622,6 +1640,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     for (const bl of blocosLin) {
     const gkRow = bl.grupo?.key
     if (bl.grupo) { push([bl.grupo.label]); r++ }
+    // ⚠ Grupo recolhido não sai no arquivo: WYSIWYG vale para o que está
+    // escondido também, senão o export deixa de ser o relatório da tela.
+    if (bl.grupo && gruposFechados.has(bl.grupo.key)) continue
     for (const l of visivel) {
       const depth = (l as any)._depth ?? 0
       const isSpac = l.tipo_linha === 'ESPACO'
@@ -2343,6 +2364,21 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                 <AlertTriangle size={13} /> {cenOrfaos.length} cenário(s) desta visão não existe(m) mais — abra <b>Editar visão</b> e salve
               </span>
             )}
+            {/* ⚠ Com 13 empresas, recolher uma a uma é o atrito que faz a pessoa
+                desistir do recorte — o mesmo motivo do "expandir meses" ao lado.
+                Só aparece quando há eixo de entidade. */}
+            {eixoEnt && gruposEnt.length > 1 && (
+              gruposFechados.size > 0
+                ? <button title="Expandir todos os grupos recolhidos" onClick={() => setGruposFechados(new Set())}
+                    style={{ ...mini, border: '1px solid var(--violet)', background: 'rgba(139,92,246,0.16)', color: 'var(--violet)' }}>
+                    <ChevronsUpDown size={13} /> Expandir grupos ({gruposFechados.size})
+                  </button>
+                : <button title={`Recolher todos os ${gruposEnt.length} grupos — ficam só as faixas, para achar o que interessa`}
+                    onClick={() => setGruposFechados(new Set(gruposEnt.map(g => g.key)))}
+                    style={{ ...mini, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)' }}>
+                    <ChevronsUpDown size={13} /> Recolher grupos
+                  </button>
+            )}
             {view.funcao === 'COMPARATIVO' && (
               <button title="Coluna com o valor do delta, além do Δ%. O número é a 2ª série menos a 1ª, como aparecem na tela; a cor é o impacto no resultado — numa despesa, gastar mais fica positivo e vermelho." onClick={() => setShowDeltaVal(v => !v)}
                 style={{ ...mini, border: '1px solid ' + (showDeltaVal ? 'var(--blue)' : 'var(--border-strong)'), background: showDeltaVal ? 'rgba(59,130,246,0.16)' : 'var(--panel)', color: showDeltaVal ? 'var(--blue)' : 'var(--text-mid)' }}>
@@ -2418,7 +2454,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                 {nivel.map((g, i) => (
                   <th key={i} colSpan={g.span} style={{ ...S.th, top: ni * 28, textAlign: 'center', color: 'var(--text-mid)', cursor: g.collapsible ? 'pointer' : 'default', whiteSpace: 'nowrap', position: 'sticky' }}
                     title={g.collapsible ? (g.collapsed ? `Expandir ${g.label}` : `Recolher ${g.label}`) : undefined}
-                    onClick={() => g.collapsible && typeof g.period === 'number' && toggleColapso(g.period)}>
+                    onClick={() => { if (!g.collapsible) return; if (g.grupoKey) toggleGrupo(g.grupoKey); else if (typeof g.period === 'number') toggleColapso(g.period) }}>
                     {g.collapsed
                       ? <ChevronRight size={12} style={{ verticalAlign: 'middle', color: 'var(--muted)' }} />
                       : <>{g.label}{g.collapsible && <ChevronLeft size={11} style={{ verticalAlign: 'middle', marginLeft: 3, color: 'var(--muted)' }} />}</>}
@@ -2435,15 +2471,20 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             {blocosLin.map(bl => (
             <Fragment key={`bl-${bl.key}`}>
             {bl.grupo && (
-              // faixa do grupo: é o que diz de quem é a árvore que vem abaixo
+              // faixa do grupo: diz de quem é a árvore abaixo, e recolhe-a
               <tr>
-                <td colSpan={columns.length + 1} style={{ ...S.td, textAlign: 'left', padding: '6px 10px', background: 'rgba(139,92,246,0.14)',
-                                                          color: 'var(--violet)', fontWeight: 700, fontSize: 13, position: 'sticky', left: 0 }}>
-                  {bl.grupo.label}
+                <td colSpan={columns.length + 1} onClick={() => toggleGrupo(bl.grupo!.key)}
+                    style={{ ...S.td, textAlign: 'left', padding: '6px 10px', background: 'rgba(139,92,246,0.14)', cursor: 'pointer',
+                             color: 'var(--violet)', fontWeight: 700, fontSize: 13, position: 'sticky', left: 0 }}
+                    title={gruposFechados.has(bl.grupo.key) ? 'Expandir' : 'Recolher'}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    {gruposFechados.has(bl.grupo.key) ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                    {bl.grupo.label}
+                  </span>
                 </td>
               </tr>
             )}
-            {visivel.map((l, idx) => {
+            {(bl.grupo && gruposFechados.has(bl.grupo.key) ? [] : visivel).map((l, idx) => {
               const depth = l._depth ?? 0
               const isAgg = l.tipo_linha === 'SOMAR_FILHOS'
               const isSpac = l.tipo_linha === 'ESPACO'
@@ -2482,7 +2523,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                   {columns.map(c => {
                     if (c.kind === 'collapsed') {
                       return <td key={c.key} style={{ ...S.td, padding: 0, cursor: 'pointer', background: isSel ? 'rgba(59,130,246,0.30)' : 'var(--bg)', borderLeft: '1px solid var(--border)' }}
-                        title="Expandir mês" onClick={() => typeof c.period === 'number' && toggleColapso(c.period)} />
+                        title={c.grupoKey ? 'Expandir' : 'Expandir mês'}
+                        onClick={() => { if (c.grupoKey) toggleGrupo(c.grupoKey); else if (typeof c.period === 'number') toggleColapso(c.period) }} />
                     }
                     const gkRow = bl.grupo?.key
                     if ((gkRow || c.grupoKey) && c.kind === 'value') {
