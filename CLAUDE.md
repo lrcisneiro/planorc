@@ -2940,6 +2940,24 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ Hoje as quatro leituras passam pelo **mesmo laço** (`lerTudo`), não por convenção de quem
   chama — é a lição do `pageAll` outra vez: **convenção volta a faltar na próxima chamada.**
 
+- ⚠⚠ **A AMARRAÇÃO VALE NA HORA — não se reimporta e não se recalcula nada** (27/nov).
+  Pergunta do Ricardo, e a resposta contradizia o que o próprio produto dizia: o botão
+  *Recalcular* da tela de Amarração trazia no tooltip *"necessário após mudar amarrações"*, e o
+  comentário do código afirmava *"o cubo do realizado depende do DE-PARA"*. **Falso, e medível.**
+  `fat_realizado` guarda a **CONTA**, nunca a linha — `linha_id` preenchido em **0 de 1.107.595**
+  lançamentos —, e `relatorio_realizado_agg` tem **dois ramos**: usa `m.linha_id` quando existe e,
+  quando é nulo, resolve por `conta_linha` **na consulta**. Como é nulo em 100%, toda leitura passa
+  pela amarração de agora. Mesmo desenho em `relatorio_linha_empresa_agg`, `dashboard_cc_agg` e
+  `relatorio_saldo_agg`.
+  ⚠ O cubo `fat_realizado_mensal` agrega por `conta_id` e **copia** o `linha_id` do fato (nulo nas
+  78.608 linhas, 26 MB), então mudar amarração não muda um byte dele. O que ele depende é do
+  **FATO**: importar, excluir realizado, aplicar lotes ignorados (3 ativos hoje) e mexer nos slots
+  de moeda — e nesses quatro o sistema **já chama sozinho** (3× em `RealizadoDadosPage`, 2× em
+  `CadastrosPage`). O manual da Amarração fica como saída para o cubo sair de sincronia por fora.
+  ⚠ **Botão que manda clicar sem necessidade não é inofensivo:** custa reconstruir 1,1 mi de
+  lançamentos e ensina a clicar por via das dúvidas. A lição é a do marcador que aparece em toda
+  linha — **texto que afirma uma dependência que não existe é dívida, não documentação.**
+
 - **Paginação obrigatória:** o PostgREST corta em **1000 linhas por chamada, sem erro**. Todo `.select()` numa tabela que cresce com o negócio (fatos `fat_*`, plano de contas `conta_contabil`/`conta_orcamentaria`, junções `posto_verba`/`posto_rateio`, dropdowns de competência distinct) DEVE usar o helper `pageAll()` de `frontend/src/lib/pageAll.ts`. Dispensam: `.single()`/`.maybeSingle()`, `.in(ids.slice(...))` já em lotes, e catálogos naturalmente pequenos (empresa, filial, versão, sindicato). Sintoma de esquecer: "sumiu gente/conta" que só aparece quando a base passa de 1000.
 
 ## Como rodar

@@ -186,7 +186,22 @@ export default function AmarracaoPage() {
   }
   const removeLink = async (id: string) => { await supabase.from('conta_linha').delete().eq('id', id); loadLinks() }
   const toggleSinal = async (id: string, sinal: number) => { await supabase.from('conta_linha').update({ sinal }).eq('id', id); loadLinks() }
-  // o cubo do realizado depende do DE-PARA → recalcular após mudanças de amarração
+  // ⚠⚠ A AMARRAÇÃO VALE NA HORA — e este comentário dizia o contrário.
+  // Ele afirmava "o cubo do realizado depende do DE-PARA → recalcular após
+  // mudanças de amarração", e o tooltip do botão repetia. É falso, e dá para
+  // medir: `fat_realizado` guarda a CONTA, não a linha (`linha_id` preenchido
+  // em 0 de 1.107.595 lançamentos), e `relatorio_realizado_agg` resolve a
+  // linha na CONSULTA, por `conta_linha`. O cubo `fat_realizado_mensal`
+  // agrega por `conta_id` e copia o `linha_id` do fato — nulo nas 78.608
+  // linhas dele. Mudar amarração não muda um byte do cubo.
+  //
+  // O que o cubo depende é do FATO: importar, excluir realizado, aplicar
+  // lotes ignorados, mexer nos slots de moeda. Nesses quatro o sistema já
+  // chama sozinho (3× em RealizadoDadosPage, 2× em CadastrosPage) — este é o
+  // único manual, e fica como saída para o caso raro de o cubo sair de
+  // sincronia por outro caminho (SQL à mão, importação interrompida).
+  // ⚠ Botão que manda clicar sem necessidade não é inofensivo: custa
+  // reconstruir 1,1 mi de lançamentos e ensina a clicar por via das dúvidas.
   const recalcular = async () => {
     setMsg('Recalculando agregados…')
     const { error } = await supabase.rpc('refresh_realizado_mensal')
@@ -291,7 +306,7 @@ export default function AmarracaoPage() {
         </select>
         <div style={{ flex: 1 }} />
         {msg && <span style={{ fontSize: 12, color: 'var(--green)' }}>{msg}</span>}
-        <button style={S.btn} onClick={recalcular} title="Recalcular os agregados do realizado (cubos) — necessário após mudar amarrações"><RefreshCw size={13} /> Recalcular</button>
+        <button style={S.btn} onClick={recalcular} title="Reconstrói o cubo do realizado (agrega os lançamentos e aplica os lotes ignorados). NÃO é preciso depois de amarrar ou desamarrar: a linha é resolvida na consulta e vale na hora. Use se o cubo tiver saído de sincronia por fora — importação interrompida, SQL à mão."><RefreshCw size={13} /> Recalcular</button>
         <button style={S.btn} onClick={baixarModelo} title="Baixar modelo do DE-PARA"><Download size={13} /> Modelo</button>
         <button style={S.btn} onClick={exportar} title="Exportar todas as amarrações"><Download size={13} /> Exportar</button>
         <select style={S.sel} value={modoImp} onChange={e => setModoImp(e.target.value as 'add' | 'full')} title="Modo de importação">
