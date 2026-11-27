@@ -785,15 +785,35 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           || (view.filtros?.colEmpresa ? 'empresa' : null) || null) as EixoEnt | null,
     zona: ((view.filtros?.eixoZona as 'lin') === 'lin' ? 'lin' : 'col') as 'col' | 'lin',
   }), [view])
-  // ⚠⚠ ARRASTAR NÃO ESCREVE NA VISÃO. A visão é de todo mundo, e mexer nela
-  // por um gesto exploratório mudaria a tela de quem não pediu. O arranjo é
-  // estado de SESSÃO, semeado pela visão e reposto ao trocar de visão — quem
-  // quer guardar edita a visão (ou salva um card), que é o ato deliberado.
-  // ⚠ Sem `localStorage` de propósito: com a visão sempre ativa, "lembrado" e
-  // "a visão manda" competiriam na abertura, e esse empate já custou o defeito
-  // do `pendSec` em 25/nov. Aqui a regra é uma só — a visão semeia.
-  const [eixoSes, setEixoSes] = useState(eixoDaVisao)
-  useEffect(() => { setEixoSes(eixoDaVisao) }, [view.id]) // eslint-disable-line
+  // ⚠⚠ ARRASTAR NÃO ESCREVE NA VISÃO — ela é de todo mundo, e um gesto
+  // exploratório mudaria a tela de quem não pediu. Mas o arranjo É LEMBRADO
+  // por relatório, e a precedência é a que o projeto já fixou duas vezes
+  // (nível do relatório, nov/2026; preset da análise, 25/nov):
+  //   preset do card  →  TROCA DE VISÃO  →  o que ficou da última vez  →  visão
+  // ⚠ Eu tinha feito só estado de sessão alegando que "lembrado" e "a visão
+  // manda" competiriam na abertura. Competem só se a visão for considerada
+  // escolha explícita SEMPRE — e ela não é: entrar no relatório não é escolher
+  // a visão, TROCAR de visão é. Separados os dois, não há empate.
+  const [eixoPref, setEixoPref] = useLocalPref<{ ent: EixoEnt | null; zona: 'col' | 'lin' } | null>(
+    `planorc_rel_${id || 'x'}_eixo`, null)
+  const [eixoSes, setEixoSes] = useState(() => eixoPref ?? eixoDaVisao)
+  const viewIniRef = useRef<string | null>(null)
+  useEffect(() => {
+    const vid = view.id || ''
+    if (viewIniRef.current === null) {
+      // 1ª passada: preset do card manda; senão o lembrado; senão a visão.
+      viewIniRef.current = vid
+      if (!presetCardId && eixoPref) setEixoSes(eixoPref)
+      else setEixoSes(eixoDaVisao)
+      return
+    }
+    if (viewIniRef.current === vid) return   // mesma visão: não repõe nada
+    viewIniRef.current = vid
+    setEixoSes(eixoDaVisao)                  // trocar de visão é escolha explícita
+  }, [view.id, eixoDaVisao, presetCardId]) // eslint-disable-line
+  // ⚠ Grava o ARRANJO, não a visão: o `localStorage` é desta pessoa, neste
+  // relatório, e some sozinho quando ela escolhe outra visão.
+  const porEixo = (ent: EixoEnt | null, zona: 'col' | 'lin') => { setEixoSes({ ent, zona }); setEixoPref({ ent, zona }) }
   const eixoEnt = eixoSes.ent
   const eixoZona = eixoSes.zona
   const colEntidade: EixoEnt | null = eixoZona === 'col' ? eixoEnt : null
@@ -2323,7 +2343,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           nunca chega a ser oferecido — nada a recusar depois do gesto.
           ⚠ Clicar também funciona: arrasto sem alternativa exclui quem usa
           teclado e trackpad ruim. O chip no lugar tem o × para devolvê-lo. */}
-      <PivotZonas eixo={eixoEnt} zona={eixoZona} onMudar={(e, z) => setEixoSes({ ent: e, zona: z })} />
+      <PivotZonas eixo={eixoEnt} zona={eixoZona} onMudar={porEixo} />
 
       {(() => {
         const sel = selId ? (linhas.find(x => x.id === selId) ?? null) : null
