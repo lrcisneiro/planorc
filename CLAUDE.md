@@ -2589,6 +2589,48 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   **A lição vale além desta tela:** quando a convenção local contraria a do resto do produto,
   explicar no cabeçalho não resolve — tem de estar **na linha**, junto do número que engana.
 
+- ⚠⚠ **VISÃO DINÂMICA: a entidade vira EIXO, nas linhas e nas colunas (`v3_209`, 27/nov).**
+  O checkbox *"agrupar colunas por empresa"* virou um **pivô**: chips de **Empresa · Filial ·
+  Área · Divisão · BU · Centro de custo** que se arrastam para **Linhas** ou **Colunas**, e as
+  duas zonas **cruzam** (área na linha × empresa na coluna). Nasceu de *"poderíamos criar algo
+  mais dinâmico e genérico… assim conseguimos cruzar"*, e substitui a proliferação de visões: o
+  arranjo é gesto de tela, e salvar vira o ato deliberado de **nomear** um arranjo que vale a pena.
+  **Sem migration no cadastro:** `view_config.filtros` é `jsonb`, e a leitura traduz **quatro
+  gerações** — `eixoLin`/`eixoCol` → `eixoEnt`+`eixoZona` → `colEntidade` → `colEmpresa`. Ao
+  gravar, os antigos são **apagados**: deixá-los faz *"— nenhum —"* recair no legado e o
+  agrupamento volta sozinho.
+  ⚠⚠ **O MOTOR RODA POR GRUPO — é a parte não-negociável.** Fórmula e percentual **não se somam**
+  entre grupos (o `% EBITDA` de duas empresas somado não é nada), então cada par
+  (grupo-de-linha × grupo-de-coluna) executa `computeCenario` sobre a árvore inteira. Sem eixo a
+  lista é `['']` e o par é `''×''` — nenhum caso especial.
+  ⚠⚠ **A CARGA ERA UMA CONSULTA POR GRUPO, e era isso que proibia o cruzamento.** 13 com empresa;
+  cruzar área × empresa seria **65 por cenário**, CC seriam 86. `relatorio_orcado_agg_dim` e
+  `relatorio_realizado_agg_dim` agrupam **no servidor** pela dimensão pedida. Medido no
+  Orçado2027 (linhas devolvidas · páginas de 1000 · contra as idas de antes): empresa 4.033 (5)
+  × 13 · área 1.230 (2) × 5 · **cruzado 5.554 (6) × 65** · CC 3.528 (4) × 86.
+  ⚠ **Agrupar no servidor, não devolver o grão fino:** pedir (linha, empresa, cc, mês) para o
+  cliente dobrar em área custaria 13.689 linhas onde 5.554 bastam.
+  ⚠ **`ORDER BY` na RPC é requisito, não enfeite** — a resposta passa de 1000 e a tela pagina
+  com `.range()`; sem ordem, duas páginas repetem linha e perdem outra (lição do `pageAll`).
+  ⚠ **O limite mudou de lugar, não sumiu:** o motor roda uma vez por combinação, e CC × empresa
+  são **1.131 árvores** de 170 linhas por cenário. Acima de 150 a barra mostra a conta —
+  **avisa, não impede**: recusar cruzamento legítimo é o controle que volta desligado amanhã.
+  ⚠ **A mesma entidade nas duas zonas é MOVER, não duplicar** — seria a interseção dela consigo
+  mesma, vazia fora da diagonal.
+  ⚠ **O residual é um GRUPO, nunca um descarte:** `''` recolhe CC sem o atributo **e** a célula
+  consolidada (cc/filial nulos). Medido: divisão preenchida em 62 de 86 CCs, BU em 51 — sem o
+  balde, 35 CCs ficariam fora da tela e o relatório deixaria de somar o que a DRE soma.
+  ⚠ **O drill herda os DOIS recortes, cruzados** (empresa por `empresas`, área/divisão/BU/CC por
+  `ccs`, filial por `filiais`); com um só, o detalhe não fecha com a célula.
+  ⚠ **A chave de recolhimento leva a ZONA:** `area_cod` e `divisao_cod` podem ser os dois `"3"`.
+  **Provado em `prova_agg_dim.sql`:** os quatro arranjos somam **30.406.438,22**, idêntico ao
+  agregado antigo. A asserção é essa — se não bater, o eixo ganha ou perde dinheiro, e ninguém
+  veria na tela porque cada grupo parece plausível sozinho.
+  ⚠⚠ **"A função existe" NÃO é conferência de migration.** `sum()` de bigint devolve numeric e o
+  Postgres só confere o `RETURNS TABLE` **ao executar**: a função nasceu quebrada e a conferência
+  passou verde; depois do conserto passou verde **de novo**, sobre a versão antiga ainda no banco.
+  Conferência de DDL olha o **corpo** (`pg_get_functiondef`), não o nome.
+
 - ⚠⚠ **COMPONENTE ANINHADO MATA O ARRASTO, E O SINTOMA É "VIRA CLIQUE" (27/nov).**
   As zonas do pivô declaravam `const Chip = (...) => ...` **dentro** do componente — o que cria
   um **tipo** de componente novo a cada render. Qualquer `setState` durante o gesto (inclusive o
