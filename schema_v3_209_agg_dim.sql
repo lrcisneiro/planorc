@@ -164,8 +164,16 @@ END $function$;
 -- ---------------- conferência ----------------
 -- ⚠ Em arquivo de MIGRATION a prova vai em SELECT, nunca em RAISE: o editor
 -- roda tudo numa transação e a exceção desfaria a própria migration.
-SELECT '1 · funções criadas' AS secao, p.proname AS chave,
-       pg_get_function_result(p.oid) AS info, '' AS det
+-- ⚠⚠ E ela olha o CORPO, não só a existência. "A função existe" passou verde
+-- sobre uma função quebrada: `sum()` de bigint devolve numeric e o Postgres só
+-- confere a estrutura do retorno AO EXECUTAR. Conferência que não distingue a
+-- versão nova da velha faz quem reaplica a migration achar que reaplicou.
+SELECT '1 · funções' AS secao, p.proname AS chave,
+       CASE WHEN p.proname = 'relatorio_orcado_agg_dim'
+                 AND pg_get_functiondef(p.oid) NOT LIKE '%sum(r.qt)::bigint%'
+            THEN '⛔ VERSÃO ANTIGA — reaplique este arquivo inteiro'
+            ELSE '✅ versão com o cast ::bigint' END AS info,
+       pg_get_function_result(p.oid) AS det
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
  WHERE n.nspname = 'public' AND p.proname IN ('relatorio_orcado_agg_dim','relatorio_realizado_agg_dim')
  ORDER BY 2;
