@@ -195,13 +195,17 @@ type Column = { key: string; label: string; cenarioKey?: string; period: Period;
 /** Eixo de ENTIDADE das colunas. CC e filial ficam de fora por cardinalidade
  *  (86 e 15): a carga é uma RPC por grupo, e acima de ~15 isso vira dezenas de
  *  chamadas. Quando entrarem, é com um agregado que devolva a dimensão. */
-type EixoEnt = 'empresa' | 'area' | 'divisao' | 'bu'
+type EixoEnt = 'empresa' | 'filial' | 'cc' | 'area' | 'divisao' | 'bu'
+// ⚠ CC e filial entraram com a `v3_209`. Antes a carga fazia uma consulta por
+// grupo e eles eram proibidos por cardinalidade (86 e 15); hoje o agregado
+// agrupa no servidor e CC custa 4 páginas onde custava 86 idas.
 const EIXOS_ENT: { id: EixoEnt; label: string }[] = [
-  { id: 'empresa', label: 'Empresa' }, { id: 'area', label: 'Área' },
-  { id: 'divisao', label: 'Divisão' }, { id: 'bu', label: 'BU' },
+  { id: 'empresa', label: 'Empresa' }, { id: 'filial', label: 'Filial' },
+  { id: 'area', label: 'Área' }, { id: 'divisao', label: 'Divisão' },
+  { id: 'bu', label: 'BU' }, { id: 'cc', label: 'Centro de custo' },
 ]
-/** Um grupo de colunas: o recorte que a carga manda à RPC e o rótulo do cabeçalho. */
-type GrupoCol = { key: string; label: string; empresas: string[]; ccs: string[] | null }
+/** Um grupo: o recorte que o DRILL herda e o rótulo do cabeçalho. */
+type GrupoCol = { key: string; label: string; empresas: string[]; ccs: string[] | null; filiais?: string[] | null }
 type Group  = { label: string; span: number; period?: Period; grupoKey?: string; collapsible?: boolean; collapsed?: boolean }
 
 // ─── Zonas do pivô: arrastar a entidade para Linhas ou Colunas ───────────
@@ -218,9 +222,9 @@ type Group  = { label: string; span: number; period?: Period; grupoKey?: string;
 // `click`; o chip ia direto para Colunas e era impossível arrastar.
 // Hoje o chip é uma FUNÇÃO CHAMADA (`chipEl(...)`), que devolve JSX no lugar
 // e não cria tipo novo, e nada muda de estado durante o arrasto.
-function PivotZonas({ eixo, zona, onMudar }: {
-  eixo: EixoEnt | null; zona: 'col' | 'lin'
-  onMudar: (e: EixoEnt | null, z: 'col' | 'lin') => void
+function PivotZonas({ lin, col, onMudar }: {
+  lin: EixoEnt | null; col: EixoEnt | null
+  onMudar: (lin: EixoEnt | null, col: EixoEnt | null) => void
 }) {
   const [over, setOver] = useState<'col' | 'lin' | null>(null)
   // ⚠ Refs, não estado: o deslocamento separa clique de arrasto (a mesma regra
@@ -229,6 +233,15 @@ function PivotZonas({ eixo, zona, onMudar }: {
   const p0 = useRef<{ x: number; y: number } | null>(null)
   const arrastou = useRef(false)
 
+  // ⚠⚠ MOVER é tirar de onde estava e pôr onde caiu. Sem a primeira metade, a
+  // mesma entidade ficaria nas duas zonas — e cruzar uma dimensão COM ELA
+  // MESMA não é uma pergunta: cada célula seria a interseção de "área 3" com
+  // "área 5", vazia em toda parte menos na diagonal.
+  const mover = (id: EixoEnt, z: 'col' | 'lin') => {
+    const l = z === 'lin' ? id : (lin === id ? null : lin)
+    const c = z === 'col' ? id : (col === id ? null : col)
+    onMudar(l, c)
+  }
   const zonaSt = (z: 'col' | 'lin'): CSSProperties => ({
     display: 'flex', alignItems: 'center', gap: 6, minHeight: 32, minWidth: 190, padding: '3px 8px',
     borderRadius: 8, border: '1px dashed ' + (over === z ? 'var(--violet)' : 'var(--border)'),
@@ -240,26 +253,18 @@ function PivotZonas({ eixo, zona, onMudar }: {
     onDrop: (e: React.DragEvent) => {
       e.preventDefault(); setOver(null)
       const id = (e.dataTransfer.getData('text/planorc-eixo') || e.dataTransfer.getData('text/plain')) as EixoEnt
-      if (EIXOS_ENT.some(x => x.id === id)) onMudar(id, z)
+      if (EIXOS_ENT.some(x => x.id === id)) mover(id, z)
     },
   })
 
-  // ⚠⚠ A SUBSTITUIÇÃO É DITA ANTES DO GESTO. Com uma entidade já colocada,
-  // soltar outra TIRA a primeira — e a 1ª versão fazia isso em silêncio: a
-  // pessoa arrastava Empresa para Colunas e a Área sumia das Linhas sem
-  // explicação ("comportamento estranho", relatado pelo Ricardo). Regra que
-  // desfaz trabalho tem de aparecer no chip e na zona, não depois.
-  // ⚠ Texto ESTÁTICO, não estado de arrasto: mudar estado durante o gesto foi
-  // o que matou o arrasto na 1ª versão, e aqui não é preciso.
-  const ocupado = eixo ? EIXOS_ENT.find(x => x.id === eixo)!.label : null
-  const chipEl = (id: EixoEnt, dentro: boolean, z?: 'col' | 'lin') => (
+  const chipEl = (id: EixoEnt, z: 'col' | 'lin' | null) => (
     <span key={id} draggable
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 5, height: 24, padding: '0 8px',
         fontSize: 11, fontWeight: 600, borderRadius: 999, cursor: 'grab', userSelect: 'none',
-        border: '1px solid ' + (dentro ? 'var(--violet)' : 'var(--border-strong)'),
-        background: dentro ? 'rgba(139,92,246,0.16)' : 'var(--panel)',
-        color: dentro ? 'var(--violet)' : 'var(--text-mid)',
+        border: '1px solid ' + (z ? 'var(--violet)' : 'var(--border-strong)'),
+        background: z ? 'rgba(139,92,246,0.16)' : 'var(--panel)',
+        color: z ? 'var(--violet)' : 'var(--text-mid)',
       }}
       onMouseDown={e => { p0.current = { x: e.clientX, y: e.clientY }; arrastou.current = false }}
       onDragStart={e => {
@@ -272,55 +277,44 @@ function PivotZonas({ eixo, zona, onMudar }: {
       }}
       onDragEnd={() => { setOver(null) }}
       // ⚠ Clicar também move: arrasto sem alternativa exclui quem usa teclado
-      // ou trackpad ruim, e aqui o gesto é a única porta para o eixo. Mas o
-      // clique só vale se o ponteiro NÃO andou — senão o fim de um arrasto
-      // (que alguns navegadores entregam como click) moveria o chip de novo,
-      // desfazendo o que a pessoa acabou de fazer.
+      // ou trackpad ruim. Só vale se o ponteiro NÃO andou — senão o fim de um
+      // arrasto (que alguns navegadores entregam como click) moveria de novo.
       onClick={e => {
         const d = p0.current ? Math.hypot(e.clientX - p0.current.x, e.clientY - p0.current.y) : 0
         if (arrastou.current || d >= 5) return
-        onMudar(id, dentro ? (z === 'lin' ? 'col' : 'lin') : 'col')
+        mover(id, z === 'col' ? 'lin' : 'col')
       }}
-      title={dentro ? 'Clique para mover para a outra zona · arraste para escolher'
-            : ocupado ? `Arraste para Linhas ou Colunas — isto SUBSTITUI ${ocupado}, porque só cabe uma entidade por vez`
-                      : 'Arraste para Linhas ou Colunas (ou clique para pôr nas Colunas)'}>
+      title={z ? 'Clique para mover para a outra zona · arraste para escolher'
+               : 'Arraste para Linhas ou Colunas (ou clique para pôr nas Colunas)'}>
       <GripVertical size={11} style={{ opacity: 0.6 }} />{EIXOS_ENT.find(x => x.id === id)!.label}
-      {dentro && <span title="tirar" style={{ display: 'flex', cursor: 'pointer' }}
-        onClick={e => { e.stopPropagation(); onMudar(null, 'col') }}><X size={11} /></span>}
+      {z && <span title="tirar" style={{ display: 'flex', cursor: 'pointer' }}
+        onClick={e => { e.stopPropagation(); onMudar(z === 'lin' ? null : lin, z === 'col' ? null : col) }}><X size={11} /></span>}
     </span>
   )
 
   const lbl: CSSProperties = { fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, minWidth: 48 }
+  const pool = EIXOS_ENT.filter(x => x.id !== lin && x.id !== col)
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
       <span style={lbl}>Agrupar</span>
       <div style={{ display: 'flex', gap: 6 }}>
-        {EIXOS_ENT.filter(x => x.id !== eixo).map(x => chipEl(x.id, false))}
+        {pool.length ? pool.map(x => chipEl(x.id, null))
+          : <span style={{ fontSize: 11, color: 'var(--faint)' }}>—</span>}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={lbl}>Linhas</span>
         <div style={zonaSt('lin')} {...solta('lin')}>
-          {eixo && zona === 'lin' ? chipEl(eixo, true, 'lin')
-            : <span style={{ fontSize: 11, color: ocupado ? 'var(--orange)' : 'var(--faint)' }}>
-                {ocupado ? `soltar aqui tira ${ocupado} das colunas` : 'só as linhas do relatório'}
-              </span>}
+          {lin ? chipEl(lin, 'lin')
+            : <span style={{ fontSize: 11, color: 'var(--faint)' }}>só as linhas do relatório</span>}
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={lbl}>Colunas</span>
         <div style={zonaSt('col')} {...solta('col')}>
-          {eixo && zona === 'col' ? chipEl(eixo, true, 'col')
-            : <span style={{ fontSize: 11, color: ocupado ? 'var(--orange)' : 'var(--faint)' }}>
-                {ocupado ? `soltar aqui tira ${ocupado} das linhas` : 'período e cenários'}
-              </span>}
+          {col ? chipEl(col, 'col')
+            : <span style={{ fontSize: 11, color: 'var(--faint)' }}>período e cenários</span>}
         </div>
       </div>
-      {/* ⚠ Dizer POR QUE só cabe um: sem isso o desenho parece incompleto, e
-          alguém "conserta" criando o cruzamento que a carga não aguenta. */}
-      <span style={{ fontSize: 10, color: 'var(--faint)' }}
-        title="Cruzar as duas zonas (ex.: área nas linhas × empresa nas colunas) exige um agregado que devolva a dimensão numa consulta só — hoje a carga é uma consulta por grupo, e cruzar seria 5 × 13 = 65 por cenário.">
-        uma entidade por vez · soltar outra substitui
-      </span>
     </div>
   )
 }
@@ -491,6 +485,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // então "área 3 recolhida" quer dizer a mesma coisa esteja ela na linha ou
   // na coluna — e arrastar o chip de um lado para o outro preserva o que a
   // pessoa já tinha recolhido, em vez de reabrir tudo.
+  // ⚠ A chave leva a ZONA: `area_cod` e `divisao_cod` podem ser os dois "3",
+  // e sem o prefixo recolher a área 3 recolheria a divisão 3 junto — com dois
+  // eixos ao mesmo tempo isso deixou de ser hipotético.
   const [gruposFechados, setGruposFechados] = useState<Set<string>>(new Set())
   const toggleGrupo = (k: string) => setGruposFechados(s0 => { const x = new Set(s0); x.has(k) ? x.delete(k) : x.add(k); return x })
   const [avisoLeituraOff, setAvisoLeituraOff] = useState(false)   // dispensar o aviso de somente-leitura
@@ -780,11 +777,19 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // checkbox original; um regex de renomeação já o apagou daqui uma vez e a
   // tradução ficou lendo o campo novo duas vezes — visão antiga abriria sem
   // agrupamento nenhum, calada.
-  const eixoDaVisao = useMemo(() => ({
-    ent: ((view.filtros?.eixoEnt as EixoEnt) || (view.filtros?.colEntidade as EixoEnt)
-          || (view.filtros?.colEmpresa ? 'empresa' : null) || null) as EixoEnt | null,
-    zona: ((view.filtros?.eixoZona as 'lin') === 'lin' ? 'lin' : 'col') as 'col' | 'lin',
-  }), [view])
+  // ⚠⚠ DOIS EIXOS INDEPENDENTES desde a v3_209. Até aqui era um chip e uma
+  // zona, porque a carga fazia uma consulta POR GRUPO e cruzar seria 65 por
+  // cenário. O agregado com dimensão agrupa no servidor, então o cruzamento
+  // custa 6 páginas — e a trava deixou de ter razão de existir.
+  // ⚠ Leitura em quatro degraus, do novo para o legado: `eixoLin`/`eixoCol` →
+  // o par `eixoEnt`+`eixoZona` (que durou um dia) → `colEntidade` → o checkbox
+  // `colEmpresa` original. Visão salva em qualquer um dos quatro abre igual.
+  const eixoDaVisao = useMemo(() => {
+    const f: any = view.filtros || {}
+    if (f.eixoLin || f.eixoCol) return { lin: (f.eixoLin || null) as EixoEnt | null, col: (f.eixoCol || null) as EixoEnt | null }
+    const ent = (f.eixoEnt || f.colEntidade || (f.colEmpresa ? 'empresa' : null) || null) as EixoEnt | null
+    return f.eixoZona === 'lin' ? { lin: ent, col: null } : { lin: null, col: ent }
+  }, [view])
   // ⚠⚠ ARRASTAR NÃO ESCREVE NA VISÃO — ela é de todo mundo, e um gesto
   // exploratório mudaria a tela de quem não pediu. Mas o arranjo É LEMBRADO
   // por relatório, e a precedência é a que o projeto já fixou duas vezes
@@ -794,8 +799,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // manda" competiriam na abertura. Competem só se a visão for considerada
   // escolha explícita SEMPRE — e ela não é: entrar no relatório não é escolher
   // a visão, TROCAR de visão é. Separados os dois, não há empate.
-  const [eixoPref, setEixoPref] = useLocalPref<{ ent: EixoEnt | null; zona: 'col' | 'lin' } | null>(
-    `planorc_rel_${id || 'x'}_eixo`, null)
+  const [eixoPref, setEixoPref] = useLocalPref<{ lin: EixoEnt | null; col: EixoEnt | null } | null>(
+    `planorc_rel_${id || 'x'}_eixo2`, null)
   const [eixoSes, setEixoSes] = useState(() => eixoPref ?? eixoDaVisao)
   const viewIniRef = useRef<string | null>(null)
   useEffect(() => {
@@ -813,11 +818,9 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   }, [view.id, eixoDaVisao, presetCardId]) // eslint-disable-line
   // ⚠ Grava o ARRANJO, não a visão: o `localStorage` é desta pessoa, neste
   // relatório, e some sozinho quando ela escolhe outra visão.
-  const porEixo = (ent: EixoEnt | null, zona: 'col' | 'lin') => { setEixoSes({ ent, zona }); setEixoPref({ ent, zona }) }
-  const eixoEnt = eixoSes.ent
-  const eixoZona = eixoSes.zona
-  const colEntidade: EixoEnt | null = eixoZona === 'col' ? eixoEnt : null
-  const linEntidade: EixoEnt | null = eixoZona === 'lin' ? eixoEnt : null
+  const porEixo = (lin: EixoEnt | null, col: EixoEnt | null) => { setEixoSes({ lin, col }); setEixoPref({ lin, col }) }
+  const linEntidade = eixoSes.lin
+  const colEntidade = eixoSes.col
   // ⚠⚠ VAZIO É "TODAS", em toda parte — é o contrato do `FiltrosButton` ("Vazio
   // = todas", e o rótulo da seção escreve *todas* ao lado do nome). O editor
   // honrava isso só nas COLUNAS (`empsCols`): a carga usava `empresaSel` cru,
@@ -861,29 +864,59 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // `filtro_escopo` de linha. Interseção vazia é grupo zerado, não "sem
   // filtro", e sai sem chamar a RPC (`p_ccs: []` dependeria de o SQL ler
   // array vazio como "nenhum", e ele lê como "todos").
-  const gruposEnt = useMemo<GrupoCol[]>(() => {
-    if (!eixoEnt) return []
-    if (eixoEnt === 'empresa')
+  // ⚠⚠ A CHAVE DO GRUPO É A QUE O BANCO DEVOLVE. `relatorio_*_agg_dim` agrupa
+  // no servidor e devolve `dim_a`/`dim_b` como TEXTO: uuid para empresa,
+  // filial e CC; o código para área, divisão e BU; e `''` para o residual
+  // (CC sem o atributo, ou célula consolidada sem CC). A lista daqui tem de
+  // usar exatamente essas chaves — divergir faria a tela montar colunas que
+  // nunca casam com o dado e exibir tudo zerado, sem erro.
+  const gruposDe = (eixo: EixoEnt | null): GrupoCol[] => {
+    if (!eixo) return []
+    if (eixo === 'empresa')
       return empsCols.map(eid => ({ key: eid, label: empCodById[eid] || '—', empresas: [eid], ccs: ccFilter }))
-    const campo = eixoEnt === 'area' ? 'area_cod' : eixoEnt === 'divisao' ? 'divisao_cod' : 'bu_cod'
-    const nome  = eixoEnt === 'area' ? 'area_nome' : eixoEnt === 'divisao' ? 'divisao_nome' : 'bu_nome'
-    const dim   = EIXOS_ENT.find(e => e.id === eixoEnt)!.label
+    const curto = (t: string, n2 = 18) => (t || '').length > n2 ? (t || '').slice(0, n2 - 1) + '…' : (t || '')
+    if (eixo === 'filial') {
+      const out: GrupoCol[] = (filiais as any[]).filter(f => !filialFilter || filialFilter.includes(f.id))
+        .map(f => ({ key: f.id as string, label: `${f.codigo}${f.descricao ? ' · ' + curto(f.descricao) : ''}`,
+                     empresas: empresaFiltro, ccs: ccFilter, filiais: [f.id as string] }))
+      // ⚠ O balde do CONSOLIDADO: `filial_id` é nullable nos fatos (v2_003) e
+      // a célula sem filial não pertence a filial nenhuma — sem o grupo ela
+      // sumiria de todas as colunas.
+      out.push({ key: '', label: '(consolidado)', empresas: empresaFiltro, ccs: ccFilter, filiais: null })
+      return out
+    }
+    if (eixo === 'cc') {
+      const out: GrupoCol[] = (ccs as any[]).filter(c => !ccFilter || ccFilter.includes(c.id))
+        .map(c => ({ key: c.id as string, label: `${c.codigo} · ${curto(c.descricao)}`, empresas: empresaFiltro, ccs: [c.id as string] }))
+      out.push({ key: '', label: '(sem CC)', empresas: empresaFiltro, ccs: null })
+      return out
+    }
+    const campo = eixo === 'area' ? 'area_cod' : eixo === 'divisao' ? 'divisao_cod' : 'bu_cod'
+    const nome  = eixo === 'area' ? 'area_nome' : eixo === 'divisao' ? 'divisao_nome' : 'bu_nome'
+    const dim   = EIXOS_ENT.find(e => e.id === eixo)!.label
     const visiveis = (ccs as any[]).filter(c => !ccFilter || ccFilter.includes(c.id))
     const porValor = new Map<string, { label: string; ids: string[] }>()
     for (const c of visiveis) {
       const cod = (c as any)[campo] as string | null
-      // ⚠ O RESIDUAL É UM GRUPO, NÃO UM DESCARTE. Medido em 27/nov: divisão
-      // está preenchida em 62 de 86 CCs e BU em 51 de 86 — agrupar por BU sem
-      // o balde deixaria 35 centros de custo FORA da tela, e o relatório
-      // deixaria de somar o que a DRE soma, calado.
-      const k = cod || '\u0000sem'
+      // ⚠ O RESIDUAL É UM GRUPO, NÃO UM DESCARTE. Medido: divisão preenchida
+      // em 62 de 86 CCs e BU em 51 de 86 — sem o balde, 35 centros de custo
+      // ficariam fora da tela e o relatório deixaria de somar o que a DRE soma.
+      const k = cod || ''
       const lbl = cod ? `${cod}${(c as any)[nome] ? '-' + (c as any)[nome] : ''}` : `(sem ${dim.toLowerCase()})`
       const g = porValor.get(k) || { label: lbl, ids: [] }; g.ids.push(c.id); porValor.set(k, g)
     }
+    // ⚠ O balde '' existe SEMPRE no eixo de atributo, mesmo sem CC órfão no
+    // cadastro: a célula CONSOLIDADA (cc_id nulo) cai nele, e ela não aparece
+    // em `ccs`. Sem o grupo, esse dinheiro sumiria de todas as colunas.
+    if (!porValor.has('')) porValor.set('', { label: `(sem ${dim.toLowerCase()})`, ids: [] })
     return [...porValor.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0], 'pt-BR', { numeric: true }))
-      .map(([k, g]) => ({ key: k, label: g.label, empresas: empresaFiltro, ccs: g.ids }))
-  }, [eixoEnt, empsCols, empCodById, ccs, ccFilter, empresaFiltro])
+      .sort((a, b) => (a[0] === '' ? 1 : b[0] === '' ? -1 : a[0].localeCompare(b[0], 'pt-BR', { numeric: true })))
+      .map(([k, g]) => ({ key: k, label: g.label, empresas: empresaFiltro, ccs: g.ids.length ? g.ids : null }))
+  }
+  const gruposLin = useMemo(() => gruposDe(linEntidade), [linEntidade, empsCols, empCodById, ccs, ccFilter, empresaFiltro]) // eslint-disable-line
+  const gruposCol = useMemo(() => gruposDe(colEntidade), [colEntidade, empsCols, empCodById, ccs, ccFilter, empresaFiltro]) // eslint-disable-line
+  /** Chave composta do par (linha, coluna) — é como `rawGrp` é indexado. */
+  const chaveGrp = (a: string, b: string) => `${a}\u0001${b}`
 
   // ── Carrega valores brutos por cenário
   const loadValores = useCallback(async () => {
@@ -967,43 +1000,57 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       next[cen] = map
     })())
 
-    // ── Colunas agrupadas por ENTIDADE: uma RPC por grupo/cenário.
-    // ⚠ Cardinalidade é o limite deste desenho: empresa 13, área 5, divisão 4,
-    // BU 9 — todos abaixo de 15, que é o que este laço já fazia para empresa.
-    // CC (86) e filial (15 × cenários × anos) pedem o agregado que devolve a
-    // dimensão numa chamada só; por isso não são eixo ainda.
+    // ── Eixos de ENTIDADE: UMA consulta por cenário, agrupada no servidor.
+    // ⚠⚠ Era uma RPC POR GRUPO — 13 com empresa, e cruzar área × empresa
+    // seria 65 por cenário, que é o motivo pelo qual só cabia uma entidade.
+    // A `v3_209` agrupa no banco e devolve `dim_a`/`dim_b`; medido no
+    // Orçado2027, o cruzamento vira 5.554 linhas (6 páginas) contra 65 idas.
+    // ⚠ Pagina com `.range()` porque o PostgREST corta em 1000 — e a RPC traz
+    // `ORDER BY` próprio, sem o qual duas páginas repetiriam linha e perderiam
+    // outra, em silêncio (a lição do `pageAll`).
     const nextGrp: Record<string, ValMap> = {}
     const tGrp: Promise<any>[] = []
-    if (gruposEnt.length && masterIds.length) {
-      for (const g of gruposEnt) {
-        const m: ValMap = {}
-        nextGrp[g.key] = m
-        // ⚠ Grupo com recorte VAZIO é grupo zerado, e sai sem chamar a RPC:
-        // `p_ccs: []` dependeria de o SQL ler array vazio como "nenhum", e ele
-        // lê como "todos" — a linha viria com o valor da empresa inteira.
-        if (g.ccs !== null && !g.ccs.length) { for (const cen of cenariosAtivos) m[cen] = {}; continue }
-        for (const cen of cenariosAtivos) tGrp.push((async () => {
-          const map: RawValues = {}
-          if (ehReal(cen)) {
-            if (isBalanco) {
-              for (const y of anosDoCen(cen)) {
-                const { data, error } = await supabase.rpc('relatorio_saldo_agg', { p_empresas: g.empresas, p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
-                if (error) throw new Error(error.message)
-                for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${anoChave(cen, y)}-${r.mes}`] = { valor: Number(r.saldo) || 0 } }
-              }
-            } else {
-              const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: g.empresas, p_anos: anosDoCen(cen), p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: g.ccs, p_slot: moedaView })
+    const dimLin = linEntidade, dimCol = colEntidade
+    if ((dimLin || dimCol) && masterIds.length) {
+      const PG = 1000
+      const paginado = async (fn: string, args: any) => {
+        const out: any[] = []
+        for (let de = 0; ; de += PG) {
+          const { data, error } = await supabase.rpc(fn, args).range(de, de + PG - 1)
+          if (error) throw new Error(error.message)
+          const lote = data || []
+          out.push(...lote)
+          if (lote.length < PG) break
+        }
+        return out
+      }
+      for (const cen of cenariosAtivos) tGrp.push((async () => {
+        const porChave: Record<string, RawValues> = {}
+        const põe = (a: string, b: string, rl: string, pk: string, cell: any) => {
+          const k = chaveGrp(a || '', b || '')
+          const map = (porChave[k] ||= {})
+          ;(map[rl] ||= {})[pk] = cell
+        }
+        if (ehReal(cen)) {
+          if (isBalanco) {
+            // ⚠ O balancete NÃO tem agregado com dimensão: `relatorio_saldo_agg`
+            // é por empresa/ano e `fat_saldo` não tem `cc_id` (v3_129). Eixo de
+            // CC/área no Balanço não existe — e isso é estrutural, não pendência.
+            for (const y of anosDoCen(cen)) {
+              const { data, error } = await supabase.rpc('relatorio_saldo_agg', { p_empresas: empresaFiltro, p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
               if (error) throw new Error(error.message)
-              for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${anoChave(cen, r.ano)}-${r.mes}`] = { valor: Number(r.valor) || 0 } }
+              for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; põe('', '', rl, `${anoChave(cen, y)}-${r.mes}`, { valor: Number(r.saldo) || 0 }) }
             }
           } else {
-            const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: g.empresas, p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: g.ccs, p_slot: moedaView })
-            if (error) throw new Error(error.message)
-            for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; const k = `${r.ano}-${r.mes}`; (map[rl] ||= {})[k] = (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 } }
+            const rows = await paginado('relatorio_realizado_agg_dim', { p_empresas: empresaFiltro, p_anos: anosDoCen(cen), p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView, p_dim_a: dimLin, p_dim_b: dimCol })
+            for (const r of rows) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; põe(r.dim_a, r.dim_b, rl, `${anoChave(cen, r.ano)}-${r.mes}`, { valor: Number(r.valor) || 0 }) }
           }
-          m[cen] = map
-        })())
-      }
+        } else {
+          const rows = await paginado('relatorio_orcado_agg_dim', { p_versao: cen, p_empresas: empresaFiltro, p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView, p_dim_a: dimLin, p_dim_b: dimCol })
+          for (const r of rows) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; põe(r.dim_a, r.dim_b, rl, `${r.ano}-${r.mes}`, (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 }) }
+        }
+        for (const k in porChave) (nextGrp[k] ||= {})[cen] = porChave[k]
+      })())
     }
 
     // ── Linhas de APOIO com filtro de CC próprio (nao_soma + filtro_escopo).
@@ -1123,7 +1170,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     // ⚠ Os dois recortes entraram na lista pelo mesmo motivo: eram calculados
     // DENTRO desta função e subiram para memos — sair da função é sair da
     // captura automática.
-  }, [empresaFiltro, filialSel, ccSel, areaSel, divisaoSel, buSel, periodosSel, cenariosAtivos, cicloMode, anoDoCenario, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, eixoEnt, gruposEnt, ccFilter, filialFilter, linhas, acesso.loading, moedaView]) // eslint-disable-line
+  }, [empresaFiltro, filialSel, ccSel, areaSel, divisaoSel, buSel, periodosSel, cenariosAtivos, cicloMode, anoDoCenario, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, linEntidade, colEntidade, ccFilter, filialFilter, linhas, acesso.loading, moedaView]) // eslint-disable-line
 
   useEffect(() => { loadValores() }, [loadValores])
 
@@ -1257,24 +1304,35 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // '1'..'5' e este laço procura por uuid de empresa — `rawGrp[eid]` é
   // undefined, o motor roda sobre {} e a coluna inteira sai ZERADA, sem erro.
   // Foi exatamente o que aconteceu: "por empresa funcionou, por área zerado".
+  // ⚠⚠ O MOTOR RODA NO PAR (grupo-de-linha × grupo-de-coluna), porque é esse o
+  // recorte de cada célula. Fórmula e percentual não se somam entre grupos —
+  // é a razão de existir deste laço desde a fase 1; o que mudou é que agora
+  // são dois eixos, e as chaves vêm do banco (`dim_a`/`dim_b`).
+  // ⚠ Sem eixo nenhum a lista é `['']`, então o par é `''×''` e o caminho é o
+  // mesmo — nenhum caso especial.
+  const paresGrp = useMemo(() => {
+    const ls = gruposLin.length ? gruposLin.map(g => g.key) : ['']
+    const cs = gruposCol.length ? gruposCol.map(g => g.key) : ['']
+    return ls.flatMap(a => cs.map(b => chaveGrp(a, b)))
+  }, [gruposLin, gruposCol]) // eslint-disable-line
   const computedGrp = useMemo(() => {
     const out: Record<string, Record<string, Computed>> = {}
-    if (!eixoEnt) return out
-    for (const g of gruposEnt) { out[g.key] = {}; for (const cen of cenariosAtivos) out[g.key][cen] = computeCenario(linhasCalc, rawGrp[g.key]?.[cen] || {}, periodos) }
+    if (!linEntidade && !colEntidade) return out
+    for (const k of paresGrp) { out[k] = {}; for (const cen of cenariosAtivos) out[k][cen] = computeCenario(linhasCalc, rawGrp[k]?.[cen] || {}, periodos) }
     return out
-  }, [eixoEnt, gruposEnt, cenariosAtivos, rawGrp, linhas, periodos]) // eslint-disable-line
+  }, [linEntidade, colEntidade, paresGrp, cenariosAtivos, rawGrp, linhas, periodos]) // eslint-disable-line
   const bucketTotaisGrp = useMemo(() => {
     const out: Record<string, Record<string, Record<string, number>[]>> = {}
-    if (!eixoEnt) return out
-    for (const g of gruposEnt) { out[g.key] = {}; for (const cen of cenariosAtivos) out[g.key][cen] = buckets.map(b => computeTotais(linhasCalc, computedGrp[g.key]?.[cen] || {}, b.meses)) }
+    if (!linEntidade && !colEntidade) return out
+    for (const k of paresGrp) { out[k] = {}; for (const cen of cenariosAtivos) out[k][cen] = buckets.map(b => computeTotais(linhasCalc, computedGrp[k]?.[cen] || {}, b.meses)) }
     return out
-  }, [eixoEnt, gruposEnt, cenariosAtivos, computedGrp, buckets]) // eslint-disable-line
+  }, [linEntidade, colEntidade, paresGrp, cenariosAtivos, computedGrp, buckets]) // eslint-disable-line
   const totalByCenGrp = useMemo(() => {
     const out: Record<string, Record<string, Record<string, number>>> = {}
-    if (!eixoEnt) return out
-    for (const g of gruposEnt) { out[g.key] = {}; for (const cen of cenariosAtivos) out[g.key][cen] = computeTotais(linhasCalc, computedGrp[g.key]?.[cen] || {}, displayedMeses) }
+    if (!linEntidade && !colEntidade) return out
+    for (const k of paresGrp) { out[k] = {}; for (const cen of cenariosAtivos) out[k][cen] = computeTotais(linhasCalc, computedGrp[k]?.[cen] || {}, displayedMeses) }
     return out
-  }, [eixoEnt, gruposEnt, cenariosAtivos, computedGrp, displayedMeses]) // eslint-disable-line
+  }, [linEntidade, colEntidade, paresGrp, cenariosAtivos, computedGrp, displayedMeses]) // eslint-disable-line
   const cellValG = (gid: string, cen: string, linhaId: string, period: Period): number =>
     period === 'TOTAL' ? (totalByCenGrp[gid]?.[cen]?.[linhaId] ?? 0) : (bucketTotaisGrp[gid]?.[cen]?.[period as number]?.[linhaId] ?? 0)
   // ⚠⚠ O Δ DENTRO DE UM GRUPO TEM DE LER AQUELE GRUPO. Com entidade e
@@ -1285,16 +1343,16 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // ⚠ `gRow` é o grupo da LINHA; `c.grupoKey`, o da coluna. Nunca os dois ao
   // mesmo tempo — o eixo de entidade mora numa zona só —, então um `||` basta
   // e não há ambiguidade sobre qual recorte vale.
-  const cellValCol = (c: Column, cen: string, linhaId: string, gRow?: string): number => {
-    const gk = gRow || c.grupoKey
-    return gk ? cellValG(gk, cen, linhaId, c.period) : cellVal(cen, linhaId, c.period)
-  }
+  const temEixo = !!(linEntidade || colEntidade)
+  const cellValCol = (c: Column, cen: string, linhaId: string, gRow?: string): number =>
+    temEixo ? cellValG(chaveGrp(gRow || '', c.grupoKey || ''), cen, linhaId, c.period)
+            : cellVal(cen, linhaId, c.period)
   // ⚠⚠ A ÁRVORE INTEIRA SE REPETE sob cada valor da entidade — e é por isso
   // que o motor por grupo tinha de existir antes: o subtotal e o % de cada
   // bloco são CALCULADOS naquele recorte, nunca somados entre blocos.
   const blocosLin = useMemo<{ key: string; grupo: GrupoCol | null }[]>(
-    () => (linEntidade && gruposEnt.length ? gruposEnt.map(g => ({ key: g.key, grupo: g })) : [{ key: '__', grupo: null }]),
-    [linEntidade, gruposEnt])
+    () => (linEntidade && gruposLin.length ? gruposLin.map(g => ({ key: g.key, grupo: g })) : [{ key: '', grupo: null }]),
+    [linEntidade, gruposLin])
 
   // ── Árvore / colapso
   const temFilhos = (lid: string) => linhas.some(l => l.pai_id === lid)
@@ -1436,6 +1494,22 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // entidade: sem ele o razão abriria com o filtro da TELA e mostraria um total
   // maior que a célula que o abriu — o defeito do `DrillCombinacoes` de novo
   // ("detalhe que não soma o total de onde veio não é detalhe, é outro número").
+  // ⚠ Cruza os recortes dos dois eixos: empresa entra por `empresas` e
+  // área/divisão/BU/CC por `ccs`, então o par vira a interseção dos dois.
+  const parGrupo = (kLin?: string, kCol?: string): GrupoCol | null => {
+    const a = kLin !== undefined ? gruposLin.find(g => g.key === kLin) : undefined
+    const b = kCol !== undefined ? gruposCol.find(g => g.key === kCol) : undefined
+    if (!a && !b) return null
+    const inter = (x: string[] | null | undefined, y: string[] | null | undefined) =>
+      x == null ? (y ?? null) : y == null ? x : x.filter(i => y.includes(i))
+    return {
+      key: chaveGrp(kLin || '', kCol || ''),
+      label: [a?.label, b?.label].filter(Boolean).join(' · '),
+      empresas: inter(a?.empresas, b?.empresas) ?? empresaFiltro,
+      ccs: inter(a?.ccs, b?.ccs),
+      filiais: a?.filiais !== undefined || b?.filiais !== undefined ? inter(a?.filiais, b?.filiais) : undefined,
+    }
+  }
   const abrirRazao = (l: Linha, period: Period, cen: string, ccEscopo?: string[] | null, grupo?: GrupoCol | null) => {
     if (l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR' || l.tipo_linha === 'ESPACO') return
     if (!empresaFiltro.length) return
@@ -1446,6 +1520,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const ccFilterCel = grupo ? grupo.ccs
       : (ccEscopo !== undefined ? ccEscopo : ccFilter)
     const empFiltroCel = grupo ? grupo.empresas : empresaFiltro
+    const filFiltroCel = grupo && grupo.filiais !== undefined ? grupo.filiais : filialFilter
     const meses: Periodo[] = period === 'TOTAL' ? displayedMeses : (buckets[period as number]?.meses ?? [])
     // O eixo exibe tudo no ano de referência, mas o razão precisa do ANO REAL do
     // cenário: no ciclo é o ano da versão, e no "realizado do ano anterior" é o
@@ -1474,7 +1549,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     }
     setRazao({
       titulo: l.descricao, cen, cenLabel: cenarioLabel(cen), periodoLabel, meses: mesesCen, perAdd: mesesCen.length === 1 ? mesesCen[0] : null,
-      linhaIds, contaIds, contaSinal, contaItemMap, empresaSel: empFiltroCel, filialFilter, ccFilter: ccFilterCel,
+      linhaIds, contaIds, contaSinal, contaItemMap, empresaSel: empFiltroCel, filialFilter: filFiltroCel, ccFilter: ccFilterCel,
       ccById: Object.fromEntries(ccs.map(c => [c.id, c])),
       contaById: Object.fromEntries(contas.map(c => [c.id, c])),
       linhaById: Object.fromEntries(linhas.map(x => [x.linha_orc_id, x.descricao])),
@@ -1599,20 +1674,20 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     // nível de baixo precisa de um espaçador de span 1 — sem ele as colunas
     // escorregam e o cabeçalho passa a rotular a coluna errada, calado.
     const cols: Column[] = [], topo: Group[] = [], subRep: Group[] = []
-    for (const g of gruposEnt) {
-      const fechado = gruposFechados.has(g.key)
+    for (const g of gruposCol) {
+      const fechado = gruposFechados.has(`col:${g.key}`)
       if (fechado) {
         cols.push({ key: `${g.key}§c`, label: '', period: 'TOTAL', kind: 'collapsed', grupoKey: g.key })
-        topo.push({ label: g.label, span: 1, grupoKey: g.key, collapsible: true, collapsed: true })
+        topo.push({ label: g.label, span: 1, grupoKey: `col:${g.key}`, collapsible: true, collapsed: true })
         if (sub) subRep.push({ label: '', span: 1 })
       } else {
         for (const c of base) cols.push({ ...c, key: `${g.key}§${c.key}`, grupoKey: g.key })
-        topo.push({ label: g.label, span: base.length, grupoKey: g.key, collapsible: true })
+        topo.push({ label: g.label, span: base.length, grupoKey: `col:${g.key}`, collapsible: true })
         if (sub) subRep.push(...sub)
       }
     }
     return { columns: cols, headerRows: sub ? [topo, subRep] : [topo] }
-  }, [view, versaoId, versoes, censDisplay, buckets, colEntidade, gruposEnt, showDeltaVal, colapsados, gruposFechados]) // eslint-disable-line
+  }, [view, versaoId, versoes, censDisplay, buckets, colEntidade, gruposCol, showDeltaVal, colapsados, gruposFechados]) // eslint-disable-line
 
   // ── Recolher/expandir meses no comparativo (só visual)
   const toggleColapso = (per: number) => setColapsados(s => { const n = new Set(s); n.has(per) ? n.delete(per) : n.add(per); return n })
@@ -1701,7 +1776,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     if (bl.grupo) { push([bl.grupo.label]); r++ }
     // ⚠ Grupo recolhido não sai no arquivo: WYSIWYG vale para o que está
     // escondido também, senão o export deixa de ser o relatório da tela.
-    if (bl.grupo && gruposFechados.has(bl.grupo.key)) continue
+    if (bl.grupo && gruposFechados.has(`lin:${bl.grupo.key}`)) continue
     for (const l of visivel) {
       const depth = (l as any)._depth ?? 0
       const isSpac = l.tipo_linha === 'ESPACO'
@@ -1716,8 +1791,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       columns.forEach((c, i) => {
         const cc = i + 1
         if (c.kind === 'collapsed') { row.push(null); return }
-        if ((gkRow || c.grupoKey) && c.kind === 'value') {
-          const v = cellValG((gkRow || c.grupoKey)!, c.cenarioKey!, l.id, c.period)
+        if (temEixo && c.kind === 'value') {
+          const v = cellValG(chaveGrp(gkRow || '', c.grupoKey || ''), c.cenarioKey!, l.id, c.period)
           row.push(v === 0 ? null : fac * v)
           fmts[`${r},${cc}`] = l.formato === 'PERCENTUAL' ? '#,##0.0"%"' : fmtNum
           return
@@ -2343,7 +2418,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
           nunca chega a ser oferecido — nada a recusar depois do gesto.
           ⚠ Clicar também funciona: arrasto sem alternativa exclui quem usa
           teclado e trackpad ruim. O chip no lugar tem o × para devolvê-lo. */}
-      <PivotZonas eixo={eixoEnt} zona={eixoZona} onMudar={porEixo} />
+      <PivotZonas lin={linEntidade} col={colEntidade} onMudar={porEixo} />
 
       {(() => {
         const sel = selId ? (linhas.find(x => x.id === selId) ?? null) : null
@@ -2426,14 +2501,27 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             {/* ⚠ Com 13 empresas, recolher uma a uma é o atrito que faz a pessoa
                 desistir do recorte — o mesmo motivo do "expandir meses" ao lado.
                 Só aparece quando há eixo de entidade. */}
-            {eixoEnt && gruposEnt.length > 1 && (
+            {/* ⚠⚠ O LIMITE MUDOU DE LUGAR, NÃO SUMIU. A consulta deixou de ser
+                o gargalo (o agregado agrupa no servidor), mas o MOTOR roda uma
+                vez por combinação — cruzar CC (87) com empresa (13) são 1.131
+                árvores de 170 linhas × 12 períodos, por cenário. Não trava a
+                tela à toa: avisa a conta antes, e quem precisa filtra.
+                ⚠ Avisa, não impede: recusar um cruzamento legítimo é o
+                controle que volta desligado amanhã. */}
+            {paresGrp.length > 150 && (
+              <span style={{ ...mini, border: '1px solid var(--orange)', background: 'rgba(251,146,60,0.14)', color: 'var(--orange)', cursor: 'default' }}
+                title="Cada combinação roda o motor sobre a árvore inteira. Filtre empresa ou CC para reduzir.">
+                <AlertTriangle size={13} /> {gruposLin.length || 1} × {gruposCol.length || 1} = {paresGrp.length} combinações — pode demorar
+              </span>
+            )}
+            {(linEntidade || colEntidade) && (gruposLin.length + gruposCol.length) > 1 && (
               gruposFechados.size > 0
                 ? <button title="Expandir todos os grupos recolhidos" onClick={() => setGruposFechados(new Set())}
                     style={{ ...mini, border: '1px solid var(--violet)', background: 'rgba(139,92,246,0.16)', color: 'var(--violet)' }}>
                     <ChevronsUpDown size={13} /> Expandir grupos ({gruposFechados.size})
                   </button>
-                : <button title={`Recolher todos os ${gruposEnt.length} grupos — ficam só as faixas, para achar o que interessa`}
-                    onClick={() => setGruposFechados(new Set(gruposEnt.map(g => g.key)))}
+                : <button title={`Recolher todos os grupos — ficam só as faixas, para achar o que interessa`}
+                    onClick={() => setGruposFechados(new Set([...gruposLin.map(g => `lin:${g.key}`), ...gruposCol.map(g => `col:${g.key}`)]))}
                     style={{ ...mini, border: '1px solid var(--border-strong)', background: 'var(--panel)', color: 'var(--text-mid)' }}>
                     <ChevronsUpDown size={13} /> Recolher grupos
                   </button>
@@ -2532,18 +2620,18 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             {bl.grupo && (
               // faixa do grupo: diz de quem é a árvore abaixo, e recolhe-a
               <tr>
-                <td colSpan={columns.length + 1} onClick={() => toggleGrupo(bl.grupo!.key)}
+                <td colSpan={columns.length + 1} onClick={() => toggleGrupo(`lin:${bl.grupo!.key}`)}
                     style={{ ...S.td, textAlign: 'left', padding: '6px 10px', background: 'rgba(139,92,246,0.14)', cursor: 'pointer',
                              color: 'var(--violet)', fontWeight: 700, fontSize: 13, position: 'sticky', left: 0 }}
-                    title={gruposFechados.has(bl.grupo.key) ? 'Expandir' : 'Recolher'}>
+                    title={gruposFechados.has(`lin:${bl.grupo.key}`) ? 'Expandir' : 'Recolher'}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    {gruposFechados.has(bl.grupo.key) ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                    {gruposFechados.has(`lin:${bl.grupo.key}`) ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
                     {bl.grupo.label}
                   </span>
                 </td>
               </tr>
             )}
-            {(bl.grupo && gruposFechados.has(bl.grupo.key) ? [] : visivel).map((l, idx) => {
+            {(bl.grupo && gruposFechados.has(`lin:${bl.grupo.key}`) ? [] : visivel).map((l, idx) => {
               const depth = l._depth ?? 0
               const isAgg = l.tipo_linha === 'SOMAR_FILHOS'
               const isSpac = l.tipo_linha === 'ESPACO'
@@ -2583,18 +2671,20 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                     if (c.kind === 'collapsed') {
                       return <td key={c.key} style={{ ...S.td, padding: 0, cursor: 'pointer', background: isSel ? 'rgba(59,130,246,0.30)' : 'var(--bg)', borderLeft: '1px solid var(--border)' }}
                         title={c.grupoKey ? 'Expandir' : 'Expandir mês'}
-                        onClick={() => { if (c.grupoKey) toggleGrupo(c.grupoKey); else if (typeof c.period === 'number') toggleColapso(c.period) }} />
+                        onClick={() => { if (c.grupoKey) toggleGrupo(`col:${c.grupoKey}`); else if (typeof c.period === 'number') toggleColapso(c.period) }} />
                     }
                     const gkRow = bl.grupo?.key
-                    if ((gkRow || c.grupoKey) && c.kind === 'value') {
-                      const gk = (gkRow || c.grupoKey)!
-                      const v = cellValG(gk, c.cenarioKey!, l.id, c.period)
+                    if (temEixo && c.kind === 'value') {
+                      const v = cellValG(chaveGrp(gkRow || '', c.grupoKey || ''), c.cenarioKey!, l.id, c.period)
                       const disp = isSpac ? '' : (v !== 0 ? formatValor(fac * v, l.formato, l.casas_decimais) : '')
                       // ⚠ O drill vive só no ramo de baixo; sem isto a célula
                       // agrupada era a ÚNICA da tela que não abria o razão —
                       // e era o que se ia conferir primeiro, justamente por ser
                       // o recorte novo. Abre com o recorte DO GRUPO.
-                      const gObj = gruposEnt.find(x => x.key === gk) || null
+                      // ⚠ Os DOIS grupos recortam a célula agora, e o razão
+                      // herda os dois — abrir com um só mostraria um total
+                      // maior que a célula (a regra do DrillCombinacoes).
+                      const gObj = parGrupo(gkRow, c.grupoKey)
                       const abre = !isSpac && c.cenarioKey && l.tipo_linha !== 'FORMULA' && l.tipo_linha !== 'INDICADOR'
                       return <td key={c.key} title={abre ? 'Clique para ver o razão deste grupo' : undefined}
                         onClick={abre ? () => { setSelId(l.id); abrirRazao(l, c.period, c.cenarioKey!, undefined, gObj) } : undefined}
@@ -3349,35 +3439,42 @@ function ViewModal({ view, versoes, onClose, onSave }: { view: ViewConfig; verso
         </div>
         <div style={S.help}>O intervalo (de–até) é definido na grade dos Filtros. A granularidade agrupa esse intervalo em meses, trimestres, semestres ou anos.</div>
         <div style={S.field}>
-          <label style={S.label}>Agrupar por (opcional)</label>
+          <label style={S.label}>Agrupar (opcional)</label>
           <div style={{ display: 'flex', gap: 8 }}>
-            <select style={{ ...S.sel, flex: 1 }}
-              value={(v.filtros?.eixoEnt as string) || (v.filtros?.colEntidade as string) || (v.filtros?.colEmpresa ? 'empresa' : '')}
-              onChange={e => {
-                // ⚠ Grava no campo novo e APAGA os dois antigos: deixá-los faria
-                // "— nenhum —" recair no legado e o agrupamento voltaria sozinho.
-                const f = { ...(v.filtros || {}) }
-                delete (f as any).colEmpresa; delete (f as any).colEntidade
-                setV({ ...v, filtros: { ...f, eixoEnt: e.target.value || undefined, eixoZona: e.target.value ? (f.eixoZona || 'col') : undefined } })
-              }}>
-              <option value="">— nenhum —</option>
-              {EIXOS_ENT.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}
-            </select>
-            <select style={{ ...S.sel, width: 130 }} value={(v.filtros?.eixoZona as string) || 'col'}
-              disabled={!((v.filtros?.eixoEnt as string) || (v.filtros?.colEntidade as string) || v.filtros?.colEmpresa)}
-              onChange={e => setV({ ...v, filtros: { ...(v.filtros || {}), eixoZona: e.target.value } })}>
-              <option value="col">nas colunas</option>
-              <option value="lin">nas linhas</option>
-            </select>
+            {([['eixoLin', 'nas linhas'], ['eixoCol', 'nas colunas']] as const).map(([campo, rot]) => (
+              <div key={campo} style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 3 }}>{rot}</div>
+                <select style={{ ...S.sel, width: '100%' }}
+                  value={(v.filtros?.[campo] as string)
+                         || (campo === 'eixoCol' && (v.filtros?.eixoZona as string) !== 'lin'
+                             ? ((v.filtros?.eixoEnt as string) || (v.filtros?.colEntidade as string) || (v.filtros?.colEmpresa ? 'empresa' : '')) : '')
+                         || (campo === 'eixoLin' && (v.filtros?.eixoZona as string) === 'lin' ? (v.filtros?.eixoEnt as string) || '' : '')}
+                  onChange={e => {
+                    // ⚠ Grava nos campos novos e APAGA os três antigos: deixá-los
+                    // faria "— nenhum —" recair no legado e o agrupamento voltaria
+                    // sozinho na próxima abertura.
+                    const f = { ...(v.filtros || {}) }
+                    delete (f as any).colEmpresa; delete (f as any).colEntidade
+                    delete (f as any).eixoEnt; delete (f as any).eixoZona
+                    const outro = campo === 'eixoLin' ? 'eixoCol' : 'eixoLin'
+                    // a mesma entidade nas duas zonas seria a interseção dela
+                    // consigo mesma: vazia em toda parte menos na diagonal.
+                    if (e.target.value && f[outro] === e.target.value) delete (f as any)[outro]
+                    setV({ ...v, filtros: { ...f, [campo]: e.target.value || undefined } })
+                  }}>
+                  <option value="">— nenhum —</option>
+                  {EIXOS_ENT.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}
+                </select>
+              </div>
+            ))}
           </div>
         </div>
         <div style={S.help}>
-          Define o arranjo com que a visão ABRE — na tela dá para arrastar a entidade entre
+          Define o arranjo com que a visão ABRE — na tela dá para arrastar as entidades entre
           Linhas e Colunas sem alterar a visão. Nas <strong>colunas</strong>, cada valor vira um
           grupo com o layout acima repetido embaixo, inclusive o Comparativo (e aí o Δ sai por
           entidade); nas <strong>linhas</strong>, a árvore do relatório se repete sob cada valor.
-          Uma entidade por vez: cruzar as duas zonas exige um agregado que devolva a dimensão
-          numa consulta só. Centro de custo e filial ficam de fora pelo mesmo motivo.
+          Usando as duas, a tela <strong>cruza</strong> — ex.: área nas linhas × empresa nas colunas.
         </div>
         <div style={S.field}>
           <label style={S.label}>Cenários exibidos</label>

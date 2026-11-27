@@ -91,7 +91,14 @@ BEGIN
          CASE WHEN sum(r.qt) = 1 THEN max(r.ex) END,
          bool_or(r.dt)
     FROM rot r
-   GROUP BY 1, 2, 3, 4, 5;
+   GROUP BY 1, 2, 3, 4, 5
+   -- ⚠⚠ ORDER BY NÃO É ENFEITE AQUI: o cruzamento devolve 5.554 linhas e o
+   -- PostgREST corta em 1000, então a tela PAGINA. Duas páginas são duas
+   -- consultas independentes, e sem ordem o Postgres não promete a mesma
+   -- sequência entre elas — repete linha e perde outra, sem erro, num
+   -- conjunto quase certo. É a lição do `pageAll` (nov/2026), e aqui a ordem
+   -- tem de vir do BANCO porque quem pagina é uma RPC, não um `.select()`.
+   ORDER BY 1, 2, 3, 4, 5;
 END $function$;
 
 -- ── Realizado ─────────────────────────────────────────────────────────────
@@ -158,7 +165,8 @@ BEGIN
                                WHEN 'divisao' THEN r.divisao_cod WHEN 'bu' THEN r.bu_cod END, ''),
          r.a, r.m, sum(r.v)
     FROM rot r
-   GROUP BY 1, 2, 3, 4, 5;
+   GROUP BY 1, 2, 3, 4, 5
+   ORDER BY 1, 2, 3, 4, 5;   -- idem: a tela pagina esta resposta
 END $function$;
 
 -- ---------------- conferência ----------------
@@ -172,7 +180,9 @@ SELECT '1 · funções' AS secao, p.proname AS chave,
        CASE WHEN p.proname = 'relatorio_orcado_agg_dim'
                  AND pg_get_functiondef(p.oid) NOT LIKE '%sum(r.qt)::bigint%'
             THEN '⛔ VERSÃO ANTIGA — reaplique este arquivo inteiro'
-            ELSE '✅ versão com o cast ::bigint' END AS info,
+            WHEN pg_get_functiondef(p.oid) NOT LIKE '%ORDER BY 1, 2, 3, 4, 5%'
+            THEN '⛔ SEM ORDER BY — reaplique: a paginação da tela depende dele'
+            ELSE '✅ com o cast e com ORDER BY' END AS info,
        pg_get_function_result(p.oid) AS det
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
  WHERE n.nspname = 'public' AND p.proname IN ('relatorio_orcado_agg_dim','relatorio_realizado_agg_dim')
