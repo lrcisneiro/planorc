@@ -1373,20 +1373,20 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // escopada: ali os valores são do escopo dela, e abrir o razão com o filtro
   // da tela daria um número maior que o da linha que o abriu — o defeito do
   // drill de novo ("detalhe que não soma o total de onde veio é outro número").
-  const abrirRazao = (l: Linha, period: Period, cen: string, ccEscopo?: string[] | null) => {
+  // ⚠⚠ `grupo` É O RECORTE DA CÉLULA CLICADA, e é obrigatório quando há eixo de
+  // entidade: sem ele o razão abriria com o filtro da TELA e mostraria um total
+  // maior que a célula que o abriu — o defeito do `DrillCombinacoes` de novo
+  // ("detalhe que não soma o total de onde veio não é detalhe, é outro número").
+  const abrirRazao = (l: Linha, period: Period, cen: string, ccEscopo?: string[] | null, grupo?: GrupoCol | null) => {
     if (l.tipo_linha === 'FORMULA' || l.tipo_linha === 'INDICADOR' || l.tipo_linha === 'ESPACO') return
     if (!empresaFiltro.length) return
-    const filialFilter0 = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
-    const ccFilter0 = effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel)
-    // F2: aplica o escopo VER mesmo SEM filtro explícito (vazio = "todos" → interseção com o permitido)
-    const aplicaEscopo = (f: string[] | null, todos: { id: string }[], dim: string): string[] | null => {
-      const permitidos = todos.filter(i => acesso.canSee(dim, i.id)).map(i => i.id)
-      if (permitidos.length >= todos.length) return f
-      if (f === null) return permitidos
-      return f.filter(idd => permitidos.includes(idd))
-    }
-    const filialFilter = aplicaEscopo(filialFilter0, filiais, 'filial')
-    const ccFilter = ccEscopo !== undefined ? ccEscopo : aplicaEscopo(ccFilter0, ccs as any, 'centro_custo')
+    // ⚠ O recorte vem dos MEMOS do componente — era recalculado aqui com uma
+    // cópia inteira do `aplicaEscopo`, e a carga já tinha deixado de fazer
+    // isso. Duas contas para a mesma pergunta divergem no primeiro ajuste, e
+    // aqui o sintoma seria o razão abrindo com recorte diferente da célula.
+    const ccFilterCel = grupo ? grupo.ccs
+      : (ccEscopo !== undefined ? ccEscopo : ccFilter)
+    const empFiltroCel = grupo ? grupo.empresas : empresaFiltro
     const meses: Periodo[] = period === 'TOTAL' ? displayedMeses : (buckets[period as number]?.meses ?? [])
     // O eixo exibe tudo no ano de referência, mas o razão precisa do ANO REAL do
     // cenário: no ciclo é o ano da versão, e no "realizado do ano anterior" é o
@@ -1415,7 +1415,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     }
     setRazao({
       titulo: l.descricao, cen, cenLabel: cenarioLabel(cen), periodoLabel, meses: mesesCen, perAdd: mesesCen.length === 1 ? mesesCen[0] : null,
-      linhaIds, contaIds, contaSinal, contaItemMap, empresaSel: empresaFiltro, filialFilter, ccFilter,
+      linhaIds, contaIds, contaSinal, contaItemMap, empresaSel: empFiltroCel, filialFilter, ccFilter: ccFilterCel,
       ccById: Object.fromEntries(ccs.map(c => [c.id, c])),
       contaById: Object.fromEntries(contas.map(c => [c.id, c])),
       linhaById: Object.fromEntries(linhas.map(x => [x.linha_orc_id, x.descricao])),
@@ -2528,9 +2528,18 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                     }
                     const gkRow = bl.grupo?.key
                     if ((gkRow || c.grupoKey) && c.kind === 'value') {
-                      const v = cellValG((gkRow || c.grupoKey)!, c.cenarioKey!, l.id, c.period)
+                      const gk = (gkRow || c.grupoKey)!
+                      const v = cellValG(gk, c.cenarioKey!, l.id, c.period)
                       const disp = isSpac ? '' : (v !== 0 ? formatValor(fac * v, l.formato, l.casas_decimais) : '')
-                      return <td key={c.key} style={{ ...S.td, color: clr, fontWeight: fw, textDecoration: off ? 'line-through' : undefined, background: isSel ? 'rgba(59,130,246,0.30)' : (c.period === 'TOTAL' ? 'var(--bg-soft)' : undefined) }}>{disp}</td>
+                      // ⚠ O drill vive só no ramo de baixo; sem isto a célula
+                      // agrupada era a ÚNICA da tela que não abria o razão —
+                      // e era o que se ia conferir primeiro, justamente por ser
+                      // o recorte novo. Abre com o recorte DO GRUPO.
+                      const gObj = gruposEnt.find(x => x.key === gk) || null
+                      const abre = !isSpac && c.cenarioKey && l.tipo_linha !== 'FORMULA' && l.tipo_linha !== 'INDICADOR'
+                      return <td key={c.key} title={abre ? 'Clique para ver o razão deste grupo' : undefined}
+                        onClick={abre ? () => { setSelId(l.id); abrirRazao(l, c.period, c.cenarioKey!, undefined, gObj) } : undefined}
+                        style={{ ...S.td, cursor: abre ? 'pointer' : undefined, color: clr, fontWeight: fw, textDecoration: off ? 'line-through' : undefined, background: isSel ? 'rgba(59,130,246,0.30)' : (c.period === 'TOTAL' ? 'var(--bg-soft)' : undefined) }}>{disp}</td>
                     }
                     // Δ tem DUAS leituras e elas discordam na despesa. O NÚMERO segue o
                     // que está escrito nas duas colunas ao lado (que a despesa mostra
