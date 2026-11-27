@@ -191,7 +191,17 @@ const S: Record<string, CSSProperties> = {
 
 
 type Period = number | 'TOTAL'
-type Column = { key: string; label: string; cenarioKey?: string; period: Period; kind: 'value' | 'delta' | 'deltav' | 'collapsed'; empresaId?: string }
+type Column = { key: string; label: string; cenarioKey?: string; period: Period; kind: 'value' | 'delta' | 'deltav' | 'collapsed'; grupoKey?: string }
+/** Eixo de ENTIDADE das colunas. CC e filial ficam de fora por cardinalidade
+ *  (86 e 15): a carga é uma RPC por grupo, e acima de ~15 isso vira dezenas de
+ *  chamadas. Quando entrarem, é com um agregado que devolva a dimensão. */
+type EixoEnt = 'empresa' | 'area' | 'divisao' | 'bu'
+const EIXOS_ENT: { id: EixoEnt; label: string }[] = [
+  { id: 'empresa', label: 'Empresa' }, { id: 'area', label: 'Área' },
+  { id: 'divisao', label: 'Divisão' }, { id: 'bu', label: 'BU' },
+]
+/** Um grupo de colunas: o recorte que a carga manda à RPC e o rótulo do cabeçalho. */
+type GrupoCol = { key: string; label: string; empresas: string[]; ccs: string[] | null }
 type Group  = { label: string; span: number; period?: Period; collapsible?: boolean; collapsed?: boolean }
 
 // ─── Component ───────────────────────────────────────────────
@@ -352,7 +362,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const [snaps, setSnaps] = useState<any[]>([])
   const [snapBusy, setSnapBusy] = useState(false)
   const autoSnapRef = useRef(false)
-  const [rawEmp, setRawEmp] = useState<Record<string, ValMap>>({})   // [empresaId][cenario][linha][pk] — modo "Por empresa"
+  const [rawGrp, setRawGrp] = useState<Record<string, ValMap>>({})   // [grupoKey][cenario][linha][pk] — colunas agrupadas por entidade
   const [verOcultas, setVerOcultas] = useState(false)   // mostra linhas com visivel_relatorio=false p/ gerenciar
   const [showDeltaVal, setShowDeltaVal] = useState(false)   // coluna Δ valor no comparativo (além do Δ%)
   const [colapsados, setColapsados] = useState<Set<number>>(new Set())   // meses recolhidos no comparativo (só visual)
@@ -625,8 +635,17 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
 
   // (cenariosAtivos / anoDoCenario / cicloMode definidos acima, antes do período)
 
-  // ── Agrupar colunas por EMPRESA (visão "Por empresa"; só leitura; não em comparativo)
-  const colEmpresa = !!(view.filtros?.colEmpresa) && view.funcao !== 'COMPARATIVO'
+  // ── Eixo de ENTIDADE nas colunas (empresa · área · divisão · BU) ─────────
+  // ⚠⚠ ISTO SUBSTITUI O CHECKBOX "agrupar por empresa", e a leitura é
+  // retrocompatível: `colEmpresa: true` das visões já salvas vira
+  // `colEntidade: 'empresa'`. Nenhuma migration — `view_config.filtros` é
+  // jsonb, e traduzir na LEITURA é o que mantém as 14 visões de hoje válidas.
+  // ⚠⚠ E A RESTRIÇÃO AO COMPARATIVO CAIU. Ela era um `&&` nesta linha, não uma
+  // limitação de mecanismo: `computedGrp` já iterava `grupos × cenários` desde
+  // sempre. O que faltava era CABEÇALHO — com entidade e cenário ao mesmo
+  // tempo são três níveis, e o render só sabia desenhar dois.
+  const colEntidade: EixoEnt | null = (view.filtros?.colEntidade as EixoEnt)
+    || (view.filtros?.colEntidade ? 'empresa' : null) || null
   // ⚠⚠ VAZIO É "TODAS", em toda parte — é o contrato do `FiltrosButton` ("Vazio
   // = todas", e o rótulo da seção escreve *todas* ao lado do nome). O editor
   // honrava isso só nas COLUNAS (`empsCols`): a carga usava `empresaSel` cru,
@@ -642,6 +661,58 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const empsCols = useMemo(() => (empresaSel.length ? empresaSel : empresasVisiveis.map((e: any) => e.id)), [empresaSel, empresasVisiveis])
   const empCodById = useMemo(() => Object.fromEntries(empresas.map(e => [e.id, `${e.codigo} · ${e.descricao}`])), [empresas])
 
+  // ⚠⚠ O RECORTE DA TELA SOBE PARA CÁ porque agora tem DOIS leitores: a carga
+  // (que o manda à RPC) e o eixo de coluna (que recorta os grupos). Calculado
+  // em dois lugares, divergiria no primeiro ajuste — e o sintoma seria o grupo
+  // somar o que a RPC não traz, ou o contrário.
+  // F2: aplica o escopo VER mesmo SEM filtro explícito (vazio = "todos" → interseção com o permitido)
+  const aplicaEscopo = useCallback((f: string[] | null, todos: { id: string }[], dim: string): string[] | null => {
+    const permitidos = todos.filter(i => acesso.canSee(dim, i.id)).map(i => i.id)
+    if (permitidos.length >= todos.length) return f
+    if (f === null) return permitidos
+    return f.filter(idd => permitidos.includes(idd))
+  }, [acesso.loading]) // eslint-disable-line
+  // filtra filial/CC só quando é um subconjunto (nem vazio nem tudo = sem filtro, inclui consolidados null)
+  const filialFilter = useMemo(() => aplicaEscopo(
+    (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null, filiais as any, 'filial'),
+    [filialSel, filiais, aplicaEscopo])
+  const ccFilter = useMemo(() => aplicaEscopo(
+    effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel), ccs as any, 'centro_custo'),
+    [ccs, ccSel, areaSel, divisaoSel, buSel, aplicaEscopo])
+
+  // ⚠⚠ O GRUPO CARREGA O PRÓPRIO RECORTE — é ele que a carga manda à RPC, e é
+  // por isso que o motor pode rodar por grupo sem saber de que eixo veio.
+  // Empresa recorta por `p_empresas`; área/divisão/BU recortam por `p_ccs`,
+  // porque as três são ATRIBUTOS do centro de custo, não tabelas.
+  // ⚠ O recorte do grupo é SEMPRE cruzado com o filtro da tela (`ccFilter`):
+  // o eixo não pode alargar o que o filtro estreitou — a mesma regra do
+  // `filtro_escopo` de linha. Interseção vazia é grupo zerado, não "sem
+  // filtro", e sai sem chamar a RPC (`p_ccs: []` dependeria de o SQL ler
+  // array vazio como "nenhum", e ele lê como "todos").
+  const gruposCols = useMemo<GrupoCol[]>(() => {
+    if (!colEntidade) return []
+    if (colEntidade === 'empresa')
+      return empsCols.map(eid => ({ key: eid, label: empCodById[eid] || '—', empresas: [eid], ccs: ccFilter }))
+    const campo = colEntidade === 'area' ? 'area_cod' : colEntidade === 'divisao' ? 'divisao_cod' : 'bu_cod'
+    const nome  = colEntidade === 'area' ? 'area_nome' : colEntidade === 'divisao' ? 'divisao_nome' : 'bu_nome'
+    const dim   = EIXOS_ENT.find(e => e.id === colEntidade)!.label
+    const visiveis = (ccs as any[]).filter(c => !ccFilter || ccFilter.includes(c.id))
+    const porValor = new Map<string, { label: string; ids: string[] }>()
+    for (const c of visiveis) {
+      const cod = (c as any)[campo] as string | null
+      // ⚠ O RESIDUAL É UM GRUPO, NÃO UM DESCARTE. Medido em 27/nov: divisão
+      // está preenchida em 62 de 86 CCs e BU em 51 de 86 — agrupar por BU sem
+      // o balde deixaria 35 centros de custo FORA da tela, e o relatório
+      // deixaria de somar o que a DRE soma, calado.
+      const k = cod || '\u0000sem'
+      const lbl = cod ? `${cod}${(c as any)[nome] ? '-' + (c as any)[nome] : ''}` : `(sem ${dim.toLowerCase()})`
+      const g = porValor.get(k) || { label: lbl, ids: [] }; g.ids.push(c.id); porValor.set(k, g)
+    }
+    return [...porValor.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0], 'pt-BR', { numeric: true }))
+      .map(([k, g]) => ({ key: k, label: g.label, empresas: empresaFiltro, ccs: g.ids }))
+  }, [colEntidade, empsCols, empCodById, ccs, ccFilter, empresaFiltro])
+
   // ── Carrega valores brutos por cenário
   const loadValores = useCallback(async () => {
     if (!empresaFiltro.length || !cenariosAtivos.length) { setRaw({}); setDetalhado({}); return }
@@ -649,18 +720,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const t0Fetch = performance.now()
     setCarregandoVal(true)
     try {
-    // filtra filial/CC só quando é um subconjunto (nem vazio nem tudo = sem filtro, inclui consolidados null)
-    const filialFilter0 = (filialSel.length > 0 && filialSel.length < filiais.length) ? filialSel : null
-    const ccFilter0 = effectiveCcFilter(ccs as any, ccSel, areaSel, divisaoSel, buSel)
-    // F2: aplica o escopo VER mesmo SEM filtro explícito (vazio = "todos" → interseção com o permitido)
-    const aplicaEscopo = (f: string[] | null, todos: { id: string }[], dim: string): string[] | null => {
-      const permitidos = todos.filter(i => acesso.canSee(dim, i.id)).map(i => i.id)
-      if (permitidos.length >= todos.length) return f
-      if (f === null) return permitidos
-      return f.filter(idd => permitidos.includes(idd))
-    }
-    const filialFilter = aplicaEscopo(filialFilter0, filiais, 'filial')
-    const ccFilter = aplicaEscopo(ccFilter0, ccs as any, 'centro_custo')
+    // (o recorte efetivo — filialFilter/ccFilter — vem dos memos do componente)
     const isBalanco = relatorio?.categoria === 'BP'   // Balanço lê o realizado do saldo (fat_saldo)
     // carrega só os meses exibidos (evita puxar o ano inteiro)
     const mesesExib = [...new Set(periodos.map(p => p.mes))]
@@ -735,29 +795,37 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       next[cen] = map
     })())
 
-    // ── Modo "Por empresa": carrega os valores POR empresa (uma RPC por empresa/cenário)
-    const nextEmp: Record<string, ValMap> = {}
-    const tEmp: Promise<any>[] = []
-    if (colEmpresa && masterIds.length) {
-      for (const eid of empsCols) {
+    // ── Colunas agrupadas por ENTIDADE: uma RPC por grupo/cenário.
+    // ⚠ Cardinalidade é o limite deste desenho: empresa 13, área 5, divisão 4,
+    // BU 9 — todos abaixo de 15, que é o que este laço já fazia para empresa.
+    // CC (86) e filial (15 × cenários × anos) pedem o agregado que devolve a
+    // dimensão numa chamada só; por isso não são eixo ainda.
+    const nextGrp: Record<string, ValMap> = {}
+    const tGrp: Promise<any>[] = []
+    if (gruposCols.length && masterIds.length) {
+      for (const g of gruposCols) {
         const m: ValMap = {}
-        nextEmp[eid] = m
-        for (const cen of cenariosAtivos) tEmp.push((async () => {
+        nextGrp[g.key] = m
+        // ⚠ Grupo com recorte VAZIO é grupo zerado, e sai sem chamar a RPC:
+        // `p_ccs: []` dependeria de o SQL ler array vazio como "nenhum", e ele
+        // lê como "todos" — a linha viria com o valor da empresa inteira.
+        if (g.ccs !== null && !g.ccs.length) { for (const cen of cenariosAtivos) m[cen] = {}; continue }
+        for (const cen of cenariosAtivos) tGrp.push((async () => {
           const map: RawValues = {}
           if (ehReal(cen)) {
             if (isBalanco) {
               for (const y of anosDoCen(cen)) {
-                const { data, error } = await supabase.rpc('relatorio_saldo_agg', { p_empresas: [eid], p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
+                const { data, error } = await supabase.rpc('relatorio_saldo_agg', { p_empresas: g.empresas, p_ano: y, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_slot: moedaView })
                 if (error) throw new Error(error.message)
                 for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${anoChave(cen, y)}-${r.mes}`] = { valor: Number(r.saldo) || 0 } }
               }
             } else {
-              const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: [eid], p_anos: anosDoCen(cen), p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
+              const { data, error } = await supabase.rpc('relatorio_realizado_agg', { p_empresas: g.empresas, p_anos: anosDoCen(cen), p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: g.ccs, p_slot: moedaView })
               if (error) throw new Error(error.message)
               for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; (map[rl] ||= {})[`${anoChave(cen, r.ano)}-${r.mes}`] = { valor: Number(r.valor) || 0 } }
             }
           } else {
-            const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: [eid], p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: ccFilter, p_slot: moedaView })
+            const { data, error } = await supabase.rpc('relatorio_orcado_agg', { p_versao: cen, p_empresas: g.empresas, p_anos: anos, p_meses: mesesExib, p_linhas: masterIds, p_filiais: filialFilter, p_ccs: g.ccs, p_slot: moedaView })
             if (error) throw new Error(error.message)
             for (const r of data || []) { const rl = rlOfOrc[r.linha_id]; if (!rl) continue; const k = `${r.ano}-${r.mes}`; (map[rl] ||= {})[k] = (Number(r.n) === 1 && r.expr) ? { expressao: r.expr } : { valor: Number(r.valor) || 0 } }
           }
@@ -844,10 +912,10 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     // Promise.all` em fila — cenários, depois por-empresa, depois escopos —, e
     // cada onda só largava quando a anterior fechava: o waterfall do DevTools
     // mostrava os blocos escalonados e o tempo era a SOMA das ondas. Os três
-    // grupos são independentes (escrevem em `next`, `nextEmp` e `rawScopedNext`,
+    // grupos são independentes (escrevem em `next`, `nextGrp` e `rawScopedNext`,
     // mapas distintos) e nenhum lê o resultado do outro, então disparam juntos
     // e o tempo passa a ser o da chamada mais lenta.
-    await Promise.all([...tDup, ...tCen, ...tEmp, ...tEsc])
+    await Promise.all([...tDup, ...tCen, ...tGrp, ...tEsc])
 
     // ── Overlay: fatia o REALIZADO (já multi-ano) em REALIZADO@ano, re-chaveado ao ano de referência
     if (cicloMode && cenariosAtivos.includes(REALIZADO) && next[REALIZADO]) {
@@ -864,7 +932,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       if (myseq !== loadSeq.current) return   // um carregamento mais novo começou → descarta este
       marca('1 · rede (RPCs)', performance.now() - t0Fetch)
       const t0Set = performance.now()
-      setRaw(next); setDetalhado(det); setRawEmp(nextEmp); setRawScoped(rawScopedNext); setEscSig(escSigNext); setValErro(null)
+      setRaw(next); setDetalhado(det); setRawGrp(nextGrp); setRawScoped(rawScopedNext); setEscSig(escSigNext); setValErro(null)
       marca('2 · setState', performance.now() - t0Set)
     } catch (e: any) {
       console.error('loadValores erro:', e)
@@ -874,7 +942,7 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       // depois, apagaria o sinal enquanto o atual ainda está rodando
       if (myseq === loadSeq.current) setCarregandoVal(false)
     }
-  }, [empresaFiltro, filialSel, ccSel, areaSel, divisaoSel, buSel, periodosSel, cenariosAtivos, cicloMode, anoDoCenario, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEmpresa, empsCols, linhas, acesso.loading, moedaView]) // eslint-disable-line
+  }, [empresaFiltro, filialSel, ccSel, areaSel, divisaoSel, buSel, periodosSel, cenariosAtivos, cicloMode, anoDoCenario, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEntidade, empsCols, linhas, acesso.loading, moedaView]) // eslint-disable-line
 
   useEffect(() => { loadValores() }, [loadValores])
 
@@ -1001,26 +1069,33 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     period === 'TOTAL' ? (totalByCen[cen]?.[linhaId] ?? 0) : (bucketTotais[cen]?.[period as number]?.[linhaId] ?? 0)
 
   // ── Cálculo POR empresa (modo "Por empresa")
-  const computedEmp = useMemo(() => {
+  const computedGrp = useMemo(() => {
     const out: Record<string, Record<string, Computed>> = {}
-    if (!colEmpresa) return out
-    for (const eid of empsCols) { out[eid] = {}; for (const cen of cenariosAtivos) out[eid][cen] = computeCenario(linhasCalc, rawEmp[eid]?.[cen] || {}, periodos) }
+    if (!colEntidade) return out
+    for (const eid of empsCols) { out[eid] = {}; for (const cen of cenariosAtivos) out[eid][cen] = computeCenario(linhasCalc, rawGrp[eid]?.[cen] || {}, periodos) }
     return out
-  }, [colEmpresa, empsCols, cenariosAtivos, rawEmp, linhas, periodos]) // eslint-disable-line
-  const bucketTotaisEmp = useMemo(() => {
+  }, [colEntidade, empsCols, cenariosAtivos, rawGrp, linhas, periodos]) // eslint-disable-line
+  const bucketTotaisGrp = useMemo(() => {
     const out: Record<string, Record<string, Record<string, number>[]>> = {}
-    if (!colEmpresa) return out
-    for (const eid of empsCols) { out[eid] = {}; for (const cen of cenariosAtivos) out[eid][cen] = buckets.map(b => computeTotais(linhasCalc, computedEmp[eid]?.[cen] || {}, b.meses)) }
+    if (!colEntidade) return out
+    for (const eid of empsCols) { out[eid] = {}; for (const cen of cenariosAtivos) out[eid][cen] = buckets.map(b => computeTotais(linhasCalc, computedGrp[eid]?.[cen] || {}, b.meses)) }
     return out
-  }, [colEmpresa, empsCols, cenariosAtivos, computedEmp, buckets]) // eslint-disable-line
-  const totalByCenEmp = useMemo(() => {
+  }, [colEntidade, empsCols, cenariosAtivos, computedGrp, buckets]) // eslint-disable-line
+  const totalByCenGrp = useMemo(() => {
     const out: Record<string, Record<string, Record<string, number>>> = {}
-    if (!colEmpresa) return out
-    for (const eid of empsCols) { out[eid] = {}; for (const cen of cenariosAtivos) out[eid][cen] = computeTotais(linhasCalc, computedEmp[eid]?.[cen] || {}, displayedMeses) }
+    if (!colEntidade) return out
+    for (const eid of empsCols) { out[eid] = {}; for (const cen of cenariosAtivos) out[eid][cen] = computeTotais(linhasCalc, computedGrp[eid]?.[cen] || {}, displayedMeses) }
     return out
-  }, [colEmpresa, empsCols, cenariosAtivos, computedEmp, displayedMeses]) // eslint-disable-line
-  const cellValE = (eid: string, cen: string, linhaId: string, period: Period): number =>
-    period === 'TOTAL' ? (totalByCenEmp[eid]?.[cen]?.[linhaId] ?? 0) : (bucketTotaisEmp[eid]?.[cen]?.[period as number]?.[linhaId] ?? 0)
+  }, [colEntidade, empsCols, cenariosAtivos, computedGrp, displayedMeses]) // eslint-disable-line
+  const cellValG = (gid: string, cen: string, linhaId: string, period: Period): number =>
+    period === 'TOTAL' ? (totalByCenGrp[gid]?.[cen]?.[linhaId] ?? 0) : (bucketTotaisGrp[gid]?.[cen]?.[period as number]?.[linhaId] ?? 0)
+  // ⚠⚠ O Δ DENTRO DE UM GRUPO TEM DE LER AQUELE GRUPO. Com entidade e
+  // comparativo juntos, as colunas de Δ ganham `grupoKey` como as outras — mas
+  // elas NÃO têm `cenarioKey`, então o ramo de valor as pegava primeiro e
+  // devolvia zero: a coluna de Δ sairia em branco dentro de todo grupo, calada.
+  // Este leitor é o ponto único — render e export passam por ele.
+  const cellValCol = (c: Column, cen: string, linhaId: string): number =>
+    c.grupoKey ? cellValG(c.grupoKey, cen, linhaId, c.period) : cellVal(cen, linhaId, c.period)
 
   // ── Árvore / colapso
   const temFilhos = (lid: string) => linhas.some(l => l.pai_id === lid)
@@ -1243,50 +1318,64 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const cenarioLabel = (key: string) => key === REALIZADO ? 'Real.' : ehRealAnt(key) ? `Real. ${anoRealAnt}` : ehRealAno(key) ? `Real. ${anoDeRealAno(key)}` : (versoes.find(v => v.id === key)?.codigo ?? '—')
   // Lista de cenários EXIBIDOS (colunas): no overlay expande 'REALIZADO' por ano.
   const censDisplay = useMemo(() => expandirCens(view.cenarios), [view.cenarios, cicloMode, anos, versoes]) // eslint-disable-line
-  const { columns, groups, twoRow } = useMemo<{ columns: Column[]; groups: Group[]; twoRow: boolean }>(() => {
+  // ⚠⚠ O CABEÇALHO VIROU UMA PILHA DE NÍVEIS (`headerRows`), não mais "uma ou
+  // duas linhas". Era isso — e só isso — que impedia entidade e cenário de
+  // conviverem: com os dois, o cabeçalho precisa de TRÊS níveis (entidade ›
+  // período › cenário), e o render só sabia desenhar dois. O motor por grupo
+  // já era multi-cenário desde sempre.
+  // ⚠ A última linha do cabeçalho é SEMPRE os rótulos das próprias colunas;
+  // `headerRows` são só os níveis ACIMA dela.
+  const { columns, headerRows } = useMemo<{ columns: Column[]; headerRows: Group[][] }>(() => {
     const cens = censDisplay
     const primary = cens[0] || ''
-    // Por empresa: cada empresa é um grupo; embaixo repetem os períodos (+ Total) do cenário primário
-    if (colEmpresa) {
-      const base: { label: string; period: Period }[] = buckets.map((b, i) => ({ label: b.label, period: i as Period }))
-      // Total só quando há mais de um período (com 1 período ele duplica a coluna). ACM = só Total.
-      if (view.funcao === 'ACM') { base.length = 0; base.push({ label: 'Total', period: 'TOTAL' as Period }) }
-      else if (buckets.length > 1) base.push({ label: 'Total', period: 'TOTAL' as Period })
-      const cols: Column[] = [], grps: Group[] = []
-      for (const eid of empsCols) {
-        for (const bc of base) cols.push({ key: `${eid}-${bc.period}`, label: bc.label, cenarioKey: primary, period: bc.period, kind: 'value', empresaId: eid })
-        grps.push({ label: empCodById[eid] || '—', span: base.length })
-      }
-      return { columns: cols, groups: grps, twoRow: true }
-    }
-    if (view.funcao === 'COMPARATIVO') {
-      const pers: Period[] = [...buckets.map((_, i) => i as Period), 'TOTAL']
-      const cols: Column[] = [], grps: Group[] = []
-      for (const per of pers) {
-        const lbl = per === 'TOTAL' ? 'Total' : buckets[per as number].label
-        // mês recolhido → vira uma faixa fina clicável (só visual; índice do bucket é preservado)
-        if (per !== 'TOTAL' && colapsados.has(per as number)) {
-          cols.push({ key: `${per}-c`, label: '', period: per, kind: 'collapsed' })
-          grps.push({ label: lbl, span: 1, period: per, collapsible: true, collapsed: true })
-          continue
+
+    // ── o arranjo INTERNO (sem entidade), que é o que as quatro "funções" de
+    // hoje já são: Períodos = [período]; ACM = só o total; Acum.+Períodos =
+    // total na frente; Comparativo = período › cenário (+Δ). Fatorado para
+    // poder ser REPETIDO dentro de cada grupo de entidade.
+    const interno = (): { cols: Column[]; sub: Group[] | null } => {
+      if (view.funcao === 'COMPARATIVO') {
+        const pers: Period[] = [...buckets.map((_, i) => i as Period), 'TOTAL']
+        const cols: Column[] = [], sub: Group[] = []
+        for (const per of pers) {
+          const lbl = per === 'TOTAL' ? 'Total' : buckets[per as number].label
+          // mês recolhido → faixa fina clicável (só visual; o índice do bucket é preservado)
+          if (per !== 'TOTAL' && colapsados.has(per as number)) {
+            cols.push({ key: `${per}-c`, label: '', period: per, kind: 'collapsed' })
+            sub.push({ label: lbl, span: 1, period: per, collapsible: true, collapsed: true })
+            continue
+          }
+          let span = 0
+          for (const cen of cens) { cols.push({ key: `${per}-${cen}`, label: cenarioLabel(cen), cenarioKey: cen, period: per, kind: 'value' }); span++ }
+          if (cens.length === 2) {   // Δ só com exatamente 2 séries (3+ mostra só os valores)
+            if (showDeltaVal) { cols.push({ key: `${per}-dv`, label: 'Δ', period: per, kind: 'deltav' }); span++ }
+            cols.push({ key: `${per}-d`, label: 'Δ%', period: per, kind: 'delta' }); span++
+          }
+          sub.push({ label: lbl, span, period: per, collapsible: per !== 'TOTAL' })
         }
-        let span = 0
-        for (const cen of cens) { cols.push({ key: `${per}-${cen}`, label: cenarioLabel(cen), cenarioKey: cen, period: per, kind: 'value' }); span++ }
-        if (cens.length === 2) {   // Δ só quando há exatamente 2 séries (3+ mostra só os valores)
-          if (showDeltaVal) { cols.push({ key: `${per}-dv`, label: 'Δ', period: per, kind: 'deltav' }); span++ }
-          cols.push({ key: `${per}-d`, label: 'Δ%', period: per, kind: 'delta' }); span++
-        }
-        grps.push({ label: lbl, span, period: per, collapsible: per !== 'TOTAL' })
+        return { cols, sub }
       }
-      return { columns: cols, groups: grps, twoRow: true }
+      if (view.funcao === 'ACM')
+        return { cols: [{ key: 'acm', label: 'Total', cenarioKey: primary, period: 'TOTAL', kind: 'value' }], sub: null }
+      const cols: Column[] = buckets.map((b, i) => ({ key: `b${i}`, label: b.label, cenarioKey: primary, period: i as Period, kind: 'value' as const }))
+      const total: Column = { key: 'total', label: 'Total', cenarioKey: primary, period: 'TOTAL', kind: 'value' }
+      if (view.funcao === 'MENSAL_ACM') return { cols: [{ ...total, label: 'Acum.' }, ...cols], sub: null }
+      // Total só quando há mais de um período — com um só ele duplica a coluna.
+      return { cols: buckets.length > 1 ? [...cols, total] : cols, sub: null }
     }
-    if (view.funcao === 'ACM')
-      return { columns: [{ key: 'acm', label: 'Total', cenarioKey: primary, period: 'TOTAL', kind: 'value' }], groups: [], twoRow: false }
-    const cols: Column[] = buckets.map((b, i) => ({ key: `b${i}`, label: b.label, cenarioKey: primary, period: i as Period, kind: 'value' as const }))
-    const total: Column = { key: 'total', label: 'Total', cenarioKey: primary, period: 'TOTAL', kind: 'value' }
-    if (view.funcao === 'MENSAL_ACM') return { columns: [{ ...total, label: 'Acum.' }, ...cols], groups: [], twoRow: false }
-    return { columns: [...cols, total], groups: [], twoRow: false }
-  }, [view, versaoId, versoes, censDisplay, buckets, colEmpresa, empsCols, empCodById, showDeltaVal, colapsados]) // eslint-disable-line
+
+    const { cols: base, sub } = interno()
+    if (!colEntidade) return { columns: base, headerRows: sub ? [sub] : [] }
+
+    // ── com eixo de entidade: o arranjo interno se repete dentro de cada grupo
+    const cols: Column[] = [], topo: Group[] = [], subRep: Group[] = []
+    for (const g of gruposCols) {
+      for (const c of base) cols.push({ ...c, key: `${g.key}§${c.key}`, grupoKey: g.key })
+      if (sub) subRep.push(...sub)
+      topo.push({ label: g.label, span: base.length })
+    }
+    return { columns: cols, headerRows: sub ? [topo, subRep] : [topo] }
+  }, [view, versaoId, versoes, censDisplay, buckets, colEntidade, gruposCols, showDeltaVal, colapsados]) // eslint-disable-line
 
   // ── Recolher/expandir meses no comparativo (só visual)
   const toggleColapso = (per: number) => setColapsados(s => { const n = new Set(s); n.has(per) ? n.delete(per) : n.add(per); return n })
@@ -1343,25 +1432,27 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     push(['Gerado em', new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })])
     push([])
 
-    // ── cabeçalho das colunas: uma ou duas linhas, igual à tela ──
+    // ── cabeçalho das colunas: um nível por `headerRows` + os rótulos ──
+    // ⚠ Sai das MESMAS estruturas da tela, como o resto deste export: derivar
+    // o cabeçalho de outra fonte seria produzir um arquivo que diverge do
+    // relatório na próxima mudança de regra.
     let r = linhasExp.length
-    if (twoRow) {
-      const l1: any[] = ['Descrição']
+    const nNiveis = headerRows.length
+    for (const nivel of headerRows) {
+      const lin: any[] = [nNiveis && nivel === headerRows[0] ? 'Descrição' : '']
       let col = 1
-      for (const g of groups) {
-        l1.push(g.collapsed ? `${g.label} (recolhido)` : g.label)
-        for (let k = 1; k < g.span; k++) l1.push('')
+      for (const g of nivel) {
+        lin.push(g.collapsed ? `${g.label} (recolhido)` : g.label)
+        for (let k = 1; k < g.span; k++) lin.push('')
         if (g.span > 1) merges.push({ s: { r, c: col }, e: { r, c: col + g.span - 1 } })
         col += g.span
       }
-      push(l1)
-      push(['', ...columns.map(c => c.label)])
-      merges.push({ s: { r, c: 0 }, e: { r: r + 1, c: 0 } })
-      r += 2
-    } else {
-      push(['Descrição', ...columns.map(c => c.label)])
-      r += 1
+      push(lin); r += 1
     }
+    push([nNiveis ? '' : 'Descrição', ...columns.map(c => c.label)])
+    // "Descrição" ocupa a coluna inteira do cabeçalho, qualquer que seja a altura
+    if (nNiveis) merges.push({ s: { r: r - nNiveis, c: 0 }, e: { r, c: 0 } })
+    r += 1
     const primeiraLinhaDados = r
 
     // ── corpo: exatamente `visivel` ──
@@ -1379,23 +1470,23 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       columns.forEach((c, i) => {
         const cc = i + 1
         if (c.kind === 'collapsed') { row.push(null); return }
-        if (c.empresaId) {
-          const v = cellValE(c.empresaId, c.cenarioKey!, l.id, c.period)
+        if (c.grupoKey && c.kind === 'value') {
+          const v = cellValG(c.grupoKey, c.cenarioKey!, l.id, c.period)
           row.push(v === 0 ? null : fac * v)
           fmts[`${r},${cc}`] = l.formato === 'PERCENTUAL' ? '#,##0.0"%"' : fmtNum
           return
         }
         if (c.kind === 'deltav') {
-          const base = cellVal(censDisplay[0], l.id, c.period)
-          const comp = cellVal(censDisplay[1], l.id, c.period)
+          const base = cellValCol(c, censDisplay[0], l.id)
+          const comp = cellValCol(c, censDisplay[1], l.id)
           const dv = fac * (comp - base)
           row.push(dv === 0 ? null : dv)
           fmts[`${r},${cc}`] = '+#,##0;-#,##0'
           return
         }
         if (c.kind === 'delta') {
-          const base = cellVal(censDisplay[0], l.id, c.period)
-          const comp = cellVal(censDisplay[1], l.id, c.period)
+          const base = cellValCol(c, censDisplay[0], l.id)
+          const comp = cellValCol(c, censDisplay[1], l.id)
           const dRes = base !== 0 ? (comp - base) / Math.abs(base) : NaN
           const d = fac * dRes
           // ⚠ Fração + formato de porcentagem, não "3,4" solto: no Excel o
@@ -2145,28 +2236,24 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
             {columns.map(c => <col key={c.key} style={{ width: dw(c.key, defW(c)) }} />)}
           </colgroup>
           <thead>
-            {twoRow ? (
-              <>
-                <tr>
-                  <th style={{ ...S.th, ...S.thDesc, position: 'sticky' }} rowSpan={2}>Descrição{resizeHandle('__desc', 260)}</th>
-                  {groups.map((g, i) => (
-                    <th key={i} colSpan={g.span} style={{ ...S.th, textAlign: 'center', color: 'var(--text-mid)', cursor: g.collapsible ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
-                      title={g.collapsible ? (g.collapsed ? `Expandir ${g.label}` : `Recolher ${g.label}`) : undefined}
-                      onClick={() => g.collapsible && typeof g.period === 'number' && toggleColapso(g.period)}>
-                      {g.collapsed
-                        ? <ChevronRight size={12} style={{ verticalAlign: 'middle', color: 'var(--muted)' }} />
-                        : <>{g.label}{g.collapsible && <ChevronLeft size={11} style={{ verticalAlign: 'middle', marginLeft: 3, color: 'var(--muted)' }} />}</>}
-                    </th>
-                  ))}
-                </tr>
-                <tr>{columns.map(c => <th key={c.key} style={{ ...S.th, top: 28, color: c.kind === 'delta' ? 'var(--muted)' : 'var(--muted)', position: 'sticky' }}>{c.label}{resizeHandle(c.key, defW(c))}</th>)}</tr>
-              </>
-            ) : (
-              <tr>
-                <th style={{ ...S.th, ...S.thDesc }}>Descrição{resizeHandle('__desc', 260)}</th>
-                {columns.map(c => <th key={c.key} style={{ ...S.th, color: c.period === 'TOTAL' ? 'var(--blue)' : 'var(--muted)', position: 'sticky' }}>{c.label}{resizeHandle(c.key, defW(c))}</th>)}
+            {headerRows.map((nivel, ni) => (
+              <tr key={`h${ni}`}>
+                {ni === 0 && <th style={{ ...S.th, ...S.thDesc, position: 'sticky' }} rowSpan={headerRows.length + 1}>Descrição{resizeHandle('__desc', 260)}</th>}
+                {nivel.map((g, i) => (
+                  <th key={i} colSpan={g.span} style={{ ...S.th, top: ni * 28, textAlign: 'center', color: 'var(--text-mid)', cursor: g.collapsible ? 'pointer' : 'default', whiteSpace: 'nowrap', position: 'sticky' }}
+                    title={g.collapsible ? (g.collapsed ? `Expandir ${g.label}` : `Recolher ${g.label}`) : undefined}
+                    onClick={() => g.collapsible && typeof g.period === 'number' && toggleColapso(g.period)}>
+                    {g.collapsed
+                      ? <ChevronRight size={12} style={{ verticalAlign: 'middle', color: 'var(--muted)' }} />
+                      : <>{g.label}{g.collapsible && <ChevronLeft size={11} style={{ verticalAlign: 'middle', marginLeft: 3, color: 'var(--muted)' }} />}</>}
+                  </th>
+                ))}
               </tr>
-            )}
+            ))}
+            <tr>
+              {!headerRows.length && <th style={{ ...S.th, ...S.thDesc }}>Descrição{resizeHandle('__desc', 260)}</th>}
+              {columns.map(c => <th key={c.key} style={{ ...S.th, top: headerRows.length * 28, color: c.period === 'TOTAL' && !headerRows.length ? 'var(--blue)' : 'var(--muted)', position: 'sticky' }}>{c.label}{resizeHandle(c.key, defW(c))}</th>)}
+            </tr>
           </thead>
           <tbody>
             {visivel.map((l, idx) => {
@@ -2210,8 +2297,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                       return <td key={c.key} style={{ ...S.td, padding: 0, cursor: 'pointer', background: isSel ? 'rgba(59,130,246,0.30)' : 'var(--bg)', borderLeft: '1px solid var(--border)' }}
                         title="Expandir mês" onClick={() => typeof c.period === 'number' && toggleColapso(c.period)} />
                     }
-                    if (c.empresaId) {
-                      const v = cellValE(c.empresaId, c.cenarioKey!, l.id, c.period)
+                    if (c.grupoKey && c.kind === 'value') {
+                      const v = cellValG(c.grupoKey, c.cenarioKey!, l.id, c.period)
                       const disp = isSpac ? '' : (v !== 0 ? formatValor(fac * v, l.formato, l.casas_decimais) : '')
                       return <td key={c.key} style={{ ...S.td, color: clr, fontWeight: fw, textDecoration: off ? 'line-through' : undefined, background: isSel ? 'rgba(59,130,246,0.30)' : (c.period === 'TOTAL' ? 'var(--bg-soft)' : undefined) }}>{disp}</td>
                     }
@@ -2223,8 +2310,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                     // que o número apareça positivo. É a convenção de relatório de
                     // variação, e o title explica a cada célula.
                     if (c.kind === 'deltav') {
-                      const base = cellVal(censDisplay[0], l.id, c.period)
-                      const comp = cellVal(censDisplay[1], l.id, c.period)
+                      const base = cellValCol(c, censDisplay[0], l.id)
+                      const comp = cellValCol(c, censDisplay[1], l.id)
                       const dRes = comp - base          // impacto no resultado → cor
                       const dv = fac * dRes             // o que se lê → fecha com as colunas
                       const col = dRes > 0 ? 'var(--green)' : dRes < 0 ? 'var(--red)' : 'var(--border-strong)'
@@ -2232,8 +2319,8 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
                         style={{ ...S.td, color: col, fontSize: 12, fontWeight: 500, fontStyle: 'italic' }}>{isSpac || dv === 0 ? '' : `${dv > 0 ? '+' : ''}${formatValor(dv, l.formato, l.casas_decimais)}`}</td>
                     }
                     if (c.kind === 'delta') {
-                      const base = cellVal(censDisplay[0], l.id, c.period)
-                      const comp = cellVal(censDisplay[1], l.id, c.period)
+                      const base = cellValCol(c, censDisplay[0], l.id)
+                      const comp = cellValCol(c, censDisplay[1], l.id)
                       const dRes = base !== 0 ? (comp - base) / Math.abs(base) : NaN
                       const d = fac * dRes
                       const col = !isFinite(dRes) ? 'var(--border-strong)' : dRes >= 0 ? 'var(--green)' : 'var(--red)'
@@ -2961,11 +3048,28 @@ function ViewModal({ view, versoes, onClose, onSave }: { view: ViewConfig; verso
           </select>
         </div>
         <div style={S.help}>O intervalo (de–até) é definido na grade dos Filtros. A granularidade agrupa esse intervalo em meses, trimestres, semestres ou anos.</div>
-        <label style={{ ...S.chk, marginTop: 8 }}>
-          <input type="checkbox" checked={!!v.filtros?.colEmpresa} onChange={e => setV({ ...v, filtros: { ...(v.filtros || {}), colEmpresa: e.target.checked } })} />
-          Agrupar colunas por empresa (lado a lado)
-        </label>
-        <div style={S.help}>Cada empresa selecionada no filtro vira um grupo de colunas, com os períodos embaixo. Somente leitura; não se aplica ao Comparativo.</div>
+        <div style={S.field}>
+          <label style={S.label}>Agrupar colunas por (opcional)</label>
+          <select style={S.sel}
+            value={(v.filtros?.colEntidade as string) || (v.filtros?.colEmpresa ? 'empresa' : '')}
+            onChange={e => {
+              // ⚠ Grava SEMPRE no campo novo e apaga o antigo: deixar o
+              // `colEmpresa` para trás faria a visão carregar pelo legado toda
+              // vez que alguém escolhesse "— nenhum —", e o agrupamento
+              // voltaria sozinho.
+              const f = { ...(v.filtros || {}) }; delete (f as any).colEmpresa
+              setV({ ...v, filtros: { ...f, colEntidade: e.target.value || undefined } })
+            }}>
+            <option value="">— nenhum (colunas simples) —</option>
+            {EIXOS_ENT.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}
+          </select>
+        </div>
+        <div style={S.help}>
+          Cada valor da entidade vira um grupo de colunas, com o layout escolhido acima repetido
+          embaixo — inclusive o <strong>Comparativo</strong>, e aí o Δ sai por entidade.
+          Centro de custo e filial ficam de fora por enquanto: a carga é uma consulta por grupo,
+          e 86 centros de custo viram dezenas de chamadas.
+        </div>
         <div style={S.field}>
           <label style={S.label}>Cenários exibidos</label>
           {versoes.map(ver => (
