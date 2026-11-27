@@ -28,6 +28,25 @@ import { PickerLinhas } from '../../lib/PickerLinhas'
 import { useUserAccess } from '../../hooks/useUserAccess'
 import { ListChecks } from 'lucide-react'
 
+// ⚠⚠ OS GRUPOS SÃO CADASTRO DESTA INSTALAÇÃO, não regra do produto. O eixo é o
+// `area_cod` do centro de custo — 1 CSC · 2 Comercial · 3 Serviços ·
+// 4 Diretoria · 5 Marketing — e o agrupamento responde a COMO ESTA EMPRESA LÊ
+// a despesa: quem vende junto com quem divulga, quem entrega, e quem sustenta.
+// Despesa existe em TODA área, então um gráfico único por área fica ilegível
+// (pedido do Ricardo, 27/nov); receita, não — ela nasce em duas.
+// ⚠ Por CÓDIGO, nunca por nome: renomear a área no cadastro não pode mudar o
+// gráfico. É a mesma proibição da cor de variação e do default da ponte.
+// ⚠ Área fora de todo grupo NÃO some — cai em "Outras áreas", e esse cartão só
+// existe quando há algo nele (a regra do `cortado` em situacaoPosto).
+const GRUPOS_DESPESA: { titulo: string; areas: string[] }[] = [
+  { titulo: 'Comercial e Marketing', areas: ['2', '5'] },
+  { titulo: 'Serviços', areas: ['3'] },
+  { titulo: 'CSC e Diretoria', areas: ['1', '4'] },
+]
+/** Quem fatura. As outras áreas têm receita residual e poluíam o gráfico. */
+const AREAS_RECEITA = ['2', '3']
+const codDaArea = (a: string) => String(a).split('-')[0]
+
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 const ANOS = [2024, 2025, 2026, 2027, 2028]
 const CAT = ['#3b5bdb', '#f59f00', '#2f9e44', '#e8590c', '#7048e8', '#1098ad', '#e64980', '#0ca678', '#f76707', '#4263eb']
@@ -82,6 +101,7 @@ const S: Record<string, CSSProperties> = {
   kpiVal: { fontSize: 24, fontWeight: 700, color: 'var(--text)', margin: '6px 0 2px' },
   kpiSub: { fontSize: 12, color: 'var(--muted)' },
   grid2:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 16 },
+  grid3:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16 },
   card:   { background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 16 },
   cardT:  { fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   chart:  { height: 320, background: 'var(--chart-bg)', borderRadius: 10, padding: 8 },
@@ -269,6 +289,8 @@ export default function DashboardPage() {
   const [desvios, setDesvios] = useState<any[]>([])
   // gráficos por Área / Centro de Custo (cruzam CC × natureza da linha)
   const [recAreaLinhas, setRecAreaLinhas] = useState<any[]>([])   // receitas por área: realizado (cheia) + orçado (tracejada)
+  const [recAreaFora, setRecAreaFora] = useState<string[]>([])    // áreas com receita que o recorte deixou de fora
+  const [despGrupos, setDespGrupos] = useState<{ titulo: string; linhas: any[] }[]>([])  // despesas por grupo de área
   const [recDespLinhas, setRecDespLinhas] = useState<any[]>([])   // 3: evolução receitas × despesas (linhas)
   const [recAreaBar, setRecAreaBar] = useState<any[]>([])         // 2: receitas por área O×R+Δ (barras)
   const [despAreaBar, setDespAreaBar] = useState<any[]>([])       // 4: despesas por área O×R+Δ (barras)
@@ -281,6 +303,11 @@ export default function DashboardPage() {
   const recAreaVis  = useMemo(() => mascararBarras(recAreaBar),  [recAreaBar, restritos])  // eslint-disable-line
   const despAreaVis = useMemo(() => mascararBarras(despAreaBar), [despAreaBar, restritos]) // eslint-disable-line
   const recAreaLinVis = useMemo(() => mascararBarras(recAreaLinhas), [recAreaLinhas, restritos]) // eslint-disable-line
+  // ⚠ A máscara do modo discreto vale em TODOS os gráficos por área — foi a
+  // cobertura parcial que já falhou duas vezes aqui. Um `map` sobre os grupos
+  // garante que o próximo grupo nasça mascarado sem ninguém lembrar.
+  const despGruposVis = useMemo(() => despGrupos.map(g => ({ titulo: g.titulo, ...mascararBarras(g.linhas) })),
+    [despGrupos, restritos]) // eslint-disable-line
   // ⚠ A barra "Outros" NÃO abre: ela é um balde, e abrir entregaria no drill
   // exatamente o grão que a barra agregou para esconder.
   // ⚠ A barra "Outros" NÃO abre, e basta UM CC restrito nela: o drill não
@@ -579,6 +606,8 @@ export default function DashboardPage() {
       }
       const recAreaMesA: Record<string, Record<number, number>> = {}        // 1 (realizado)
       const recAreaMesAOrc: Record<string, Record<number, number>> = {}     // 1b (orçado, p/ investigar)
+      const despAreaMesA: Record<string, Record<number, number>> = {}       // 1c (despesa realizada)
+      const despAreaMesAOrc: Record<string, Record<number, number>> = {}    // 1d (despesa orçada)
       const recMesT: Record<number, number> = {}, despMesT: Record<number, number> = {}  // 3
       // ⚠⚠ O PESO POR CC É ACUMULADO UMA VEZ, POR ÁREA, e serve aos TRÊS
       // gráficos por área (receita, despesa e a linha mensal). Na 1ª versão
@@ -615,6 +644,8 @@ export default function DashboardPage() {
           const cnr = nivel2De(row.cc_id); const bcr = (recCcB[cnr] = recCcB[cnr] || { o: 0, r: 0, ccs: new Set<string>(), pes: {} }); bcr.o += od; bcr.r += rd
           if (row.cc_id) { bcr.ccs.add(row.cc_id); bcr.pes[row.cc_id] = (bcr.pes[row.cc_id] || 0) + Math.abs(od) + Math.abs(rd) }
         } else {
+          ;(despAreaMesA[area] = despAreaMesA[area] || {})[row.mes] = (despAreaMesA[area]?.[row.mes] || 0) + rd
+          ;(despAreaMesAOrc[area] = despAreaMesAOrc[area] || {})[row.mes] = (despAreaMesAOrc[area]?.[row.mes] || 0) + od
           despMesT[row.mes] = (despMesT[row.mes] || 0) + rd
           const b = (despAreaB[area] = despAreaB[area] || { o: 0, r: 0 }); b.o += od; b.r += rd
           pesArea(area, row.cc_id, od, rd)
@@ -624,14 +655,40 @@ export default function DashboardPage() {
       }
       const mesesOrd = [...meses].sort((a, b) => a - b)
       const PALETA = ['#3b5bdb', '#e8590c', '#2f9e44', '#7048e8', '#1098ad', '#f59f00', '#e64980', '#15aabf']
-      // Receitas por área: realizado (cheia) + orçado (tracejada, id "… (orç)"), mesma cor por área
-      const areasRec = [...new Set([...Object.keys(recAreaMesA), ...Object.keys(recAreaMesAOrc)])].sort()
-      const corArea: Record<string, string> = {}; areasRec.forEach((a, i) => { corArea[a] = PALETA[i % PALETA.length] })
-      const recAreaLinhasD: any[] = []
-      for (const a of areasRec) {
-        recAreaLinhasD.push({ id: a, color: corArea[a], _pes: pesAreaCc[a] || {}, data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round((recAreaMesA[a]?.[m]) || 0) })) })
-        recAreaLinhasD.push({ id: `${a} (orç)`, color: corArea[a], _pes: pesAreaCc[a] || {}, data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round((recAreaMesAOrc[a]?.[m]) || 0) })) })
+      // Realizado (cheia) + orçado (tracejada, id "… (orç)"), mesma cor por área.
+      // ⚠ A COR SAI DE TODAS AS ÁREAS, não só das do gráfico: assim "3-Serviços"
+      // é a mesma cor na receita e na despesa, e filtrar um gráfico não repinta
+      // o outro — o que faria a mesma área parecer duas.
+      const todasAreas = [...new Set([...Object.keys(recAreaMesA), ...Object.keys(recAreaMesAOrc),
+                                      ...Object.keys(despAreaMesA), ...Object.keys(despAreaMesAOrc)])].sort()
+      const corArea: Record<string, string> = {}; todasAreas.forEach((a, i) => { corArea[a] = PALETA[i % PALETA.length] })
+      const serieArea = (real: Record<string, Record<number, number>>, orc: Record<string, Record<number, number>>,
+                         codigos: string[] | null) => {
+        const lista = [...new Set([...Object.keys(real), ...Object.keys(orc)])]
+          .filter(a => !codigos || codigos.includes(codDaArea(a)))
+          .filter(a => mesesOrd.some(m => (real[a]?.[m] || 0) || (orc[a]?.[m] || 0)))   // área zerada não vira legenda
+          .sort()
+        const out: any[] = []
+        for (const a of lista) {
+          const pes = pesAreaCc[a] || {}
+          out.push({ id: a, color: corArea[a], _pes: pes, data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round(real[a]?.[m] || 0) })) })
+          out.push({ id: `${a} (orç)`, color: corArea[a], _pes: pes, data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round(orc[a]?.[m] || 0) })) })
+        }
+        return out
       }
+      const recAreaLinhasD = serieArea(recAreaMesA, recAreaMesAOrc, AREAS_RECEITA)
+      // ⚠ O CORTE É DITO: área com receita fora de Comercial/Serviços não some
+      // calada — o cartão a nomeia. Sem isso, receita que exista num CSC vira
+      // um buraco que só aparece quando alguém soma o gráfico contra o KPI.
+      const recForaD = serieArea(recAreaMesA, recAreaMesAOrc, null)
+        .filter(s => !String(s.id).includes('(orç)') && !AREAS_RECEITA.includes(codDaArea(String(s.id))))
+        .map(s => String(s.id))
+      const agrupadas = new Set(GRUPOS_DESPESA.flatMap(g => g.areas))
+      const despGruposD = [
+        ...GRUPOS_DESPESA.map(g => ({ titulo: g.titulo, linhas: serieArea(despAreaMesA, despAreaMesAOrc, g.areas) })),
+        { titulo: 'Outras áreas', linhas: serieArea(despAreaMesA, despAreaMesAOrc, null)
+            .filter(s => !agrupadas.has(codDaArea(String(s.id)))) },
+      ].filter(g => g.linhas.length)
       const recDespLinhasD = [
         { id: 'Receitas', data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round(recMesT[m] || 0) })) },
         { id: 'Despesas', data: mesesOrd.map(m => ({ x: MESES[m - 1], y: Math.round(despMesT[m] || 0) })) },
@@ -688,7 +745,7 @@ export default function DashboardPage() {
       if (myseq !== loadSeq.current) return   // carga mais nova já começou → descarta esta
       setKpi({ resOrc: resOrcKpi, resReal: resRealKpi, recOrc: recOF, recReal: recRF, despOrc: despOF, despReal: despRF, resPrev: resPrevKpi, recPrev: recPF, despPrev: despPF, recBrutaOrc: recBrutaOF, recBrutaReal: recBrutaRF, recBrutaPrev: recBrutaPF })
       setOrcRealMes(orMes); setResMes(resMesArr); setAccLines(acc); setComposicao(comps); setCompOcultas(childrenOcultas); setFilhasMes(fMes); setCascata(steps)
-      setRecAreaLinhas(recAreaLinhasD); setRecDespLinhas(recDespLinhasD); setRecAreaBar(recAreaBarD); setDespAreaBar(despAreaBarD); setDespCcBar(despCcBarD); setRecCcBar(recCcBarD)
+      setRecAreaLinhas(recAreaLinhasD); setRecAreaFora(recForaD); setDespGrupos(despGruposD); setRecDespLinhas(recDespLinhasD); setRecAreaBar(recAreaBarD); setDespAreaBar(despAreaBarD); setDespCcBar(despCcBarD); setRecCcBar(recCcBarD)
       setPorEmpresa(pe); setEbitdaEmp(eb); setEbitdaPctEmp(ebPct); setDesvios(desv)
       // ⚠⚠ A ponte e os quadros leem os totais de `totaisRelatorio`, NÃO
       // `tOrc`/`tReal`: os dois passaram pelo motor, mas só o primeiro aplica o
@@ -1174,7 +1231,11 @@ export default function DashboardPage() {
           {/* ── Por Área / Centro de Custo (cruza CC × natureza da linha) ── */}
           <div style={S.grid2}>
           <div style={S.card}>
-            <div style={S.cardT}>Receitas por área <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(cheia = realizado · tracejada = orçado · clique p/ razão){recAreaLinVis.ocultadas > 0 && ` · ${recAreaLinVis.ocultadas / 2} não detalhada(s)`}</span></div>
+            <div style={S.cardT}>Receitas por área <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>
+              (Comercial e Serviços · cheia = realizado · tracejada = orçado · clique p/ razão){recAreaLinVis.ocultadas > 0 && ` · ${recAreaLinVis.ocultadas / 2} não detalhada(s)`}
+              {recAreaFora.length > 0 && <span style={{ color: 'var(--orange, #f59f00)' }} title="Estas áreas têm receita e ficam fora deste gráfico. Elas continuam no comparativo de barras abaixo e nos KPIs.">
+                {' · '}fora: {recAreaFora.join(', ')}</span>}
+            </span></div>
             <div style={S.chart}>
               <ResponsiveLine theme={nivoTheme()} data={recAreaLinVis.linhas} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
                 xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
@@ -1197,6 +1258,31 @@ export default function DashboardPage() {
             </div>
           </div>
           </div>
+
+          {/* ⚠ DESPESA EXISTE EM TODA ÁREA — um gráfico só fica ilegível. Os
+              grupos são cadastro desta instalação (GRUPOS_DESPESA, no topo).
+              Mesma gramática da receita: cheia = realizado, tracejada = orçado,
+              clique no ponto abre o razão daquela área naquele mês. */}
+          {despGruposVis.length > 0 && (
+            <div style={S.grid3}>
+              {despGruposVis.map(g => (
+                <div key={g.titulo} style={S.card}>
+                  <div style={S.cardT}>Despesas · {g.titulo} <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>
+                    (cheia = realizado · tracejada = orçado){g.ocultadas > 0 && ` · ${g.ocultadas / 2} não detalhada(s)`}
+                  </span></div>
+                  <div style={S.chart}>
+                    <ResponsiveLine theme={nivoTheme()} data={g.linhas} margin={{ top: 10, right: 16, bottom: 40, left: 56 }}
+                      xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
+                      colors={(se: any) => se.color} pointSize={5} pointBorderWidth={1} useMesh curve="monotoneX"
+                      onClick={(pt: any) => drillAreaMes(String(pt.serieId), String(pt.data?.x))}
+                      axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }}
+                      layers={['grid', 'markers', 'axes', AccLinhas, 'points', 'slices', 'mesh', 'legends']}
+                      legends={[{ anchor: 'top-left', direction: 'row', translateY: -2, itemWidth: 110, itemHeight: 16, symbolSize: 12 }]} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div style={S.grid2}>
             <div style={S.card}>
