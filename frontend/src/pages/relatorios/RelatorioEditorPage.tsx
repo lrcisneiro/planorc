@@ -942,7 +942,16 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
       // depois, apagaria o sinal enquanto o atual ainda está rodando
       if (myseq === loadSeq.current) setCarregandoVal(false)
     }
-  }, [empresaFiltro, filialSel, ccSel, areaSel, divisaoSel, buSel, periodosSel, cenariosAtivos, cicloMode, anoDoCenario, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEntidade, empsCols, linhas, acesso.loading, moedaView]) // eslint-disable-line
+    // ⚠⚠ `gruposCols`, `ccFilter` e `filialFilter` TÊM DE ESTAR AQUI. Esta
+    // carga é um `useCallback`: o que não está na lista fica CONGELADO no
+    // valor do primeiro render — e no primeiro render `ccs` ainda não chegou,
+    // então `gruposCols` é `[]` e o laço por grupo nem roda. O sintoma é a
+    // tela desenhar as colunas da entidade (que vêm de outro memo, esse sim
+    // atualizado) e TODAS as células virem vazias, sem erro nenhum.
+    // ⚠ Os dois recortes entraram na lista pelo mesmo motivo: eram calculados
+    // DENTRO desta função e subiram para memos — sair da função é sair da
+    // captura automática.
+  }, [empresaFiltro, filialSel, ccSel, areaSel, divisaoSel, buSel, periodosSel, cenariosAtivos, cicloMode, anoDoCenario, filiais.length, ccs.length, id, masterIds, rlOfOrc, relatorio, colEntidade, gruposCols, ccFilter, filialFilter, linhas, acesso.loading, moedaView]) // eslint-disable-line
 
   useEffect(() => { loadValores() }, [loadValores])
 
