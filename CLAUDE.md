@@ -1472,6 +1472,17 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   ⚠ A **raiz** é exceção: clicando na própria linha desativada, o razão é o dela — ela exibe o
   valor (tachado), então o detalhe tem de bater com ele. Quem sai é a **descendente** desativada,
   com a subárvore junto.
+  ⚠⚠ **E O RAZÃO TINHA DOIS CAMINHADORES DA MESMA ÁRVORE.** `linhasAnaliticasDe` monta o lado do
+  **orçado** e um `subtreeIds` **declarado inline** dentro de `abrirRazao` montava o do
+  **realizado** — consertei o primeiro e o segundo ficou, então clicar na célula seguia abrindo o
+  razão cheio **com o sintoma idêntico ao defeito "já corrigido"**, que é o jeito mais rápido de
+  desconfiar do conserto certo. Hoje `subArvoreAtiva` é o único, e as duas listas derivam dele.
+  **Prova no número:** `378.521,89 − 324.714,25 (ACELERAR na área 3) = 53.807,64`, que é
+  exatamente a célula — a aritmética fechando é o que distingue "achei a causa" de "achei uma
+  causa plausível".
+  ⚠ Varridos os outros pontos que descem a árvore: `Ponte` usa `vivas()` e `componentesMem`
+  filtra `desativada` — os dois já estavam certos. O resto dos `pai_id ===` é estrutura (mover,
+  indentar, irmãos), onde a marca não se aplica.
 
   ⚠ **Marcador que aparece em quase toda linha deixa de marcar (nov/2026).** O asterisco do
   custo/mês sinaliza "o custo mudou durante o ano", e a PLR foi incluída na condição com um

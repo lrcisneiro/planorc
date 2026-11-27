@@ -1370,20 +1370,31 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   // exibe o próprio valor (tachado), então o detalhe tem de bater com ele.
   // O que sai é a DESCENDENTE desativada, com a subárvore dela junto, porque
   // é isso que o total do pai não contém.
-  const linhasAnaliticasDe = (rootId: string): string[] => {
-    const out: string[] = []
-    const root = linhas.find(l => l.id === rootId)
-    if (root?.tipo_linha === 'ANALITICA') out.push(rootId)
+  // ⚠⚠ UM CAMINHADOR SÓ. Havia DOIS percorrendo a mesma árvore para o mesmo
+  // razão — este, que monta o lado do ORÇADO, e um `subtreeIds` declarado
+  // inline dentro de `abrirRazao`, que monta o do REALIZADO. Consertei o
+  // primeiro e o segundo ficou: clicar na célula seguia abrindo o razão cheio,
+  // e o sintoma era idêntico ao defeito "já corrigido". Agora a subárvore sai
+  // daqui e as duas listas derivam dela.
+  const subArvoreAtiva = (rootId: string): string[] => {
+    const out = [rootId]
     const rec = (pid: string) => {
       for (const c of linhas.filter(l => l.pai_id === pid)) {
+        // ⚠ Descendente DESATIVADA sai com a subárvore dela: `SOMAR_FILHOS` a
+        // pula, então o total do pai não a contém e o detalhe não pode contê-la.
         if (c.desativada) continue
-        if (c.tipo_linha === 'ANALITICA') out.push(c.id)
+        out.push(c.id)
         rec(c.id)
       }
     }
     rec(rootId)
     return out
   }
+  // ⚠ A RAIZ é exceção e é por isso que ela entra sem teste: clicando NA linha
+  // desativada, o razão é o dela — ela exibe o próprio valor (tachado), e o
+  // detalhe tem de bater com ele.
+  const linhasAnaliticasDe = (rootId: string): string[] =>
+    subArvoreAtiva(rootId).filter(id => linhas.find(l => l.id === id)?.tipo_linha === 'ANALITICA')
   // ⚠⚠ `ccEscopo` existe para o razão aberto DE DENTRO da memória de uma linha
   // escopada: ali os valores são do escopo dela, e abrir o razão com o filtro
   // da tela daria um número maior que o da linha que o abriu — o defeito do
@@ -1416,11 +1427,11 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
     const linhaIdsRl = linhasAnaliticasDe(l.id)
     const linhaIds = linhaIdsRl.map(orcOf).filter(Boolean) as string[]
     // Realizado: resolve as contas amarradas (conta_linha) à linha e sua subárvore + sinal
-    const subtreeIds = (rootId: string): string[] => { const out = [rootId]; const rec = (pid: string) => { for (const c of linhas.filter(x => x.pai_id === pid)) { out.push(c.id); rec(c.id) } }; rec(rootId); return out }
+    // (a subárvore vem de `subArvoreAtiva` — um caminhador só para os dois lados)
     const contaSinal: Record<string, number> = {}
     // mapa conta contábil → item orçamentário (master da linha onde a conta está amarrada) — p/ conciliação de folha
     const contaItemMap: Record<string, string> = {}
-    for (const lid of subtreeIds(l.id)) {
+    for (const lid of subArvoreAtiva(l.id)) {
       const master = orcOf(lid)
       for (const m of (contaLinks[lid] || [])) { contaSinal[m.conta_id] = m.sinal ?? 1; if (master) contaItemMap[m.conta_id] = master }
     }
