@@ -101,9 +101,19 @@ const S: Record<string, CSSProperties> = {
   kpiVal: { fontSize: 24, fontWeight: 700, color: 'var(--text)', margin: '6px 0 2px' },
   kpiSub: { fontSize: 12, color: 'var(--muted)' },
   grid2:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 16 },
-  grid3:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16 },
+  // ⚠ DOIS POR LINHA, NUNCA TRÊS. `auto-fit` com largura fixa enche a tela —
+  // num monitor largo os três viravam quatro e cada gráfico ficava estreito
+  // demais para dez meses. O piso em PORCENTAGEM é o que limita: 2×44% cabem,
+  // 3×44% não. O `380px` mantém a degradação para uma coluna no monitor
+  // pequeno, em vez de duas espremidas.
+  grid3:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(max(44%, 380px), 1fr))', gap: 16 },
   card:   { background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 16 },
   cardT:  { fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  // ⚠ `flexBasis: '100%'` força a quebra: `cardT` é flex com wrap, então o
+  // subtítulo só descia quando o TÍTULO era comprido — "Despesas · Serviços"
+  // cabia na mesma linha e "Despesas · Comercial e Marketing" não, deixando
+  // dois cartões lado a lado com alturas e alinhamentos diferentes.
+  cardSub: { fontSize: 11, fontWeight: 400, color: 'var(--muted)', flexBasis: '100%' },
   chart:  { height: 320, background: 'var(--chart-bg)', borderRadius: 10, padding: 8 },
   empty:  { background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: '60px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 14 },
   label:  { display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--text-mid)', marginBottom: 6 },
@@ -1248,7 +1258,17 @@ export default function DashboardPage() {
           {/* ── Por Área / Centro de Custo (cruza CC × natureza da linha) ── */}
           <div style={S.grid2}>
           <div style={S.card}>
-            <div style={S.cardT}>Receitas por área <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>
+            <div style={S.cardT}>Evolução Receitas × Despesas <span style={S.cardSub}>(realizado)</span></div>
+            <div style={S.chart}>
+              <ResponsiveLine theme={nivoTheme()} data={recDespLinhas} margin={MARG_LEG}
+                xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
+                colors={(s: any) => s.id === 'Receitas' ? '#2f9e44' : '#e03131'} pointSize={6} pointBorderWidth={1} useMesh curve="monotoneX"
+                axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }}
+                legends={[{ ...LEG_BAIXO, itemWidth: 88 }]} />
+            </div>
+          </div>
+          <div style={S.card}>
+            <div style={S.cardT}>Receitas por área <span style={S.cardSub}>
               (Comercial e Serviços · cheia = realizado · tracejada = orçado · clique p/ razão){recAreaLinVis.ocultadas > 0 && ` · ${recAreaLinVis.ocultadas / 2} não detalhada(s)`}
             </span></div>
             <div style={S.chart}>
@@ -1271,7 +1291,7 @@ export default function DashboardPage() {
             <div style={S.grid3}>
               {despGruposVis.map(g => (
                 <div key={g.titulo} style={S.card}>
-                  <div style={S.cardT}>Despesas · {g.titulo} <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>
+                  <div style={S.cardT}>Despesas · {g.titulo} <span style={S.cardSub}>
                     (cheia = realizado · tracejada = orçado){g.ocultadas > 0 && ` · ${g.ocultadas / 2} não detalhada(s)`}
                   </span></div>
                   <div style={S.chart}>
@@ -1287,17 +1307,6 @@ export default function DashboardPage() {
               ))}
             </div>
           )}
-
-          <div style={S.card}>
-            <div style={S.cardT}>Evolução Receitas × Despesas <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>(realizado)</span></div>
-            <div style={S.chart}>
-              <ResponsiveLine theme={nivoTheme()} data={recDespLinhas} margin={MARG_LEG}
-                xScale={{ type: 'point' }} yScale={{ type: 'linear', min: 'auto', max: 'auto' }} yFormat={(v: any) => fmt(Number(v))}
-                colors={(s: any) => s.id === 'Receitas' ? '#2f9e44' : '#e03131'} pointSize={6} pointBorderWidth={1} useMesh curve="monotoneX"
-                axisLeft={{ format: (v: any) => fmtEixo(Number(v)) }}
-                legends={[{ ...LEG_BAIXO, itemWidth: 88 }]} />
-            </div>
-          </div>
 
           <div style={S.grid2}>
             <div style={S.card}>
