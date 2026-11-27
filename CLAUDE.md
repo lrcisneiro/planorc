@@ -2567,6 +2567,41 @@ Os protótipos HTML standalone na raiz (`planorc-v2-*.html`) foram o rascunho de
   **A lição vale além desta tela:** quando a convenção local contraria a do resto do produto,
   explicar no cabeçalho não resolve — tem de estar **na linha**, junto do número que engana.
 
+- ⚠⚠ **VISÃO: A COLUNA AGRUPA POR QUALQUER ENTIDADE (fase 1, 27/nov).** O checkbox *"agrupar
+  colunas por empresa"* virou um **eixo** — empresa · área · divisão · BU — e passou a conviver
+  com o **Comparativo**, então o Δ sai **por entidade**. `view_config.filtros` é `jsonb`, então
+  **nenhuma migration**: as visões salvas traduzem na LEITURA (`colEmpresa: true` →
+  `colEntidade: 'empresa'`), e ao gravar o campo antigo é **apagado** — deixá-lo faria "nenhum
+  agrupamento" recair no legado e o agrupamento voltaria sozinho.
+  ⚠⚠ **A restrição ao Comparativo era um `&&`, não um mecanismo.** `computedGrp` já iterava
+  grupos × cenários desde sempre; o que faltava era **cabeçalho** — com entidade e cenário juntos
+  são três níveis, e o render só sabia desenhar dois. Virou pilha (`headerRows`), e a última
+  linha é sempre o rótulo das colunas.
+  ⚠ **O grupo carrega o próprio recorte:** empresa recorta por `p_empresas`; área, divisão e BU
+  por `p_ccs`, porque as três são **atributos do centro de custo**, não tabelas. Sempre cruzado
+  com o filtro da tela — o eixo não alarga o que o filtro estreitou — e interseção vazia sai
+  **sem chamar a RPC**, porque `p_ccs: []` o SQL lê como "todos".
+  ⚠ **O residual é um GRUPO, não um descarte.** Medido: divisão preenchida em **62 de 86** CCs e
+  BU em **51 de 86** — agrupar por BU sem o balde `(sem bu)` deixaria **35 CCs fora da tela** e o
+  relatório pararia de somar o que a DRE soma, calado.
+  ⚠ **CC (86) e filial ficam fora por CARDINALIDADE:** a carga é uma RPC por grupo, e os eixos de
+  hoje param em 13 (empresa 13 · área 5 · divisão 4 · BU 9). Entram com um agregado que devolva a
+  dimensão numa chamada só.
+  **Três defeitos no caminho, e os três do mesmo tipo — generalizar pela metade:**
+  ⚠⚠ **`useCallback` CONGELA o que não está nas dependências.** `gruposCols` ficou de fora e a
+  carga capturou o `[]` do primeiro render (antes de `ccs` chegar): as **colunas** desenhavam
+  (vêm de outro memo, atualizado) e **todas as células vinham vazias, sem erro**. Um lado da tela
+  enxergava os grupos e o outro não.
+  ⚠⚠ **RENOMEAR A VARIÁVEL NÃO RENOMEIA O QUE ELA ITERA.** `computedGrp`/`bucketTotaisGrp`/
+  `totalByCenGrp` continuaram percorrendo `empsCols`. Para **empresa** as chaves coincidem por
+  acaso e tudo funciona; para **área**, `rawGrp` fica indexado por `'1'..'5'` e o laço procura
+  uuid de empresa — o motor roda sobre `{}` e a coluna inteira sai **zerada**. Sintoma exato:
+  *"por empresa funcionou, por área zerado"*. **Ao generalizar um caso particular, teste fora do
+  caso original** — dentro dele o defeito é invisível.
+  ⚠⚠ **O Δ dentro do grupo quase saiu em branco:** as colunas de Δ ganham `grupoKey` como as
+  outras mas **não** têm `cenarioKey`, então o ramo de valor as pegava primeiro e devolvia zero.
+  `cellValCol` é o ponto único por onde render e export passam.
+
 - ⚠⚠ **ACUMULADO ESCONDE O DESVIO — testado e revertido (27/nov).** Os quatro gráficos de
   despesa por área foram para acumulado no período a pedido do Ricardo, com o argumento de que
   despesa mês a mês oscila por competência (13º, férias, provisão) e a pergunta real é se o ano

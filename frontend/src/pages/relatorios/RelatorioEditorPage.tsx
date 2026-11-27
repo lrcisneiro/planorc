@@ -1077,25 +1077,32 @@ export default function RelatorioEditorPage({ mode = 'consulta' }: { mode?: 'con
   const cellVal = (cen: string, linhaId: string, period: Period): number =>
     period === 'TOTAL' ? (totalByCen[cen]?.[linhaId] ?? 0) : (bucketTotais[cen]?.[period as number]?.[linhaId] ?? 0)
 
-  // ── Cálculo POR empresa (modo "Por empresa")
+  // ── Cálculo POR GRUPO (o eixo de entidade das colunas)
+  // ⚠⚠ ITERA `gruposCols`, NUNCA `empsCols`. Quando isto era "por empresa" os
+  // dois eram a mesma lista, e ficar com `empsCols` depois de generalizar é um
+  // defeito que SÓ APARECE FORA DO EIXO EMPRESA: para empresa as chaves
+  // coincidem por acaso e tudo funciona; para área, `rawGrp` fica indexado por
+  // '1'..'5' e este laço procura por uuid de empresa — `rawGrp[eid]` é
+  // undefined, o motor roda sobre {} e a coluna inteira sai ZERADA, sem erro.
+  // Foi exatamente o que aconteceu: "por empresa funcionou, por área zerado".
   const computedGrp = useMemo(() => {
     const out: Record<string, Record<string, Computed>> = {}
     if (!colEntidade) return out
-    for (const eid of empsCols) { out[eid] = {}; for (const cen of cenariosAtivos) out[eid][cen] = computeCenario(linhasCalc, rawGrp[eid]?.[cen] || {}, periodos) }
+    for (const g of gruposCols) { out[g.key] = {}; for (const cen of cenariosAtivos) out[g.key][cen] = computeCenario(linhasCalc, rawGrp[g.key]?.[cen] || {}, periodos) }
     return out
-  }, [colEntidade, empsCols, cenariosAtivos, rawGrp, linhas, periodos]) // eslint-disable-line
+  }, [colEntidade, gruposCols, cenariosAtivos, rawGrp, linhas, periodos]) // eslint-disable-line
   const bucketTotaisGrp = useMemo(() => {
     const out: Record<string, Record<string, Record<string, number>[]>> = {}
     if (!colEntidade) return out
-    for (const eid of empsCols) { out[eid] = {}; for (const cen of cenariosAtivos) out[eid][cen] = buckets.map(b => computeTotais(linhasCalc, computedGrp[eid]?.[cen] || {}, b.meses)) }
+    for (const g of gruposCols) { out[g.key] = {}; for (const cen of cenariosAtivos) out[g.key][cen] = buckets.map(b => computeTotais(linhasCalc, computedGrp[g.key]?.[cen] || {}, b.meses)) }
     return out
-  }, [colEntidade, empsCols, cenariosAtivos, computedGrp, buckets]) // eslint-disable-line
+  }, [colEntidade, gruposCols, cenariosAtivos, computedGrp, buckets]) // eslint-disable-line
   const totalByCenGrp = useMemo(() => {
     const out: Record<string, Record<string, Record<string, number>>> = {}
     if (!colEntidade) return out
-    for (const eid of empsCols) { out[eid] = {}; for (const cen of cenariosAtivos) out[eid][cen] = computeTotais(linhasCalc, computedGrp[eid]?.[cen] || {}, displayedMeses) }
+    for (const g of gruposCols) { out[g.key] = {}; for (const cen of cenariosAtivos) out[g.key][cen] = computeTotais(linhasCalc, computedGrp[g.key]?.[cen] || {}, displayedMeses) }
     return out
-  }, [colEntidade, empsCols, cenariosAtivos, computedGrp, displayedMeses]) // eslint-disable-line
+  }, [colEntidade, gruposCols, cenariosAtivos, computedGrp, displayedMeses]) // eslint-disable-line
   const cellValG = (gid: string, cen: string, linhaId: string, period: Period): number =>
     period === 'TOTAL' ? (totalByCenGrp[gid]?.[cen]?.[linhaId] ?? 0) : (bucketTotaisGrp[gid]?.[cen]?.[period as number]?.[linhaId] ?? 0)
   // ⚠⚠ O Δ DENTRO DE UM GRUPO TEM DE LER AQUELE GRUPO. Com entidade e
